@@ -1,0 +1,24 @@
+refresh_rate: 30 seconds
+appenders:
+  stdout:
+    kind: console
+  pittv3:
+    kind: file
+    path: "tests/examples/pittv3.log"
+    encoder:
+      pattern: "{m}{n}"
+root:
+  level: debug
+  appenders:
+    - pittv3
+loggers:
+  # turn hyper and/or reqwest on at desired level to see additional log output during dynamic building or generation
+  hyper:
+    level: off
+  reqwest:
+    level: off
+  app::pittv3:
+    level: debug
+    appenders:
+      - pittv3
+    additive: true

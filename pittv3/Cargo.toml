@@ -1,0 +1,31 @@
+[package]
+name = "pittv3"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#x509 = { path = "../../../RustCrypto/formats-fork/x509", version = "0.0.1" }
+#pkcs7 = { path = "../../../RustCrypto/formats-fork/pkcs7", version = "0.4.0-pre" }
+#der = { path = "../../../RustCrypto/formats-fork/der", version = "0.6.0-pre.0" }
+x509 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.0.1"
+pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.4.0-pre"
+der = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.6.0-pre.0"
+certval = { path = "../certval" }
+walkdir = "2"
+serde = "1.0.133"
+sha2 = "0.10.0"
+serde_json = "1.0.74"
+ciborium = "0.2.0"
+clap = {version = "3.0.7", features=["derive"]}
+reqwest = { version = "0.10"}
+tokio = { version = "0.2", features = ["full"] }
+error-chain = "0.12.2"
+bytes = "1.1.0"
+log = "0.4.8"
+log4rs = "1.0.0"
+
+[dev-dependencies]
+assert_cmd = "2.0.4"
+predicates = "2.1"

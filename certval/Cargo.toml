@@ -1,0 +1,47 @@
+[package]
+name = "certval"
+version = "0.1.0"
+description = """
+Pure Rust implementation of the X.509 Public Key Infrastructure Certificate
+validation as described in RFC 5280.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/RustCrypto/formats/tree/master/x509"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x.509"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.56"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# x509 = { path = "../../../RustCrypto/formats-fork/x509", version = "0.0.1" }
+x509 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.0.1"
+pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.4.0-pre"
+der = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.6.0-pre.0"
+
+pkiprocmacros = { path = "../pkiprocmacros"}
+regex = "1.5.4"
+lazy_static = "1.4.*"
+url = "2.2.2"
+rsa = "0.5.0"
+#rsa = { path = "../../../RustCrypto/RSA", version = "0.5.0" }
+#rsa = { path = "../../../RSA", version = "0.5.0" }
+sha2 = "0.10.0"
+sha-1 = "0.10.0"
+ecdsa = {version = "0.13.3", features = ["der"]}
+p256 = {version = "0.10.0", features = ["ecdsa", "ecdsa-core"]}
+p384 = {version = "0.9.0", features = ["ecdsa"]}
+serde = {version = "1.0.133", features = ["derive"]}
+serde_json = "1.0.74"
+ciborium = "0.2.0"
+subtle-encoding = "0.5"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+
+

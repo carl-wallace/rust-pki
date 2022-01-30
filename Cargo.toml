@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "certval",
+    "pkiprocmacros",
+    "pittv3"
+]
