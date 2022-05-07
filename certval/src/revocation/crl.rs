@@ -1284,5 +1284,5 @@ async fn fetch_crl_test() {
     assert!(r.is_err());
     assert_eq!(Some(Error::ResourceUnchanged), r.err());
 
-    tokio::fs::remove_file(f.to_str().unwrap()).await.unwrap();
+    let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
 }
