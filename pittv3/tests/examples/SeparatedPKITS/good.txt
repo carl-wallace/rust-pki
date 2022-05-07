@@ -1,0 +1,113 @@
+Default: ValidCertificatePathTest1EE.crt
+Default: ValidDSASignaturesTest4EE.crt
+Default: ValidDSAParameterInheritanceTest5EE.crt
+Policy 5: ValidPolicyMappingTest1EE.crt
+Policy 6: ValidPolicyMappingTest3EE.crt
+Policy 5: ValidPolicyMappingTest5EE.crt
+Policy 5: ValidPolicyMappingTest6EE.crt
+Default: ValidPolicyMappingTest9EE.crt
+Default: ValidPolicyMappingTest11EE.crt
+Policy 5: ValidPolicyMappingTest12EE.crt
+Policy 6: ValidPolicyMappingTest12EE.crt
+Default: ValidPolicyMappingTest13EE.crt
+Default: ValidPolicyMappingTest14EE.crt
+Default: ValidinhibitPolicyMappingTest2EE.crt
+Default: ValidinhibitPolicyMappingTest4EE.crt
+Default: ValidSelfIssuedinhibitPolicyMappingTest7EE.crt
+Default: ValidinhibitAnyPolicyTest2EE.crt
+Default: inhibitAnyPolicyTest3EE.crt
+Default: ValidSelfIssuedinhibitAnyPolicyTest7EE.crt
+Default: ValidSelfIssuedinhibitAnyPolicyTest9EE.crt
+Default: ValidDNnameConstraintsTest1EE.crt
+Default: ValidDNnameConstraintsTest4EE.crt
+Default: ValidDNnameConstraintsTest5EE.crt
+Default: ValidDNnameConstraintsTest6EE.crt
+Default: ValidDNnameConstraintsTest11EE.crt
+Default: ValidDNnameConstraintsTest14EE.crt
+Default: ValidDNnameConstraintsTest18EE.crt
+Default: ValidDNnameConstraintsTest19EE.crt
+Default: ValidRFC822nameConstraintsTest21EE.crt
+Default: ValidRFC822nameConstraintsTest23EE.crt
+Default: ValidRFC822nameConstraintsTest25EE.crt
+Default: ValidDNandRFC822nameConstraintsTest27EE.crt
+Default: ValidDNSnameConstraintsTest30EE.crt
+Default: ValidDNSnameConstraintsTest32EE.crt
+Default: ValidURInameConstraintsTest34EE.crt
+Default: ValidURInameConstraintsTest36EE.crt
+Default: ValiddistributionPointTest1EE.crt
+Default: ValiddistributionPointTest4EE.crt
+Default: ValiddistributionPointTest5EE.crt
+Default: ValiddistributionPointTest7EE.crt
+Default: ValidNoissuingDistributionPointTest10EE.crt
+Default: ValidonlyContainsCACertsTest13EE.crt
+Default: ValidonlySomeReasonsTest18EE.crt
+Default: ValidonlySomeReasonsTest19EE.crt
+Default: ValidIDPwithindirectCRLTest22EE.crt
+Default: ValidIDPwithindirectCRLTest24EE.crt
+Default: ValidIDPwithindirectCRLTest25EE.crt
+Default: ValidcRLIssuerTest28EE.crt
+Default: ValidcRLIssuerTest29EE.crt
+Default: ValidcRLIssuerTest33EE.crt
+Default: ValiddeltaCRLTest2EE.crt
+Default: ValiddeltaCRLTest5EE.crt
+Default: ValiddeltaCRLTest7EE.crt
+Default: ValiddeltaCRLTest8EE.crt
+Default: ValidUnknownNotCriticalCertificateExtensionTest1EE.crt
+Default: Validpre2000UTCnotBeforeDateTest3EE.crt
+Default: ValidGeneralizedTimenotBeforeDateTest4EE.crt
+Default: ValidGeneralizedTimenotAfterDateTest8EE.crt
+Default: ValidNameChainingWhitespaceTest3EE.crt
+Default: ValidNameChainingWhitespaceTest4EE.crt
+Default: ValidNameChainingCapitalizationTest5EE.crt
+Default: ValidNameUIDsTest6EE.crt
+Default: ValidRFC3280MandatoryAttributeTypesTest7EE.crt
+Default: ValidRFC3280OptionalAttributeTypesTest8EE.crt
+Default: ValidUTF8StringEncodedNamesTest9EE.crt
+Default: ValidRolloverfromPrintableStringtoUTF8StringTest10EE.crt
+Default: ValidUTF8StringCaseInsensitiveMatchTest11EE.crt
+Default: ValidTwoCRLsTest7EE.crt
+Default: ValidGeneralizedTimeCRLnextUpdateTest13EE.crt
+Default: ValidNegativeSerialNumberTest14EE.crt
+Default: ValidLongSerialNumberTest16EE.crt
+Default: ValidLongSerialNumberTest17EE.crt
+Default: ValidSeparateCertificateandCRLKeysTest19EE.crt
+Default: ValidBasicSelfIssuedOldWithNewTest1EE.crt
+Default: ValidBasicSelfIssuedNewWithOldTest3EE.crt
+Default: ValidBasicSelfIssuedNewWithOldTest4EE.crt
+Default: ValidBasicSelfIssuedCRLSigningKeyTest6EE.crt
+Default: ValidbasicConstraintsNotCriticalTest4EE.crt
+Default: ValidpathLenConstraintTest7EE.crt
+Default: ValidpathLenConstraintTest8EE.crt
+Default: ValidpathLenConstraintTest13EE.crt
+Default: ValidpathLenConstraintTest14EE.crt
+Default: ValidSelfIssuedpathLenConstraintTest15EE.crt
+Default: ValidSelfIssuedpathLenConstraintTest17EE.crt
+Default: ValidkeyUsageNotCriticalTest3EE.crt
+Policy 1: ValidCertificatePathTest1EE.crt
+Policy 2: ValidCertificatePathTest1EE.crt
+Policy 4: ValidCertificatePathTest1EE.crt
+Default: AllCertificatesNoPoliciesTest2EE.crt
+Default: DifferentPoliciesTest3EE.crt
+Default: OverlappingPoliciesTest6EE.crt
+Policy 5: OverlappingPoliciesTest6EE.crt
+Default: AllCertificatesSamePoliciesTest10EE.crt
+Policy 5: AllCertificatesSamePoliciesTest10EE.crt
+Policy 6: AllCertificatesSamePoliciesTest10EE.crt
+Default: AllCertificatesanyPolicyTest11EE.crt
+Policy 5: AllCertificatesanyPolicyTest11EE.crt
+Policy 5: AllCertificatesSamePoliciesTest13EE.crt
+Policy 6: AllCertificatesSamePoliciesTest13EE.crt
+Policy 7: AllCertificatesSamePoliciesTest13EE.crt
+Policy 5: AnyPolicyTest14EE.crt
+Default: UserNoticeQualifierTest15EE.crt
+Default: UserNoticeQualifierTest16EE.crt
+Default: UserNoticeQualifierTest17EE.crt
+Policy 5: UserNoticeQualifierTest18EE.crt
+Policy 6: UserNoticeQualifierTest18EE.crt
+Default: UserNoticeQualifierTest19EE.crt
+Default: CPSPointerQualifierTest20EE.crt
+Policy 1: CPSPointerQualifierTest20EE.crt
+Default: ValidrequireExplicitPolicyTest1EE.crt
+Default: ValidrequireExplicitPolicyTest2EE.crt
+Default: ValidrequireExplicitPolicyTest4EE.crt
+Default: ValidSelfIssuedrequireExplicitPolicyTest6EE.crt

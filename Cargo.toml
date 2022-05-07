@@ -5,3 +5,10 @@ members = [
     "pkiprocmacros",
     "pittv3"
 ]
+
+[profile.bench]
+debug = true
+
+[profile.release]
+debug = true
+

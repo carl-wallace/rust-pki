@@ -1,31 +1,31 @@
+use certval::asn1::cryptographic_message_syntax2004::*;
+use certval::environment::pki_environment::PkiEnvironment;
 use certval::path_settings::*;
-use certval::path_validator::*;
-use certval::pki_environment::*;
-use certval::PkiEnvironment;
+use certval::validator::path_validator::*;
 use certval::*;
-use pkcs7::cryptographic_message_syntax2004::*;
-use x509::der::{Decodable, Encodable};
-use x509::der::{DecodeValue, Decoder};
-use x509::trust_anchor_format::TrustAnchorChoice;
-use x509::*;
+use der::Decode;
+use der::Decoder;
+use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::*;
 
 #[test]
 fn signed_data_parse_test1() {
+    use der::Encode;
     let der_encoded_sd = include_bytes!("examples/caCertsIssuedTofbcag4.p7c");
     let ci = ContentInfo2004::from_der(der_encoded_sd).unwrap();
-    let content = ci.content.unwrap().to_vec().unwrap();
+    let content = ci.content.to_vec().unwrap();
     let _sd = SignedData::from_der(content.as_slice()).unwrap();
     //assert_eq!(1, sd.certificates.unwrap().len());
 
     let der_encoded_sd = include_bytes!("examples/DODJITCINTEROPERABILITYROOTCA2_IT.p7c");
     let ci = ContentInfo2004::from_der(der_encoded_sd).unwrap();
-    let content = ci.content.unwrap().to_vec().unwrap();
+    let content = ci.content.to_vec().unwrap();
     let sd = SignedData::from_der(content.as_slice()).unwrap();
     assert_eq!(1, sd.certificates.unwrap().len());
 
     let der_encoded_sd = include_bytes!("examples/DODROOTCA3_IB.p7c");
     let ci = ContentInfo2004::from_der(der_encoded_sd).unwrap();
-    let content = ci.content.unwrap().to_vec().unwrap();
+    let content = ci.content.to_vec().unwrap();
     let sd = SignedData::from_der(content.as_slice()).unwrap();
     assert_eq!(26, sd.certificates.unwrap().len());
 }
@@ -37,14 +37,24 @@ fn pkits_test1() {
     let der_encoded_ee = include_bytes!("examples/ValidCertificatePathTest1EE.crt");
 
     let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let header = decoder.peek_header().unwrap();
-    let tac = TrustAnchorChoice::decode_value(&mut decoder, header.length).unwrap();
-    let ta = PDVTrustAnchorChoice {
+    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let mut ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
+    ta.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut ta_source2 = TaSource::new();
+    let der_encoded_ta2 = include_bytes!("examples/TrustAnchorRootCertificate.crt");
+    ta_source2.buffers.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der_encoded_ta2.to_vec(),
+    });
+
+    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
+    ta_source2.index_tas();
 
     let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
@@ -63,27 +73,108 @@ fn pkits_test1() {
         parsed_extensions: ParsedExtensions::new(),
     };
 
-    let mut chain = vec![];
-    chain.push(&ca);
+    let chain = vec![&ca];
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    let mut pe2 = PkiEnvironment::new();
-    pe2.add_validate_path_callback(validate_path_rfc5280);
+    pe.add_trust_anchor_source(&ta_source2);
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath {
-        target: &ee,
-        intermediates: chain,
-        trust_anchor: &ta,
-    };
+    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
 
     let cps = CertificationPathSettings::new();
     let mut cpr = CertificationPathResults::new();
 
     let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
     if r.is_err() {
-        println!("Oh no");
+        panic!("Failed to validate path");
     }
+}
+
+// if this test fails, the version check in check_basic_constraints should be uncommented
+#[test]
+fn bad_ca_cert_version() {
+    let der_encoded_ca = include_bytes!("examples/bad_version_tests/GoodCACert.bad_version.crt");
+    let ca_cert = Certificate::from_der(der_encoded_ca);
+    if ca_cert.is_ok() {
+        panic!("Successfully parsed CA cert with unsupported version where error was expected");
+    }
+}
+
+// if this test fails, the version check in check_basic_constraints should be uncommented
+#[test]
+fn bad_ee_cert_version() {
+    let der_encoded_ee =
+        include_bytes!("examples/bad_version_tests/ValidCertificatePathTest1EE.bad_version.crt");
+    let ee_cert = Certificate::from_der(der_encoded_ee);
+    if ee_cert.is_ok() {
+        panic!("Successfully parsed CA cert with unsupported version where error was expected");
+    }
+}
+
+// if this test fails, the version check in check_basic_constraints should be uncommented
+#[test]
+fn unsupported_ca_cert_version() {
+    let der_encoded_ca =
+        include_bytes!("examples/bad_version_tests/GoodCACert.unsupported_version.crt");
+    let ca_cert = Certificate::from_der(der_encoded_ca);
+    if ca_cert.is_ok() {
+        panic!("Successfully parsed CA cert with unsupported version where error was expected");
+    }
+}
+
+// if this test fails, the version check in check_basic_constraints should be uncommented
+#[test]
+fn unsupported_ee_cert_version() {
+    let der_encoded_ee = include_bytes!(
+        "examples/bad_version_tests/ValidCertificatePathTest1EE.unsupported_version.crt"
+    );
+    let ee_cert = Certificate::from_der(der_encoded_ee);
+    if ee_cert.is_ok() {
+        panic!("Successfully parsed CA cert with unsupported version where error was expected");
+    }
+}
+
+#[test]
+fn is_trust_anchor_test() {
+    let mut pe = PkiEnvironment::default();
+    let ta_source = TaSource::default();
+    pe.add_trust_anchor_source(&ta_source);
+
+    let der_encoded_ta = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
+    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let ta = PDVTrustAnchorChoice {
+        encoded_ta: der_encoded_ta,
+        decoded_ta: tac,
+        metadata: None,
+        parsed_extensions: ParsedExtensions::new(),
+    };
+    let r = pe.is_trust_anchor(&ta);
+    assert!(r.is_err());
+    assert_eq!(r.err(), Some(Error::NotFound));
+
+    let cf = CertFile {
+        bytes: der_encoded_ta.to_vec(),
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+    };
+    let v = vec![cf];
+    let mut ta_store = TaSource::new();
+    ta_store.buffers = v;
+    ta_store.tas = vec![ta];
+    ta_store.index_tas();
+
+    pe.clear_all_callbacks();
+    pe.add_trust_anchor_source(&ta_store);
+
+    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
+    let tac2 = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let ta2 = PDVTrustAnchorChoice {
+        encoded_ta: der_encoded_ta,
+        decoded_ta: tac2,
+        metadata: None,
+        parsed_extensions: ParsedExtensions::new(),
+    };
+    assert!(pe.is_trust_anchor(&ta2).is_ok());
 }

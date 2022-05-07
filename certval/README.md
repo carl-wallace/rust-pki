@@ -1,10 +1,28 @@
-# [RustCrypto]: X.509
+# certval
 
 ![Apache2/MIT licensed][license-image]
 ![Rust Version][rustc-image]
 
-Pure Rust implementation of the X.509 Public Key Infrastructure Certificate validation as described in [RFC 5280] and 
-as augmented by [RFC 5937] along with a certification path builder.
+Pure Rust implementation of X.509 public key infrastructure certification path validation algorithm described in [RFC 5280] as 
+as augmented by [RFC 5937]. Support for certification path building and revocation status determination is also included. 
+
+ASN.1 encoders and decoders and cryptographic support are primarily provided by various [RustCrypto] libraries.
+
+A change log is available at the root of the certval project.
+
+## Crate Feature Flags
+
+The certval library provides five feature gates that enable varying levels of support.
+
+- `default-features = false` provides path validation support for no-std applications without support for revocation status determination or multi-thread support. Certificates and partial paths can be provided via a CBOR file, providing rich certification path development support for environments in which new CAs are introduced infrequently.
+- `revocation` augments the `default-features = false` feature by adding support for processing CRLs and OCSP responses that are provided by the caller, such as may have been obtained by stapling to a higher level protocol.
+- `std` augments the `default-features = false` feature by adding support for obtaining artifacts via the file system and addition of support for multi-threaded use.
+- `revocation,std` augments the `std` feature by adding support for processing CRLs and OCSP responses that are provided by the caller or obtained via the file system.
+- `remote` is the default. It replaces and augments the `revocation,std` features by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions. 
+
+## Sample Usage
+
+The [PITTv3](../pittv3/index.html) application provides means of exercising the certval library and can serve as sample code for usage of the library.
 
 ## Status
 

@@ -1,31 +1,77 @@
 [package]
 name = "pittv3"
-version = "0.1.0"
+version = "0.1.1"
+description = """
+PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+of trust anchors, intermediate CA certificates and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
 edition = "2021"
+rust-version = "1.57"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#x509 = { path = "../../../RustCrypto/formats-fork/x509", version = "0.0.1" }
-#pkcs7 = { path = "../../../RustCrypto/formats-fork/pkcs7", version = "0.4.0-pre" }
-#der = { path = "../../../RustCrypto/formats-fork/der", version = "0.6.0-pre.0" }
-x509 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.0.1"
-pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.4.0-pre"
-der = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.6.0-pre.0"
-certval = { path = "../certval" }
-walkdir = "2"
-serde = "1.0.133"
-sha2 = "0.10.0"
-serde_json = "1.0.74"
-ciborium = "0.2.0"
-clap = {version = "3.0.7", features=["derive"]}
-reqwest = { version = "0.10"}
-tokio = { version = "0.2", features = ["full"] }
-error-chain = "0.12.2"
+x509-cert = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["pem"] } # version = "0.0.1"
+const-oid = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.9.0"
+pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.4.0-pre"
+der = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.6.0-pre.0"
+x509-ocsp = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.0.1"
+base64ct = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["alloc"], optional=true } # version = "1.4.0-pre"
+spki = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "1.4.0-pre"
+
+certval = { path = "../certval", default-features = false}
+sha-1 = {version = "0.10.0", default-features = false}
+sha2 = {version = "0.10.2", default-features = false}
+
+async-recursion = "1.0.0"
 bytes = "1.1.0"
-log = "0.4.8"
-log4rs = "1.0.0"
+cfg-if = "1.0.0"
+ciborium = "0.2.0"
+clap = {version = "3.0.7", default-features = false, features=["std", "derive"]}
+error-chain = "0.12.2"
+flagset = { version = "0.4.3" }
+lazy_static = "1.4.*"
+serde = { version = "1.0.133", default-features = false, features = ["derive"] }
+serde_json = "1.0.74"
+
+csv = {version = "1.1.6", optional = true}
+log = {version = "0.4.8", optional = true}
+log4rs = {version = "1.0.0", optional = true}
+futures = {version = "0.3.19", optional = true}
+
+ndarray = {version = "0.15.4", optional = true}
+reqwest = { version = "0.10", features = ["blocking"], optional = true}
+tokio = { version = "0.2", features = ["full", "time", "rt-threaded"], optional = true }
+tokio-test = {version = "0.4.2", optional = true}
+walkdir = { version = "2", optional = true}
+
+# Similar to certval, there are six feature gates (one more than certval):
+#   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+#   - std-app provides the Pittv3 app with std support while building certval with no-default-features
+# Default is set to be the most all encompassing (i.e., remote).
+[features]
+default = ["remote"]
+revocation = ["certval/revocation"]
+std_app = ["certval/revocation", "ndarray", "tokio", "tokio-test", "base64ct", "walkdir", "log", "log4rs", "futures", "csv"]
+std = ["std_app", "certval/std", "revocation"]
+remote = ["certval/remote", "revocation", "std"]
 
 [dev-dependencies]
 assert_cmd = "2.0.4"
 predicates = "2.1"
+hex-literal = "0.3.4"
+tempfile = "3.3.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

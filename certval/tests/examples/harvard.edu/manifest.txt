@@ -1,0 +1,75 @@
+Certification path validation results for: /Users/cwallace/Desktop/Pittv3/pitt_ees/servers/harvard.edu.der
+
+********************************************************************************
+Certification path validation algorithm inputs
+********************************************************************************
+Initial explicit policy: false
+Initial policy mapping inhibit: false
+Initial inhibit any policy: false
+Initial policy set: 
+	* 2.5.29.32.0
+Initial permitted names: 
+	* unconstrained
+Initial excluded names: 
+	* unconstrained
+Enforce trust anchor constraints: false
+Enforce algorithm and key size constraints: false
+Check revocation: true
+
+********************************************************************************
+Certification path details
+********************************************************************************
+	+ Trust Anchor
+		* Source: /Users/cwallace/Desktop/Pittv3/ct_tas/486.der
+	+ Certificate #1
+		* Issuer Name: cn=USERTrust RSA Certification Authority,o=The USERTRUST Network,l=Jersey City,st=New Jersey,c=US
+		* Subject Name: cn=Sectigo RSA Organization Validation Secure Server CA,o=Sectigo Limited,l=Salford,st=Greater Manchester,c=GB
+		* Serial Number: 0x137D539CAA7C31A9A433701968847A8D
+		* Not Before: 2018-11-02T00:00:00Z
+		* Not After: 2030-12-31T23:59:59Z
+		* Public key algorithm: RSA Encryption
+		* Public key size: 33 bytes
+		* Signature algorithm: SHA384 with RSA Encryption
+		* Path length constraint: only end entity certificates may follow
+		* Certificate policies
+			* 2.5.29.32.0
+			* 2.23.140.1.2.2
+		* Authority key identifier: 5379BF5AAA2B4ACF5480E1D89BC09DF2B20366CB
+		* Subject key identifier: 17D9D6252767F931C24943D93036448C6CA94FEB
+		* Extended key usage
+			* 1.3.6.1.5.5.7.3.1
+			* 1.3.6.1.5.5.7.3.2
+		* Source: /Users/cwallace/Desktop/Pittv3/crtsh_certs/crt.sectigo.com_SectigoRSAOrganizationValidationSecureServerCA.crt
+	+ Target Certificate
+		* Issuer Name: cn=Sectigo RSA Organization Validation Secure Server CA,o=Sectigo Limited,l=Salford,st=Greater Manchester,c=GB
+		* Subject Name: cn=pantheonsite.io,o=Pantheon Systems Inc.,l=San Francisco,st=California,c=US
+		* Serial Number: 0x2562E797219EFD123CA5B1ADE0FA1928
+		* Not Before: 2021-07-02T00:00:00Z
+		* Not After: 2022-08-02T23:59:59Z
+		* Public key algorithm: RSA Encryption
+		* Public key size: 33 bytes
+		* Signature algorithm: SHA256 with RSA Encryption
+		* Certificate policies
+			* 1.3.6.1.4.1.6449.1.2.1.3.4
+			* 2.23.140.1.2.2
+		* Authority key identifier: 17D9D6252767F931C24943D93036448C6CA94FEB
+		* Subject key identifier: 0B1D6B19F828DC906E3CE1894DC78C97AEE1B6AF
+		* Extended key usage
+			* 1.3.6.1.5.5.7.3.1
+			* 1.3.6.1.5.5.7.3.2
+		* Source: /Users/cwallace/Desktop/Pittv3/pitt_ees/servers/harvard.edu.der
+
+********************************************************************************
+Certification path results
+********************************************************************************
+Status: Valid
+
+Valid certificate policies
+Row: 1
+	* 2.5.29.32.0
+Row: 2
+	* 2.23.140.1.2.2
+	* 2.5.29.32.0
+Row: 3
+	* 1.3.6.1.4.1.6449.1.2.1.3.4
+	* 2.23.140.1.2.2
