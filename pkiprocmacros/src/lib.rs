@@ -103,8 +103,61 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             #[doc = #setter_comment]
             pub fn #setter(cps: &mut CertificationPathSettings, v: #return_t){
                 cps.insert(
-                    #flag,
+                    #flag.to_string(),
                     CertificationPathProcessingTypes::#cps_type(v),
+                );
+            }
+    };
+    tokens.into()
+}
+
+#[proc_macro]
+pub fn cpr_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let signature = syn::parse_macro_input!(input as Signature);
+    let flag = signature.value_name;
+    let return_t = signature.value_type;
+
+    let flag_str = format!("{}", flag)[3..].to_lowercase();
+    let getter_str = format!("get_{}", flag_str);
+    let setter_str = format!("set_{}", flag_str);
+    let cpr_type_str = format!("{}", return_t);
+    let mut upper_cpr_type_str = if let true = is_string_numeric(&cpr_type_str[1..]) {
+        cpr_type_str.to_uppercase()
+    } else {
+        cpr_type_str
+    };
+    if upper_cpr_type_str == "bool" {
+        upper_cpr_type_str = "Bool".to_string();
+    }
+    let getter = syn::Ident::new(&getter_str, flag.span());
+    let setter = syn::Ident::new(&setter_str, flag.span());
+    let cpr_type = syn::Ident::new(&upper_cpr_type_str, return_t.span());
+
+    let getter_comment = format!(
+        "`{}` is used to retrieve `{}` items from a [`CertificationPathResults`] instance",
+        getter_str, flag
+    );
+    let setter_comment = format!(
+        "`{}` is used to set `{}` items in a [`CertificationPathResults`] instance",
+        setter_str, flag
+    );
+
+    let tokens = quote! {
+            #[doc = #getter_comment]
+            pub fn #getter(cpr: &CertificationPathResults)->Option<#return_t>{
+                if cpr.contains_key(#flag) {
+                    return match &cpr[#flag] {
+                        CertificationPathResultsTypes::#cpr_type(v) => Some(v.clone()),
+                        _ => None,
+                    };
+                }
+                None
+            }
+            #[doc = #setter_comment]
+            pub fn #setter(cpr: &mut CertificationPathResults, v: #return_t){
+                cpr.insert(
+                    #flag,
+                    CertificationPathResultsTypes::#cpr_type(v),
                 );
             }
     };
@@ -200,8 +253,62 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
             #[doc = #setter_comment]
             pub fn #setter(cps: &mut CertificationPathSettings, v: #return_t){
                 cps.insert(
-                    #flag,
+                    #flag.to_string(),
                     CertificationPathProcessingTypes::#cps_type(v),
+                );
+            }
+    };
+    tokens.into()
+}
+
+#[proc_macro]
+pub fn cpr_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let signature = syn::parse_macro_input!(input as SignatureWithDefault);
+    let flag = signature.value_name;
+    let return_t = signature.value_type;
+    let default_value = signature.default_value;
+
+    let flag_str = format!("{}", flag)[3..].to_lowercase();
+    let getter_str = format!("get_{}", flag_str);
+    let setter_str = format!("set_{}", flag_str);
+    let cpr_type_str = format!("{}", return_t);
+    let mut upper_cpr_type_str = if let true = is_string_numeric(&cpr_type_str[1..]) {
+        cpr_type_str.to_uppercase()
+    } else {
+        cpr_type_str
+    };
+    if upper_cpr_type_str == "bool" {
+        upper_cpr_type_str = "Bool".to_string();
+    }
+    let getter = syn::Ident::new(&getter_str, flag.span());
+    let setter = syn::Ident::new(&setter_str, flag.span());
+    let cpr_type = syn::Ident::new(&upper_cpr_type_str, return_t.span());
+
+    let getter_comment = format!(
+        "`{}` is used to retrieve `{}` items from a [`CertificationPathSettings`] instance",
+        getter_str, flag
+    );
+    let setter_comment = format!(
+        "`{}` is used to set `{}` items in a [`CertificationPathSettings`] instance",
+        setter_str, flag
+    );
+
+    let tokens = quote! {
+            #[doc = #getter_comment]
+            pub fn #getter(cpr: &CertificationPathResults)->#return_t{
+                if cpr.contains_key(#flag) {
+                    return match &cpr[#flag] {
+                        CertificationPathResultsTypes::#cpr_type(v) => v.clone(),
+                        _ => #default_value,
+                    };
+                }
+                #default_value
+            }
+            #[doc = #setter_comment]
+            pub fn #setter(cpr: &mut CertificationPathResults, v: #return_t){
+                cpr.insert(
+                    #flag,
+                    CertificationPathResultsTypes::#cpr_type(v),
                 );
             }
     };

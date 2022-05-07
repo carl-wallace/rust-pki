@@ -1,47 +1,79 @@
 [package]
 name = "certval"
-version = "0.1.0"
+version = "0.1.1"
 description = """
-Pure Rust implementation of the X.509 Public Key Infrastructure Certificate
-validation as described in RFC 5280.
+Pure Rust implementation of X.509 Public Key Infrastructure Certificate validation as described in [RFC 5280] and
+as augmented by [RFC 5937], including support for certification path building and revocation status determination.
 """
 authors = [""]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/RustCrypto/formats/tree/master/x509"
+repository = "https://github.com/carl-wallace/rust-pki"
 categories = ["cryptography", "pki", "no-std"]
-keywords = ["crypto", "x.509"]
+keywords = ["crypto", "x.509", "OCSP"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.57"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# x509 = { path = "../../../RustCrypto/formats-fork/x509", version = "0.0.1" }
-x509 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.0.1"
-pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.4.0-pre"
-der = { git = "https://github.com/carl-wallace/formats", branch = "rfc5914" } # version = "0.6.0-pre.0"
+x509-cert = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["pem"] } # version = "0.0.1"
+const-oid = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.9.0"
+pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.4.0-pre"
+der = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.6.0-pre.0"
+x509-ocsp = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.0.1"
+spki = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.0.1"
+base64ct = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["alloc"], optional = true } # version = "0.0.1"
 
 pkiprocmacros = { path = "../pkiprocmacros"}
-regex = "1.5.4"
-lazy_static = "1.4.*"
-url = "2.2.2"
-rsa = "0.5.0"
-#rsa = { path = "../../../RustCrypto/RSA", version = "0.5.0" }
-#rsa = { path = "../../../RSA", version = "0.5.0" }
-sha2 = "0.10.0"
-sha-1 = "0.10.0"
-ecdsa = {version = "0.13.3", features = ["der"]}
-p256 = {version = "0.10.0", features = ["ecdsa", "ecdsa-core"]}
-p384 = {version = "0.9.0", features = ["ecdsa"]}
-serde = {version = "1.0.133", features = ["derive"]}
-serde_json = "1.0.74"
-ciborium = "0.2.0"
-subtle-encoding = "0.5"
+
+ecdsa = {version = "0.13.3", default-features = false, features = ["der"]}
+p256 = {version = "0.10.0", default-features = false, features = ["ecdsa", "ecdsa-core"]}
+p384 = {version = "0.9.0", default-features = false, features = ["ecdsa"]}
+rsa = {version = "0.6.1"}
+sha-1 = {version = "0.10.0", default-features = false}
+sha2 = {version = "0.10.2", default-features = false}
+
+cfg-if = "1.0.0"
+# serde feature is added to std, revocation,std and remote
+flagset = { version = "0.4.3", package = "flagset" }
+lazy_static = {version = "1.4.*", features = ["spin_no_std"]}
+readonly = "0.2.0"
+serde = {version = "1.0.133", default-features = false, features = ["derive", "alloc"]}
+subtle-encoding = {version = "0.5", default-features = false, features = ["hex", "alloc"]}
+
+ciborium = {version = "0.2.0", default-features = false }
+log = {version = "0.4.8", optional = true}
+log4rs = {version = "1.0.0", optional = true}
+ndarray = {version = "0.15.4", optional = true, default-features = false}
+reqwest = { version = "0.10", features = ["blocking"], optional = true}
+serde_json = {version = "1.0.74", optional = true }
+tokio = { version = "0.2", features = ["full", "time", "rt-threaded"], optional = true }
+tokio-test = {version = "0.4.2", optional = true}
+url = {version = "2.2.2", optional = true}
+walkdir = { version = "2", optional = true}
+
+# regex documentation notes a std feature that at some point in the future could be omitted
+# to enable no_std support, but for now std is required, so mark it optional
+regex = {version = "1.5.4", optional = true}
+
+[dev-dependencies]
+tempfile = "3.3.0"
+hex-literal = "0.3"
+
+# There are five feature gates:
+#   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+# Default is set to be the most all encompassing (i.e., remote).
+[features]
+default = ["remote"]
+revocation = ["ndarray"]
+std = ["ndarray", "tokio", "tokio-test", "base64ct", "walkdir", "log", "log4rs", "url", "serde_json", "serde/rc",  "flagset/serde", "regex", "lazy_static/spin"]
+remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
-
-
-
