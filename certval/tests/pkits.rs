@@ -43,7 +43,6 @@ use alloc::collections::BTreeMap;
 extern crate alloc;
 
 use der::Decode;
-use der::Decoder;
 
 use certval::source::ta_source::TaSource;
 
@@ -651,9 +650,10 @@ pub async fn pkits_guts(
             }
 
             println!("{}", case_name);
-            let mut decoder =
-                Decoder::new(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
-            let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+            let tac = TrustAnchorChoice::from_der(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
             let mut ta = PDVTrustAnchorChoice {
                 encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
                 decoded_ta: tac,
