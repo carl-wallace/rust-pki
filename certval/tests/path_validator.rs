@@ -4,7 +4,6 @@ use certval::path_settings::*;
 use certval::validator::path_validator::*;
 use certval::*;
 use der::Decode;
-use der::Decoder;
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::*;
 
@@ -36,8 +35,7 @@ fn pkits_test1() {
     let der_encoded_ca = include_bytes!("examples/GoodCACert.crt");
     let der_encoded_ee = include_bytes!("examples/ValidCertificatePathTest1EE.crt");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let mut ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -143,8 +141,7 @@ fn is_trust_anchor_test() {
     pe.add_trust_anchor_source(&ta_source);
 
     let der_encoded_ta = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -168,8 +165,7 @@ fn is_trust_anchor_test() {
     pe.clear_all_callbacks();
     pe.add_trust_anchor_source(&ta_store);
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac2 = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac2 = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta2 = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac2,

@@ -38,7 +38,7 @@ use std::sync::Mutex;
 use subtle_encoding::hex;
 
 use const_oid::db::rfc5912::{ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_SUBJECT_KEY_IDENTIFIER};
-use der::{Decode, Decoder};
+use der::Decode;
 use sha2::{Digest, Sha256};
 use spki::SubjectPublicKeyInfo;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -476,19 +476,17 @@ pub fn populate_parsed_ta_vector<'a, 'reference>(
     parsed_ta_vec: &'reference mut Vec<PDVTrustAnchorChoice<'a>>,
 ) {
     for cf in ta_buffer_vec {
-        if let Ok(mut decoder) = Decoder::new(cf.bytes.as_slice()) {
-            if let Ok(tac) = TrustAnchorChoice::decode(&mut decoder) {
-                let mut md = Asn1Metadata::new();
-                md.insert(MD_LOCATOR, Asn1MetadataTypes::String(cf.filename.clone()));
-                let mut ta = PDVTrustAnchorChoice {
-                    encoded_ta: cf.bytes.as_slice(),
-                    decoded_ta: tac,
-                    metadata: Some(md),
-                    parsed_extensions: ParsedExtensions::new(),
-                };
-                ta.parse_extensions(EXTS_OF_INTEREST);
-                parsed_ta_vec.push(ta);
-            }
+        if let Ok(tac) = TrustAnchorChoice::from_der(cf.bytes.as_slice()) {
+            let mut md = Asn1Metadata::new();
+            md.insert(MD_LOCATOR, Asn1MetadataTypes::String(cf.filename.clone()));
+            let mut ta = PDVTrustAnchorChoice {
+                encoded_ta: cf.bytes.as_slice(),
+                decoded_ta: tac,
+                metadata: Some(md),
+                parsed_extensions: ParsedExtensions::new(),
+            };
+            ta.parse_extensions(EXTS_OF_INTEREST);
+            parsed_ta_vec.push(ta);
         }
     }
 }

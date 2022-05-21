@@ -1,7 +1,7 @@
 //! Selected structures from RFC5652 to enable processing of DER-encoded certs-only SignedData messages.
 
 use core::cmp::Ordering;
-use der::asn1::{BitStringRef, OctetStringRef, SetOf, SetOfVec, UIntRef};
+use der::asn1::{OctetStringRef, SetOf, SetOfVec, UIntRef};
 use der::{AnyRef, Choice, Sequence, ValueOrd};
 use spki::{AlgorithmIdentifier, ObjectIdentifier};
 use x509_cert::attr::AttributeTypeAndValue;
@@ -126,7 +126,7 @@ pub struct SignerInfo<'a> {
     pub digest_algorithm: AlgorithmIdentifier<'a>,
     pub signed_attrs: SignedAttributes<'a>,
     pub signature_algorithm: AlgorithmIdentifier<'a>,
-    pub signature: BitStringRef<'a>,
+    pub signature: OctetStringRef<'a>,
     pub unsigned_attrs: UnsignedAttributes<'a>,
 }
 impl ValueOrd for SignerInfo<'_> {

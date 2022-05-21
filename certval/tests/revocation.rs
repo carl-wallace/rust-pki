@@ -101,7 +101,6 @@ async fn stapled_ocsp_async() {
     use certval::validator::path_validator::*;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
 
@@ -114,8 +113,7 @@ async fn stapled_ocsp_async() {
     let der_encoded_ee = include_bytes!("examples/amazon.com/2-target.der");
     let der_encoded_ee_ocsp = include_bytes!("examples/amazon.com/2-ocsp.ocspResp");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -209,7 +207,6 @@ async fn stapled_crl_async() {
     use certval::validator::path_validator::*;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
 
@@ -222,8 +219,7 @@ async fn stapled_crl_async() {
     let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
     let der_encoded_ee_crl = include_bytes!("examples/harvard.edu/2-crl.crl");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -315,7 +311,6 @@ async fn stapled_mix_async() {
     use certval::validator::path_validator::*;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
 
@@ -328,8 +323,7 @@ async fn stapled_mix_async() {
     let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
     let der_encoded_ee_crl = include_bytes!("examples/harvard.edu/2-crl.crl");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -424,7 +418,6 @@ async fn cached_crl_async() {
     use certval::CrlSourceFolders;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use std::path::PathBuf;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
@@ -436,8 +429,7 @@ async fn cached_crl_async() {
     let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
     let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -527,7 +519,6 @@ async fn cached_crl_revoked_async() {
     use certval::CrlSourceFolders;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use std::path::PathBuf;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
@@ -539,8 +530,7 @@ async fn cached_crl_revoked_async() {
     let der_encoded_ca = include_bytes!("examples/intel.com/1.der");
     let der_encoded_ee = include_bytes!("examples/intel.com/2-target.der");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -633,7 +623,6 @@ async fn cached_crl_revoked_remote_async() {
     use certval::CrlSourceFolders;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use std::path::PathBuf;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
@@ -645,8 +634,7 @@ async fn cached_crl_revoked_remote_async() {
     let der_encoded_ca = include_bytes!("examples/intel.com/1.der");
     let der_encoded_ee = include_bytes!("examples/intel.com/2-target.der");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
@@ -739,7 +727,6 @@ async fn cached_crl_remote_async() {
     use certval::CrlSourceFolders;
     use certval::*;
     use der::Decode;
-    use der::Decoder;
     use std::path::PathBuf;
     use x509_cert::anchor::TrustAnchorChoice;
     use x509_cert::*;
@@ -751,8 +738,7 @@ async fn cached_crl_remote_async() {
     let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
     let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
 
-    let mut decoder = Decoder::new(der_encoded_ta).unwrap();
-    let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
         encoded_ta: der_encoded_ta,
         decoded_ta: tac,
