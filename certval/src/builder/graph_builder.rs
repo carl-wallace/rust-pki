@@ -295,7 +295,7 @@ async fn non_existent_dir() {
             panic!("Failed to parse CBOR file: {}", e)
         }
     }
-    assert_eq!(4, cert_source.buffers_and_paths.buffers.len());
+    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
     {
         let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
         {
@@ -320,7 +320,7 @@ async fn non_existent_dir() {
             panic!("Failed to parse CBOR file: {}", e)
         }
     }
-    assert_eq!(4, cert_source.buffers_and_paths.buffers.len());
+    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
     {
         let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
         {

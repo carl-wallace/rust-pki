@@ -48,7 +48,7 @@ use crate::add_failed_crl;
 use std::time::Duration;
 
 #[cfg(feature = "remote")]
-use der::asn1::Ia5StringRef;
+use der::asn1::Ia5String;
 
 #[cfg(feature = "remote")]
 use alloc::vec;
@@ -356,7 +356,7 @@ pub(crate) struct CrlInfo {
 
 /// get_crl_dps returns a list of URIs read from the CRL DP extension, if any.
 #[cfg(feature = "remote")]
-fn get_crl_dps<'a>(target_cert: &'a PDVCertificate<'_>) -> Vec<&'a Ia5StringRef<'a>> {
+fn get_crl_dps<'a>(target_cert: &'a PDVCertificate<'_>) -> Vec<&'a Ia5String> {
     let mut retval = vec![];
     if let Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) =
         target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS)
@@ -497,7 +497,7 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList<'_>) -> Result<CrlInfo> {
+pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
@@ -530,8 +530,8 @@ pub(crate) fn get_crl_info(crl: &CertificateList<'_>) -> Result<CrlInfo> {
         for ext in exts.iter() {
             match ext.extn_id {
                 ID_CE_ISSUING_DISTRIBUTION_POINT => {
-                    idp_blob = Some(ext.extn_value.to_vec());
-                    let idp = match IssuingDistributionPoint::from_der(ext.extn_value) {
+                    idp_blob = Some(ext.extn_value.as_bytes().to_vec());
+                    let idp = match IssuingDistributionPoint::from_der(ext.extn_value.as_bytes()) {
                         Ok(idp) => idp,
                         Err(e) => {
                             return Err(Error::Asn1Error(e));
@@ -579,7 +579,7 @@ pub(crate) fn get_crl_info(crl: &CertificateList<'_>) -> Result<CrlInfo> {
                     }
                 } // end ID_CE_ISSUING_DISTRIBUTION_POINT
                 ID_CE_AUTHORITY_KEY_IDENTIFIER => {
-                    if let Ok(akid) = AuthorityKeyIdentifier::from_der(ext.extn_value) {
+                    if let Ok(akid) = AuthorityKeyIdentifier::from_der(ext.extn_value.as_bytes()) {
                         if let Some(kid) = akid.key_identifier {
                             skid = Some(kid.as_bytes().to_vec());
                         }
@@ -656,7 +656,7 @@ pub(crate) fn get_crl_info(crl: &CertificateList<'_>) -> Result<CrlInfo> {
 fn validate_crl_issuer_name<'a>(
     cert: &'a PDVCertificate<'_>,
     crl_info: &'a CrlInfo,
-) -> Result<Option<&'a DistributionPoint<'a>>> {
+) -> Result<Option<&'a DistributionPoint>> {
     // 4-b) Validate CRL issuer name (discard CRL upon failure)
     //			i.	One of the names in a CRL DP crlIssuer field or the cert issuer shall match the CRL issuer.
     //				If a CRL DP produced the match, set the active CRLDP state variable to the CRL DP containing
@@ -703,7 +703,7 @@ fn validate_crl_issuer_name<'a>(
     }
 }
 
-fn is_general_name_in_general_names(lhs: &GeneralNames<'_>, rhs: &GeneralName<'_>) -> bool {
+fn is_general_name_in_general_names(lhs: &GeneralNames, rhs: &GeneralName) -> bool {
     for gn in lhs {
         if gn == rhs {
             return true;
@@ -713,8 +713,8 @@ fn is_general_name_in_general_names(lhs: &GeneralNames<'_>, rhs: &GeneralName<'_
 }
 
 fn at_least_one_general_name_in_common(
-    gns_from_crl_dp: &GeneralNames<'_>,
-    gns_from_idp: &GeneralNames<'_>,
+    gns_from_crl_dp: &GeneralNames,
+    gns_from_idp: &GeneralNames,
 ) -> bool {
     for gn in gns_from_idp {
         if is_general_name_in_general_names(gns_from_crl_dp, gn) {
@@ -725,7 +725,7 @@ fn at_least_one_general_name_in_common(
 }
 
 fn validate_distribution_point(
-    dps_from_crl_dp: Option<&CrlDistributionPoints<'_>>,
+    dps_from_crl_dp: Option<&CrlDistributionPoints>,
     crl_info: &CrlInfo,
     cert_type: CertRevType,
     target_cert: &PDVCertificate<'_>,
@@ -868,7 +868,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate<'_>, crl_info: &CrlInfo) 
 fn verify_crl(
     pe: &PkiEnvironment<'_>,
     crl_buf: &[u8],
-    issuer_cert: &Certificate<'_>,
+    issuer_cert: &Certificate,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
     let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
@@ -900,7 +900,7 @@ fn verify_crl(
 /// informational, so presence is fine. hold instruction is simply ignored with corresponding certificate
 /// treated as revoked. Presence of any other critical extension is cause to discard the CRL. The
 /// certificate issuer extension is assumed to have been checked already via  certificate_issuer_extension_present.
-fn check_entry_extensions(rc: &RevokedCert<'_>) -> Result<()> {
+fn check_entry_extensions(rc: &RevokedCert) -> Result<()> {
     let exts_to_ignore = [
         ID_CE_INVALIDITY_DATE,
         ID_CE_CRL_REASONS,
@@ -916,7 +916,7 @@ fn check_entry_extensions(rc: &RevokedCert<'_>) -> Result<()> {
     Ok(())
 }
 
-fn check_crl_extensions(exts: &Extensions<'_>) -> Result<()> {
+fn check_crl_extensions(exts: &Extensions) -> Result<()> {
     let exts_to_ignore = [
         ID_CE_ISSUING_DISTRIBUTION_POINT,
         ID_CE_DELTA_CRL_INDICATOR,
@@ -934,7 +934,7 @@ fn check_crl_extensions(exts: &Extensions<'_>) -> Result<()> {
 
 /// certificate_issuer_extension_present returns true if a certificate issuer extension is found
 /// in the presented RevokedCert instance and false otherwise.
-fn certificate_issuer_extension_present(rc: &RevokedCert<'_>) -> bool {
+fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
     if let Some(exts) = &rc.crl_entry_extensions {
         for e in exts {
             if e.extn_id == ID_CE_CERTIFICATE_ISSUER {
@@ -945,7 +945,7 @@ fn certificate_issuer_extension_present(rc: &RevokedCert<'_>) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<'_>) -> Result<()> {
+pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> {
     if 0 != toi {
         let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
         if tu > toi {
@@ -962,11 +962,11 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<'_>) -> Result<
     Ok(())
 }
 
-fn check_crl_sign(cert: &Certificate<'_>) -> Result<()> {
+fn check_crl_sign(cert: &Certificate) -> Result<()> {
     if let Some(exts) = &cert.tbs_certificate.extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_KEY_USAGE {
-                if let Ok(ku) = KeyUsage::from_der(ext.extn_value) {
+                if let Ok(ku) = KeyUsage::from_der(ext.extn_value.as_bytes()) {
                     // (n)  If a key usage extension is present, verify that the
                     //      keyCertSign bit is set.
                     if !ku.0.contains(KeyUsages::CRLSign) {
@@ -1000,7 +1000,7 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults<'_>,
     target_cert: &PDVCertificate<'_>,
-    issuer_cert: &Certificate<'_>,
+    issuer_cert: &Certificate,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
@@ -1166,7 +1166,7 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults<'_>,
     target_cert: &PDVCertificate<'_>,
-    issuer_cert: &Certificate<'_>,
+    issuer_cert: &Certificate,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;

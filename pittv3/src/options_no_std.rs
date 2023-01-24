@@ -121,14 +121,23 @@ pub fn options_no_std(args: &Pittv3Args) {
     for ee in ee_bap.buffers {
         stats.init_for_target(ee.filename.as_str());
         if let Some(stats_for_file) = stats.get_mut(ee.filename.as_str()) {
-            validate_cert(
-                &pe,
-                &cps,
-                ee.filename.as_str(),
-                ee.bytes.as_slice(),
-                stats_for_file,
-                &args,
-            );
+            let b = if ee.bytes[0] != 0x30 {
+                match pem_rfc7468::decode_vec(&ee.bytes) {
+                    Ok(b) => b.1,
+                    Err(e) => {
+                        log_message(
+                            &PeLogLevels::PeError,
+                            format!("Failed to parse certificate from {}: {}", ee.filename, e)
+                                .as_str(),
+                        );
+                        return;
+                    }
+                }
+            } else {
+                ee.bytes
+            };
+
+            validate_cert(&pe, &cps, ee.filename.as_str(), &b, stats_for_file, &args);
         }
     }
 

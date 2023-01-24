@@ -438,7 +438,7 @@ pub fn get_initial_permitted_subtrees(
 pub fn get_initial_permitted_subtrees_as_set<'a>(
     cps: &'a CertificationPathSettings,
     bufs: &'a mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<Option<NameConstraintsSet<'a>>> {
+) -> Result<Option<NameConstraintsSet>> {
     if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
         return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
             CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
@@ -457,10 +457,10 @@ pub fn get_initial_permitted_subtrees_as_set<'a>(
 /// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
 /// If present, a [`NameConstraintsSet`] value containing configured values is returned, else a default
 /// instance is returned.
-pub fn get_initial_permitted_subtrees_with_default_as_set<'a, 'reference>(
-    cps: &'a CertificationPathSettings,
-    bufs: &'reference mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<NameConstraintsSet<'reference>> {
+pub fn get_initial_permitted_subtrees_with_default_as_set(
+    cps: &CertificationPathSettings,
+    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+) -> Result<NameConstraintsSet> {
     if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
         return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
             CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
@@ -503,9 +503,9 @@ pub fn set_initial_permitted_subtrees(
 
 /// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
 /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-pub fn set_initial_permitted_subtrees_from_set<'a>(
+pub fn set_initial_permitted_subtrees_from_set(
     cps: &mut CertificationPathSettings,
-    ncs: &NameConstraintsSet<'a>,
+    ncs: &NameConstraintsSet,
 ) {
     cps.insert(
         PS_INITIAL_PERMITTED_SUBTREES.to_string(),
@@ -535,7 +535,7 @@ pub fn get_initial_excluded_subtrees(
 pub fn get_initial_excluded_subtrees_as_set<'a>(
     cps: &'a CertificationPathSettings,
     bufs: &'a mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<Option<NameConstraintsSet<'a>>> {
+) -> Result<Option<NameConstraintsSet>> {
     if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
         return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
             CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
@@ -553,10 +553,10 @@ pub fn get_initial_excluded_subtrees_as_set<'a>(
 /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
 /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
 /// If present, a [`NameConstraintsSet`] value is returned, else a default instance is returned.
-pub fn get_initial_excluded_subtrees_with_default_as_set<'a, 'reference>(
-    cps: &'a CertificationPathSettings,
-    bufs: &'reference mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<NameConstraintsSet<'reference>> {
+pub fn get_initial_excluded_subtrees_with_default_as_set(
+    cps: &CertificationPathSettings,
+    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+) -> Result<NameConstraintsSet> {
     if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
         return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
             CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
@@ -599,9 +599,9 @@ pub fn set_initial_excluded_subtrees(
 
 /// `set_initial_excluded_subtrees_from_set` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
 /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-pub fn set_initial_excluded_subtrees_from_set<'a>(
+pub fn set_initial_excluded_subtrees_from_set(
     cps: &mut CertificationPathSettings,
-    ncs: &NameConstraintsSet<'a>,
+    ncs: &NameConstraintsSet,
 ) {
     cps.insert(
         PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
@@ -932,7 +932,7 @@ fn test_default_sets_cps() {
 
 #[test]
 fn test_no_default_sets_cps() {
-    use der::asn1::Ia5StringRef;
+    use der::asn1::Ia5String;
     use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
     use x509_cert::ext::pkix::name::GeneralName;
 
@@ -986,7 +986,7 @@ fn test_no_default_sets_cps() {
     let perm_set = get_initial_permitted_subtrees_as_set(&cps, &mut bufs1)
         .unwrap()
         .unwrap();
-    let ia5 = Ia5StringRef::new("x@example.com").unwrap();
+    let ia5 = Ia5String::new("x@example.com").unwrap();
     let gn = GeneralName::Rfc822Name(ia5);
     let gn = GeneralSubtree {
         base: gn,
@@ -1041,7 +1041,7 @@ fn test_no_default_sets_cps() {
     let excl_set = get_initial_excluded_subtrees_as_set(&cps, &mut bufs1)
         .unwrap()
         .unwrap();
-    let ia5 = Ia5StringRef::new("y@example.com").unwrap();
+    let ia5 = Ia5String::new("y@example.com").unwrap();
     let gn = GeneralName::Rfc822Name(ia5);
     let gn = GeneralSubtree {
         base: gn,

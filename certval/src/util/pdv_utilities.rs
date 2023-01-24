@@ -11,15 +11,13 @@ use lazy_static::lazy_static;
 #[cfg(feature = "std")]
 use regex::Regex;
 
-#[cfg(feature = "std")]
-use der::asn1::Ia5StringRef;
-
 use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
 use const_oid::db::rfc3280::{EMAIL_ADDRESS, PSEUDONYM};
 use const_oid::db::rfc4519::*;
 use const_oid::db::rfc5912::*;
+use der::asn1::{Ia5String, PrintableString, Utf8StringRef};
 use der::{asn1::ObjectIdentifier, Decode, Encode, Tagged};
-use spki::AlgorithmIdentifier;
+use spki::{AlgorithmIdentifier, AlgorithmIdentifierOwned};
 use x509_cert::attr::AttributeTypeAndValue;
 use x509_cert::ext::pkix::{
     constraints::{
@@ -52,7 +50,7 @@ use crate::{
 /// used to verify the TBSCertificate field as parsed from the encoded certificate object.
 pub fn is_self_signed_with_buffer(
     pe: &PkiEnvironment<'_>,
-    cert: &Certificate<'_>,
+    cert: &Certificate,
     enc_cert: &[u8],
 ) -> bool {
     match DeferDecodeSigned::from_der(enc_cert) {
@@ -90,7 +88,7 @@ pub fn is_self_signed(pe: &PkiEnvironment<'_>, cert: &PDVCertificate<'_>) -> boo
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
-pub fn is_self_issued(cert: &Certificate<'_>) -> bool {
+pub fn is_self_issued(cert: &Certificate) -> bool {
     compare_names(&cert.tbs_certificate.issuer, &cert.tbs_certificate.subject)
 }
 
@@ -133,7 +131,7 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate<'_>, uris: &mut Vec<S
 /// evaluated first.
 ///
 /// To stifle logging output upon error, pass true for the stifle_log parameter.
-pub fn valid_at_time(target: &TbsCertificate<'_>, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn valid_at_time(target: &TbsCertificate, toi: u64, stifle_log: bool) -> Result<u64> {
     if 0 == toi {
         // zero is used to disable validity check
         return Ok(0);
@@ -187,16 +185,14 @@ pub(crate) fn add_processed_extension(
 ///
 /// True is returned if inhibit any policy is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_any_policy_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
-) -> Result<bool> {
+pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_INHIBIT_ANY_POLICY == ext.extn_id {
-                        let iap_result = InhibitAnyPolicy::from_der(ext.extn_value);
+                        let iap_result = InhibitAnyPolicy::from_der(ext.extn_value.as_bytes());
                         if let Ok(_iap) = iap_result {
                             return Ok(true);
                         }
@@ -225,8 +221,8 @@ pub(crate) fn get_inhibit_any_policy_from_trust_anchor<'a>(
 ///
 /// True is returned if a policy constraints extension in is present in a certificate CHOICE or the value
 /// is set in CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_require_explicit_policy_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
+pub(crate) fn get_require_explicit_policy_from_trust_anchor(
+    ta: &TrustAnchorChoice,
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
@@ -234,7 +230,7 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor<'a>(
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
-                        let pc_result = PolicyConstraints::from_der(ext.extn_value);
+                        let pc_result = PolicyConstraints::from_der(ext.extn_value.as_bytes());
                         if let Ok(pc) = pc_result {
                             if let Some(_rep) = pc.require_explicit_policy {
                                 return Ok(true);
@@ -265,16 +261,14 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor<'a>(
 ///
 /// True is returned if inhibit policy mapping is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
-) -> Result<bool> {
+pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
-                        let pc_result = PolicyConstraints::from_der(ext.extn_value);
+                        let pc_result = PolicyConstraints::from_der(ext.extn_value.as_bytes());
                         if let Ok(pc) = pc_result {
                             if let Some(_ipm) = pc.inhibit_policy_mapping {
                                 return Ok(true);
@@ -303,16 +297,14 @@ pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor<'a>(
 /// `get_path_length_constraint_from_trust_anchor` returns the value from basic constraints extension in
 /// TA certificate for certificate CHOICE, the value from CertPathControls for TrustAnchorInfo CHOICE or
 /// [`PS_MAX_PATH_LENGTH_CONSTRAINT`] is no constraint is asserted.
-pub(crate) fn get_path_length_constraint_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
-) -> Result<u8> {
+pub(crate) fn get_path_length_constraint_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<u8> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_BASIC_CONSTRAINTS == ext.extn_id {
-                        let bc_result = BasicConstraints::from_der(ext.extn_value);
+                        let bc_result = BasicConstraints::from_der(ext.extn_value.as_bytes());
                         if let Ok(bc) = bc_result {
                             if let Some(pl) = bc.path_len_constraint {
                                 return Ok(pl);
@@ -349,11 +341,7 @@ pub(crate) const EMAIL_PATTERN: &str =
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
-pub(crate) fn descended_from_host<'a>(
-    prev_name: &Ia5StringRef<'a>,
-    cand: &str,
-    is_uri: bool,
-) -> bool {
+pub(crate) fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.to_string();
 
     let mut filter = regex::escape(base.as_str());
@@ -416,10 +404,7 @@ pub(crate) fn is_email(addr: &str) -> bool {
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
-pub(crate) fn descended_from_rfc822<'a>(
-    prev_name: &Ia5StringRef<'a>,
-    new_name: &Ia5StringRef<'a>,
-) -> bool {
+pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String) -> bool {
     let cand = new_name.to_string();
     let base = prev_name.to_string();
 
@@ -467,12 +452,7 @@ pub(crate) fn descended_from_rfc822<'a>(
 }
 
 /// `descended_from_dn` returns true if new_name is equal to or descended from prev_name and false otherwise.
-pub(crate) fn descended_from_dn<'a>(
-    subtree: &Name<'a>,
-    name: &Name<'a>,
-    min: u32,
-    max: Option<u32>,
-) -> bool {
+pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Option<u32>) -> bool {
     //if descendant fewer rdns then it is not a descendant
     if subtree.0.len() > name.0.len() {
         return false;
@@ -513,8 +493,8 @@ pub(crate) fn descended_from_dn<'a>(
                     // if the type of attribute, i.e., c, cn, o, is different, return false
                     return false;
                 }
-                let lav = lau.value;
-                let rav = rau.value;
+                let lav = &lau.value;
+                let rav = &rau.value;
                 //not checking tag on the any since that is where the issue is most likely
                 if lav.value() == rav.value() {
                     if lav.tag() != rav.tag() {
@@ -541,9 +521,9 @@ pub(crate) fn descended_from_dn<'a>(
 }
 
 /// `has_rfc822` returns true if the given GeneralSubtrees contains at least one RFC822 name and false otherwise
-pub(crate) fn has_rfc822(subtrees: &GeneralSubtrees<'_>) -> bool {
+pub(crate) fn has_rfc822(subtrees: &GeneralSubtrees) -> bool {
     for subtree in subtrees {
-        if let GeneralName::Rfc822Name(_rfc) = subtree.base {
+        if let GeneralName::Rfc822Name(_rfc) = &subtree.base {
             return true;
         }
     }
@@ -551,9 +531,9 @@ pub(crate) fn has_rfc822(subtrees: &GeneralSubtrees<'_>) -> bool {
 }
 
 /// `has_dns_name` returns true if the given GeneralSubtrees contains at least one DNS name and false otherwise
-pub(crate) fn has_dns_name(subtrees: &GeneralSubtrees<'_>) -> bool {
+pub(crate) fn has_dns_name(subtrees: &GeneralSubtrees) -> bool {
     for subtree in subtrees {
-        if let GeneralName::DnsName(_dns) = subtree.base {
+        if let GeneralName::DnsName(_dns) = &subtree.base {
             return true;
         }
     }
@@ -561,7 +541,7 @@ pub(crate) fn has_dns_name(subtrees: &GeneralSubtrees<'_>) -> bool {
 }
 
 /// `has_dn` returns true if the given GeneralSubtrees contains at least one DN and false otherwise
-pub(crate) fn has_dn(subtrees: &GeneralSubtrees<'_>) -> bool {
+pub(crate) fn has_dn(subtrees: &GeneralSubtrees) -> bool {
     for subtree in subtrees {
         if let GeneralName::DirectoryName(_dn) = &subtree.base {
             return true;
@@ -571,7 +551,7 @@ pub(crate) fn has_dn(subtrees: &GeneralSubtrees<'_>) -> bool {
 }
 
 /// `has_uri` returns true if the given GeneralSubtrees contains at least one URI and false otherwise
-pub(crate) fn has_uri(subtrees: &GeneralSubtrees<'_>) -> bool {
+pub(crate) fn has_uri(subtrees: &GeneralSubtrees) -> bool {
     for subtree in subtrees {
         if let GeneralName::UniformResourceIdentifier(_uri) = &subtree.base {
             return true;
@@ -583,7 +563,7 @@ pub(crate) fn has_uri(subtrees: &GeneralSubtrees<'_>) -> bool {
 /// get_hash_alg_from_sig_alg takes an ObjectIdentifier that notionally contains a signature algorithm,
 /// i.e., PKIXALG_SHA256_WITH_RSA_ENCRYPTION or PKIXALG_ECDSA_WITH_SHA256, and returns the indicated hash
 /// algorithm.
-pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<AlgorithmIdentifier<'_>> {
+pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<AlgorithmIdentifierOwned> {
     if PKIXALG_SHA256_WITH_RSA_ENCRYPTION == *sig_alg || PKIXALG_ECDSA_WITH_SHA256 == *sig_alg {
         return Ok(AlgorithmIdentifier {
             oid: PKIXALG_SHA256,
@@ -614,7 +594,7 @@ pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<Algorithm
     Err(Error::Unrecognized)
 }
 
-pub(crate) fn log_error_for_name(name: &Name<'_>, msg: &str) {
+pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
     let name_str = name_to_string(name);
     log_message(
         &PeLogLevels::PeError,
@@ -631,7 +611,7 @@ pub(crate) fn log_error_for_ca(ca: &PDVCertificate<'_>, msg: &str) {
 }
 
 /// log a message with subject name of the certificate appended
-pub fn log_error_for_subject(ca: &Certificate<'_>, msg: &str) {
+pub fn log_error_for_subject(ca: &Certificate, msg: &str) {
     log_error_for_name(&ca.tbs_certificate.subject, msg);
 }
 
@@ -748,17 +728,29 @@ pub fn rdn_oid_lookup(oid_str: &str) -> Result<ObjectIdentifier> {
 }
 
 /// `name_to_string` returns a string representation of given Name value.
-pub fn name_to_string(name: &Name<'_>) -> String {
+pub fn name_to_string(name: &Name) -> String {
     name.to_string()
 }
 
 /// get_value_from_rdn returns the value from AttributeTypeAndValue as a string for use in comparing
 /// values where leading whitespace may be a factor
-pub fn get_value_from_rdn(atav: &AttributeTypeAndValue<'_>) -> Result<String> {
+pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
     let val = match atav.value.tag() {
-        der::Tag::PrintableString => atav.value.printable_string().ok().map(|s| s.as_str()),
-        der::Tag::Utf8String => atav.value.utf8_string().ok().map(|s| s.as_str()),
-        der::Tag::Ia5String => atav.value.ia5_string().ok().map(|s| s.as_str()),
+        der::Tag::PrintableString => atav
+            .value
+            .decode_as()
+            .ok()
+            .map(|s: PrintableString| s.to_string()),
+        der::Tag::Utf8String => atav
+            .value
+            .decode_as()
+            .ok()
+            .map(|s: Utf8StringRef<'_>| s.to_string()),
+        der::Tag::Ia5String => atav
+            .value
+            .decode_as()
+            .ok()
+            .map(|s: Ia5String| s.to_string()),
         _ => None,
     };
 
@@ -791,7 +783,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue<'_>) -> Result<String> {
 }
 
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
-pub fn compare_names<'a>(left: &'a Name<'a>, right: &'a Name<'a>) -> bool {
+pub fn compare_names<'a>(left: &'a Name, right: &'a Name) -> bool {
     // no match if not the same number of RDNs
     if left.0.len() != right.0.len() {
         return false;
@@ -871,13 +863,13 @@ pub fn compare_names<'a>(left: &'a Name<'a>, right: &'a Name<'a>) -> bool {
 }
 
 /// Retrieves a string value from the first attribute of last RDN element in the presented Name.
-pub fn get_leaf_rdn(name: &Name<'_>) -> String {
+pub fn get_leaf_rdn(name: &Name) -> String {
     let rdn = &name.0[name.0.len() - 1];
     rdn.to_string()
 }
 
 /// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
-pub fn ta_valid_at_time(ta: &TrustAnchorChoice<'_>, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn ta_valid_at_time(ta: &TrustAnchorChoice, toi: u64, stifle_log: bool) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
             return valid_at_time(&c.tbs_certificate, toi, stifle_log);
@@ -894,7 +886,7 @@ pub fn ta_valid_at_time(ta: &TrustAnchorChoice<'_>, toi: u64, stifle_log: bool) 
     Err(Error::Unrecognized)
 }
 
-pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree<'_>) -> String {
+pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
     match &gs.base {
         GeneralName::DirectoryName(dn) => {
             format!("DirectoryName: {}", dn)

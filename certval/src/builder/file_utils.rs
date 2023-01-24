@@ -105,7 +105,7 @@ fn cert_or_ta_folder_to_vec(
                     continue;
                 } else {
                     let file_exts = if collect_tas {
-                        vec!["der", "crt", "cer", ".ta"]
+                        vec!["der", "crt", "cer", "ta"]
                     } else {
                         vec!["der", "crt", "cer"]
                     };
@@ -117,7 +117,7 @@ fn cert_or_ta_folder_to_vec(
                         continue;
                     }
 
-                    let buffer = get_file_as_byte_vec(path)?;
+                    let buffer = get_file_as_byte_vec_pem(path)?;
 
                     // make sure it parses before saving buffer
                     if collect_tas {
@@ -243,8 +243,8 @@ pub fn read_blocklist(fname: &str) -> Vec<String> {
 /// the contents of that file or an [Error::StdIoError].
 #[cfg(feature = "std")]
 pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
-    match File::open(&filename) {
-        Ok(mut f) => match std::fs::metadata(&filename) {
+    match File::open(filename) {
+        Ok(mut f) => match std::fs::metadata(filename) {
             Ok(metadata) => {
                 let mut buffer = vec![0; metadata.len() as usize];
                 match f.read_exact(&mut buffer) {
@@ -256,6 +256,29 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
         },
         Err(e) => Err(Error::StdIoError(e.kind())),
     }
+}
+
+/// `get_file_as_byte_vec_pem` takes a Path containing a file name and returns a vector of bytes containing
+/// the contents of that file or an [Error::StdIoError]. If the file is PEM encoded, it is decoded
+/// prior to returning the vector of bytes. To read without PEM, use `get_file_as_byte_vec`.
+#[cfg(feature = "std")]
+pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
+    let b = get_file_as_byte_vec(filename)?;
+    if b[0] == 0x2D {
+        match pem_rfc7468::decode_vec(b.as_slice()) {
+            Ok(b) => {
+                return Ok(b.1);
+            }
+            Err(e) => {
+                log_message(
+                    &PeLogLevels::PeError,
+                    format!("Failed to parse certificate from {:?}: {:?}", filename, e).as_str(),
+                );
+                return Err(Error::Unrecognized);
+            }
+        }
+    }
+    Ok(b)
 }
 
 #[test]

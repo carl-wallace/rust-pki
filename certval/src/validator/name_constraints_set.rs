@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use url::Url;
 
+use der::asn1::{PrintableString, Utf8StringRef};
 use der::{
-    asn1::{AnyRef, Ia5StringRef, ObjectIdentifier},
+    asn1::{Any, Ia5String, ObjectIdentifier},
     Decode, Encode, Tag, Tagged,
 };
 use x509_cert::ext::pkix::{
@@ -45,32 +46,32 @@ pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.1920030
 ///
 /// [RFC 5280 Section 6.1]: <https://datatracker.ietf.org/doc/html/rfc5280#section-6.1>
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct NameConstraintsSet<'a> {
+pub struct NameConstraintsSet {
     /// user_principal_name governs use of UPN values in otherName instances in SANs
-    pub user_principal_name: Vec<GeneralSubtree<'a>>, //t = 0 (only form of otherName supported is UPN)
+    pub user_principal_name: Vec<GeneralSubtree>, //t = 0 (only form of otherName supported is UPN)
     /// user_principal_name_null is initialized to false and set to true if an intersection operation yields empty set
     pub user_principal_name_null: bool,
     /// rfc822_name governs use of email addresses in SANs
-    pub rfc822_name: Vec<GeneralSubtree<'a>>, //t = 2
+    pub rfc822_name: Vec<GeneralSubtree>, //t = 2
     /// rfc822_name_null is initialized to false and set to true if an intersection operation yields empty set
     pub rfc822_name_null: bool,
     /// dns_name governs use of DNS names in SANs
-    pub dns_name: Vec<GeneralSubtree<'a>>, //t = 3
+    pub dns_name: Vec<GeneralSubtree>, //t = 3
     /// dns_name_null is initialized to false and set to true if an intersection operation yields empty set
     pub dns_name_null: bool,
     /// directory_name governs use of DNs in SANs and issuer and subject fields
-    pub directory_name: Vec<GeneralSubtree<'a>>, //t = 5
+    pub directory_name: Vec<GeneralSubtree>, //t = 5
     /// directory_name_null is initialized to false and set to true if an intersection operation yields empty set
     pub directory_name_null: bool,
     /// uniform_resource_identifier governs use of URIs in SANs
-    pub uniform_resource_identifier: Vec<GeneralSubtree<'a>>, //t = 7
+    pub uniform_resource_identifier: Vec<GeneralSubtree>, //t = 7
     /// uniform_resource_identifier_null is initialized to false and set to true if an intersection operation yields empty set
     pub uniform_resource_identifier_null: bool,
     /// not_supported can be used to pile up unsupported name values
-    pub not_supported: Vec<GeneralSubtree<'a>>, //t = everything else
+    pub not_supported: Vec<GeneralSubtree>, //t = everything else
 }
 
-impl<'a, 'b, 'c> NameConstraintsSet<'a>
+impl<'a, 'b, 'c> NameConstraintsSet
 where
     'a: 'b,
     'a: 'c,
@@ -79,7 +80,7 @@ where
     // public
     //----------------------------------------------------------------------------
     /// `calculate_intersection` calculates the intersection of self and ext and saves the result in self.
-    pub(crate) fn calculate_intersection(&'c mut self, ext: &'a GeneralSubtrees<'a>) {
+    pub(crate) fn calculate_intersection(&'c mut self, ext: &'a GeneralSubtrees) {
         self.calculate_intersection_dn(ext);
 
         self.calculate_intersection_rfc822(ext);
@@ -88,7 +89,7 @@ where
     }
 
     /// `calculate_union calculates` the union of self and ext and saves the result in self.
-    pub(crate) fn calculate_union(&'c mut self, ext: &'a GeneralSubtrees<'a>) {
+    pub(crate) fn calculate_union(&'c mut self, ext: &'a GeneralSubtrees) {
         for subtree in ext {
             let gn = &subtree.base;
 
@@ -154,7 +155,7 @@ where
 
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
-    pub fn subject_within_permitted_subtrees(&'b self, subject: &'a Name<'a>) -> bool {
+    pub fn subject_within_permitted_subtrees(&'b self, subject: &'a Name) -> bool {
         if subject.0.is_empty() {
             // NULL subjects get a free pass
             return true;
@@ -180,7 +181,7 @@ where
 
     /// `san_within_permitted_subtrees` returns true if san is within at least one permitted subtree
     /// known to self. RFC822, DNS and URI name constraints are not supported for no-std and will fail.
-    pub fn san_within_permitted_subtrees(&'b self, san: &'a Option<&SubjectAltName<'a>>) -> bool {
+    pub fn san_within_permitted_subtrees(&'b self, san: &'a Option<&SubjectAltName>) -> bool {
         if san.is_none() {
             return true;
         }
@@ -224,8 +225,8 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.rfc822_name {
-                            if let GeneralName::Rfc822Name(rfc822_state) = gn_state.base {
-                                if descended_from_rfc822(&rfc822_state, rfc822_san) {
+                            if let GeneralName::Rfc822Name(rfc822_state) = &gn_state.base {
+                                if descended_from_rfc822(rfc822_state, rfc822_san) {
                                     return true;
                                 }
                             }
@@ -245,8 +246,8 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.dns_name {
-                            if let GeneralName::DnsName(dns_state) = gn_state.base {
-                                if descended_from_host(&dns_state, dns_san.as_str(), false) {
+                            if let GeneralName::DnsName(dns_state) = &gn_state.base {
+                                if descended_from_host(dns_state, dns_san.as_str(), false) {
                                     return true;
                                 }
                             }
@@ -266,12 +267,13 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.uniform_resource_identifier {
-                            if let GeneralName::UniformResourceIdentifier(uri_state) = gn_state.base
+                            if let GeneralName::UniformResourceIdentifier(uri_state) =
+                                &gn_state.base
                             {
                                 if let Ok(url) = Url::parse(uri_san.as_str()) {
                                     if let Some(host) = url.host() {
                                         if descended_from_host(
-                                            &uri_state,
+                                            uri_state,
                                             host.to_string().as_str(),
                                             true,
                                         ) {
@@ -293,7 +295,7 @@ where
 
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
-    pub fn subject_within_excluded_subtrees(&'b self, subject: &'a Name<'a>) -> bool {
+    pub fn subject_within_excluded_subtrees(&'b self, subject: &'a Name) -> bool {
         if subject.0.is_empty() {
             // NULL subjects get a free pass
             return false;
@@ -319,7 +321,7 @@ where
 
     /// `san_within_excluded_subtrees` returns true if san is within at least one excluded subtree
     /// known to self.
-    pub fn san_within_excluded_subtrees(&'b self, san: &'a Option<&SubjectAltName<'a>>) -> bool {
+    pub fn san_within_excluded_subtrees(&'b self, san: &'a Option<&SubjectAltName>) -> bool {
         if san.is_none() {
             return false;
         }
@@ -362,8 +364,8 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.rfc822_name {
-                            if let GeneralName::Rfc822Name(rfc822_state) = gn_state.base {
-                                if descended_from_rfc822(&rfc822_state, rfc822_san) {
+                            if let GeneralName::Rfc822Name(rfc822_state) = &gn_state.base {
+                                if descended_from_rfc822(rfc822_state, rfc822_san) {
                                     return true;
                                 }
                             }
@@ -382,8 +384,8 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.dns_name {
-                            if let GeneralName::DnsName(dns_state) = gn_state.base {
-                                if descended_from_host(&dns_state, dns_san.as_str(), false) {
+                            if let GeneralName::DnsName(dns_state) = &gn_state.base {
+                                if descended_from_host(dns_state, dns_san.as_str(), false) {
                                     return true;
                                 }
                             }
@@ -403,12 +405,13 @@ where
 
                         #[cfg(feature = "std")]
                         for gn_state in &self.uniform_resource_identifier {
-                            if let GeneralName::UniformResourceIdentifier(uri_state) = gn_state.base
+                            if let GeneralName::UniformResourceIdentifier(uri_state) =
+                                &gn_state.base
                             {
                                 if let Ok(url) = Url::parse(uri_san.as_str()) {
                                     if let Some(host) = url.host() {
                                         if descended_from_host(
-                                            &uri_state,
+                                            uri_state,
                                             host.to_string().as_str(),
                                             true,
                                         ) {
@@ -430,7 +433,7 @@ where
     //----------------------------------------------------------------------------
     // private
     //----------------------------------------------------------------------------
-    fn calculate_intersection_rfc822(&'c mut self, new_names: &'a GeneralSubtrees<'a>)
+    fn calculate_intersection_rfc822(&'c mut self, new_names: &'a GeneralSubtrees)
     where
         'a: 'b,
     {
@@ -474,7 +477,7 @@ where
         }
     }
 
-    fn calculate_intersection_dns_name(&'c mut self, new_names: &'a GeneralSubtrees<'a>)
+    fn calculate_intersection_dns_name(&'c mut self, new_names: &'a GeneralSubtrees)
     where
         'a: 'b,
     {
@@ -518,7 +521,7 @@ where
         }
     }
 
-    fn calculate_intersection_dn(&'c mut self, new_names: &'a GeneralSubtrees<'a>)
+    fn calculate_intersection_dn(&'c mut self, new_names: &'a GeneralSubtrees)
     where
         'a: 'b,
     {
@@ -559,7 +562,7 @@ where
         }
     }
 
-    fn calculate_intersection_uri(&'c mut self, new_names: &'a GeneralSubtrees<'a>)
+    fn calculate_intersection_uri(&'c mut self, new_names: &'a GeneralSubtrees)
     where
         'a: 'b,
     {
@@ -624,15 +627,15 @@ pub struct NameConstraintsSettings {
     pub uniform_resource_identifier: Option<Vec<String>>, //t = 7
 }
 
-pub(crate) fn name_constraints_settings_to_name_constraints_set<'a>(
+pub(crate) fn name_constraints_settings_to_name_constraints_set(
     settings: &NameConstraintsSettings,
-    bufs: &'a mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<NameConstraintsSet<'a>> {
+    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+) -> Result<NameConstraintsSet> {
     let mut rfcbufs: Vec<Vec<u8>> = vec![];
     if let Some(rfc822_name) = &settings.rfc822_name {
         for n in rfc822_name {
-            match AnyRef::new(Tag::Ia5String, n.as_bytes()) {
-                Ok(a) => match Ia5StringRef::try_from(a) {
+            match Any::new(Tag::Ia5String, n.as_bytes()) {
+                Ok(a) => match Ia5String::try_from(&a) {
                     Ok(ia5) => {
                         let gn = GeneralName::Rfc822Name(ia5);
                         let gs = GeneralSubtree {
@@ -658,8 +661,8 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set<'a>(
     let mut dnsbufs: Vec<Vec<u8>> = vec![];
     if let Some(dns_name) = &settings.dns_name {
         for n in dns_name {
-            match AnyRef::new(Tag::Ia5String, n.as_bytes()) {
-                Ok(a) => match Ia5StringRef::try_from(a) {
+            match Any::new(Tag::Ia5String, n.as_bytes()) {
+                Ok(a) => match Ia5String::try_from(&a) {
                     Ok(ia5) => {
                         let gn = GeneralName::DnsName(ia5);
                         let gs = GeneralSubtree {
@@ -710,8 +713,8 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set<'a>(
     let mut uribufs: Vec<Vec<u8>> = vec![];
     if let Some(uniform_resource_identifier) = &settings.uniform_resource_identifier {
         for n in uniform_resource_identifier {
-            match AnyRef::new(Tag::Ia5String, n.as_bytes()) {
-                Ok(a) => match Ia5StringRef::try_from(a) {
+            match Any::new(Tag::Ia5String, n.as_bytes()) {
+                Ok(a) => match Ia5String::try_from(&a) {
                     Ok(ia5) => {
                         let gn = GeneralName::UniformResourceIdentifier(ia5);
                         let gs = GeneralSubtree {
@@ -737,7 +740,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set<'a>(
     let mut upnbufs: Vec<Vec<u8>> = vec![];
     if let Some(user_principal_name) = &settings.user_principal_name {
         for n in user_principal_name {
-            match AnyRef::new(Tag::Ia5String, n.as_bytes()) {
+            match Any::new(Tag::Ia5String, n.as_bytes()) {
                 Ok(a) => {
                     let on = OtherName {
                         type_id: MSFT_USER_PRINCIPAL_NAME,
@@ -816,13 +819,13 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set<'a>(
 }
 
 pub(crate) fn name_constraints_set_to_name_constraints_settings(
-    set: &NameConstraintsSet<'_>,
+    set: &NameConstraintsSet,
 ) -> NameConstraintsSettings {
     let mut vrfc: Option<Vec<String>> = None;
     if !set.rfc822_name.is_empty() {
         let mut tmp = vec![];
         for gs in &set.rfc822_name {
-            if let GeneralName::Rfc822Name(rfc822) = gs.base {
+            if let GeneralName::Rfc822Name(rfc822) = &gs.base {
                 tmp.push(rfc822.to_string());
             }
         }
@@ -833,7 +836,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
     if !set.dns_name.is_empty() {
         let mut tmp = vec![];
         for gs in &set.dns_name {
-            if let GeneralName::DnsName(dns) = gs.base {
+            if let GeneralName::DnsName(dns) = &gs.base {
                 tmp.push(dns.to_string());
             }
         }
@@ -855,7 +858,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
     if !set.uniform_resource_identifier.is_empty() {
         let mut tmp = vec![];
         for gs in &set.uniform_resource_identifier {
-            if let GeneralName::UniformResourceIdentifier(uri) = gs.base {
+            if let GeneralName::UniformResourceIdentifier(uri) = &gs.base {
                 tmp.push(uri.to_string());
             }
         }
@@ -869,19 +872,20 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
             if let GeneralName::OtherName(on) = &gs.base {
                 if on.type_id == MSFT_USER_PRINCIPAL_NAME {
                     if on.value.tag() == Tag::Ia5String {
-                        if let Ok(ia5) = on.value.ia5_string() {
+                        if let Ok(ia5) = on.value.decode_as::<Ia5String>() {
                             tmp.push(ia5.to_string());
                         }
                     } else if on.value.tag() == Tag::Utf8String {
-                        if let Ok(utf) = on.value.utf8_string() {
+                        if let Ok(utf) = on.value.decode_as::<Utf8StringRef<'_>>() {
                             tmp.push(utf.to_string());
                         }
                     } else if on.value.tag() == Tag::PrintableString {
-                        if let Ok(ps) = on.value.printable_string() {
+                        if let Ok(ps) = on.value.decode_as::<PrintableString>() {
                             tmp.push(ps.to_string());
                         }
                     } else {
-                        tmp.push(crate::buffer_to_hex(on.value.value()));
+                        //todo how to access?
+                        //tmp.push(crate::buffer_to_hex(on.value.value()));
                     }
                 }
             }

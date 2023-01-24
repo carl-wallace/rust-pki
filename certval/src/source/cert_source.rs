@@ -46,7 +46,7 @@ use const_oid::db::rfc5912::{
     ID_CE_SUBJECT_ALT_NAME, ID_CE_SUBJECT_KEY_IDENTIFIER,
 };
 use der::Decode;
-use spki::SubjectPublicKeyInfo;
+use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
 use x509_cert::Certificate;
@@ -333,7 +333,7 @@ pub struct BuffersAndPaths {
 /// Type used to represent partial certification paths in [`BuffersAndPaths`] struct
 pub type PartialPaths = Vec<BTreeMap<String, Vec<Vec<usize>>>>;
 
-impl<'a> Default for BuffersAndPaths {
+impl Default for BuffersAndPaths {
     /// BuffersAndPaths::new instantiates a new empty BuffersAndPaths, i.e., both buffers and
     /// partial_paths contain empty vectors.
     fn default() -> Self {
@@ -341,7 +341,7 @@ impl<'a> Default for BuffersAndPaths {
     }
 }
 
-impl<'a> BuffersAndPaths {
+impl BuffersAndPaths {
     /// BuffersAndPaths::new instantiates a new empty BuffersAndPaths, i.e., both buffers and
     /// partial_paths contain empty vectors.
     pub fn new() -> BuffersAndPaths {
@@ -433,7 +433,7 @@ pub struct CertSource<'a> {
 
     /// Maps certificate SKIDs to keys in the `certs` field. Typically, the SKID value is read from
     /// a SKID extension. If no extension is present, the value is calculated as the SHA256 hash of
-    /// the SubjectPublicKeyInfo field from the certificate.
+    /// the SubjectPublicKeyInfoOwned field from the certificate.
     pub skid_map: BTreeMap<String, Vec<usize>>,
 
     /// Maps certificate subject names to keys in the `certs` field.
@@ -658,7 +658,7 @@ impl<'a> CertSource<'a> {
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
-            if let Some(kid) = akid.key_identifier {
+            if let Some(kid) = &akid.key_identifier {
                 akid_hex = buffer_to_hex(kid.as_bytes());
             } else if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
@@ -1111,7 +1111,7 @@ impl<'a> CertSource<'a> {
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
-            if let Some(kid) = akid.key_identifier {
+            if let Some(kid) = &akid.key_identifier {
                 akid_hex = buffer_to_hex(kid.as_bytes());
             } else if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
@@ -1161,7 +1161,8 @@ impl<'a> CertSource<'a> {
     fn find_all_partial_paths_internal(
         &self,
         pe: &'_ PkiEnvironment<'_>,
-        ta_vec: Vec<&PDVTrustAnchorChoice<'_>>,
+        //todo remove param
+        _ta_vec: Vec<&PDVTrustAnchorChoice<'_>>,
         cps: &CertificationPathSettings,
         pass: u8,
         partial_paths: &mut Vec<BTreeMap<String, Vec<Vec<usize>>>>,
@@ -1297,7 +1298,7 @@ impl<'a> CertSource<'a> {
             partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
-                self.find_all_partial_paths_internal(pe, ta_vec, cps, pass + 1, partial_paths);
+                self.find_all_partial_paths_internal(pe, _ta_vec, cps, pass + 1, partial_paths);
             }
         }
     }
@@ -1433,7 +1434,7 @@ impl CertificationPathBuilder for CertSource<'_> {
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
-            if let Some(kid) = akid.key_identifier {
+            if let Some(kid) = &akid.key_identifier {
                 akid_hex = buffer_to_hex(kid.as_bytes());
             } else if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
@@ -1444,144 +1445,164 @@ impl CertificationPathBuilder for CertSource<'_> {
             }
         }
 
-        if akid_hex.is_empty() {
-            // try to use name map to find AKID
-            for n in name_vec {
-                let name_str = name_to_string(n);
-                if self.name_map.contains_key(&name_str) {
-                    for i in &self.name_map[&name_str] {
-                        if let Some(cert) = &self.certs[*i] {
-                            let skid = hex_skid_from_cert(cert);
-                            if !skid.is_empty() {
-                                log_message(
-                                    &PeLogLevels::PeDebug,
-                                    format!(
-                                        "Using calculated key identifier in lieu of AKID for {}",
-                                        name_str
-                                    )
-                                    .as_str(),
-                                );
-                                akid_hex = skid;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let paths_count = paths.len();
 
-        if !akid_hex.is_empty() {
-            #[cfg(feature = "std")]
-            let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            #[cfg(feature = "std")]
-            let partial_paths = partial_paths_guard.deref().borrow();
-            #[cfg(not(feature = "std"))]
-            let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let mut ii = 0;
+        while ii < 2 {
+            ii += 1;
+            if !akid_hex.is_empty() {
+                #[cfg(feature = "std")]
+                let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock()
+                {
+                    g
+                } else {
+                    return Err(Error::Unrecognized);
+                };
+                #[cfg(feature = "std")]
+                let partial_paths = partial_paths_guard.deref().borrow();
+                #[cfg(not(feature = "std"))]
+                let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
 
-            for p in partial_paths.iter() {
-                if p.contains_key(&akid_hex) {
-                    let indices_vec = &p[&akid_hex];
-                    for indices in indices_vec {
-                        if !above_threshold(indices, threshold) {
-                            continue;
-                        }
-
-                        // This block accounts for CAs that use different names for same SKID. Could add name constraints check here too, maybe.
-                        let last_index = if let Some(li) = indices.last() {
-                            li
-                        } else {
-                            continue;
-                        };
-                        let issuer = &self.certs[*last_index];
-                        if let Some(ca) = issuer {
-                            if !compare_names(
-                                &ca.decoded_cert.tbs_certificate.subject,
-                                &target.decoded_cert.tbs_certificate.issuer,
-                            ) {
-                                log_message(&PeLogLevels::PeError, "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
+                for p in partial_paths.iter() {
+                    if p.contains_key(&akid_hex) {
+                        let indices_vec = &p[&akid_hex];
+                        for indices in indices_vec {
+                            if !above_threshold(indices, threshold) {
                                 continue;
                             }
-                        }
 
-                        let mut ta = None;
-                        let mut intermediates = vec![];
-                        let mut found_blank = false;
-                        for (i, index) in indices.iter().enumerate() {
-                            if let Some(cert) = &self.certs[*index] {
-                                intermediates.push(cert);
-                                if 0 == i {
-                                    let mut ta_akid_hex = "".to_string();
-                                    let mut ta_name_vec =
-                                        vec![&target.decoded_cert.tbs_certificate.issuer];
-                                    let ca_akid_ext =
-                                        cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
-                                    if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(ca_akid))) =
-                                        ca_akid_ext
-                                    {
-                                        if let Some(ca_kid) = ca_akid.key_identifier {
-                                            ta_akid_hex = buffer_to_hex(ca_kid.as_bytes());
-                                        } else if let Some(names) = &ca_akid.authority_cert_issuer {
-                                            for n in names {
-                                                if let GeneralName::DirectoryName(dn) = n {
-                                                    ta_name_vec.push(dn);
+                            // This block accounts for CAs that use different names for same SKID. Could add name constraints check here too, maybe.
+                            let last_index = if let Some(li) = indices.last() {
+                                li
+                            } else {
+                                continue;
+                            };
+                            let issuer = &self.certs[*last_index];
+                            if let Some(ca) = issuer {
+                                if !compare_names(
+                                    &ca.decoded_cert.tbs_certificate.subject,
+                                    &target.decoded_cert.tbs_certificate.issuer,
+                                ) {
+                                    log_message(&PeLogLevels::PeError, "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
+                                    continue;
+                                }
+                            }
+
+                            let mut ta = None;
+                            let mut intermediates = vec![];
+                            let mut found_blank = false;
+                            for (i, index) in indices.iter().enumerate() {
+                                if let Some(cert) = &self.certs[*index] {
+                                    intermediates.push(cert);
+                                    if 0 == i {
+                                        let mut ta_akid_hex = "".to_string();
+                                        let mut ta_name_vec =
+                                            vec![&target.decoded_cert.tbs_certificate.issuer];
+                                        let ca_akid_ext =
+                                            cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
+                                        if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(
+                                            ca_akid,
+                                        ))) = ca_akid_ext
+                                        {
+                                            if let Some(ca_kid) = &ca_akid.key_identifier {
+                                                ta_akid_hex = buffer_to_hex(ca_kid.as_bytes());
+                                            } else if let Some(names) =
+                                                &ca_akid.authority_cert_issuer
+                                            {
+                                                for n in names {
+                                                    if let GeneralName::DirectoryName(dn) = n {
+                                                        ta_name_vec.push(dn);
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    if !ta_akid_hex.is_empty() {
-                                        if let Ok(new_ta) =
-                                            pe.get_trust_anchor_by_hex_skid(&ta_akid_hex)
-                                        {
-                                            ta = Some(new_ta);
-                                        }
-                                    } else {
-                                        let fname = get_filename_from_cert_metadata(cert);
-                                        log_message(
-                                            &PeLogLevels::PeError,
-                                            format!("Missing AKID for trust anchor - {}", fname)
-                                                .as_str(),
-                                        );
-                                        if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert) {
+                                        if !ta_akid_hex.is_empty() {
+                                            if let Ok(new_ta) =
+                                                pe.get_trust_anchor_by_hex_skid(&ta_akid_hex)
+                                            {
+                                                ta = Some(new_ta);
+                                            }
+                                        } else {
+                                            let fname = get_filename_from_cert_metadata(cert);
                                             log_message(
                                                 &PeLogLevels::PeError,
-                                                "Found trust anchor by name",
+                                                format!(
+                                                    "Missing AKID for trust anchor - {}",
+                                                    fname
+                                                )
+                                                .as_str(),
                                             );
-                                            ta = Some(new_ta);
+                                            if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
+                                            {
+                                                log_message(
+                                                    &PeLogLevels::PeError,
+                                                    "Found trust anchor by name",
+                                                );
+                                                ta = Some(new_ta);
+                                            }
                                         }
                                     }
+                                } else {
+                                    // some cert slots are empty (due to parse or validity error). skip those.
+                                    found_blank = true;
+                                    break;
                                 }
-                            } else {
-                                // some cert slots are empty (due to parse or validity error). skip those.
-                                found_blank = true;
-                                break;
                             }
-                        }
-                        if !found_blank {
-                            if let Some(ta) = ta {
-                                let path = CertificationPath::new(ta, intermediates, target);
-                                if !pub_key_repeats(&path) {
-                                    paths.push(path);
+                            if !found_blank {
+                                if let Some(ta) = ta {
+                                    let path = CertificationPath::new(ta, intermediates, target);
+                                    if !pub_key_repeats(&path) {
+                                        ii = 2;
+                                        paths.push(path);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } else {
+                let fname = get_filename_from_cert_metadata(target);
+                log_message(
+                    &PeLogLevels::PeError,
+                    format!(
+                        "Missing AKID in target and failed to find by name - {}",
+                        fname
+                    )
+                    .as_str(),
+                );
             }
-        } else {
-            let fname = get_filename_from_cert_metadata(target);
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "Missing AKID in target and failed to find by name - {}",
-                    fname
-                )
-                .as_str(),
-            );
+
+            if akid_hex.is_empty() || paths_count == paths.len() {
+                // try to use name map to find AKID
+                let mut changed = false;
+                for n in &name_vec {
+                    let name_str = name_to_string(n);
+                    if self.name_map.contains_key(&name_str) {
+                        for i in &self.name_map[&name_str] {
+                            if let Some(cert) = &self.certs[*i] {
+                                let skid = hex_skid_from_cert(cert);
+                                if !skid.is_empty() {
+                                    log_message(
+                                        &PeLogLevels::PeDebug,
+                                        format!(
+                                            "Using calculated key identifier in lieu of AKID for {}",
+                                            name_str
+                                        )
+                                            .as_str(),
+                                    );
+                                    akid_hex = skid;
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if !changed {
+                    ii = 2;
+                }
+            }
         }
 
         Ok(())
@@ -1607,10 +1628,7 @@ impl CertificateSource for CertSource<'_> {
         }
     }
 
-    fn get_certificates_for_name<'a>(
-        &'_ self,
-        name: &Name<'a>,
-    ) -> Result<Vec<&PDVCertificate<'_>>> {
+    fn get_certificates_for_name(&'_ self, name: &Name) -> Result<Vec<&PDVCertificate<'_>>> {
         let name_str = name_to_string(name);
         let mut retval = vec![];
         if self.name_map.contains_key(name_str.as_str()) {
@@ -1655,7 +1673,7 @@ impl CertificateSource for CertSource<'_> {
         }
     }
 
-    fn get_encoded_certificates_for_name<'a>(&self, name: &Name<'a>) -> Result<Vec<Vec<u8>>> {
+    fn get_encoded_certificates_for_name(&self, name: &Name) -> Result<Vec<Vec<u8>>> {
         let name_str = name_to_string(name);
         let mut retval = vec![];
         if self.name_map.contains_key(name_str.as_str()) {
@@ -1697,7 +1715,7 @@ fn above_threshold(v: &[usize], t: usize) -> bool {
 }
 
 fn pub_key_repeats(path: &CertificationPath<'_>) -> bool {
-    let mut spki_array: Vec<&SubjectPublicKeyInfo<'_>> =
+    let mut spki_array: Vec<&SubjectPublicKeyInfoOwned> =
         vec![get_subject_public_key_info_from_trust_anchor(
             &path.trust_anchor.decoded_ta,
         )];
@@ -1848,7 +1866,7 @@ fn get_certificates_test() {
 
     let v = cert_store.get_certificates().unwrap();
     // there are 405 certs in the folder, but some fail to parse
-    assert_eq!(398, v.len());
+    assert_eq!(399, v.len());
 
     let v = cert_store
         .get_encoded_certificates_for_skid(&hex!("A83C099D67F6D847BAA2D0FC18725688406D9595"))
@@ -1866,5 +1884,5 @@ fn get_certificates_test() {
     assert_eq!(r.err(), Some(Error::NotFound));
 
     let v = cert_store.get_encoded_certificates().unwrap();
-    assert_eq!(398, v.len());
+    assert_eq!(399, v.len());
 }

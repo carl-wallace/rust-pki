@@ -29,7 +29,8 @@ use crate::{
     RevocationStatusCache,
 };
 use crate::{
-    get_file_as_byte_vec, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension, Result,
+    get_file_as_byte_vec_pem, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension,
+    Result,
 };
 
 #[cfg(feature = "revocation")]
@@ -127,7 +128,7 @@ impl CrlSourceFolders {
         let crl_info = crl_info_guard.deref().borrow_mut();
         let ci = &crl_info[index];
         if let Some(filename) = &ci.filename {
-            if let Ok(crl_buf) = get_file_as_byte_vec(Path::new(filename.as_str())) {
+            if let Ok(crl_buf) = get_file_as_byte_vec_pem(Path::new(filename.as_str())) {
                 return Some(crl_buf);
             }
         }
@@ -253,7 +254,7 @@ impl CheckRemoteResource for CrlSourceFolders {
 }
 
 impl CrlSource for CrlSourceFolders {
-    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<'_>, uri: &str) -> Result<()> {
+    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()> {
         let mut cur_crl_info = get_crl_info(crl)?;
         let digest = Sha256::digest(uri).to_vec();
         let hex = buffer_to_hex(digest.as_slice());
@@ -326,7 +327,7 @@ impl CrlSource for CrlSourceFolders {
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) =
             cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER)
         {
-            if let Some(kid) = akid.key_identifier {
+            if let Some(kid) = &akid.key_identifier {
                 let skid_guard = if let Ok(g) = self.skid_map.lock() {
                     g
                 } else {
@@ -385,11 +386,11 @@ fn get_dps_from_cert(cert: &PDVCertificate<'_>) -> Option<Vec<Vec<u8>>> {
     None
 }
 
-fn get_dp_from_crl(crl: &CertificateList<'_>) -> Option<Vec<u8>> {
+fn get_dp_from_crl(crl: &CertificateList) -> Option<Vec<u8>> {
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_ISSUING_DISTRIBUTION_POINT {
-                if let Ok(idp) = IssuingDistributionPoint::from_der(ext.extn_value) {
+                if let Ok(idp) = IssuingDistributionPoint::from_der(ext.extn_value.as_bytes()) {
                     if let Some(dp) = idp.distribution_point {
                         if let Ok(enc_dp) = dp.to_vec() {
                             return Some(enc_dp);
@@ -407,7 +408,7 @@ fn add_crl_info(
     issuer_map: &mut BTreeMap<String, Vec<usize>>,
     idp_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
     skid_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
-    crl: &CertificateList<'_>,
+    crl: &CertificateList,
     cur_crl_info: CrlInfo,
 ) {
     if !crl_info.contains(&cur_crl_info) {
@@ -493,7 +494,7 @@ fn index_crls_internal(
                         continue;
                     }
 
-                    let crl_buf = get_file_as_byte_vec(e.path())?;
+                    let crl_buf = get_file_as_byte_vec_pem(e.path())?;
 
                     let crl = match CertificateList::from_der(crl_buf.as_slice()) {
                         Ok(crl) => crl,
