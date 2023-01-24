@@ -30,4 +30,10 @@ cases in the repo) is roughly 90%.
 ### Known issues
 - Path validation for no-std lacks support for DNS, RFC822 and URI name constraints (owing to lack of no-std regex and URI parsing support at present).
 - Dynamic building is primilarly implemented in PITTv3. This will likely move to certval at some point in the future.
-- The OCSP client does not yet support use of nonces. 
+- The OCSP client does not yet support use of nonces.
+
+## [0.1.2] - 2023-01-24
+
+- Aligned with significant changes to the formats repo, i.e., change from no-copy to owned types.
+- Add PQC support with associated pqc feature flag to turn off/on.
+- Modify or temporarily comment out test cases due to artifact expiration.

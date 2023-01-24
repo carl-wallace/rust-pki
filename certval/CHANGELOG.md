@@ -54,3 +54,9 @@ key that verifies the certificate, etc.
 include negative serial numbers, out of order set elements in multi-valued RDNs, and names containing TeletexString values.
 These may or may not be addressed.
 - Top level API should be wrapped or refactored for easier use. Non-idiomatic code should be replaced with idiomatic code.
+
+## [0.1.2] - 2023-01-24
+
+- Aligned with significant changes to the formats repo, i.e., change from no-copy to owned types.
+- Add PQC support with associated pqc feature flag to turn off/on.
+- Modify or temporarily comment out test cases due to artifact expiration.
