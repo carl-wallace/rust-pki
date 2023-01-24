@@ -96,6 +96,7 @@ The five feature gates shared with certval enable varying levels of support and 
 - `revocation,std` augments the `std` feature by adding support for processing CRLs and OCSP responses that are provided by the caller or obtained via the file system.
 - `remote` is the default. It replaces and augments the `revocation,std` feature by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs
   expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
+- `pqc` adds support for dilithium, falcon and sphincsplus using algorithm implementations from the [pqcrypto](https://github.com/rustpq/pqcrypto) project and object identifiers from the [IETF 115 PQC hackathon](https://github.com/IETF-Hackathon/pqc-certificates).
 
 The one additional feature gate is `std_app`, which builds certval as `default-features = false` but
 builds pittv3 with std support so that end entity files can be selected for validation (additional

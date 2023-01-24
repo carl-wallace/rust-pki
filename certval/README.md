@@ -18,7 +18,8 @@ The certval library provides five feature gates that enable varying levels of su
 - `revocation` augments the `default-features = false` feature by adding support for processing CRLs and OCSP responses that are provided by the caller, such as may have been obtained by stapling to a higher level protocol.
 - `std` augments the `default-features = false` feature by adding support for obtaining artifacts via the file system and addition of support for multi-threaded use.
 - `revocation,std` augments the `std` feature by adding support for processing CRLs and OCSP responses that are provided by the caller or obtained via the file system.
-- `remote` is the default. It replaces and augments the `revocation,std` features by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions. 
+- `remote` is the default. It replaces and augments the `revocation,std` features by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
+- `pqc` adds support for dilithium, falcon and sphincsplus using algorithm implementations from the [pqcrypto](https://github.com/rustpq/pqcrypto) project and object identifiers from the [IETF 115 PQC hackathon](https://github.com/IETF-Hackathon/pqc-certificates).
 
 ## Sample Usage
 
