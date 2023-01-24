@@ -5,7 +5,7 @@
 use alloc::{string::String, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
-use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use x509_cert::crl::CertificateList;
 use x509_cert::name::Name;
 
@@ -27,28 +27,28 @@ pub type ValidatePath = fn(
 /// `CalculateHash` provides a function signature for implementations that perform hashing
 pub type CalculateHash = fn(
     &PkiEnvironment<'_>,
-    &AlgorithmIdentifier<'_>, // hash alg
-    &[u8],                    // buffer to hash
+    &AlgorithmIdentifierOwned, // hash alg
+    &[u8],                     // buffer to hash
 ) -> Result<Vec<u8>>;
 
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
 pub type VerifySignatureDigest = fn(
     &PkiEnvironment<'_>,
-    &[u8],                     // buffer to verify
-    &[u8],                     // signature
-    &AlgorithmIdentifier<'_>,  // signature algorithm
-    &SubjectPublicKeyInfo<'_>, // public key
+    &[u8],                      // buffer to verify
+    &[u8],                      // signature
+    &AlgorithmIdentifierOwned,  // signature algorithm
+    &SubjectPublicKeyInfoOwned, // public key
 ) -> Result<()>;
 
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
 pub type VerifySignatureMessage = fn(
     &PkiEnvironment<'_>,
-    &[u8],                     // message to hash and verify
-    &[u8],                     // signature
-    &AlgorithmIdentifier<'_>,  // signature algorithm
-    &SubjectPublicKeyInfo<'_>, // public key
+    &[u8],                      // message to hash and verify
+    &[u8],                      // signature
+    &AlgorithmIdentifierOwned,  // signature algorithm
+    &SubjectPublicKeyInfoOwned, // public key
 ) -> Result<()>;
 
 /// `GetTrustAnchors` provides a function signature for implementations that return a list of trust anchors
@@ -72,10 +72,7 @@ pub trait TrustAnchorSource {
     fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice<'_>>;
 
     /// get_trust_anchor_for_name returns a reference to a trust anchor corresponding to present name.
-    fn get_trust_anchor_by_name(
-        &'_ self,
-        target: &'_ Name<'_>,
-    ) -> Result<&PDVTrustAnchorChoice<'_>>;
+    fn get_trust_anchor_by_name(&'_ self, target: &'_ Name) -> Result<&PDVTrustAnchorChoice<'_>>;
 
     /// get_trust_anchor_for_target returns a reference to a trust anchor corresponding to AKID or name from presented target.
     fn get_trust_anchor_for_target(
@@ -107,13 +104,13 @@ pub trait CertificateSource {
     fn get_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate<'_>>>;
 
     /// get_certificates_for_skid returns a vector of references to certificates corresponding to the presented subject name.
-    fn get_certificates_for_name(&self, name: &Name<'_>) -> Result<Vec<&PDVCertificate<'_>>>;
+    fn get_certificates_for_name(&self, name: &Name) -> Result<Vec<&PDVCertificate<'_>>>;
 
     /// get_certificates_for_skid returns a vector of references to buffers corresponding to the presented SKID.
     fn get_encoded_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<Vec<u8>>>;
 
     /// get_certificates_for_skid returns a vector of references to buffers corresponding to the presented subject name.
-    fn get_encoded_certificates_for_name(&self, name: &Name<'_>) -> Result<Vec<Vec<u8>>>;
+    fn get_encoded_certificates_for_name(&self, name: &Name) -> Result<Vec<Vec<u8>>>;
 
     /// get_encoded_certificates returns a vector containing copies of the available encoded certificates.
     fn get_encoded_certificates(&self) -> Result<Vec<Vec<u8>>>;
@@ -149,7 +146,7 @@ pub trait CrlSource {
     /// Retrieves CRLs for given certificate from store
     fn get_crls<'a>(&self, cert: &PDVCertificate<'a>) -> Result<Vec<Vec<u8>>>;
     /// Adds a CRL to the store
-    fn add_crl<'a>(&self, crl_buf: &[u8], crl: &CertificateList<'a>, uri: &str) -> Result<()>;
+    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()>;
 }
 
 /// The [`CheckRemoteResource`] trait defines an interface for checking last modified and blocklist values when downloading remote item

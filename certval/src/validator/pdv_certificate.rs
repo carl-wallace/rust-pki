@@ -12,7 +12,7 @@ use der::{
     asn1::{BitStringRef, ObjectIdentifier},
     Decode,
 };
-use spki::AlgorithmIdentifier;
+use spki::AlgorithmIdentifierOwned;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::*;
 
@@ -63,7 +63,7 @@ pub struct PDVCertificate<'a> {
     /// Binary, encoded Certificate object
     pub encoded_cert: &'a [u8],
     /// Decoded Certificate object
-    pub decoded_cert: Certificate<'a>,
+    pub decoded_cert: Certificate,
     /// Optional metadata about the trust anchor
     pub metadata: Option<Asn1Metadata<'a>>,
     /// Optional parsed extension from the Certificate
@@ -73,10 +73,7 @@ pub struct PDVCertificate<'a> {
 impl<'a> ExtensionProcessing for PDVCertificate<'a> {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
-    fn get_extension(
-        &self,
-        oid: &'static ObjectIdentifier,
-    ) -> Result<Option<&'_ PDVExtension<'_>>> {
+    fn get_extension(&self, oid: &'static ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -96,7 +93,7 @@ impl<'a> ExtensionProcessing for PDVCertificate<'a> {
     fn parse_extension(
         &mut self,
         oid: &'static der::asn1::ObjectIdentifier,
-    ) -> Result<Option<&PDVExtension<'a>>> {
+    ) -> Result<Option<&PDVExtension>> {
         macro_rules! add_and_return {
             ($pe:ident, $v:ident, $oid:ident, $t:ident) => {
                 match $t::from_der($v) {
@@ -119,7 +116,7 @@ impl<'a> ExtensionProcessing for PDVCertificate<'a> {
 
         if let Some(exts) = self.decoded_cert.tbs_certificate.extensions.as_ref() {
             if let Some(i) = exts.iter().find(|&ext| ext.extn_id == *oid) {
-                let v = i.extn_value;
+                let v = i.extn_value.as_bytes();
                 match *oid {
                     ID_CE_BASIC_CONSTRAINTS => {
                         add_and_return!(pe, v, ID_CE_BASIC_CONSTRAINTS, BasicConstraints);
@@ -216,7 +213,7 @@ pub struct DeferDecodeSigned<'a> {
     /// tbsCertificate       TBSCertificate,
     pub tbs_field: &'a [u8],
     /// signatureAlgorithm   AlgorithmIdentifier,
-    pub signature_algorithm: AlgorithmIdentifier<'a>,
+    pub signature_algorithm: AlgorithmIdentifierOwned,
     /// signature            BIT STRING
     pub signature: BitStringRef<'a>,
 }

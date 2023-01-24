@@ -13,7 +13,7 @@ pub struct PathValidationStats<'a> {
     pub results: Vec<CertificationPathResults<'a>>,
 }
 
-impl<'a> Default for PathValidationStats<'_> {
+impl Default for PathValidationStats<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -42,7 +42,7 @@ pub trait PVStats {
 /// with a [`PathValidationStats`] instance.
 pub type PathValidationStatsGroup<'a> = BTreeMap<String, PathValidationStats<'a>>;
 
-impl<'a> PVStats for PathValidationStatsGroup<'_> {
+impl PVStats for PathValidationStatsGroup<'_> {
     fn init_for_target(&mut self, cert_filename: &str) {
         if !self.contains_key(cert_filename) {
             self.insert(cert_filename.to_string(), PathValidationStats::default());

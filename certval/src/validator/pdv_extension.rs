@@ -20,15 +20,14 @@ use crate::util::error::*;
 pub trait ExtensionProcessing {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &'static ObjectIdentifier)
-        -> Result<Option<&'_ PDVExtension<'_>>>;
+    fn get_extension(&self, oid: &'static ObjectIdentifier) -> Result<Option<&'_ PDVExtension>>;
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies an extension type and returns
     /// a `PDVExtension` containing the a decoded extension if the extension was present.
     fn parse_extension(
         &'_ mut self,
         oid: &'static ObjectIdentifier,
-    ) -> Result<Option<&'_ PDVExtension<'_>>>;
+    ) -> Result<Option<&'_ PDVExtension>>;
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a `PDVExtension` containing the a decoded extension if the extension was present.
@@ -38,42 +37,42 @@ pub trait ExtensionProcessing {
 /// [`ParsedExtensions`] is a typedef of a BTreeMap map that associates [`PDVExtension`] objects with object
 /// identifier values. This is used to avoid parsing extensions repeatedly when performing certification
 /// path processing.
-pub type ParsedExtensions<'a> = BTreeMap<&'a ObjectIdentifier, PDVExtension<'a>>;
+pub type ParsedExtensions<'a> = BTreeMap<&'a ObjectIdentifier, PDVExtension>;
 
 /// [`PDVExtension`] provides a wrapper for supported extension types. At present this does not support
 /// the CRLReason, IssuingDistributionPoint, FreshestCRL and CRLDistributionPoints extensions.
 #[derive(PartialEq, Clone, Eq)]
-pub enum PDVExtension<'a> {
+pub enum PDVExtension {
     /// Parsed BasicConstraints extension
     BasicConstraints(BasicConstraints),
     /// Parsed SubjectKeyIdentifier extension
-    SubjectKeyIdentifier(SubjectKeyIdentifier<'a>),
+    SubjectKeyIdentifier(SubjectKeyIdentifier),
     /// Parsed ExtendedKeyUsage extension
     ExtendedKeyUsage(ExtendedKeyUsage),
     /// Parsed AuthorityInfoAccessSyntax extension
-    AuthorityInfoAccessSyntax(AuthorityInfoAccessSyntax<'a>),
+    AuthorityInfoAccessSyntax(AuthorityInfoAccessSyntax),
     /// Parsed SubjectInfoAccessSyntax extension
-    SubjectInfoAccessSyntax(SubjectInfoAccessSyntax<'a>),
+    SubjectInfoAccessSyntax(SubjectInfoAccessSyntax),
     /// Parsed KeyUsage extension
     KeyUsage(KeyUsage),
     /// Parsed SubjectAltName extension
-    SubjectAltName(SubjectAltName<'a>),
+    SubjectAltName(SubjectAltName),
     /// Parsed IssuerAltName extension
-    IssuerAltName(IssuerAltName<'a>),
+    IssuerAltName(IssuerAltName),
     /// Parsed PrivateKeyUsagePeriod extension
     PrivateKeyUsagePeriod(PrivateKeyUsagePeriod),
     /// Parsed CRLNumber extension
-    CrlNumber(CrlNumber<'a>),
+    CrlNumber(CrlNumber),
     /// Parsed CRLReason extension
     CrlReason(CrlReason),
     /// Parsed NameConstraints extension
-    NameConstraints(NameConstraints<'a>),
+    NameConstraints(NameConstraints),
     /// Parsed CertificatePolicies extension
-    CertificatePolicies(CertificatePolicies<'a>),
+    CertificatePolicies(CertificatePolicies),
     /// Parsed PolicyMappings extension
     PolicyMappings(PolicyMappings),
     /// Parsed AuthorityKeyIdentifier extension
-    AuthorityKeyIdentifier(AuthorityKeyIdentifier<'a>),
+    AuthorityKeyIdentifier(AuthorityKeyIdentifier),
     /// Parsed PolicyConstraints extension
     PolicyConstraints(PolicyConstraints),
     /// Parsed InhibitAnyPolicy extension
@@ -83,11 +82,11 @@ pub enum PDVExtension<'a> {
     /// Parsed PivNaciIndicator extension
     PivNaciIndicator(PivNaciIndicator),
     /// Parsed IssuingDistributionPoint extension
-    IssuingDistributionPoint(IssuingDistributionPoint<'a>),
+    IssuingDistributionPoint(IssuingDistributionPoint),
     /// Parsed CRLDistributionPoints extension
-    CrlDistributionPoints(CrlDistributionPoints<'a>),
+    CrlDistributionPoints(CrlDistributionPoints),
     /// Parsed FreshestCRL extension
-    FreshestCrl(FreshestCrl<'a>),
+    FreshestCrl(FreshestCrl),
     /// Unparsed, unrecognized extension
     Unrecognized(),
 }

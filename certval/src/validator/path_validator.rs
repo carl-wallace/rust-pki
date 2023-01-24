@@ -146,7 +146,7 @@ pub fn check_basic_constraints(
         //     ));
         // }
 
-        let pdv_ext: Option<&PDVExtension<'_>> = ca_cert.get_extension(&ID_CE_BASIC_CONSTRAINTS)?;
+        let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_BASIC_CONSTRAINTS)?;
         if let Some(PDVExtension::BasicConstraints(bc)) = pdv_ext {
             // (k)  If certificate i is a version 3 certificate, verify that the
             //       basicConstraints extension is present and that cA is set to
@@ -276,12 +276,12 @@ pub fn check_names<'a>(
 
     let mut perm_names_set = initial_perm.is_some();
     let mut permitted_subtrees = if let Some(perm) = initial_perm {
-        perm.clone()
+        perm
     } else {
         NameConstraintsSet::default()
     };
     let mut excluded_subtrees = if let Some(excl) = initial_excl {
-        excl.clone()
+        excl
     } else {
         NameConstraintsSet::default()
     };
@@ -340,8 +340,7 @@ pub fn check_names<'a>(
                 ));
             }
 
-            let pdv_ext: Option<&PDVExtension<'_>> =
-                ca_cert.get_extension(&ID_CE_SUBJECT_ALT_NAME)?;
+            let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_SUBJECT_ALT_NAME)?;
             let san = if let Some(PDVExtension::SubjectAltName(san)) = pdv_ext {
                 add_processed_extension(cpr, ID_CE_SUBJECT_ALT_NAME);
                 Some(san)
@@ -367,8 +366,7 @@ pub fn check_names<'a>(
         }
 
         if pos + 1 != certs_in_cert_path {
-            let pdv_ext: Option<&PDVExtension<'_>> =
-                ca_cert.get_extension(&ID_CE_NAME_CONSTRAINTS)?;
+            let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_NAME_CONSTRAINTS)?;
             if let Some(PDVExtension::NameConstraints(nc)) = pdv_ext {
                 add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
 
@@ -404,7 +402,7 @@ pub fn check_key_usage<'a>(
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
-        let pdv_ext: Option<&PDVExtension<'_>> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
+        let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
         if let Some(PDVExtension::KeyUsage(ku)) = pdv_ext {
             // (n)  If a key usage extension is present, verify that the
             //      keyCertSign bit is set.
@@ -460,7 +458,7 @@ pub fn check_extended_key_usage(
     let process_ekus_across_path = get_extended_key_usage_path(cps);
 
     // if we are neither checking across path nor vetting target values, just return
-    if !process_ekus_across_path && None == target_ekus {
+    if !process_ekus_across_path && target_ekus.is_none() {
         return Ok(());
     }
 
@@ -493,7 +491,7 @@ pub fn check_extended_key_usage(
 
         for ca_cert_ref in v.iter() {
             let ca_cert = ca_cert_ref.deref();
-            let pdv_ext: Option<&PDVExtension<'_>> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
+            let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
             if let Some(PDVExtension::ExtendedKeyUsage(eku_from_ca)) = pdv_ext {
                 if ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE)
                     && !eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE)
@@ -1099,8 +1097,7 @@ pub fn check_certificate_policies(
 
         if i != certs_in_cert_path as usize {
             //prepare for next certificate (always occurs in this loop given target is processed later)
-            let pdv_ext: Option<&PDVExtension<'_>> =
-                ca_cert.get_extension(&ID_CE_POLICY_MAPPINGS)?;
+            let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_POLICY_MAPPINGS)?;
             if let Some(PDVExtension::PolicyMappings(policy_mappings)) = pdv_ext {
                 add_processed_extension(cpr, ID_CE_POLICY_MAPPINGS);
 
@@ -1226,7 +1223,7 @@ pub fn check_certificate_policies(
                 }
             }
 
-            let pdv_ext: Option<&PDVExtension<'_>> =
+            let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_POLICY_CONSTRAINTS)?;
             if let Some(PDVExtension::PolicyConstraints(pc)) = pdv_ext {
                 add_processed_extension(cpr, ID_CE_POLICY_CONSTRAINTS);
@@ -1237,7 +1234,7 @@ pub fn check_certificate_policies(
                     policy_mapping = policy_mapping.min(ipm)
                 }
             }
-            let pdv_ext: Option<&PDVExtension<'_>> =
+            let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_INHIBIT_ANY_POLICY)?;
             if let Some(PDVExtension::InhibitAnyPolicy(iap)) = pdv_ext {
                 add_processed_extension(cpr, ID_CE_INHIBIT_ANY_POLICY);
@@ -1253,7 +1250,7 @@ pub fn check_certificate_policies(
                 explicit_policy -= 1;
             }
 
-            let pdv_ext: Option<&PDVExtension<'_>> =
+            let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_POLICY_CONSTRAINTS)?;
             if let Some(PDVExtension::PolicyConstraints(pc)) = pdv_ext {
                 // (b)  If a policy constraints extension is included in the

@@ -40,7 +40,7 @@ use subtle_encoding::hex;
 use const_oid::db::rfc5912::{ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_SUBJECT_KEY_IDENTIFIER};
 use der::Decode;
 use sha2::{Digest, Sha256};
-use spki::SubjectPublicKeyInfo;
+use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
 use x509_cert::{anchor::TrustAnchorChoice, Certificate};
@@ -64,9 +64,9 @@ use crate::{
 /// - TrustAnchorInfo.pub_key field.
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
-pub fn get_subject_public_key_info_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
-) -> &'a SubjectPublicKeyInfo<'a> {
+pub fn get_subject_public_key_info_from_trust_anchor(
+    ta: &TrustAnchorChoice,
+) -> &SubjectPublicKeyInfoOwned {
     match ta {
         TrustAnchorChoice::Certificate(cert) => &cert.tbs_certificate.subject_public_key_info,
         TrustAnchorChoice::TaInfo(tai) => &tai.pub_key,
@@ -76,9 +76,7 @@ pub fn get_subject_public_key_info_from_trust_anchor<'a>(
 
 /// get_certificate_from_trust_anchor returns the certificate from the TrustAnchorChoice. This will
 /// be either the Certificate choice itself or the TrustAnchorInfo.cert_path.certificate field.
-pub fn get_certificate_from_trust_anchor<'a>(
-    ta: &'a TrustAnchorChoice<'a>,
-) -> Option<&'a Certificate<'a>> {
+pub fn get_certificate_from_trust_anchor(ta: &TrustAnchorChoice) -> Option<&Certificate> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => return Some(cert),
         TrustAnchorChoice::TaInfo(tai) => {
@@ -116,7 +114,7 @@ pub fn buffer_to_hex(buffer: &[u8]) -> String {
 ///
 /// The value represents one of the following:
 /// - the value of the SubjectKeyIdentifier (SKID) extension in a Certificate option
-/// - the value of a SHA256 hash of the SubjectPublicKeyInfo from a Certificate option that lacks a SKID extension
+/// - the value of a SHA256 hash of the SubjectPublicKeyInfoOwned from a Certificate option that lacks a SKID extension
 /// - the value of the key ID field in a TrustAnchorChoice option.
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
@@ -128,7 +126,9 @@ pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice<'_>) -> String {
                 buffer_to_hex(skid.0.as_bytes())
             } else {
                 let working_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
-                let digest = Sha256::digest(working_spki.subject_public_key).to_vec();
+                //todo unwrap
+                let digest =
+                    Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
                 buffer_to_hex(digest.as_slice())
             };
             hex_skid
@@ -149,7 +149,8 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate<'_>) -> String {
         buffer_to_hex(skid.0.as_bytes())
     } else {
         let working_spki = &cert.decoded_cert.tbs_certificate.subject_public_key_info;
-        let digest = Sha256::digest(working_spki.subject_public_key).to_vec();
+        //todo unwrap
+        let digest = Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
         buffer_to_hex(digest.as_slice())
     };
     hex_skid
@@ -172,7 +173,7 @@ pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice<'_>) -> String 
 /// The value is read from one of the following:
 /// * the subjectKeyIdentifier extension in a TrustAnchorChoice::Certificate structure,
 /// * the keyID field in a TrustAnchorChoice::TrustAnchorInfo structure
-/// * the SHA256 digest of the SubjectPublicKeyInfo read from TrustAnchorChoice::Certificate or
+/// * the SHA256 digest of the  SubjectPublicKeyInfoOwned read from TrustAnchorChoice::Certificate or
 /// TrustAnchorChoice::TrustAnchorInfo
 pub type TrustAnchorKeyId = String;
 
@@ -303,7 +304,7 @@ impl TrustAnchorSource for TaSource<'_> {
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
-            if let Some(kid) = akid.key_identifier {
+            if let Some(kid) = &akid.key_identifier {
                 akid_hex = buffer_to_hex(kid.as_bytes());
             } else if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
@@ -313,8 +314,13 @@ impl TrustAnchorSource for TaSource<'_> {
                 }
             }
         }
-        if !akid_hex.is_empty() {
-            return self.get_trust_anchor_by_hex_skid(&akid_hex);
+        let retval = if !akid_hex.is_empty() {
+            Some(self.get_trust_anchor_by_hex_skid(&akid_hex))
+        } else {
+            None
+        };
+        if let Some(r) = retval {
+            return r;
         } else {
             for n in name_vec {
                 let r = self.get_trust_anchor_by_name(n);
@@ -366,7 +372,7 @@ impl TrustAnchorSource for TaSource<'_> {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name<'_>) -> Result<&PDVTrustAnchorChoice<'_>> {
+    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice<'_>> {
         #[cfg(feature = "std")]
         let name_map_guard = if let Ok(g) = self.name_map.lock() {
             g

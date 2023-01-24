@@ -42,7 +42,7 @@ use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
-use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use x509_cert::crl::CertificateList;
 
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
@@ -224,7 +224,7 @@ impl<'a> PkiEnvironment<'a> {
     pub fn calculate_hash(
         &self,
         pe: &PkiEnvironment<'_>,
-        hash_alg: &AlgorithmIdentifier<'_>,
+        hash_alg: &AlgorithmIdentifierOwned,
         buffer_to_hash: &[u8],
     ) -> Result<Vec<u8>> {
         for f in &self.calculate_hash_callbacks {
@@ -251,10 +251,10 @@ impl<'a> PkiEnvironment<'a> {
     pub fn verify_signature_digest(
         &self,
         pe: &PkiEnvironment<'_>,
-        hash_to_verify: &[u8],                   // buffer to verify
-        signature: &[u8],                        // signature
-        signature_alg: &AlgorithmIdentifier<'_>, // signature algorithm
-        spki: &SubjectPublicKeyInfo<'_>,         // public key
+        hash_to_verify: &[u8],                    // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_digest_callbacks {
             let r = f(pe, hash_to_verify, signature, signature_alg, spki);
@@ -280,10 +280,10 @@ impl<'a> PkiEnvironment<'a> {
     pub fn verify_signature_message(
         &self,
         pe: &PkiEnvironment<'_>,
-        message_to_verify: &[u8],                // buffer to verify
-        signature: &[u8],                        // signature
-        signature_alg: &AlgorithmIdentifier<'_>, // signature algorithm
-        spki: &SubjectPublicKeyInfo<'_>,         // public key
+        message_to_verify: &[u8],                 // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_message_callbacks {
             let r = f(pe, message_to_verify, signature, signature_alg, spki);
@@ -435,7 +435,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// Adds a CRL to the store
-    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<'a>, uri: &str) -> Result<()> {
+    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()> {
         let mut at_least_one_success = false;
         for f in &self.crl_sources {
             if f.add_crl(crl_buf, crl, uri).is_ok() {
@@ -624,4 +624,9 @@ pub fn populate_5280_pki_environment(pe: &mut PkiEnvironment<'_>) {
     if pe.oid_lookups.is_empty() {
         pe.add_oid_lookup(oid_lookup);
     }
+
+    #[cfg(feature = "pqc")]
+    pe.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
+    #[cfg(feature = "pqc")]
+    pe.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
 }

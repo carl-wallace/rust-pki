@@ -342,9 +342,10 @@ pub fn pkits_guts_sync(
             }
 
             println!("{}", case_name);
-            let mut decoder =
-                Decoder::new(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
-            let tac = TrustAnchorChoice::decode(&mut decoder).unwrap();
+            let tac = TrustAnchorChoice::from_der(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
             let mut ta = PDVTrustAnchorChoice {
                 encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
                 decoded_ta: tac,

@@ -78,10 +78,15 @@ pub struct Pittv3Args {
     #[clap(short, long, help_heading = "VALIDATION")]
     pub validate_all: bool,
 
+    /// Check if certificate passed as end_entity_file is self-signed.
+    #[cfg(feature = "std_app")]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub validate_self_signed: bool,
+
     /// Flag that indicates all available certification paths compiled into the app should be
     /// validated for each target, instead of stopping after finding first valid path.
     #[cfg(not(feature = "std_app"))]
-    #[clap(short, long, help_heading = "VALIDATION")]
+    #[clap(long, help_heading = "VALIDATION")]
     pub validate_all: bool,
 
     /// Process AIA and SIA during path validation, as appropriate. Either ca_folder or

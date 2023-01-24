@@ -1,9 +1,9 @@
 //! Selected structures from RFC5652 to enable processing of DER-encoded certs-only SignedData messages.
 
 use core::cmp::Ordering;
-use der::asn1::{OctetStringRef, SetOf, SetOfVec, UIntRef};
+use der::asn1::{OctetStringRef, SetOf, SetOfVec, UintRef};
 use der::{AnyRef, Choice, Sequence, ValueOrd};
-use spki::{AlgorithmIdentifier, ObjectIdentifier};
+use spki::{AlgorithmIdentifierOwned, ObjectIdentifier};
 use x509_cert::attr::AttributeTypeAndValue;
 use x509_cert::ext::pkix::SubjectKeyIdentifier;
 use x509_cert::name::Name;
@@ -72,7 +72,9 @@ pub struct SignedData<'a> {
     #[asn1(context_specific = "1", tag_mode = "IMPLICIT", optional = "true")]
     pub crls: Option<alloc::vec::Vec<AnyRef<'a>>>,
 
-    pub signer_infos: SetOfVec<SignerInfo<'a>>,
+    // TODO FIX
+    //pub signer_infos: SetOfVec<SignerInfo<'a>>,
+    pub signer_infos: SetOfVec<AnyRef<'a>>,
 }
 
 /// DigestAlgorithmIdentifiers structure as defined in [RFC 5652 Section 5.1].
@@ -123,9 +125,9 @@ pub struct EncapsulatedContentInfo<'a> {
 pub struct SignerInfo<'a> {
     pub version: u8,
     pub sid: SignerIdentifier<'a>,
-    pub digest_algorithm: AlgorithmIdentifier<'a>,
+    pub digest_algorithm: AlgorithmIdentifierOwned,
     pub signed_attrs: SignedAttributes<'a>,
-    pub signature_algorithm: AlgorithmIdentifier<'a>,
+    pub signature_algorithm: AlgorithmIdentifierOwned,
     pub signature: OctetStringRef<'a>,
     pub unsigned_attrs: UnsignedAttributes<'a>,
 }
@@ -150,7 +152,7 @@ pub enum SignerIdentifier<'a> {
     IssuerAndSerialNumber(IssuerAndSerialNumber<'a>),
 
     #[asn1(context_specific = "0", tag_mode = "EXPLICIT")]
-    SubjectKeyIdentifier(SubjectKeyIdentifier<'a>),
+    SubjectKeyIdentifier(SubjectKeyIdentifier),
 }
 
 /// SignedAttributes structure as defined in [RFC 5652 Section 5.3].
@@ -160,7 +162,7 @@ pub enum SignerIdentifier<'a> {
 /// ```
 ///
 /// [RFC 5652 Section 5.3]: https://datatracker.ietf.org/doc/html/rfc5652#section-5.3
-pub type SignedAttributes<'a> = SetOf<AttributeTypeAndValue<'a>, 10>;
+pub type SignedAttributes<'a> = SetOf<AttributeTypeAndValue, 10>;
 
 /// UnsignedAttributes structure as defined in [RFC 5652 Section 5.3].
 ///
@@ -169,7 +171,7 @@ pub type SignedAttributes<'a> = SetOf<AttributeTypeAndValue<'a>, 10>;
 /// ```
 ///
 /// [RFC 5652 Section 5.3]: https://datatracker.ietf.org/doc/html/rfc5652#section-5.3
-pub type UnsignedAttributes<'a> = SetOf<AttributeTypeAndValue<'a>, 10>;
+pub type UnsignedAttributes<'a> = SetOf<AttributeTypeAndValue, 10>;
 
 /*
    Attribute ::= SEQUENCE {
@@ -356,9 +358,9 @@ pub type UnsignedAttributes<'a> = SetOf<AttributeTypeAndValue<'a>, 10>;
 #[derive(Clone, Eq, PartialEq, Sequence)]
 pub struct IssuerAndSerialNumber<'a> {
     ///   issuer Name,
-    pub issuer: Name<'a>,
+    pub issuer: Name,
     ///   serialNumber CertificateSerialNumber }
-    pub serial_number: UIntRef<'a>,
+    pub serial_number: UintRef<'a>,
 }
 
 /*

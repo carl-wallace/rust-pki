@@ -25,7 +25,7 @@ pub struct PDVTrustAnchorChoice<'a> {
     /// Binary, encoded TrustAnchorChoice object
     pub encoded_ta: &'a [u8],
     /// Decoded TrustAnchorChoice object
-    pub decoded_ta: TrustAnchorChoice<'a>,
+    pub decoded_ta: TrustAnchorChoice,
     /// Optional metadata about the trust anchor
     pub metadata: Option<Asn1Metadata<'a>>,
     /// Optional parsed extension from the TrustAnchorChoice
@@ -35,10 +35,7 @@ pub struct PDVTrustAnchorChoice<'a> {
 impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
-    fn get_extension(
-        &self,
-        oid: &'static ObjectIdentifier,
-    ) -> Result<Option<&'_ PDVExtension<'_>>> {
+    fn get_extension(&self, oid: &'static ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -55,10 +52,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
         }
     }
 
-    fn parse_extension(
-        &mut self,
-        oid: &'static ObjectIdentifier,
-    ) -> Result<Option<&PDVExtension<'_>>> {
+    fn parse_extension(&mut self, oid: &'static ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         macro_rules! add_and_return {
             ($pe:ident, $v:ident, $oid:ident, $t:ident) => {
                 match $t::from_der($v) {
@@ -113,7 +107,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
 
         if let Some(exts) = exts.as_ref() {
             if let Some(i) = exts.iter().find(|&ext| ext.extn_id == *oid) {
-                let v = i.extn_value;
+                let v = i.extn_value.as_bytes();
                 match *oid {
                     ID_CE_BASIC_CONSTRAINTS => {
                         add_and_return!(pe, v, ID_CE_BASIC_CONSTRAINTS, BasicConstraints);
@@ -203,7 +197,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
 /// The TBSCertificate option is not supported and the Certificate field within TrustAnchorInfo is
 /// not consulted, i.e., if one wished to use TrustAnchorInfo then the Name must be populated within
 /// CertPathControls.
-pub fn get_trust_anchor_name<'a>(ta: &'a TrustAnchorChoice<'a>) -> Result<&'a Name<'a>> {
+pub fn get_trust_anchor_name(ta: &TrustAnchorChoice) -> Result<&Name> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             return Ok(&cert.tbs_certificate.subject);

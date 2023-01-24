@@ -270,6 +270,7 @@ pub fn log_cert_details(pe: &PkiEnvironment<'_>, f: &mut File, cert: &PDVCertifi
                 .tbs_certificate
                 .subject_public_key_info
                 .subject_public_key
+                .raw_bytes()
                 .len()
                 / 8
         )
@@ -353,7 +354,7 @@ pub fn log_cert_details(pe: &PkiEnvironment<'_>, f: &mut File, cert: &PDVCertifi
 
     let pdv_ext = cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
     if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = pdv_ext {
-        if let Some(kid) = akid.key_identifier {
+        if let Some(kid) = &akid.key_identifier {
             let akid_hex = buffer_to_hex(kid.as_bytes());
             f.write_all(format!("\t\t* Authority key identifier: {}\n", akid_hex).as_bytes())
                 .expect("Unable to write manifest file");
@@ -398,7 +399,7 @@ pub fn log_cert_details(pe: &PkiEnvironment<'_>, f: &mut File, cert: &PDVCertifi
                 }
             }
         }
-        if let Some(iss) = akid.authority_cert_serial_number {
+        if let Some(iss) = &akid.authority_cert_serial_number {
             f.write_all(
                 format!("\t\t* Authority certificate serial number: {:?}\n", &iss).as_bytes(),
             )

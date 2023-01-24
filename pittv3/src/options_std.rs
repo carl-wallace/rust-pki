@@ -438,7 +438,7 @@ pub async fn options_std(args: &Pittv3Args) {
             cert_source.log_partial_paths();
         }
         if let Some(cert_filename) = &args.list_partial_paths_for_target {
-            let target = if let Ok(t) = get_file_as_byte_vec(Path::new(&cert_filename)) {
+            let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
                 t
             } else {
                 log_message(
@@ -516,6 +516,35 @@ pub async fn options_std(args: &Pittv3Args) {
                 println!("Failed to read data from Mozilla CSV file with {}", e);
             }
         }
+    } else if args.validate_self_signed {
+        if let Some(eff) = &args.end_entity_file {
+            if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&eff)) {
+                let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
+                if let Some(target_cert) = parsed_cert {
+                    let mut pe = PkiEnvironment::default();
+                    populate_5280_pki_environment(&mut pe);
+                    if is_self_signed(&pe, &target_cert) {
+                        println!("{} is self-signed", eff);
+                    } else {
+                        println!("{} is not self-signed", eff);
+                    }
+                } else {
+                    // try base 64
+                    if let Ok(encoded) = pem_rfc7468::decode_vec(t.as_slice()) {
+                        let parsed_cert = parse_cert(&encoded.1, eff.as_str());
+                        if let Some(target_cert) = parsed_cert {
+                            let mut pe = PkiEnvironment::default();
+                            populate_5280_pki_environment(&mut pe);
+                            if is_self_signed(&pe, &target_cert) {
+                                println!("{} is self-signed", eff);
+                            } else {
+                                println!("{} is not self-signed", eff);
+                            }
+                        }
+                    }
+                }
+            };
+        };
     } else {
         let pe = PkiEnvironment::default();
         let mut ta_store = TaSource::new();
@@ -524,7 +553,8 @@ pub async fn options_std(args: &Pittv3Args) {
         let ta_folder: &String = if let Some(ta_folder) = &args.ta_folder {
             ta_folder
         } else {
-            panic!("The ta_folder argument must be provided")
+            //panic!("The ta_folder argument must be provided")
+            return;
         };
 
         let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
@@ -785,7 +815,7 @@ async fn generate_and_validate(ta_source: &TaSource<'_>, args: &Pittv3Args) {
                 let json_lmm = serde_json::to_string(&lmm);
                 if !lmm_file.is_empty() {
                     if let Ok(json_lmm) = &json_lmm {
-                        if fs::write(&lmm_file, json_lmm).is_err() {
+                        if fs::write(lmm_file, json_lmm).is_err() {
                             log_message(
                                 &PeLogLevels::PeError,
                                 "Unable to write last modified map file",
@@ -797,7 +827,7 @@ async fn generate_and_validate(ta_source: &TaSource<'_>, args: &Pittv3Args) {
                 let json_blocklist = serde_json::to_string(&blocklist);
                 if !blocklist_file.is_empty() {
                     if let Ok(json_blocklist) = &json_blocklist {
-                        if fs::write(&blocklist_file, json_blocklist).is_err() {
+                        if fs::write(blocklist_file, json_blocklist).is_err() {
                             log_message(&PeLogLevels::PeError, "Unable to write blocklist file");
                         }
                     }

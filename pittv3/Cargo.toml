@@ -17,13 +17,15 @@ rust-version = "1.57"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["pem"] } # version = "0.0.1"
-const-oid = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.9.0"
-pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.4.0-pre"
-der = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.6.0-pre.0"
-x509-ocsp = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "0.0.1"
-base64ct = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki", features = ["alloc"], optional=true } # version = "1.4.0-pre"
-spki = { git = "https://github.com/carl-wallace/formats", branch = "rust-pki" } # version = "1.4.0-pre"
+x509-cert = { git = "https://github.com/carl-wallace/formats", branch = "pqc", features = ["pem"] }
+const-oid = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+pkcs7 = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+der = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+x509-ocsp = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+base64ct = { git = "https://github.com/carl-wallace/formats", branch = "pqc", features = ["alloc"], optional=true }
+spki = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+pqckeys = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
+pem-rfc7468 = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
 
 certval = { path = "../certval", default-features = false}
 sha-1 = {version = "0.10.0", default-features = false}
@@ -42,14 +44,21 @@ serde_json = "1.0.74"
 
 csv = {version = "1.1.6", optional = true}
 log = {version = "0.4.8", optional = true}
-log4rs = {version = "1.0.0", optional = true}
+log4rs = {version = "1.2.0", optional = true}
 futures = {version = "0.3.19", optional = true}
 
 ndarray = {version = "0.15.4", optional = true}
-reqwest = { version = "0.10", features = ["blocking"], optional = true}
-tokio = { version = "0.2", features = ["full", "time", "rt-threaded"], optional = true }
+reqwest = { version = "0.11.10", features = ["blocking"], optional = true}
+tokio = { version = "1.19.2", features = ["full", "time", "rt-multi-thread"], optional = true }
 tokio-test = {version = "0.4.2", optional = true}
 walkdir = { version = "2", optional = true}
+
+pqcrypto-internals =  {version = "0.2.4", optional = true}
+pqcrypto-dilithium =  {version = "0.4.6", optional = true}
+pqcrypto-falcon = {version = "0.2.10", optional = true}
+pqcrypto-sphincsplus = {version = "0.6.4", optional = true}
+pqcrypto = {version = "0.16.1", optional = true}
+pqcrypto-traits = {version = "0.3.4", optional = true}
 
 # Similar to certval, there are six feature gates (one more than certval):
 #   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
@@ -65,6 +74,7 @@ revocation = ["certval/revocation"]
 std_app = ["certval/revocation", "ndarray", "tokio", "tokio-test", "base64ct", "walkdir", "log", "log4rs", "futures", "csv"]
 std = ["std_app", "certval/std", "revocation"]
 remote = ["certval/remote", "revocation", "std"]
+pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits"]
 
 [dev-dependencies]
 assert_cmd = "2.0.4"

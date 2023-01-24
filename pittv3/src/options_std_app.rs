@@ -86,8 +86,8 @@ pub fn log_message_std_app(level: &PeLogLevels, message: &str) {
 /// `get_file_as_byte_vec` provides support for reading artifacts from file when PITTv3 is built using
 /// the `std_app` feature.
 fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
-    match File::open(&filename) {
-        Ok(mut f) => match std::fs::metadata(&filename) {
+    match File::open(filename) {
+        Ok(mut f) => match std::fs::metadata(filename) {
             Ok(metadata) => {
                 let mut buffer = vec![0; metadata.len() as usize];
                 match f.read_exact(&mut buffer) {
@@ -174,15 +174,24 @@ pub fn options_std_app(args: &Pittv3Args) {
         if let Some(stats_for_file) = stats.get_mut(filename) {
             match get_file_as_byte_vec(Path::new(filename)) {
                 Ok(target) => {
+                    let b = if target[0] != 0x30 {
+                        match pem_rfc7468::decode_vec(&target) {
+                            Ok(b) => b.1,
+                            Err(e) => {
+                                log_message(
+                                    &PeLogLevels::PeError,
+                                    format!("Failed to parse certificate from {}: {}", filename, e)
+                                        .as_str(),
+                                );
+                                return;
+                            }
+                        }
+                    } else {
+                        target
+                    };
+
                     // validate when validating all or we don't have a definitive answer yet
-                    validate_cert(
-                        &pe,
-                        &cps,
-                        filename.as_str(),
-                        target.as_slice(),
-                        stats_for_file,
-                        args,
-                    );
+                    validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
                 }
                 Err(e) => {
                     println!("Failed to read file at {} with {}", filename, e);

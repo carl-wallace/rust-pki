@@ -53,7 +53,7 @@ pub(crate) async fn validate_cert_file(
 ) {
     let time_of_interest = get_time_of_interest(cps);
 
-    let target = if let Ok(t) = get_file_as_byte_vec(Path::new(&cert_filename)) {
+    let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
         t
     } else {
         log_message(
@@ -63,7 +63,22 @@ pub(crate) async fn validate_cert_file(
         return;
     };
 
-    let parsed_cert = parse_cert(target.as_slice(), cert_filename);
+    let b = if target[0] != 0x30 {
+        match pem_rfc7468::decode_vec(target.as_slice()) {
+            Ok(b) => b.1,
+            Err(e) => {
+                log_message(
+                    &PeLogLevels::PeError,
+                    format!("Failed to parse certificate from {}: {}", cert_filename, e).as_str(),
+                );
+                return;
+            }
+        }
+    } else {
+        target
+    };
+
+    let parsed_cert = parse_cert(b.as_slice(), cert_filename);
     if let Some(target_cert) = parsed_cert {
         log_message(
             &PeLogLevels::PeInfo,
@@ -318,6 +333,8 @@ pub async fn generate(
         if let Some(cbor) = args.cbor.as_ref() {
             fs::write(cbor, graph.as_slice()).expect("Unable to write generated CBOR file");
         }
+    } else {
+        println!("Failed: {:?}", graph);
     }
     println!("Generation took {:?}", Instant::now() - start);
 }
@@ -367,7 +384,7 @@ pub fn cleanup_certs(
                         continue;
                     }
 
-                    let target = if let Ok(t) = get_file_as_byte_vec(path) {
+                    let target = if let Ok(t) = get_file_as_byte_vec_pem(path) {
                         t
                     } else {
                         vec![]
@@ -454,7 +471,7 @@ pub fn cleanup_certs(
 /// - Trust anchor is not valid at indicated time `t`
 #[cfg(feature = "std")]
 pub fn cleanup_tas(
-    pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment<'_>,
     tas_folder: &str,
     error_folder: &str,
     report_only: bool,
@@ -471,7 +488,7 @@ pub fn cleanup_tas(
                                 &PeLogLevels::PeInfo,
                                 format!("Recursing {}", path.display()).as_str(),
                             );
-                            cleanup_tas(pe, s, error_folder, report_only, t);
+                            cleanup_tas(_pe, s, error_folder, report_only, t);
                         }
                     }
                 } else {
@@ -486,7 +503,7 @@ pub fn cleanup_tas(
                         continue;
                     }
 
-                    let target = if let Ok(t) = get_file_as_byte_vec(e.path()) {
+                    let target = if let Ok(t) = get_file_as_byte_vec_pem(e.path()) {
                         t
                     } else {
                         vec![]
@@ -548,20 +565,15 @@ fn delete_or_move_file(error_folder: &str, path: &Path, filename: &str) {
                 format!("Failed to delete {} with {:?}", filename, e).as_str(),
             );
         }
-    } else {
-        match Path::new(error_folder).join(path).file_name() {
-            Some(new_filename) => {
-                // move file
-                let r = fs::rename(filename, new_filename);
-                if let Err(e) = r {
-                    println!("Failed to delete {} with {:?}", filename, e);
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!("Failed to delete {} with {:?}", filename, e).as_str(),
-                    );
-                }
-            }
-            None => {}
+    } else if let Some(new_filename) = Path::new(error_folder).join(path).file_name() {
+        // move file
+        let r = fs::rename(filename, new_filename);
+        if let Err(e) = r {
+            println!("Failed to delete {} with {:?}", filename, e);
+            log_message(
+                &PeLogLevels::PeError,
+                format!("Failed to delete {} with {:?}", filename, e).as_str(),
+            );
         }
     }
 }
