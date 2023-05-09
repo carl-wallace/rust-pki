@@ -465,52 +465,37 @@ pub fn check_extended_key_usage(
         } else {
             if let Some(target_ekus) = &target_ekus {
                 default_eku.clear();
-                for eku in target_ekus {
-                    default_eku.push(*eku);
-                }
+                default_eku.extend(target_ekus.iter());
             }
 
             &default_eku
         };
 
-        let mut ekus_from_path = BTreeSet::new();
-        for e in ekus_from_ta {
-            ekus_from_path.insert(e);
-        }
+        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().collect();
 
-        // for convenience, combine target into array with the intermediate CA certs
-        let mut v = cp.intermediates.clone();
-        v.push(cp.target);
+        let intermediates_and_target = cp.intermediates
+            .iter()
+            .chain(core::iter::once(&cp.target));
 
-        for ca_cert_ref in v.iter() {
+        for ca_cert_ref in intermediates_and_target {
             let ca_cert = ca_cert_ref.deref();
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
             if let Some(PDVExtension::ExtendedKeyUsage(eku_from_ca)) = pdv_ext {
-                if ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE)
-                    && !eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE)
-                {
-                    // replace any with all from cert
-                    ekus_from_path.remove(&ANY_EXTENDED_KEY_USAGE);
-                    for e in &eku_from_ca.0 {
-                        ekus_from_path.insert(e);
+                let any_in_path = ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE);
+                let any_in_ca = eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE);
+                match (any_in_path, any_in_ca) {
+                    (true, false) => {
+                        // replace any with all from cert
+                        ekus_from_path.remove(&ANY_EXTENDED_KEY_USAGE);
+                        ekus_from_path.extend(eku_from_ca.0.iter());
                     }
-                } else if ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE)
-                    && eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE)
-                {
-                    // add all from cert
-                    for e in &eku_from_ca.0 {
-                        ekus_from_path.insert(e);
+                    (true, true) => {
+                        // add all from cert
+                        ekus_from_path.extend(eku_from_ca.0.iter());
                     }
-                } else {
-                    // drop any that are not in the cert
-                    let mut attrs_to_delete = vec![];
-                    for e in &ekus_from_path {
-                        if !eku_from_ca.0.contains(e) {
-                            attrs_to_delete.push(<&ObjectIdentifier>::clone(e));
-                        }
-                    }
-                    for e in attrs_to_delete {
-                        ekus_from_path.remove(e);
+                    _ => {
+                        // drop any that are not in the cert
+                        ekus_from_path.retain(|e| eku_from_ca.0.contains(e));
                     }
                 }
 
@@ -534,30 +519,37 @@ pub fn check_extended_key_usage(
         }
     }
 
-    if let Some(ekus_from_config) = target_ekus {
-        // if the configured EKU list features any EKU, then we're done
-        if !ekus_from_config.contains(&ANY_EXTENDED_KEY_USAGE) {
-            //if the target cert does not have an EKU, then we're done
-            if let Some(PDVExtension::ExtendedKeyUsage(eku_from_target)) =
-                &cp.target.get_extension(&ID_CE_EXT_KEY_USAGE)?
-            {
-                // else, iterate over EKUs from the cert and make sure at least one matches config
-                for eku in &eku_from_target.0 {
-                    if ekus_from_config.contains(eku) || *eku == ANY_EXTENDED_KEY_USAGE {
-                        return Ok(());
-                    }
-                }
-                // if no match, fail
-                log_error_for_ca(
-                    cp.target,
-                    "extended key usage violation when processing target certificate",
-                );
-                set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
-                return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
-            }
+    let ekus_from_config = match target_ekus {
+        Some(e) => e, // We need to check configured EKU list
+        None => return Ok(()), // Otherwise we're done
+    };
+
+    // if the configured EKU list features any EKU, then we're done
+    if ekus_from_config.contains(&ANY_EXTENDED_KEY_USAGE) {
+        return Ok(());
+    }
+
+    // if the target cert does not have an EKU, then we're done
+    let eku_from_target = &cp.target.get_extension(&ID_CE_EXT_KEY_USAGE)?;
+    let eku_from_target = match eku_from_target {
+        Some(PDVExtension::ExtendedKeyUsage(e)) => e,
+        _ => return Ok(()),
+    };
+
+    // else, iterate over EKUs from the cert and make sure at least one matches config
+    for eku in &eku_from_target.0 {
+        if ekus_from_config.contains(eku) || *eku == ANY_EXTENDED_KEY_USAGE {
+            return Ok(());
         }
     }
-    Ok(())
+
+    // if no match, fail
+    log_error_for_ca(
+        cp.target,
+        "extended key usage violation when processing target certificate",
+    );
+    set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+    Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
 /// `check_critical_extensions` affirms all critical extensions in the certificates that comprise a certification
