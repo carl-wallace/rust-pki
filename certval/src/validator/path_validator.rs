@@ -274,16 +274,8 @@ pub fn check_names<'a>(
     let certs_in_cert_path = v.len();
 
     let mut perm_names_set = initial_perm.is_some();
-    let mut permitted_subtrees = if let Some(perm) = initial_perm {
-        perm
-    } else {
-        NameConstraintsSet::default()
-    };
-    let mut excluded_subtrees = if let Some(excl) = initial_excl {
-        excl
-    } else {
-        NameConstraintsSet::default()
-    };
+    let mut permitted_subtrees = initial_perm.unwrap_or_default();
+    let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
     let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?;
 
