@@ -77,6 +77,11 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
             TrustAnchorChoice::Certificate(c) => &c.tbs_certificate.extensions,
             TrustAnchorChoice::TaInfo(tai) => {
                 if let Some(cp) = &tai.cert_path {
+                    // TODO Support all TrustAnchorInfo overrides
+                    // TrustAnchorInfo may override some extensions per RFC 5914.
+                    // This includes the TAI fields policySet, policyFlags,
+                    // nameConstr, pathLenConstraint, and ext.
+                    // Seems we're currently only using nameConstr and policySet here.
                     if *oid == ID_CE_NAME_CONSTRAINTS {
                         if let Some(nc) = &cp.name_constr {
                             let ext = PDVExtension::NameConstraints(nc.clone());
