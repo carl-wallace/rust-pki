@@ -394,16 +394,18 @@ pub fn check_key_usage<'a>(
     add_processed_extension(cpr, ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
-        if let Some(PDVExtension::KeyUsage(ku)) = pdv_ext {
-            // (n)  If a key usage extension is present, verify that the
-            //      keyCertSign bit is set.
-            if !ku.0.contains(KeyUsages::KeyCertSign) {
-                log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
+        let ku = match pdv_ext {
+            Some(PDVExtension::KeyUsage(ku)) => ku,
+            _ => {
+                log_error_for_ca(ca_cert, "key usage extension is missing");
                 set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
                 return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
             }
-        } else {
-            log_error_for_ca(ca_cert, "key usage extension is missing");
+        };
+        // (n)  If a key usage extension is present, verify that the
+        //      keyCertSign bit is set.
+        if !ku.0.contains(KeyUsages::KeyCertSign) {
+            log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
             set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
             return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
         }
