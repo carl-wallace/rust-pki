@@ -147,39 +147,38 @@ pub fn check_basic_constraints(
         // }
 
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_BASIC_CONSTRAINTS)?;
-        if let Some(PDVExtension::BasicConstraints(bc)) = pdv_ext {
-            // (k)  If certificate i is a version 3 certificate, verify that the
-            //       basicConstraints extension is present and that cA is set to
-            //       TRUE.  (If certificate i is a version 1 or version 2
-            //       certificate, then the application MUST either verify that
-            //       certificate i is a CA certificate through out-of-band means
-            //       or reject the certificate.  Conforming implementations may
-            //       choose to reject all version 1 and version 2 intermediate
-            //       certificates.)
-            if !bc.ca {
-                log_error_for_ca(ca_cert, "invalid basic constraints");
-                set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
+        let bc = match pdv_ext {
+            Some(PDVExtension::BasicConstraints(bc)) => bc,
+            _ => {
+                log_error_for_ca(ca_cert, "missing basic constraints");
+                set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
                 return Err(Error::PathValidation(
-                    PathValidationStatus::InvalidBasicConstraints,
+                        PathValidationStatus::MissingBasicConstraints,
                 ));
             }
+        };
 
-            if let Some(pl) = bc.path_len_constraint {
-                // (m)  If pathLenConstraint is present in the certificate and is
-                //       less than max_path_length, set max_path_length to the value
-                //       of pathLenConstraint.
-                path_len_constraint = if path_len_constraint > pl {
-                    pl
-                } else {
-                    path_len_constraint
-                }
-            }
-        } else {
-            log_error_for_ca(ca_cert, "missing basic constraints");
-            set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
+        // (k)  If certificate i is a version 3 certificate, verify that the
+        //       basicConstraints extension is present and that cA is set to
+        //       TRUE.  (If certificate i is a version 1 or version 2
+        //       certificate, then the application MUST either verify that
+        //       certificate i is a CA certificate through out-of-band means
+        //       or reject the certificate.  Conforming implementations may
+        //       choose to reject all version 1 and version 2 intermediate
+        //       certificates.)
+        if !bc.ca {
+            log_error_for_ca(ca_cert, "invalid basic constraints");
+            set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
             return Err(Error::PathValidation(
-                PathValidationStatus::MissingBasicConstraints,
+                PathValidationStatus::InvalidBasicConstraints,
             ));
+        }
+
+        if let Some(pl) = bc.path_len_constraint {
+            // (m)  If pathLenConstraint is present in the certificate and is
+            //       less than max_path_length, set max_path_length to the value
+            //       of pathLenConstraint.
+            path_len_constraint = path_len_constraint.min(pl);
         }
     }
 
