@@ -204,35 +204,32 @@ pub fn check_validity(
         return Ok(());
     }
 
+    let mut is_valid = |time_check_res: Result<u64>| -> Result<()> {
+        match time_check_res {
+            Err(e @ Error::PathValidation(pvs)) => {
+                set_validation_status(cpr, pvs);
+                Err(e)
+            }
+            Err(e) => Err(e),
+            Ok(_) => Ok(()),
+        }
+    };
+
     let target = &cp.target;
     let target_ttl = valid_at_time(&target.decoded_cert.tbs_certificate, toi, false);
-    if let Err(e) = target_ttl {
-        if let Error::PathValidation(pvs) = e {
-            set_validation_status(cpr, pvs);
-        }
-        return Err(e);
-    }
+    is_valid(target_ttl)?;
 
     for ca_cert in cp.intermediates.iter() {
         let ca_ttl = valid_at_time(&ca_cert.decoded_cert.tbs_certificate, toi, false);
-        if let Err(e) = ca_ttl {
-            if let Error::PathValidation(pvs) = e {
-                set_validation_status(cpr, pvs);
-            }
-            return Err(e);
-        }
+        is_valid(ca_ttl)?;
     }
 
     if get_enforce_trust_anchor_validity(cps) {
         // Check TA validity if feature is on (it's on by default) but if the TA does not feature a
         // validity, i.e., if it's a TA Info without a certificate, just carry on.
 
-        if let Err(e) = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false) {
-            if let Error::PathValidation(pvs) = e {
-                set_validation_status(cpr, pvs);
-            }
-            return Err(e);
-        }
+        let ta_ttl = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false);
+        is_valid(ta_ttl)?;
     }
 
     Ok(())
