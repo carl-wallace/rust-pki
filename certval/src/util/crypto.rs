@@ -242,7 +242,7 @@ fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<Object
 /// verify_signature_digest_rust_crypto implements the [`VerifySignatureMessage`](../certval/pki_environment_traits/type.VerifySignatureMessage.html) interface for [`PkiEnvironment`] using
 /// implementations from the [Rust Crypto](https://github.com/RustCrypto) project.
 ///
-/// RSA signatures and P256 signatures are supported at present.
+/// RSA, P256, and P384 signatures are supported at present.
 pub fn verify_signature_message_rust_crypto(
     pe: &PkiEnvironment<'_>,
     message_to_verify: &[u8],                 // buffer to verify
@@ -258,69 +258,55 @@ pub fn verify_signature_message_rust_crypto(
                 let hash_alg = get_hash_alg_from_sig_alg(&signature_alg.oid)?;
                 let hash_to_verify = calculate_hash_rust_crypto(pe, &hash_alg, message_to_verify)?;
                 let ps = get_padding_scheme(signature_alg)?;
-                let x = rsa.verify(ps, hash_to_verify.as_slice(), signature);
-                match x {
-                    Ok(x) => {
-                        return Ok(x);
-                    }
-                    Err(_x) => {
-                        return Err(Error::PathValidation(
-                            PathValidationStatus::SignatureVerificationFailure,
-                        ));
-                    }
-                }
+                return rsa.verify(ps, hash_to_verify.as_slice(), signature)
+                    .map_err(|_err| Error::PathValidation(
+                        PathValidationStatus::SignatureVerificationFailure,
+                    ));
             }
         }
     } else if is_ecdsa(&signature_alg.oid) {
         let named_curve = get_named_curve_parameter(&spki.algorithm)?;
 
-        match named_curve {
+        macro_rules! verify_with_ecdsa {
+            ($crypto_root:ident) => {{
+                use ::$crypto_root::ecdsa;
+                use ::ecdsa::signature::Verifier;
+                let verifying_key = ecdsa::VerifyingKey::from_sec1_bytes(spki.subject_public_key.raw_bytes())
+                    .map_err(|_err| {
+                        log_message(
+                            &PeLogLevels::PeError,
+                            "Could not decode verifying key",
+                        );
+                        Error::PathValidation(PathValidationStatus::EncodingError)
+                    })?;
+                let s = ecdsa::Signature::from_der(signature)
+                    .map_err(|_err| {
+                        log_message(
+                            &PeLogLevels::PeError,
+                            "Could not decode signature",
+                        );
+                        Error::PathValidation(PathValidationStatus::EncodingError)
+                    })?;
+                verifying_key.verify(message_to_verify, &s)
+                    .map_err(|_err| Error::PathValidation(
+                        PathValidationStatus::SignatureVerificationFailure,
+                    ))
+            }}
+        }
+
+        return match named_curve {
             PKIXALG_SECP256R1 => {
-                use p256::ecdsa::signature::Verifier;
-                let ecdsa = VerifyingKey256::from_sec1_bytes(spki.subject_public_key.raw_bytes());
-                if let Ok(ecdsa) = ecdsa {
-                    let s = Signature256::from_der(signature);
-                    if let Ok(s) = s {
-                        let x = ecdsa.verify(message_to_verify, &s);
-                        match x {
-                            Ok(x) => {
-                                return Ok(x);
-                            }
-                            Err(_x) => {
-                                return Err(Error::PathValidation(
-                                    PathValidationStatus::SignatureVerificationFailure,
-                                ));
-                            }
-                        }
-                    }
-                }
+                verify_with_ecdsa!(p256)
             }
             PKIXALG_SECP384R1 => {
-                use p384::ecdsa::signature::Verifier;
-                let ecdsa = VerifyingKey384::from_sec1_bytes(spki.subject_public_key.raw_bytes());
-                if let Ok(ecdsa) = ecdsa {
-                    let s = Signature384::from_der(signature);
-                    if let Ok(s) = s {
-                        let x = ecdsa.verify(message_to_verify, &s);
-                        match x {
-                            Ok(x) => {
-                                return Ok(x);
-                            }
-                            Err(_x) => {
-                                return Err(Error::PathValidation(
-                                    PathValidationStatus::SignatureVerificationFailure,
-                                ));
-                            }
-                        }
-                    }
-                }
+                verify_with_ecdsa!(p384)
             }
             _ => {
                 log_message(
                     &PeLogLevels::PeError,
                     format!("Unrecognized or unsupported named curve: {}", named_curve).as_str(),
                 );
-                return Err(Error::Unrecognized);
+                Err(Error::Unrecognized)
             }
         }
     }
