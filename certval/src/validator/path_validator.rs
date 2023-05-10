@@ -758,14 +758,14 @@ pub fn verify_signatures(
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
-    // for convenience, combine target into array with the intermediate CA certs
-    let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    let intermediates_and_target = cp.intermediates
+        .iter()
+        .chain(core::iter::once(&cp.target));
 
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
 
-    for cur_cert_ref in v.iter() {
+    for cur_cert_ref in intermediates_and_target {
         let cur_cert = cur_cert_ref.deref();
 
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
