@@ -6,8 +6,6 @@ use alloc::{format, vec::Vec};
 #[cfg(feature = "pqc")]
 use der::Decode;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
-use p256::ecdsa::{Signature as Signature256, VerifyingKey as VerifyingKey256};
-use p384::ecdsa::{Signature as Signature384, VerifyingKey as VerifyingKey384};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::{hash::Hash, PaddingScheme, PublicKey, RsaPublicKey};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};

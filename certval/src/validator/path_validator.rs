@@ -13,7 +13,7 @@ use crate::{
     path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name, util::error::*, util::pdv_utilities::*,
     validator::pdv_trust_anchor::PDVTrustAnchorChoice, validator::policy_utilities::*,
-    CertificationPath, NameConstraintsSet,
+    CertificationPath
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
