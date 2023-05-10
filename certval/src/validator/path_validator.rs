@@ -566,13 +566,14 @@ pub fn check_critical_extensions(
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
-    for ca_cert in &cp.intermediates {
-        if let Some(exts) = &ca_cert.decoded_cert.tbs_certificate.extensions {
+
+    let mut ensure_criticals_processed = |cert: &PDVCertificate<'_>, err_str: &'static str| -> Result<()> {
+        if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
             for ext in exts {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
                     log_error_for_ca(
-                        ca_cert,
-                        format!("unprocessed critical extension: {}", ext.extn_id).as_str(),
+                        cert,
+                        format!("{}: {}", err_str, ext.extn_id).as_str(),
                     );
                     set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
                     return Err(Error::PathValidation(
@@ -581,26 +582,13 @@ pub fn check_critical_extensions(
                 }
             }
         }
-    }
+        Ok(())
+    };
 
-    if let Some(exts) = &cp.target.decoded_cert.tbs_certificate.extensions {
-        for ext in exts {
-            if ext.critical && !processed_exts.contains(&ext.extn_id) {
-                log_error_for_ca(
-                    cp.target,
-                    format!(
-                        "unprocessed critical extension in target certificate: {}",
-                        ext.extn_id
-                    )
-                    .as_str(),
-                );
-                set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
-                return Err(Error::PathValidation(
-                    PathValidationStatus::UnprocessedCriticalExtension,
-                ));
-            }
-        }
+    for ca_cert in &cp.intermediates {
+        ensure_criticals_processed(ca_cert, "unprocessed critical extension")?;
     }
+    ensure_criticals_processed(cp.target, "unprocessed critical extension in target certificate")?;
 
     Ok(())
 }
