@@ -796,24 +796,36 @@ pub fn verify_signatures(
         let cur_cert = cur_cert_ref.deref();
 
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
-        if let Ok(defer_cert) = defer_cert {
-            let r = pe.verify_signature_message(
-                pe,
-                defer_cert.tbs_field,
-                cur_cert.decoded_cert.signature.raw_bytes(),
-                &cur_cert.decoded_cert.tbs_certificate.signature,
-                working_spki,
-            );
-            if let Err(e) = r {
+        let defer_cert = match defer_cert {
+            Ok(c) => c,
+            Err(e) => {
                 log_error_for_ca(
                     cur_cert,
                     format!("signature verification error: {:?}", e).as_str(),
                 );
-                set_validation_status(cpr, PathValidationStatus::SignatureVerificationFailure);
+                set_validation_status(cpr, PathValidationStatus::EncodingError);
                 return Err(Error::PathValidation(
-                    PathValidationStatus::SignatureVerificationFailure,
+                    PathValidationStatus::EncodingError,
                 ));
             }
+        };
+
+        let r = pe.verify_signature_message(
+            pe,
+            defer_cert.tbs_field,
+            cur_cert.decoded_cert.signature.raw_bytes(),
+            &cur_cert.decoded_cert.tbs_certificate.signature,
+            working_spki,
+        );
+        if let Err(e) = r {
+            log_error_for_ca(
+                cur_cert,
+                format!("signature verification error: {:?}", e).as_str(),
+            );
+            set_validation_status(cpr, PathValidationStatus::SignatureVerificationFailure);
+            return Err(Error::PathValidation(
+                PathValidationStatus::SignatureVerificationFailure,
+            ));
         }
 
         working_spki = &cur_cert
