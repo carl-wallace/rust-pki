@@ -13,7 +13,7 @@ use crate::{
     path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name, util::error::*, util::pdv_utilities::*,
     validator::pdv_trust_anchor::PDVTrustAnchorChoice, validator::policy_utilities::*,
-    CertificationPath, NameConstraintsSet,
+    CertificationPath
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
@@ -147,39 +147,38 @@ pub fn check_basic_constraints(
         // }
 
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_BASIC_CONSTRAINTS)?;
-        if let Some(PDVExtension::BasicConstraints(bc)) = pdv_ext {
-            // (k)  If certificate i is a version 3 certificate, verify that the
-            //       basicConstraints extension is present and that cA is set to
-            //       TRUE.  (If certificate i is a version 1 or version 2
-            //       certificate, then the application MUST either verify that
-            //       certificate i is a CA certificate through out-of-band means
-            //       or reject the certificate.  Conforming implementations may
-            //       choose to reject all version 1 and version 2 intermediate
-            //       certificates.)
-            if !bc.ca {
-                log_error_for_ca(ca_cert, "invalid basic constraints");
-                set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
+        let bc = match pdv_ext {
+            Some(PDVExtension::BasicConstraints(bc)) => bc,
+            _ => {
+                log_error_for_ca(ca_cert, "missing basic constraints");
+                set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
                 return Err(Error::PathValidation(
-                    PathValidationStatus::InvalidBasicConstraints,
+                        PathValidationStatus::MissingBasicConstraints,
                 ));
             }
+        };
 
-            if let Some(pl) = bc.path_len_constraint {
-                // (m)  If pathLenConstraint is present in the certificate and is
-                //       less than max_path_length, set max_path_length to the value
-                //       of pathLenConstraint.
-                path_len_constraint = if path_len_constraint > pl {
-                    pl
-                } else {
-                    path_len_constraint
-                }
-            }
-        } else {
-            log_error_for_ca(ca_cert, "missing basic constraints");
-            set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
+        // (k)  If certificate i is a version 3 certificate, verify that the
+        //       basicConstraints extension is present and that cA is set to
+        //       TRUE.  (If certificate i is a version 1 or version 2
+        //       certificate, then the application MUST either verify that
+        //       certificate i is a CA certificate through out-of-band means
+        //       or reject the certificate.  Conforming implementations may
+        //       choose to reject all version 1 and version 2 intermediate
+        //       certificates.)
+        if !bc.ca {
+            log_error_for_ca(ca_cert, "invalid basic constraints");
+            set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
             return Err(Error::PathValidation(
-                PathValidationStatus::MissingBasicConstraints,
+                PathValidationStatus::InvalidBasicConstraints,
             ));
+        }
+
+        if let Some(pl) = bc.path_len_constraint {
+            // (m)  If pathLenConstraint is present in the certificate and is
+            //       less than max_path_length, set max_path_length to the value
+            //       of pathLenConstraint.
+            path_len_constraint = path_len_constraint.min(pl);
         }
     }
 
@@ -205,35 +204,32 @@ pub fn check_validity(
         return Ok(());
     }
 
+    let mut is_valid = |time_check_res: Result<u64>| -> Result<()> {
+        match time_check_res {
+            Err(e @ Error::PathValidation(pvs)) => {
+                set_validation_status(cpr, pvs);
+                Err(e)
+            }
+            Err(e) => Err(e),
+            Ok(_) => Ok(()),
+        }
+    };
+
     let target = &cp.target;
     let target_ttl = valid_at_time(&target.decoded_cert.tbs_certificate, toi, false);
-    if let Err(e) = target_ttl {
-        if let Error::PathValidation(pvs) = e {
-            set_validation_status(cpr, pvs);
-        }
-        return Err(e);
-    }
+    is_valid(target_ttl)?;
 
     for ca_cert in cp.intermediates.iter() {
         let ca_ttl = valid_at_time(&ca_cert.decoded_cert.tbs_certificate, toi, false);
-        if let Err(e) = ca_ttl {
-            if let Error::PathValidation(pvs) = e {
-                set_validation_status(cpr, pvs);
-            }
-            return Err(e);
-        }
+        is_valid(ca_ttl)?;
     }
 
     if get_enforce_trust_anchor_validity(cps) {
         // Check TA validity if feature is on (it's on by default) but if the TA does not feature a
         // validity, i.e., if it's a TA Info without a certificate, just carry on.
 
-        if let Err(e) = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false) {
-            if let Error::PathValidation(pvs) = e {
-                set_validation_status(cpr, pvs);
-            }
-            return Err(e);
-        }
+        let ta_ttl = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false);
+        is_valid(ta_ttl)?;
     }
 
     Ok(())
@@ -275,16 +271,8 @@ pub fn check_names<'a>(
     let certs_in_cert_path = v.len();
 
     let mut perm_names_set = initial_perm.is_some();
-    let mut permitted_subtrees = if let Some(perm) = initial_perm {
-        perm
-    } else {
-        NameConstraintsSet::default()
-    };
-    let mut excluded_subtrees = if let Some(excl) = initial_excl {
-        excl
-    } else {
-        NameConstraintsSet::default()
-    };
+    let mut permitted_subtrees = initial_perm.unwrap_or_default();
+    let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
     let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?;
 
@@ -403,16 +391,18 @@ pub fn check_key_usage<'a>(
     add_processed_extension(cpr, ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
-        if let Some(PDVExtension::KeyUsage(ku)) = pdv_ext {
-            // (n)  If a key usage extension is present, verify that the
-            //      keyCertSign bit is set.
-            if !ku.0.contains(KeyUsages::KeyCertSign) {
-                log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
+        let ku = match pdv_ext {
+            Some(PDVExtension::KeyUsage(ku)) => ku,
+            _ => {
+                log_error_for_ca(ca_cert, "key usage extension is missing");
                 set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
                 return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
             }
-        } else {
-            log_error_for_ca(ca_cert, "key usage extension is missing");
+        };
+        // (n)  If a key usage extension is present, verify that the
+        //      keyCertSign bit is set.
+        if !ku.0.contains(KeyUsages::KeyCertSign) {
+            log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
             set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
             return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
         }
@@ -472,52 +462,37 @@ pub fn check_extended_key_usage(
         } else {
             if let Some(target_ekus) = &target_ekus {
                 default_eku.clear();
-                for eku in target_ekus {
-                    default_eku.push(*eku);
-                }
+                default_eku.extend(target_ekus.iter());
             }
 
             &default_eku
         };
 
-        let mut ekus_from_path = BTreeSet::new();
-        for e in ekus_from_ta {
-            ekus_from_path.insert(e);
-        }
+        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().collect();
 
-        // for convenience, combine target into array with the intermediate CA certs
-        let mut v = cp.intermediates.clone();
-        v.push(cp.target);
+        let intermediates_and_target = cp.intermediates
+            .iter()
+            .chain(core::iter::once(&cp.target));
 
-        for ca_cert_ref in v.iter() {
+        for ca_cert_ref in intermediates_and_target {
             let ca_cert = ca_cert_ref.deref();
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
             if let Some(PDVExtension::ExtendedKeyUsage(eku_from_ca)) = pdv_ext {
-                if ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE)
-                    && !eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE)
-                {
-                    // replace any with all from cert
-                    ekus_from_path.remove(&ANY_EXTENDED_KEY_USAGE);
-                    for e in &eku_from_ca.0 {
-                        ekus_from_path.insert(e);
+                let any_in_path = ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE);
+                let any_in_ca = eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE);
+                match (any_in_path, any_in_ca) {
+                    (true, false) => {
+                        // replace any with all from cert
+                        ekus_from_path.remove(&ANY_EXTENDED_KEY_USAGE);
+                        ekus_from_path.extend(eku_from_ca.0.iter());
                     }
-                } else if ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE)
-                    && eku_from_ca.0.contains(&ANY_EXTENDED_KEY_USAGE)
-                {
-                    // add all from cert
-                    for e in &eku_from_ca.0 {
-                        ekus_from_path.insert(e);
+                    (true, true) => {
+                        // add all from cert
+                        ekus_from_path.extend(eku_from_ca.0.iter());
                     }
-                } else {
-                    // drop any that are not in the cert
-                    let mut attrs_to_delete = vec![];
-                    for e in &ekus_from_path {
-                        if !eku_from_ca.0.contains(e) {
-                            attrs_to_delete.push(<&ObjectIdentifier>::clone(e));
-                        }
-                    }
-                    for e in attrs_to_delete {
-                        ekus_from_path.remove(e);
+                    _ => {
+                        // drop any that are not in the cert
+                        ekus_from_path.retain(|e| eku_from_ca.0.contains(e));
                     }
                 }
 
@@ -541,30 +516,37 @@ pub fn check_extended_key_usage(
         }
     }
 
-    if let Some(ekus_from_config) = target_ekus {
-        // if the configured EKU list features any EKU, then we're done
-        if !ekus_from_config.contains(&ANY_EXTENDED_KEY_USAGE) {
-            //if the target cert does not have an EKU, then we're done
-            if let Some(PDVExtension::ExtendedKeyUsage(eku_from_target)) =
-                &cp.target.get_extension(&ID_CE_EXT_KEY_USAGE)?
-            {
-                // else, iterate over EKUs from the cert and make sure at least one matches config
-                for eku in &eku_from_target.0 {
-                    if ekus_from_config.contains(eku) || *eku == ANY_EXTENDED_KEY_USAGE {
-                        return Ok(());
-                    }
-                }
-                // if no match, fail
-                log_error_for_ca(
-                    cp.target,
-                    "extended key usage violation when processing target certificate",
-                );
-                set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
-                return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
-            }
+    let ekus_from_config = match target_ekus {
+        Some(e) => e, // We need to check configured EKU list
+        None => return Ok(()), // Otherwise we're done
+    };
+
+    // if the configured EKU list features any EKU, then we're done
+    if ekus_from_config.contains(&ANY_EXTENDED_KEY_USAGE) {
+        return Ok(());
+    }
+
+    // if the target cert does not have an EKU, then we're done
+    let eku_from_target = &cp.target.get_extension(&ID_CE_EXT_KEY_USAGE)?;
+    let eku_from_target = match eku_from_target {
+        Some(PDVExtension::ExtendedKeyUsage(e)) => e,
+        _ => return Ok(()),
+    };
+
+    // else, iterate over EKUs from the cert and make sure at least one matches config
+    for eku in &eku_from_target.0 {
+        if ekus_from_config.contains(eku) || *eku == ANY_EXTENDED_KEY_USAGE {
+            return Ok(());
         }
     }
-    Ok(())
+
+    // if no match, fail
+    log_error_for_ca(
+        cp.target,
+        "extended key usage violation when processing target certificate",
+    );
+    set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+    Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
 /// `check_critical_extensions` affirms all critical extensions in the certificates that comprise a certification
@@ -581,13 +563,14 @@ pub fn check_critical_extensions(
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
-    for ca_cert in &cp.intermediates {
-        if let Some(exts) = &ca_cert.decoded_cert.tbs_certificate.extensions {
+
+    let mut ensure_criticals_processed = |cert: &PDVCertificate<'_>, err_str: &'static str| -> Result<()> {
+        if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
             for ext in exts {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
                     log_error_for_ca(
-                        ca_cert,
-                        format!("unprocessed critical extension: {}", ext.extn_id).as_str(),
+                        cert,
+                        format!("{}: {}", err_str, ext.extn_id).as_str(),
                     );
                     set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
                     return Err(Error::PathValidation(
@@ -596,26 +579,13 @@ pub fn check_critical_extensions(
                 }
             }
         }
-    }
+        Ok(())
+    };
 
-    if let Some(exts) = &cp.target.decoded_cert.tbs_certificate.extensions {
-        for ext in exts {
-            if ext.critical && !processed_exts.contains(&ext.extn_id) {
-                log_error_for_ca(
-                    cp.target,
-                    format!(
-                        "unprocessed critical extension in target certificate: {}",
-                        ext.extn_id
-                    )
-                    .as_str(),
-                );
-                set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
-                return Err(Error::PathValidation(
-                    PathValidationStatus::UnprocessedCriticalExtension,
-                ));
-            }
-        }
+    for ca_cert in &cp.intermediates {
+        ensure_criticals_processed(ca_cert, "unprocessed critical extension")?;
     }
+    ensure_criticals_processed(cp.target, "unprocessed critical extension in target certificate")?;
 
     Ok(())
 }
@@ -785,14 +755,14 @@ pub fn verify_signatures(
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
-    // for convenience, combine target into array with the intermediate CA certs
-    let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    let intermediates_and_target = cp.intermediates
+        .iter()
+        .chain(core::iter::once(&cp.target));
 
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
 
-    for cur_cert_ref in v.iter() {
+    for cur_cert_ref in intermediates_and_target {
         let cur_cert = cur_cert_ref.deref();
 
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
