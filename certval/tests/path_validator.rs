@@ -8,6 +8,27 @@ use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::*;
 
 #[test]
+fn prehash_required() {
+    let enc_ca_cert = include_bytes!("examples/prehash_ca.der");
+    let ca_cert = Certificate::from_der(enc_ca_cert).unwrap();
+    let enc_target_cert = include_bytes!("examples/prehash_target.der");
+    match DeferDecodeSigned::from_der(enc_target_cert) {
+        Ok(parts) => {
+            let pe = PkiEnvironment::new();
+            verify_signature_message_rust_crypto(
+                &pe,
+                parts.tbs_field,
+                parts.signature.raw_bytes(),
+                &parts.signature_algorithm,
+                &ca_cert.tbs_certificate.subject_public_key_info,
+            )
+            .unwrap();
+        }
+        Err(_) => panic!(),
+    }
+}
+
+#[test]
 fn signed_data_parse_test1() {
     use der::Encode;
     let der_encoded_sd = include_bytes!("examples/caCertsIssuedTofbcag4.p7c");

@@ -13,7 +13,7 @@ use crate::{
     path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name, util::error::*, util::pdv_utilities::*,
     validator::pdv_trust_anchor::PDVTrustAnchorChoice, validator::policy_utilities::*,
-    CertificationPath
+    CertificationPath,
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
@@ -153,7 +153,7 @@ pub fn check_basic_constraints(
                 log_error_for_ca(ca_cert, "missing basic constraints");
                 set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
                 return Err(Error::PathValidation(
-                        PathValidationStatus::MissingBasicConstraints,
+                    PathValidationStatus::MissingBasicConstraints,
                 ));
             }
         };
@@ -470,9 +470,7 @@ pub fn check_extended_key_usage(
 
         let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().collect();
 
-        let intermediates_and_target = cp.intermediates
-            .iter()
-            .chain(core::iter::once(&cp.target));
+        let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
         for ca_cert_ref in intermediates_and_target {
             let ca_cert = ca_cert_ref.deref();
@@ -517,7 +515,7 @@ pub fn check_extended_key_usage(
     }
 
     let ekus_from_config = match target_ekus {
-        Some(e) => e, // We need to check configured EKU list
+        Some(e) => e,          // We need to check configured EKU list
         None => return Ok(()), // Otherwise we're done
     };
 
@@ -564,14 +562,13 @@ pub fn check_critical_extensions(
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
 
-    let mut ensure_criticals_processed = |cert: &PDVCertificate<'_>, err_str: &'static str| -> Result<()> {
+    let mut ensure_criticals_processed = |cert: &PDVCertificate<'_>,
+                                          err_str: &'static str|
+     -> Result<()> {
         if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
             for ext in exts {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
-                    log_error_for_ca(
-                        cert,
-                        format!("{}: {}", err_str, ext.extn_id).as_str(),
-                    );
+                    log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
                     set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
                     return Err(Error::PathValidation(
                         PathValidationStatus::UnprocessedCriticalExtension,
@@ -585,7 +582,10 @@ pub fn check_critical_extensions(
     for ca_cert in &cp.intermediates {
         ensure_criticals_processed(ca_cert, "unprocessed critical extension")?;
     }
-    ensure_criticals_processed(cp.target, "unprocessed critical extension in target certificate")?;
+    ensure_criticals_processed(
+        cp.target,
+        "unprocessed critical extension in target certificate",
+    )?;
 
     Ok(())
 }
@@ -755,9 +755,7 @@ pub fn verify_signatures(
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
-    let intermediates_and_target = cp.intermediates
-        .iter()
-        .chain(core::iter::once(&cp.target));
+    let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
@@ -774,9 +772,7 @@ pub fn verify_signatures(
                     format!("signature verification error: {:?}", e).as_str(),
                 );
                 set_validation_status(cpr, PathValidationStatus::EncodingError);
-                return Err(Error::PathValidation(
-                    PathValidationStatus::EncodingError,
-                ));
+                return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             }
         };
 

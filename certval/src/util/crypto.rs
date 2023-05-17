@@ -256,40 +256,50 @@ pub fn verify_signature_message_rust_crypto(
                 let hash_alg = get_hash_alg_from_sig_alg(&signature_alg.oid)?;
                 let hash_to_verify = calculate_hash_rust_crypto(pe, &hash_alg, message_to_verify)?;
                 let ps = get_padding_scheme(signature_alg)?;
-                return rsa.verify(ps, hash_to_verify.as_slice(), signature)
-                    .map_err(|_err| Error::PathValidation(
-                        PathValidationStatus::SignatureVerificationFailure,
-                    ));
+                return rsa
+                    .verify(ps, hash_to_verify.as_slice(), signature)
+                    .map_err(|_err| {
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    });
             }
         }
     } else if is_ecdsa(&signature_alg.oid) {
         let named_curve = get_named_curve_parameter(&spki.algorithm)?;
-
+        let hash_to_verify = match signature_alg.oid {
+            PKIXALG_ECDSA_WITH_SHA256 => Sha256::digest(message_to_verify).to_vec(),
+            PKIXALG_ECDSA_WITH_SHA384 => Sha384::digest(message_to_verify).to_vec(),
+            _ => {
+                log_message(
+                    &PeLogLevels::PeError,
+                    format!(
+                        "Unrecognized or unsupported signature algorithm: {}",
+                        signature_alg.oid
+                    )
+                    .as_str(),
+                );
+                return Err(Error::Unrecognized);
+            }
+        };
         macro_rules! verify_with_ecdsa {
             ($crypto_root:ident) => {{
+                use ::ecdsa::signature::hazmat::PrehashVerifier;
                 use ::$crypto_root::ecdsa;
-                use ::ecdsa::signature::Verifier;
-                let verifying_key = ecdsa::VerifyingKey::from_sec1_bytes(spki.subject_public_key.raw_bytes())
+                let verifying_key =
+                    ecdsa::VerifyingKey::from_sec1_bytes(spki.subject_public_key.raw_bytes())
+                        .map_err(|_err| {
+                            log_message(&PeLogLevels::PeError, "Could not decode verifying key");
+                            Error::PathValidation(PathValidationStatus::EncodingError)
+                        })?;
+                let s = ecdsa::Signature::from_der(signature).map_err(|_err| {
+                    log_message(&PeLogLevels::PeError, "Could not decode signature");
+                    Error::PathValidation(PathValidationStatus::EncodingError)
+                })?;
+                verifying_key
+                    .verify_prehash(&hash_to_verify, &s)
                     .map_err(|_err| {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            "Could not decode verifying key",
-                        );
-                        Error::PathValidation(PathValidationStatus::EncodingError)
-                    })?;
-                let s = ecdsa::Signature::from_der(signature)
-                    .map_err(|_err| {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            "Could not decode signature",
-                        );
-                        Error::PathValidation(PathValidationStatus::EncodingError)
-                    })?;
-                verifying_key.verify(message_to_verify, &s)
-                    .map_err(|_err| Error::PathValidation(
-                        PathValidationStatus::SignatureVerificationFailure,
-                    ))
-            }}
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    })
+            }};
         }
 
         return match named_curve {
@@ -306,7 +316,7 @@ pub fn verify_signature_message_rust_crypto(
                 );
                 Err(Error::Unrecognized)
             }
-        }
+        };
     }
     log_message(
         &PeLogLevels::PeDebug,
