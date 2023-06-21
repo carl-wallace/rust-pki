@@ -350,7 +350,8 @@ pub async fn options_std(args: &Pittv3Args) {
                 let p = Path::new(&download_folder);
                 let fname = format!("{}.der", index);
                 let f = p.join(fname);
-                fs::write(f, cert.encoded_cert).expect("Unable to write certificate file");
+                fs::write(f, cert.encoded_cert.as_slice())
+                    .expect("Unable to write certificate file");
             } else {
                 println!("Requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file");
                 return;
@@ -592,7 +593,7 @@ pub async fn options_std(args: &Pittv3Args) {
 /// then downloading fresh artifacts, updating the buffers and partial paths and trying again until no
 /// further options are available.
 #[cfg(feature = "std")]
-async fn generate_and_validate(ta_source: &TaSource<'_>, args: &Pittv3Args) {
+async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
     // The CBOR file is required (but can be an empty file if doing dynamic building only)
     let cbor_file = if let Some(cbor) = &args.cbor {
         cbor

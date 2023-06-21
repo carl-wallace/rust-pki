@@ -99,7 +99,7 @@ pub async fn build_graph(
 
         loop {
             {
-                let mut tmp_vec: Vec<Option<PDVCertificate<'_>>> = vec![];
+                let mut tmp_vec: Vec<Option<PDVCertificate>> = vec![];
                 let r =
                     populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut tmp_vec);
                 if let Err(e) = r {

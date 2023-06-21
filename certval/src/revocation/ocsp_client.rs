@@ -342,7 +342,7 @@ pub async fn send_ocsp_request<'a>(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     uri_to_check: &str,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     issuers_cert: &Certificate,
     cpr: &'a mut CertificationPathResults<'_>,
     result_index: usize,
@@ -438,7 +438,7 @@ pub fn process_ocsp_response(
     issuers_cert: &Certificate,
     result_index: usize,
     uri_to_check: &str,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
 ) -> Result<()> {
     let key_hash = get_key_hash(issuers_cert)?;
     let name_hash = get_subject_name_hash(issuers_cert)?;
@@ -465,7 +465,7 @@ fn process_ocsp_response_internal(
     issuers_cert: &Certificate,
     result_index: usize,
     uri_to_check: &str,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     name_hash: &[u8],
     key_hash: &[u8],
 ) -> Result<()> {
@@ -718,7 +718,7 @@ fn process_ocsp_response_internal(
 }
 
 #[cfg(feature = "remote")]
-fn get_ocsp_aias<'a>(target_cert: &'a PDVCertificate<'_>) -> Vec<&'a Ia5String> {
+fn get_ocsp_aias<'a>(target_cert: &'a PDVCertificate) -> Vec<&'a Ia5String> {
     let mut retval = vec![];
     if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aias))) =
         target_cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS)
@@ -741,7 +741,7 @@ pub(crate) async fn check_revocation_ocsp(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults<'_>,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     pos: usize,
 ) -> PathValidationStatus {

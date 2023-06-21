@@ -191,6 +191,7 @@ fn list_partial_paths() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("pittv3")?;
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--list-partial-paths");
+    cmd.arg("-i").arg("1674665553");
     cmd.assert().stdout(predicate::str::contains(
         "TA subject: CN=Hongkong Post Root CA 1 - [1567]",
     ));
@@ -1463,6 +1464,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
         cmd.arg("-c").arg("tests/examples/bettertls_ca_store");
+        cmd.arg("-i").arg("1674665553");
         cmd.arg("--generate");
         cmd.assert().stdout(predicate::str::contains(
             "Serializing 1 buffers and 1 partial paths",
@@ -1473,6 +1475,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
+        cmd.arg("-i").arg("1674665553");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -1490,6 +1493,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
+        cmd.arg("-i").arg("1674665553");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
         cmd.arg("-s").arg("tests/examples/tls_eku_settings.json");
         cmd.arg("-e")

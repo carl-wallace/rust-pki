@@ -313,7 +313,7 @@ impl<'a> PkiEnvironment<'a> {
 
     /// get_trust_anchor iterates over trust_anchor_sources until an authoritative answer is found
     /// or all options have been exhausted
-    pub fn get_trust_anchor(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice<'_>> {
+    pub fn get_trust_anchor(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_skid(skid);
             if let Ok(r) = r {
@@ -325,7 +325,7 @@ impl<'a> PkiEnvironment<'a> {
 
     /// get_trust_anchor iterates over trust_anchor_sources until an authoritative answer is found
     /// or all options have been exhausted
-    pub fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice<'_>>> {
+    pub fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchors();
             if let Ok(r) = r {
@@ -336,10 +336,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
-    pub fn get_trust_anchor_by_hex_skid(
-        &'_ self,
-        hex_skid: &str,
-    ) -> Result<&PDVTrustAnchorChoice<'_>> {
+    pub fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_hex_skid(hex_skid);
             if let Ok(r) = r {
@@ -353,8 +350,8 @@ impl<'a> PkiEnvironment<'a> {
     /// be useful in verifying the certificate.
     pub fn get_trust_anchor_for_target(
         &'_ self,
-        target: &'_ PDVCertificate<'_>,
-    ) -> Result<&PDVTrustAnchorChoice<'_>> {
+        target: &'_ PDVCertificate,
+    ) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_for_target(target);
             if let Ok(r) = r {
@@ -365,7 +362,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// is_cert_a_trust_anchor takes a target certificate indication if cert is a trust anchor.
-    pub fn is_cert_a_trust_anchor(&'_ self, target: &'_ PDVCertificate<'_>) -> Result<()> {
+    pub fn is_cert_a_trust_anchor(&'_ self, target: &'_ PDVCertificate) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_cert_a_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -375,7 +372,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// is_trust_anchor takes a [`PDVTrustAnchorChoice`] indication if cert is a trust anchor.
-    pub fn is_trust_anchor(&'_ self, target: &'_ PDVTrustAnchorChoice<'_>) -> Result<()> {
+    pub fn is_trust_anchor(&'_ self, target: &'_ PDVTrustAnchorChoice) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -419,7 +416,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// Retrieves CRLs for given certificate from store
-    pub fn get_crls(&self, cert: &PDVCertificate<'a>) -> Result<Vec<Vec<u8>>> {
+    pub fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         let mut retval = vec![];
         for f in &self.crl_sources {
             if let Ok(crls) = f.get_crls(cert) {
@@ -466,11 +463,7 @@ impl<'a> PkiEnvironment<'a> {
     }
 
     /// Retrieves cached revocation status determination for given certificate from store
-    pub fn get_status(
-        &self,
-        cert: &PDVCertificate<'a>,
-        time_of_interest: u64,
-    ) -> PathValidationStatus {
+    pub fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
         for f in &self.revocation_cache {
             let status = f.get_status(cert, time_of_interest);
             if RevocationStatusNotDetermined != status {
@@ -483,7 +476,7 @@ impl<'a> PkiEnvironment<'a> {
     /// Adds a cached revocation status determination to the store
     pub fn add_status(
         &self,
-        cert: &PDVCertificate<'a>,
+        cert: &PDVCertificate,
         next_update: u64,
         status: PathValidationStatus,
     ) {
@@ -514,7 +507,7 @@ impl<'a> PkiEnvironment<'a> {
     pub fn get_paths_for_target<'reference>(
         &'a self,
         pe: &'a PkiEnvironment<'a>,
-        target: &'a PDVCertificate<'a>,
+        target: &'a PDVCertificate,
         paths: &'reference mut Vec<CertificationPath<'a>>,
         threshold: usize,
         time_of_interest: u64,

@@ -12,7 +12,7 @@ use alloc::{vec, vec::Vec};
 pub struct CertificationPath<'a> {
     /// `target` contains the target certificate for the certification path
     #[readonly]
-    pub target: &'a PDVCertificate<'a>,
+    pub target: &'a PDVCertificate,
     /// `intermediates` contains zero or more intermediate CA certificates, beginning with the certificate that
     /// was issued by `trust_anchor` and proceeding in order to a certificate that issued the target, i.e.,
     /// `intermediates\[0\]` can be used to verify `intermediates\[1\]`, `intermediates\[1\]` can be used to verify
@@ -21,7 +21,7 @@ pub struct CertificationPath<'a> {
     pub intermediates: CertificateChain<'a>,
     /// `trust_anchor` contains the trust anchor for the certification path
     #[readonly]
-    pub trust_anchor: &'a PDVTrustAnchorChoice<'a>,
+    pub trust_anchor: &'a PDVTrustAnchorChoice,
 
     /// crls is a vector of buffers of size intermediates.len() + 1, to allow for a CRL for each
     /// intermediate CA and the target beginning with the intermediate CA issued by the trust anchor,
@@ -39,9 +39,9 @@ pub struct CertificationPath<'a> {
 impl<'a> CertificationPath<'a> {
     /// instantiates a new TaSource
     pub fn new(
-        trust_anchor: &'a PDVTrustAnchorChoice<'a>,
+        trust_anchor: &'a PDVTrustAnchorChoice,
         intermediates: CertificateChain<'a>,
-        target: &'a PDVCertificate<'a>,
+        target: &'a PDVCertificate,
     ) -> CertificationPath<'a> {
         let len = intermediates.len() + 1;
         CertificationPath {

@@ -221,7 +221,7 @@ async fn stapled_crl_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -231,14 +231,14 @@ async fn stapled_crl_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -325,7 +325,7 @@ async fn stapled_mix_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -335,14 +335,14 @@ async fn stapled_mix_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -431,7 +431,7 @@ async fn cached_crl_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -441,14 +441,14 @@ async fn cached_crl_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -532,7 +532,7 @@ async fn cached_crl_revoked_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -542,14 +542,14 @@ async fn cached_crl_revoked_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -636,7 +636,7 @@ async fn cached_crl_revoked_remote_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -646,14 +646,14 @@ async fn cached_crl_revoked_remote_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -740,7 +740,7 @@ async fn cached_crl_remote_async() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -750,14 +750,14 @@ async fn cached_crl_remote_async() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
