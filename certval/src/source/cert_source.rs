@@ -419,12 +419,12 @@ impl BuffersAndPaths {
 /// from CBOR, re-parsing and re-indexing, then re-discovering all partial paths.
 /// [`PITTv3`](../../pittv3/index.html) demonstrates an approach to performing these steps.
 #[derive(Clone)]
-pub struct CertSource<'a> {
+pub struct CertSource {
     /// Contains list of parsed certificates prepared by the caller. The order of the certificates
     /// MUST be the same as the order of buffers in the buffers_and_paths.buffers field. If a buffer
     /// cannot be parsed successfully (or is otherwise rejected immediately, i.e., expired), the
     /// corresponding element in the certs field should be set to None.
-    pub certs: Vec<Option<PDVCertificate<'a>>>,
+    pub certs: Vec<Option<PDVCertificate>>,
 
     /// Contains list of buffers referenced by certs field and, optionally, partial paths
     /// relationships between certificates corresponding to those buffers. This field is the target
@@ -440,7 +440,7 @@ pub struct CertSource<'a> {
     pub name_map: BTreeMap<String, Vec<usize>>,
 }
 
-impl<'a> Default for CertSource<'a> {
+impl<'a> Default for CertSource {
     /// CertSource::default instantiates a new empty CertSource. The caller is responsible for populating
     /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
     /// member then preparing skid and name maps prior to using instance.
@@ -449,11 +449,11 @@ impl<'a> Default for CertSource<'a> {
     }
 }
 
-impl<'a> CertSource<'a> {
+impl<'a> CertSource {
     /// CertSource::new instantiates a new empty CertSource. The caller is responsible for populating
     /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
     /// member then preparing skid and name maps prior to using instance.
-    pub fn new() -> CertSource<'a> {
+    pub fn new() -> CertSource {
         CertSource {
             certs: Vec::new(),
             buffers_and_paths: BuffersAndPaths::default(),
@@ -621,7 +621,7 @@ impl<'a> CertSource<'a> {
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_target(&'a self, target: &'a PDVCertificate<'a>, time_of_interest: u64) {
+    pub fn log_paths_for_target(&'a self, target: &'a PDVCertificate, time_of_interest: u64) {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
             log_message(
@@ -804,7 +804,7 @@ impl<'a> CertSource<'a> {
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_leaf_ca(&'a self, target: &'a PDVCertificate<'a>) {
+    pub fn log_paths_for_leaf_ca(&'a self, target: &'a PDVCertificate) {
         #[cfg(feature = "std")]
         let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
             g
@@ -943,7 +943,7 @@ impl<'a> CertSource<'a> {
     //     }
     // }
 
-    fn pub_key_in_path(&self, prospective_cert: &PDVCertificate<'a>, path: &[usize]) -> bool {
+    fn pub_key_in_path(&self, prospective_cert: &PDVCertificate, path: &[usize]) -> bool {
         for i in path {
             let path_item = &self.certs[*i];
             if let Some(path_item) = path_item {
@@ -1104,7 +1104,7 @@ impl<'a> CertSource<'a> {
         true
     }
 
-    fn find_prospective_issuers(&self, target: &'_ PDVCertificate<'_>) -> Vec<String> {
+    fn find_prospective_issuers(&self, target: &'_ PDVCertificate) -> Vec<String> {
         let mut retval: Vec<String> = vec![];
 
         let mut akid_hex = "".to_string();
@@ -1162,7 +1162,7 @@ impl<'a> CertSource<'a> {
         &self,
         pe: &'_ PkiEnvironment<'_>,
         //todo remove param
-        _ta_vec: Vec<&PDVTrustAnchorChoice<'_>>,
+        _ta_vec: Vec<&PDVTrustAnchorChoice>,
         cps: &CertificationPathSettings,
         pass: u8,
         partial_paths: &mut Vec<BTreeMap<String, Vec<Vec<usize>>>>,
@@ -1185,7 +1185,8 @@ impl<'a> CertSource<'a> {
                         if let Ok(ta_name) = ta_name {
                             if compare_names(&cur_cert.decoded_cert.tbs_certificate.issuer, ta_name)
                             {
-                                let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
+                                let defer_cert =
+                                    DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
                                 if let Ok(defer_cert) = defer_cert {
                                     let spki = get_subject_public_key_info_from_trust_anchor(
                                         &ta.decoded_ta,
@@ -1218,7 +1219,7 @@ impl<'a> CertSource<'a> {
                         }
                     }
                 } else {
-                    let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
+                    let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
                     if let Ok(defer_cert) = defer_cert {
                         // look for matches in map from previous row of partial_paths
                         let last_row = &partial_paths[(pass - 1) as usize];
@@ -1397,13 +1398,13 @@ impl<'a> CertSource<'a> {
     }
 }
 
-impl CertificationPathBuilder for CertSource<'_> {
+impl CertificationPathBuilder for CertSource {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
     fn get_paths_for_target<'a, 'reference>(
         &'a self,
         pe: &'a PkiEnvironment<'a>,
-        target: &'a PDVCertificate<'a>,
+        target: &'a PDVCertificate,
         paths: &'reference mut Vec<CertificationPath<'a>>,
         threshold: usize,
         time_of_interest: u64,
@@ -1609,8 +1610,8 @@ impl CertificationPathBuilder for CertSource<'_> {
     }
 }
 
-impl CertificateSource for CertSource<'_> {
-    fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate<'_>>> {
+impl CertificateSource for CertSource {
+    fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
         let hex_skid = buffer_to_hex(skid);
         let mut retval = vec![];
         if self.skid_map.contains_key(hex_skid.as_str()) {
@@ -1628,7 +1629,7 @@ impl CertificateSource for CertSource<'_> {
         }
     }
 
-    fn get_certificates_for_name(&'_ self, name: &Name) -> Result<Vec<&PDVCertificate<'_>>> {
+    fn get_certificates_for_name(&'_ self, name: &Name) -> Result<Vec<&PDVCertificate>> {
         let name_str = name_to_string(name);
         let mut retval = vec![];
         if self.name_map.contains_key(name_str.as_str()) {
@@ -1646,7 +1647,7 @@ impl CertificateSource for CertSource<'_> {
         }
     }
 
-    fn get_certificates(&'_ self) -> Result<Vec<&PDVCertificate<'_>>> {
+    fn get_certificates(&'_ self) -> Result<Vec<&PDVCertificate>> {
         let mut v = vec![];
         for ta in self.certs.iter().flatten() {
             v.push(ta);
@@ -1738,7 +1739,7 @@ fn pub_key_repeats(path: &CertificationPath<'_>) -> bool {
 pub fn populate_parsed_cert_vector<'a, 'reference>(
     bap: &'a BuffersAndPaths,
     cps: &CertificationPathSettings,
-    cert_store: &'reference mut Vec<Option<PDVCertificate<'a>>>,
+    cert_store: &'reference mut Vec<Option<PDVCertificate>>,
 ) -> Result<()>
 where
     'a: 'reference,
@@ -1766,12 +1767,12 @@ where
             if valid {
                 let mut md = Asn1Metadata::new();
                 md.insert(
-                    MD_LOCATOR,
+                    MD_LOCATOR.to_string(),
                     Asn1MetadataTypes::String(cert_file.filename.clone()),
                 );
 
                 let mut pdvcert = PDVCertificate {
-                    encoded_cert: bap.buffers[i].bytes.as_slice(),
+                    encoded_cert: bap.buffers[i].bytes.to_vec(),
                     decoded_cert: cert,
                     metadata: Some(md),
                     parsed_extensions: ParsedExtensions::new(),
@@ -1790,7 +1791,7 @@ where
 
 /// get_filename_from_ta_metadata returns the string from the MD_LOCATOR in the metadata or an
 /// empty string.
-pub fn get_filename_from_cert_metadata(cert: &PDVCertificate<'_>) -> String {
+pub fn get_filename_from_cert_metadata(cert: &PDVCertificate) -> String {
     if let Some(md) = &cert.metadata {
         if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
             return filename.to_owned();

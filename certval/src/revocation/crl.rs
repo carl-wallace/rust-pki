@@ -356,7 +356,7 @@ pub(crate) struct CrlInfo {
 
 /// get_crl_dps returns a list of URIs read from the CRL DP extension, if any.
 #[cfg(feature = "remote")]
-fn get_crl_dps<'a>(target_cert: &'a PDVCertificate<'_>) -> Vec<&'a Ia5String> {
+fn get_crl_dps<'a>(target_cert: &'a PDVCertificate) -> Vec<&'a Ia5String> {
     let mut retval = vec![];
     if let Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) =
         target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS)
@@ -459,7 +459,7 @@ async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> 
 ///  - EeDp is returned if basicConstraints is absent or isCA is false AND a CRL DP extension is present.
 ///  - Ca is returned if basicConstraints is present and isCA is true AND a CRL DP extension is not present.
 ///  - Ee is returned if basicConstraints is absent or isCA is false AND a CRL DP extension is not present.
-fn classify_certificate(cert: &PDVCertificate<'_>) -> CertRevType {
+fn classify_certificate(cert: &PDVCertificate) -> CertRevType {
     let is_ca = if let Ok(Some(PDVExtension::BasicConstraints(bc))) =
         cert.get_extension(&ID_CE_BASIC_CONSTRAINTS)
     {
@@ -654,7 +654,7 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
 }
 
 fn validate_crl_issuer_name<'a>(
-    cert: &'a PDVCertificate<'_>,
+    cert: &'a PDVCertificate,
     crl_info: &'a CrlInfo,
 ) -> Result<Option<&'a DistributionPoint>> {
     // 4-b) Validate CRL issuer name (discard CRL upon failure)
@@ -728,7 +728,7 @@ fn validate_distribution_point(
     dps_from_crl_dp: Option<&CrlDistributionPoints>,
     crl_info: &CrlInfo,
     cert_type: CertRevType,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     collected_reasons: &mut ReasonFlags,
 ) -> Result<()> {
     let active_crl_dp = validate_crl_issuer_name(target_cert, crl_info)?;
@@ -846,7 +846,7 @@ fn validate_distribution_point(
     Ok(())
 }
 
-fn validate_crl_authority(target_cert: &PDVCertificate<'_>, crl_info: &CrlInfo) -> Result<bool> {
+fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> Result<bool> {
     //	d) Validate CRL authority (discard CRL upon failure)
     //		If the CRL issuer name does not match the cert issuer name, the indirectCRL field must be present
     //		in the IDP.
@@ -999,7 +999,7 @@ pub(crate) fn process_crl(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults<'_>,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     result_index: usize,
     crl_buf: &[u8],
@@ -1165,7 +1165,7 @@ pub(crate) async fn check_revocation_crl_remote(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults<'_>,
-    target_cert: &PDVCertificate<'_>,
+    target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     pos: usize,
 ) -> PathValidationStatus {

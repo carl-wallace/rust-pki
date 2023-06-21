@@ -82,8 +82,8 @@ pub fn is_self_signed_with_buffer(
 
 /// `is_self_signed` returns true if the public key in the certificate can be used to verify the
 /// signature on the certificate.
-pub fn is_self_signed(pe: &PkiEnvironment<'_>, cert: &PDVCertificate<'_>) -> bool {
-    is_self_signed_with_buffer(pe, &cert.decoded_cert, cert.encoded_cert)
+pub fn is_self_signed(pe: &PkiEnvironment<'_>, cert: &PDVCertificate) -> bool {
+    is_self_signed_with_buffer(pe, &cert.decoded_cert, cert.encoded_cert.as_slice())
 }
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
@@ -94,7 +94,7 @@ pub fn is_self_issued(cert: &Certificate) -> bool {
 
 /// `collect_uris_from_aia_and_sia` collects unique URIs from AIA and SIA extensions from the presented
 /// certificate and returns them via the `uris` parameter.
-pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate<'_>, uris: &mut Vec<String>) {
+pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<String>) {
     let aia_ext = cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS);
     if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aia))) = aia_ext {
         for ad in &aia.0 {
@@ -606,7 +606,7 @@ pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
     );
 }
 
-pub(crate) fn log_error_for_ca(ca: &PDVCertificate<'_>, msg: &str) {
+pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
     log_error_for_name(&ca.decoded_cert.tbs_certificate.subject, msg);
 }
 

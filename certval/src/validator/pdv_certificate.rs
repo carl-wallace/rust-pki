@@ -34,7 +34,7 @@ use crate::EXTS_OF_INTEREST;
 /// [`Asn1Metadata`] is a typedef of a BTreeMap map that associates types represented by the [`Asn1MetadataTypes`]
 /// enum objects with arbitrary string values. At present this is only used to convey filenames and
 /// may be dropped in favor of a String filename member in place of current [`Asn1Metadata`] members..
-pub type Asn1Metadata<'a> = BTreeMap<&'a str, Asn1MetadataTypes>;
+pub type Asn1Metadata = BTreeMap<String, Asn1MetadataTypes>;
 
 /// [`MD_LOCATOR`] is used to set/get a String value to/from an [`Asn1Metadata`] object. The value
 /// may represent a file name, URI or other locator for troubleshooting purposes.
@@ -59,21 +59,21 @@ pub enum Asn1MetadataTypes {
 ///
 /// The parsed extensions are usually those listed in tne [`EXTS_OF_INTEREST`](../path_validator/constant.EXTS_OF_INTEREST.html).
 #[derive(Clone, Eq, PartialEq)]
-pub struct PDVCertificate<'a> {
+pub struct PDVCertificate {
     /// Binary, encoded Certificate object
-    pub encoded_cert: &'a [u8],
+    pub encoded_cert: Vec<u8>,
     /// Decoded Certificate object
     pub decoded_cert: Certificate,
     /// Optional metadata about the trust anchor
-    pub metadata: Option<Asn1Metadata<'a>>,
+    pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
-    pub parsed_extensions: ParsedExtensions<'a>,
+    pub parsed_extensions: ParsedExtensions,
 }
 
-impl<'a> ExtensionProcessing for PDVCertificate<'a> {
+impl<'a> ExtensionProcessing for PDVCertificate {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &'static ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
+    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -84,22 +84,19 @@ impl<'a> ExtensionProcessing for PDVCertificate<'a> {
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
-    fn parse_extensions(&'_ mut self, oids: &[&'static ObjectIdentifier]) {
+    fn parse_extensions(&'_ mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);
         }
     }
 
-    fn parse_extension(
-        &mut self,
-        oid: &'static der::asn1::ObjectIdentifier,
-    ) -> Result<Option<&PDVExtension>> {
+    fn parse_extension(&mut self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         macro_rules! add_and_return {
             ($pe:ident, $v:ident, $oid:ident, $t:ident) => {
                 match $t::from_der($v) {
                     Ok(r) => {
                         let ext = PDVExtension::$t(r);
-                        $pe.insert(oid, ext);
+                        $pe.insert(*oid, ext);
                         return Ok(Some(&$pe[oid]));
                     }
                     Err(e) => {
@@ -244,14 +241,17 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned<'a> {
 /// `parse_cert` takes a buffer containing a binary DER encoded certificate and returns
 /// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
 /// parsed certificate if parsing was successful (and None upon failure).
-pub fn parse_cert<'a, 'b>(buffer: &'a [u8], filename: &'b str) -> Option<PDVCertificate<'a>> {
+pub fn parse_cert<'a, 'b>(buffer: &'a [u8], filename: &'b str) -> Option<PDVCertificate> {
     let r = Certificate::from_der(buffer);
     match r {
         Ok(cert) => {
             let mut md = Asn1Metadata::new();
-            md.insert(MD_LOCATOR, Asn1MetadataTypes::String(filename.to_string()));
+            md.insert(
+                MD_LOCATOR.to_string(),
+                Asn1MetadataTypes::String(filename.to_string()),
+            );
             let mut pdvcert = PDVCertificate {
-                encoded_cert: buffer,
+                encoded_cert: buffer.to_vec(),
                 decoded_cert: cert,
                 metadata: Some(md),
                 parsed_extensions: ParsedExtensions::new(),

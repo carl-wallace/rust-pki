@@ -25,24 +25,24 @@ use crate::util::logging::*;
 /// `EXTS_OF_INTEREST` provides a list of extensions that will be automatically parsed when preparing
 /// a [`PDVCertificate`] instance. These extensions are used during path development and validation and
 /// are subsequently available via get_extension without re-parsing.
-pub const EXTS_OF_INTEREST: &[&ObjectIdentifier] = &[
-    &ID_CE_SUBJECT_KEY_IDENTIFIER,
-    &ID_CE_AUTHORITY_KEY_IDENTIFIER,
-    &ID_CE_BASIC_CONSTRAINTS,
-    &ID_CE_NAME_CONSTRAINTS,
-    &ID_CE_SUBJECT_ALT_NAME,
-    &ID_CE_EXT_KEY_USAGE,
-    &ID_CE_KEY_USAGE,
-    &ID_CE_POLICY_CONSTRAINTS,
-    &ID_CE_CERTIFICATE_POLICIES,
-    &ID_CE_POLICY_MAPPINGS,
-    &ID_CE_INHIBIT_ANY_POLICY,
-    &ID_PE_AUTHORITY_INFO_ACCESS,
-    &ID_PE_SUBJECT_INFO_ACCESS,
-    &ID_CE_CRL_REASONS,
-    &ID_CE_ISSUING_DISTRIBUTION_POINT,
-    &ID_CE_CRL_DISTRIBUTION_POINTS,
-    &ID_CE_FRESHEST_CRL,
+pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
+    ID_CE_SUBJECT_KEY_IDENTIFIER,
+    ID_CE_AUTHORITY_KEY_IDENTIFIER,
+    ID_CE_BASIC_CONSTRAINTS,
+    ID_CE_NAME_CONSTRAINTS,
+    ID_CE_SUBJECT_ALT_NAME,
+    ID_CE_EXT_KEY_USAGE,
+    ID_CE_KEY_USAGE,
+    ID_CE_POLICY_CONSTRAINTS,
+    ID_CE_CERTIFICATE_POLICIES,
+    ID_CE_POLICY_MAPPINGS,
+    ID_CE_INHIBIT_ANY_POLICY,
+    ID_PE_AUTHORITY_INFO_ACCESS,
+    ID_PE_SUBJECT_INFO_ACCESS,
+    ID_CE_CRL_REASONS,
+    ID_CE_ISSUING_DISTRIBUTION_POINT,
+    ID_CE_CRL_DISTRIBUTION_POINTS,
+    ID_CE_FRESHEST_CRL,
 ];
 
 //-----------------------------------------------------------------------------
@@ -562,7 +562,7 @@ pub fn check_critical_extensions(
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
 
-    let mut ensure_criticals_processed = |cert: &PDVCertificate<'_>,
+    let mut ensure_criticals_processed = |cert: &PDVCertificate,
                                           err_str: &'static str|
      -> Result<()> {
         if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
@@ -598,7 +598,7 @@ pub fn check_critical_extensions(
 /// is set to false, this function does nothing.
 pub fn enforce_trust_anchor_constraints<'a>(
     cps: &'a CertificationPathSettings,
-    ta: &'a PDVTrustAnchorChoice<'a>,
+    ta: &'a PDVTrustAnchorChoice,
     mod_cps: &'a mut CertificationPathSettings,
 ) -> Result<&'a CertificationPathSettings> {
     if !get_enforce_trust_anchor_constraints(cps) {
@@ -763,7 +763,7 @@ pub fn verify_signatures(
     for cur_cert_ref in intermediates_and_target {
         let cur_cert = cur_cert_ref.deref();
 
-        let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert);
+        let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
         let defer_cert = match defer_cert {
             Ok(c) => c,
             Err(e) => {

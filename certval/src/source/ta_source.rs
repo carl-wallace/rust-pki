@@ -118,7 +118,7 @@ pub fn buffer_to_hex(buffer: &[u8]) -> String {
 /// - the value of the key ID field in a TrustAnchorChoice option.
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
-pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice<'_>) -> String {
+pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice) -> String {
     match &ta.decoded_ta {
         TrustAnchorChoice::Certificate(_cert) => {
             let skid = ta.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
@@ -143,7 +143,7 @@ pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice<'_>) -> String {
 
 /// `hex_skid_from_ta` takes a certificate object and returns a string features upper case ASCII hex characters (without
 /// commas, spaces, or brackets) representing either the value of the SKID extension or key ID field.
-pub fn hex_skid_from_cert(cert: &PDVCertificate<'_>) -> String {
+pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     let skid = cert.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
     let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
         buffer_to_hex(skid.0.as_bytes())
@@ -158,7 +158,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate<'_>) -> String {
 
 /// `get_filename_from_ta_metadata` returns the string from the `MD_LOCATOR` in the metadata or an
 /// empty string.
-pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice<'_>) -> String {
+pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
     if let Some(md) = &cert.metadata {
         if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
             return filename.to_owned();
@@ -181,9 +181,9 @@ pub type TrustAnchorKeyId = String;
 /// Structure containing caller-provided a vector of buffers and a vector of parsed trust anchors
 /// that reference items in the buffers vector. Two internal maps are used to correlate names and
 /// key IDs to values in the caller-supplied map.
-pub struct TaSource<'a> {
+pub struct TaSource {
     /// list of TAs prepared by the caller
-    pub tas: Vec<PDVTrustAnchorChoice<'a>>,
+    pub tas: Vec<PDVTrustAnchorChoice>,
 
     /// Contains list of buffers referenced by tas field
     pub buffers: Vec<CertFile>,
@@ -205,15 +205,15 @@ pub struct TaSource<'a> {
     pub name_map: RefCell<BTreeMap<String, usize>>,
 }
 
-impl<'a> Default for TaSource<'a> {
+impl<'a> Default for TaSource {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> TaSource<'a> {
+impl<'a> TaSource {
     /// instantiates a new TaSource
-    pub fn new() -> TaSource<'a> {
+    pub fn new() -> TaSource {
         TaSource {
             tas: Vec::new(),
             buffers: Vec::new(),
@@ -295,11 +295,11 @@ impl<'a> TaSource<'a> {
     }
 }
 
-impl TrustAnchorSource for TaSource<'_> {
+impl TrustAnchorSource for TaSource {
     fn get_trust_anchor_for_target(
         &'_ self,
-        target: &'_ PDVCertificate<'_>,
-    ) -> Result<&PDVTrustAnchorChoice<'_>> {
+        target: &'_ PDVCertificate,
+    ) -> Result<&PDVTrustAnchorChoice> {
         let mut akid_hex = "".to_string();
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
@@ -332,7 +332,7 @@ impl TrustAnchorSource for TaSource<'_> {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_skid(&'_ self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice<'_>> {
+    fn get_trust_anchor_by_skid(&'_ self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
         #[cfg(feature = "std")]
         let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
             g
@@ -353,7 +353,7 @@ impl TrustAnchorSource for TaSource<'_> {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice<'_>> {
+    fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
         #[cfg(feature = "std")]
         let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
             g
@@ -372,7 +372,7 @@ impl TrustAnchorSource for TaSource<'_> {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice<'_>> {
+    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice> {
         #[cfg(feature = "std")]
         let name_map_guard = if let Ok(g) = self.name_map.lock() {
             g
@@ -392,7 +392,7 @@ impl TrustAnchorSource for TaSource<'_> {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice<'_>>> {
+    fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice>> {
         let mut v = vec![];
         for ta in &self.tas {
             v.push(ta);
@@ -402,7 +402,7 @@ impl TrustAnchorSource for TaSource<'_> {
     }
 
     /// is_cert_a_trust_anchor returns true if presented certificate object is a trust anchor
-    fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate<'_>) -> Result<()> {
+    fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()> {
         #[cfg(feature = "std")]
         let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
             g
@@ -421,7 +421,7 @@ impl TrustAnchorSource for TaSource<'_> {
         }
     }
 
-    fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice<'_>) -> Result<()> {
+    fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice) -> Result<()> {
         #[cfg(feature = "std")]
         let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
             g
@@ -479,14 +479,17 @@ impl TrustAnchorSource for TaSource<'_> {
 /// anchors because indices are not used).
 pub fn populate_parsed_ta_vector<'a, 'reference>(
     ta_buffer_vec: &'a [CertFile],
-    parsed_ta_vec: &'reference mut Vec<PDVTrustAnchorChoice<'a>>,
+    parsed_ta_vec: &'reference mut Vec<PDVTrustAnchorChoice>,
 ) {
     for cf in ta_buffer_vec {
         if let Ok(tac) = TrustAnchorChoice::from_der(cf.bytes.as_slice()) {
             let mut md = Asn1Metadata::new();
-            md.insert(MD_LOCATOR, Asn1MetadataTypes::String(cf.filename.clone()));
+            md.insert(
+                MD_LOCATOR.to_string(),
+                Asn1MetadataTypes::String(cf.filename.clone()),
+            );
             let mut ta = PDVTrustAnchorChoice {
-                encoded_ta: cf.bytes.as_slice(),
+                encoded_ta: cf.bytes.clone(),
                 decoded_ta: tac,
                 metadata: Some(md),
                 parsed_extensions: ParsedExtensions::new(),

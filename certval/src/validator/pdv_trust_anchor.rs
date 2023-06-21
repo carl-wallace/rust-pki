@@ -21,21 +21,21 @@ use crate::validator::pdv_extension::*;
 /// optional metadata and optional parsed extensions in support of certification path development and
 /// validation operations.
 #[derive(Clone, Eq, PartialEq)]
-pub struct PDVTrustAnchorChoice<'a> {
+pub struct PDVTrustAnchorChoice {
     /// Binary, encoded TrustAnchorChoice object
-    pub encoded_ta: &'a [u8],
+    pub encoded_ta: Vec<u8>,
     /// Decoded TrustAnchorChoice object
     pub decoded_ta: TrustAnchorChoice,
     /// Optional metadata about the trust anchor
-    pub metadata: Option<Asn1Metadata<'a>>,
+    pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the TrustAnchorChoice
-    pub parsed_extensions: ParsedExtensions<'a>,
+    pub parsed_extensions: ParsedExtensions,
 }
 
-impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
+impl ExtensionProcessing for PDVTrustAnchorChoice {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &'static ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
+    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -46,19 +46,19 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
-    fn parse_extensions(&'_ mut self, oids: &[&'static ObjectIdentifier]) {
+    fn parse_extensions(&'_ mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);
         }
     }
 
-    fn parse_extension(&mut self, oid: &'static ObjectIdentifier) -> Result<Option<&PDVExtension>> {
+    fn parse_extension(&mut self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         macro_rules! add_and_return {
             ($pe:ident, $v:ident, $oid:ident, $t:ident) => {
                 match $t::from_der($v) {
                     Ok(r) => {
                         let ext = PDVExtension::$t(r);
-                        $pe.insert(oid, ext);
+                        $pe.insert(*oid, ext);
                         return Ok(Some(&$pe[oid]));
                     }
                     Err(e) => {
@@ -85,13 +85,13 @@ impl ExtensionProcessing for PDVTrustAnchorChoice<'_> {
                     if *oid == ID_CE_NAME_CONSTRAINTS {
                         if let Some(nc) = &cp.name_constr {
                             let ext = PDVExtension::NameConstraints(nc.clone());
-                            pe.insert(oid, ext);
+                            pe.insert(*oid, ext);
                             return Ok(Some(&pe[oid]));
                         }
                     } else if *oid == ID_CE_CERTIFICATE_POLICIES {
                         if let Some(cp) = &cp.policy_set {
                             let ext = PDVExtension::CertificatePolicies(cp.clone());
-                            pe.insert(oid, ext);
+                            pe.insert(*oid, ext);
                             return Ok(Some(&pe[oid]));
                         }
                     }

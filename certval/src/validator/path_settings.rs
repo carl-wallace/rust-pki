@@ -59,7 +59,7 @@ pub type Bools = Vec<bool>;
 pub type CertificationPathSettings = BTreeMap<String, CertificationPathProcessingTypes>;
 
 /// `CertificateChain` is a typedef for a vector of `PDVCertificate`.
-pub type CertificateChain<'a> = Vec<&'a PDVCertificate<'a>>;
+pub type CertificateChain<'a> = Vec<&'a PDVCertificate>;
 
 //-----------------------------------------------------------------------------------------------
 // A few enum and struct definitions used in the definition of path settings

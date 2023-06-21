@@ -58,7 +58,7 @@ fn pkits_test1() {
 
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let mut ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -79,14 +79,14 @@ fn pkits_test1() {
     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
 
     let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca,
+        encoded_cert: der_encoded_ca.to_vec(),
         decoded_cert: ca_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
     };
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee,
+        encoded_cert: der_encoded_ee.to_vec(),
         decoded_cert: ee_cert,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -164,7 +164,7 @@ fn is_trust_anchor_test() {
     let der_encoded_ta = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),
@@ -188,7 +188,7 @@ fn is_trust_anchor_test() {
 
     let tac2 = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
     let ta2 = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta,
+        encoded_ta: der_encoded_ta.to_vec(),
         decoded_ta: tac2,
         metadata: None,
         parsed_extensions: ParsedExtensions::new(),

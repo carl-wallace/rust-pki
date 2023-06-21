@@ -302,7 +302,7 @@ impl CrlSource for CrlSourceFolders {
         Ok(())
     }
 
-    fn get_crls<'a>(&self, cert: &PDVCertificate<'a>) -> Result<Vec<Vec<u8>>> {
+    fn get_crls<'a>(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         if let Some(dps) = get_dps_from_cert(cert) {
             let idp_guard = if let Ok(g) = self.dp_map.lock() {
                 g
@@ -368,7 +368,7 @@ impl CrlSource for CrlSourceFolders {
     }
 }
 
-fn get_dps_from_cert(cert: &PDVCertificate<'_>) -> Option<Vec<Vec<u8>>> {
+fn get_dps_from_cert(cert: &PDVCertificate) -> Option<Vec<Vec<u8>>> {
     match cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS) {
         Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) => {
             let mut retval = vec![];
@@ -550,11 +550,7 @@ fn index_crls_internal(
 }
 
 impl RevocationStatusCache for CrlSourceFolders {
-    fn get_status<'a>(
-        &self,
-        cert: &PDVCertificate<'a>,
-        time_of_interest: u64,
-    ) -> PathValidationStatus {
+    fn get_status<'a>(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
         let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
 
@@ -577,7 +573,7 @@ impl RevocationStatusCache for CrlSourceFolders {
     }
     fn add_status<'a>(
         &self,
-        cert: &PDVCertificate<'a>,
+        cert: &PDVCertificate,
         next_update: u64,
         status: PathValidationStatus,
     ) {
