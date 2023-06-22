@@ -357,7 +357,7 @@ pub async fn fetch_to_buffer(
 /// The array features optional slots because buffers that don't parse when deserializing are set to
 /// None to keep the indices in sync. A start index serves to avoid re-reviewing certificates when
 /// processing URIs in a loop until no additional certificates are found.
-pub fn collect_uris_from_aia_and_sia_for_graph_build<'a>(
+pub fn collect_uris_from_aia_and_sia_for_graph_build(
     certs: &[Option<PDVCertificate>],
     uris: &mut Vec<String>,
     start_index: usize,
@@ -369,10 +369,7 @@ pub fn collect_uris_from_aia_and_sia_for_graph_build<'a>(
 
 /// `collect_uris_from_aia_and_sia_from_ta` accepts a trust anchor and returns a vector of unique
 /// http and https URIs retrieved from AIA and/or SIA extensions, if present.
-pub fn collect_uris_from_aia_and_sia_from_ta<'a>(
-    cert: &PDVTrustAnchorChoice,
-    uris: &mut Vec<String>,
-) {
+pub fn collect_uris_from_aia_and_sia_from_ta(cert: &PDVTrustAnchorChoice, uris: &mut Vec<String>) {
     let aia_ext = cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS);
     if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aia))) = aia_ext {
         for ad in &aia.0 {

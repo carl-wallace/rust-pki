@@ -50,7 +50,7 @@ pub enum Asn1MetadataTypes {
     Number(u32),
     /// Used for metadata represented as a String
     String(String),
-    /// Used for metadata represented as a Vec<u8>
+    /// Used for metadata represented as a `Vec<u8>`
     Buffer(Vec<u8>),
 }
 
@@ -70,7 +70,7 @@ pub struct PDVCertificate {
     pub parsed_extensions: ParsedExtensions,
 }
 
-impl<'a> ExtensionProcessing for PDVCertificate {
+impl ExtensionProcessing for PDVCertificate {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
     fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
@@ -241,7 +241,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned<'a> {
 /// `parse_cert` takes a buffer containing a binary DER encoded certificate and returns
 /// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
 /// parsed certificate if parsing was successful (and None upon failure).
-pub fn parse_cert<'a, 'b>(buffer: &'a [u8], filename: &'b str) -> Option<PDVCertificate> {
+pub fn parse_cert(buffer: &[u8], filename: &str) -> Option<PDVCertificate> {
     let r = Certificate::from_der(buffer);
     match r {
         Ok(cert) => {

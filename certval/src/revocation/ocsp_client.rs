@@ -718,7 +718,7 @@ fn process_ocsp_response_internal(
 }
 
 #[cfg(feature = "remote")]
-fn get_ocsp_aias<'a>(target_cert: &'a PDVCertificate) -> Vec<&'a Ia5String> {
+fn get_ocsp_aias(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
     let mut retval = vec![];
     if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aias))) =
         target_cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS)

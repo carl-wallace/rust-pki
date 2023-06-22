@@ -356,7 +356,7 @@ pub(crate) struct CrlInfo {
 
 /// get_crl_dps returns a list of URIs read from the CRL DP extension, if any.
 #[cfg(feature = "remote")]
-fn get_crl_dps<'a>(target_cert: &'a PDVCertificate) -> Vec<&'a Ia5String> {
+fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
     let mut retval = vec![];
     if let Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) =
         target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS)

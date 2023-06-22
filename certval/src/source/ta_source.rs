@@ -205,13 +205,13 @@ pub struct TaSource {
     pub name_map: RefCell<BTreeMap<String, usize>>,
 }
 
-impl<'a> Default for TaSource {
+impl Default for TaSource {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> TaSource {
+impl TaSource {
     /// instantiates a new TaSource
     pub fn new() -> TaSource {
         TaSource {
@@ -477,9 +477,9 @@ impl TrustAnchorSource for TaSource {
 /// field, the [`TaSource::tas`](`TaSource`) field does not contain
 /// optionally present parsed structures (because there is not need to maintain correlation for trust
 /// anchors because indices are not used).
-pub fn populate_parsed_ta_vector<'a, 'reference>(
-    ta_buffer_vec: &'a [CertFile],
-    parsed_ta_vec: &'reference mut Vec<PDVTrustAnchorChoice>,
+pub fn populate_parsed_ta_vector(
+    ta_buffer_vec: &[CertFile],
+    parsed_ta_vec: &mut Vec<PDVTrustAnchorChoice>,
 ) {
     for cf in ta_buffer_vec {
         if let Ok(tac) = TrustAnchorChoice::from_der(cf.bytes.as_slice()) {
