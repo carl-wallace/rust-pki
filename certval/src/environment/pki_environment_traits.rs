@@ -144,7 +144,7 @@ pub trait CertificationPathBuilder {
 /// The [`CrlSource`] trait defines the interface for storing and retrieving CRLs in support of certification path validation.
 pub trait CrlSource {
     /// Retrieves CRLs for given certificate from store
-    fn get_crls<'a>(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>>;
+    fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>>;
     /// Adds a CRL to the store
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()>;
 }
@@ -169,9 +169,9 @@ pub trait CheckRemoteResource {
 pub trait RevocationStatusCache {
     /// Returns Ok(Valid) is status is known to be good at time of interest, Ok(Revoked) if
     /// certificate is known to be revoked and Err(RevocationStatusDetermined) otherwise.
-    fn get_status<'a>(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus;
+    fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus;
 
     /// Sets status for certificate to one of Valid or Revoked and a next update value.
-    fn add_status<'a>(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus);
+    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus);
 }
 // TODO add allowlist and blocklist as RevocationStatusCache implementations

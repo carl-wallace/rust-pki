@@ -183,7 +183,7 @@ pub struct Pittv3Args {
     #[clap(long, help_heading = "DIAGNOSTICS")]
     pub list_trust_anchors: bool,
 
-    /// Outputs the certificate at the specified index to a file names <index>.der in the
+    /// Outputs the certificate at the specified index to a file names `<index>.der` in the
     /// download_folder if specified, else current working directory.
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "DIAGNOSTICS")]

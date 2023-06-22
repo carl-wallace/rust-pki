@@ -370,7 +370,7 @@ impl BuffersAndPaths {
 ///
 /// These steps allows an immutable vector of buffers to be used to produce a vector of long-lived
 /// parsed certificate instances. The snip below, similar to code found in the PITTv3 utility, demonstrates preparation of
-/// a CertSource structure from a CBOR file. In this snip, read_cbor reads a Vec<u8> from the file
+/// a CertSource structure from a CBOR file. In this snip, read_cbor reads a `Vec<u8>` from the file
 /// indicated by the `cbor_file` variable then the `from_reader` function from the
 /// [Ciborium](https://docs.rs/ciborium/latest/ciborium/) library deserializes the structure into
 /// the [`BuffersAndPaths`] instance of the [`CertSource`] instance. Subsequent calls to
@@ -440,7 +440,7 @@ pub struct CertSource {
     pub name_map: BTreeMap<String, Vec<usize>>,
 }
 
-impl<'a> Default for CertSource {
+impl Default for CertSource {
     /// CertSource::default instantiates a new empty CertSource. The caller is responsible for populating
     /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
     /// member then preparing skid and name maps prior to using instance.

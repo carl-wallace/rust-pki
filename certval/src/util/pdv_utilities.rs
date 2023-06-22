@@ -763,7 +763,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
                 ' ' if i == 0 || iter.peek().is_none() => s.push_str("\\ "),
                 '"' | '+' | ',' | ';' | '<' | '>' | '\\' => s.push_str(format!("\\{}", c).as_str()),
                 '\x00'..='\x1f' | '\x7f' => s.push_str(format!("\\{:02x}", c as u8).as_str()),
-                _ => s.push(c as char),
+                _ => s.push(c),
             }
         }
     } else {

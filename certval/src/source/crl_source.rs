@@ -204,7 +204,7 @@ impl CheckRemoteResource for CrlSourceFolders {
             let p = Path::new(&self.crls_folder);
             let lmmp = p.join("last_modified_map.json");
             if let Ok(json_lmm) = &json_lmm {
-                if fs::write(&lmmp, json_lmm).is_err() {
+                if fs::write(lmmp, json_lmm).is_err() {
                     log_message(
                         &PeLogLevels::PeError,
                         "Unable to write last modified map file",
@@ -302,7 +302,7 @@ impl CrlSource for CrlSourceFolders {
         Ok(())
     }
 
-    fn get_crls<'a>(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
+    fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         if let Some(dps) = get_dps_from_cert(cert) {
             let idp_guard = if let Ok(g) = self.dp_map.lock() {
                 g
@@ -550,7 +550,7 @@ fn index_crls_internal(
 }
 
 impl RevocationStatusCache for CrlSourceFolders {
-    fn get_status<'a>(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
+    fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
         let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
 
@@ -571,12 +571,7 @@ impl RevocationStatusCache for CrlSourceFolders {
 
         RevocationStatusNotDetermined
     }
-    fn add_status<'a>(
-        &self,
-        cert: &PDVCertificate,
-        next_update: u64,
-        status: PathValidationStatus,
-    ) {
+    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus) {
         if status != PathValidationStatus::Valid
             && status != PathValidationStatus::CertificateRevoked
         {

@@ -245,9 +245,9 @@ pub fn check_validity(
 /// - Uniform resource identifiers
 ///
 /// Additional name forms may be added in the future.
-pub fn check_names<'a>(
+pub fn check_names(
     _pe: &PkiEnvironment<'_>,
-    cps: &'a CertificationPathSettings,
+    cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
@@ -382,9 +382,9 @@ pub fn check_names<'a>(
 /// `check_key_usage` ensures all intermediate CA certificates assert the keyCertSign bit and that the
 /// target certificate asserts the bits from the `PS_KEY_USAGE` item in the [`CertificationPathSettings`],
 /// if any.
-pub fn check_key_usage<'a>(
+pub fn check_key_usage(
     _pe: &PkiEnvironment<'_>,
-    cps: &'a CertificationPathSettings,
+    cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults<'_>,
 ) -> Result<()> {
@@ -1190,15 +1190,9 @@ pub fn check_certificate_policies(
             }
 
             if !is_self_issued(&ca_cert.decoded_cert) {
-                if explicit_policy > 0 {
-                    explicit_policy -= 1;
-                }
-                if inhibit_any_policy > 0 {
-                    inhibit_any_policy -= 1;
-                }
-                if policy_mapping > 0 {
-                    policy_mapping -= 1;
-                }
+                explicit_policy = explicit_policy.saturating_sub(1);
+                inhibit_any_policy = inhibit_any_policy.saturating_sub(1);
+                policy_mapping = policy_mapping.saturating_sub(1);
             }
 
             let pdv_ext: Option<&PDVExtension> =
@@ -1224,9 +1218,7 @@ pub fn check_certificate_policies(
             // 6.1.5 wrap-up procedure
 
             // (a)  If explicit_policy is not 0, decrement explicit_policy by 1.
-            if explicit_policy > 0 {
-                explicit_policy -= 1;
-            }
+            explicit_policy = explicit_policy.saturating_sub(1);
 
             let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_POLICY_CONSTRAINTS)?;

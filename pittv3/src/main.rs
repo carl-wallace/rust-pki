@@ -37,7 +37,6 @@ use clap::CommandFactory;
 
 #[macro_use]
 extern crate cfg_if;
-extern crate core;
 
 cfg_if! {
     if #[cfg(feature = "std")] {

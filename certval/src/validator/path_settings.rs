@@ -45,10 +45,10 @@ pub type ObjectIdentifierSet = BTreeSet<ObjectIdentifier>;
 /// `Strings` is a typedef for a vector of String values.
 pub type Strings = Vec<String>;
 
-/// `Buffers` is a typedef for a vector of Vec<u8> values.
+/// `Buffers` is a typedef for a vector of `Vec<u8>` values.
 pub type Buffers = Vec<Vec<u8>>;
 
-/// `ListOfBuffers` is a typedef for a vector of vectors of Vec<u8> values.
+/// `ListOfBuffers` is a typedef for a vector of vectors of `Vec<u8>` values.
 pub type ListOfBuffers = Vec<Vec<Vec<u8>>>;
 
 /// `Bools` is a typedef for a vector bool values.
