@@ -29,9 +29,9 @@ pem-rfc7468 = { git = "https://github.com/carl-wallace/formats", branch = "pqc" 
 
 pkiprocmacros = { path = "../pkiprocmacros"}
 
-ecdsa = {version = "0.15.1", default-features = false, features = ["der"]}
-p256 = {version = "0.12.0", default-features = false, features = ["ecdsa", "ecdsa-core"]}
-p384 = {version = "0.12.0", default-features = false, features = ["ecdsa"]}
+ecdsa = {version = "0.16.7", default-features = false, features = ["der"]}
+p256 = {version = "0.13.2", default-features = false, features = ["ecdsa", "ecdsa-core"]}
+p384 = {version = "0.13.0", default-features = false, features = ["ecdsa"]}
 rsa = {version = "0.9.2"}
 sha-1 = {version = "0.10.1", default-features = false}
 sha2 = {version = "0.10.7", default-features = false, features = ["oid"] }
