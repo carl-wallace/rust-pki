@@ -8,21 +8,6 @@ use x509_cert::attr::AttributeTypeAndValue;
 use x509_cert::ext::pkix::SubjectKeyIdentifier;
 use x509_cert::name::Name;
 
-/// OID for PIV NACI extension: 2.16.840.1.101.3.6.9.1. See [`PivNaciIndicator`](type.PivNaciIndicator.html).
-pub const PIV_NACI_INDICATOR: ObjectIdentifier =
-    ObjectIdentifier::new_unwrap("2.16.840.1.101.3.6.9.1");
-
-/// NACI-indicator as defined in [FIPS 201-2 Appendix B].
-///
-/// This extension is identified by the [`PIV_NACI_INDICATOR`](constant.PIV_NACI_INDICATOR.html) OID.
-///
-/// ```text
-/// NACI-indicator ::= BOOLEAN
-/// ```
-///
-/// [FIPS 201-2 Appendix B]: https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.201-2.pdf
-pub type PivNaciIndicator = bool;
-
 // Use 2004 suffix to distinguish from the enum in content_type.rs in pkcs7 crate if RustCrypto formats repo
 
 /// ContentInfo structure as defined in [RFC 5652 Section 3].
