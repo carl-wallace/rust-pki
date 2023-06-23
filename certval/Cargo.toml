@@ -33,8 +33,8 @@ ecdsa = {version = "0.15.1", default-features = false, features = ["der"]}
 p256 = {version = "0.12.0", default-features = false, features = ["ecdsa", "ecdsa-core"]}
 p384 = {version = "0.12.0", default-features = false, features = ["ecdsa"]}
 rsa = {version = "0.6.1"}
-sha-1 = {version = "0.10.0", default-features = false}
-sha2 = {version = "0.10.2", default-features = false}
+sha-1 = {version = "0.10.1", default-features = false}
+sha2 = {version = "0.10.7", default-features = false}
 
 cfg-if = "1.0.0"
 # serde feature is added to std, revocation,std and remote
