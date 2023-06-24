@@ -7,7 +7,7 @@ use alloc::{format, vec::Vec};
 use der::Decode;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
 use rsa::pkcs8::DecodePublicKey;
-use rsa::{hash::Hash, PaddingScheme, PublicKey, RsaPublicKey};
+use rsa::{Pkcs1v15Sign, RsaPublicKey};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
@@ -39,20 +39,12 @@ use pqcrypto_traits::sign::{DetachedSignature, PublicKey as OtherPublicKey};
 /// At present, only the PKCS1v15Sign passing scheme is supported, relative to the
 /// [`PKIXALG_SHA224_WITH_RSA_ENCRYPTION`], [`PKIXALG_SHA256_WITH_RSA_ENCRYPTION`],
 /// [`PKIXALG_SHA384_WITH_RSA_ENCRYPTION`] and [`PKIXALG_SHA512_WITH_RSA_ENCRYPTION`] algorithm identifiers.
-pub fn get_padding_scheme(signature_alg: &AlgorithmIdentifierOwned) -> Result<PaddingScheme> {
+pub fn get_padding_scheme(signature_alg: &AlgorithmIdentifierOwned) -> Result<Pkcs1v15Sign> {
     match signature_alg.oid {
-        PKIXALG_SHA256_WITH_RSA_ENCRYPTION => Ok(PaddingScheme::PKCS1v15Sign {
-            hash: Some(Hash::SHA2_256),
-        }),
-        PKIXALG_SHA384_WITH_RSA_ENCRYPTION => Ok(PaddingScheme::PKCS1v15Sign {
-            hash: Some(Hash::SHA2_384),
-        }),
-        PKIXALG_SHA224_WITH_RSA_ENCRYPTION => Ok(PaddingScheme::PKCS1v15Sign {
-            hash: Some(Hash::SHA2_224),
-        }),
-        PKIXALG_SHA512_WITH_RSA_ENCRYPTION => Ok(PaddingScheme::PKCS1v15Sign {
-            hash: Some(Hash::SHA2_512),
-        }),
+        PKIXALG_SHA256_WITH_RSA_ENCRYPTION => Ok(Pkcs1v15Sign::new::<Sha256>()),
+        PKIXALG_SHA384_WITH_RSA_ENCRYPTION => Ok(Pkcs1v15Sign::new::<Sha384>()),
+        PKIXALG_SHA224_WITH_RSA_ENCRYPTION => Ok(Pkcs1v15Sign::new::<Sha224>()),
+        PKIXALG_SHA512_WITH_RSA_ENCRYPTION => Ok(Pkcs1v15Sign::new::<Sha512>()),
         _ => Err(Error::Unrecognized),
     }
 }
@@ -203,7 +195,7 @@ pub fn verify_signature_digest_rust_crypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
-    let enc_spki = spki.to_vec();
+    let enc_spki = spki.to_der();
     if let Ok(enc_spki) = enc_spki {
         if is_rsa(&signature_alg.oid) {
             let rsa = RsaPublicKey::from_public_key_der(&enc_spki);
@@ -248,7 +240,7 @@ pub fn verify_signature_message_rust_crypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
-    let enc_spki = spki.to_vec();
+    let enc_spki = spki.to_der();
     if is_rsa(&signature_alg.oid) {
         if let Ok(enc_spki) = enc_spki {
             let rsa = RsaPublicKey::from_public_key_der(&enc_spki);

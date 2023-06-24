@@ -61,7 +61,7 @@ fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
 }
 
 fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
-    let enc_subject = match cert.tbs_certificate.subject.to_vec() {
+    let enc_subject = match cert.tbs_certificate.subject.to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -238,7 +238,7 @@ fn prepare_ocsp_request(
         tbs_request,
         optional_signature: None,
     };
-    let enc_ocsp_req = match ocsp_req.to_vec() {
+    let enc_ocsp_req = match ocsp_req.to_der() {
         Ok(eor) => eor,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -560,7 +560,7 @@ fn process_ocsp_response_internal(
     // by the same CA that issued the target cert (i.e., key rollover certs do not apply here presently)
     if let Some(certs) = &bor.certs {
         for a in certs {
-            if let Ok(certbuf) = a.to_vec() {
+            if let Ok(certbuf) = a.to_der() {
                 if let Ok(defer_cert) = DeferDecodeSigned::from_der(certbuf.as_slice()) {
                     if let Ok(_r) = pe.verify_signature_message(
                         pe,

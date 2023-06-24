@@ -673,8 +673,11 @@ pub fn oid_lookup(oid: &ObjectIdentifier) -> Result<String> {
 /// encode_dn_from_string takes a string representation of a distinguished name and returns the DER
 /// encoding of that name.
 pub fn encode_dn_from_string(string: &str) -> Result<Vec<u8>> {
-    match RdnSequence::encode_from_string(string) {
-        Ok(retval) => Ok(retval),
+    match RdnSequence::from_str(string) {
+        Ok(rdn) => match rdn.to_der() {
+            Ok(v) => Ok(v),
+            Err(e) => Err(Error::Asn1Error(e)),
+        },
         Err(e) => Err(Error::Asn1Error(e)),
     }
 }
@@ -767,7 +770,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
             }
         }
     } else {
-        match atav.value.to_vec() {
+        match atav.value.to_der() {
             Ok(val) => {
                 s.push_str(format!("{}=#", atav.oid).as_str());
                 for c in val {

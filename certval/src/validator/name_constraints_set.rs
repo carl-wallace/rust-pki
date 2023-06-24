@@ -643,7 +643,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             maximum: None,
                             minimum: 0,
                         };
-                        match gs.to_vec() {
+                        match gs.to_der() {
                             Ok(b) => {
                                 rfcbufs.push(b);
                             }
@@ -670,7 +670,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             maximum: None,
                             minimum: 0,
                         };
-                        match gs.to_vec() {
+                        match gs.to_der() {
                             Ok(b) => {
                                 dnsbufs.push(b);
                             }
@@ -697,7 +697,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                         maximum: None,
                         minimum: 0,
                     };
-                    match gs.to_vec() {
+                    match gs.to_der() {
                         Ok(b) => {
                             dnbufs.push(b);
                         }
@@ -722,7 +722,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             maximum: None,
                             minimum: 0,
                         };
-                        match gs.to_vec() {
+                        match gs.to_der() {
                             Ok(b) => {
                                 uribufs.push(b);
                             }
@@ -752,7 +752,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                         maximum: None,
                         minimum: 0,
                     };
-                    match gs.to_vec() {
+                    match gs.to_der() {
                         Ok(b) => {
                             upnbufs.push(b);
                         }

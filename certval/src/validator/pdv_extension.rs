@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeMap;
 
-use crate::asn1::cryptographic_message_syntax2004::PivNaciIndicator;
+use crate::asn1::piv_naci_indicator::PivNaciIndicator;
 use der::asn1::ObjectIdentifier;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_ocsp::OcspNoCheck;

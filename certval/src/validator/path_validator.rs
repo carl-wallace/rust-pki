@@ -919,7 +919,7 @@ pub fn check_certificate_policies(
                         let p_oid = &cp.policy_identifier;
                         let mut p_q: Option<Vec<u8>> = None;
                         if cp.policy_qualifiers.is_some() {
-                            p_q = match cp.policy_qualifiers.to_vec() {
+                            p_q = match cp.policy_qualifiers.to_der() {
                                 Ok(encoded_qualifers) => Some(encoded_qualifers),
                                 // ignore qualifiers that don't encode
                                 Err(_e) => None,
@@ -979,7 +979,7 @@ pub fn check_certificate_policies(
                         //use when processing step (2) below.
                         has_any_policy = true;
                         if cp.policy_qualifiers.is_some() {
-                            ap_q = match cp.policy_qualifiers.to_vec() {
+                            ap_q = match cp.policy_qualifiers.to_der() {
                                 Ok(encoded_qualifers) => Some(encoded_qualifers),
                                 // ignore qualifiers that don't encode
                                 Err(_e) => None,
