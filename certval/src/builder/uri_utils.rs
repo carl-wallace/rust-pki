@@ -8,6 +8,8 @@ use x509_cert::ext::pkix::name::GeneralName;
 
 use crate::util::pdv_utilities::*;
 use crate::*;
+use cms::content_info::ContentInfo;
+use cms::signed_data::SignedData;
 
 use cfg_if::cfg_if;
 cfg_if! {
@@ -50,21 +52,21 @@ fn save_certs_from_p7(
         return false;
     };
 
-    let ci = ContentInfo2004::from_der(bytes);
+    let ci = ContentInfo::from_der(bytes);
     if let Ok(ci) = ci {
-        if let Ok(content) = ci.content.to_vec() {
+        if let Ok(content) = ci.content.to_der() {
             let sd = SignedData::from_der(content.as_slice());
             match sd {
                 Ok(sd) => {
                     for (i, c) in sd.certificates.iter().enumerate() {
-                        for a in c {
+                        for a in c.0.iter() {
                             let f = format!("{}_{}.der", filename, i);
                             let pb = if let Ok(pb) = PathBuf::from_str(&f) {
                                 pb
                             } else {
                                 return false;
                             };
-                            if let Ok(enccert) = a.to_vec() {
+                            if let Ok(enccert) = a.to_der() {
                                 if save_cert(
                                     pe,
                                     &pb,

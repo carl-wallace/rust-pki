@@ -195,7 +195,7 @@ pub fn verify_signature_digest_rust_crypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
-    let enc_spki = spki.to_vec();
+    let enc_spki = spki.to_der();
     if let Ok(enc_spki) = enc_spki {
         if is_rsa(&signature_alg.oid) {
             let rsa = RsaPublicKey::from_public_key_der(&enc_spki);
@@ -240,7 +240,7 @@ pub fn verify_signature_message_rust_crypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
-    let enc_spki = spki.to_vec();
+    let enc_spki = spki.to_der();
     if is_rsa(&signature_alg.oid) {
         if let Ok(enc_spki) = enc_spki {
             let rsa = RsaPublicKey::from_public_key_der(&enc_spki);

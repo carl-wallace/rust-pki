@@ -503,18 +503,18 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
         .tbs_cert_list
         .next_update
         .map(|nu| nu.to_unix_duration().as_secs());
-    let issuer_name_blob = match crl.tbs_cert_list.issuer.to_vec() {
+    let issuer_name_blob = match crl.tbs_cert_list.issuer.to_der() {
         Ok(enc) => enc,
         Err(_e) => return Err(Error::Unrecognized),
     };
     let issuer_name = name_to_string(&crl.tbs_cert_list.issuer);
-    let sig_alg_blob = match crl.signature_algorithm.to_vec() {
+    let sig_alg_blob = match crl.signature_algorithm.to_der() {
         Ok(enc) => enc,
         Err(_e) => return Err(Error::Unrecognized),
     };
     let mut exts_blob = None;
     if let Some(crl_exts) = &crl.tbs_cert_list.crl_extensions {
-        exts_blob = match crl_exts.to_vec() {
+        exts_blob = match crl_exts.to_der() {
             Ok(enc) => Some(enc),
             Err(_e) => return Err(Error::Unrecognized),
         };
@@ -681,7 +681,7 @@ fn validate_crl_issuer_name<'a>(
         if let Some(gns) = &dp.crl_issuer {
             for gn in gns {
                 if let GeneralName::DirectoryName(dn) = gn {
-                    if let Ok(enc_dn) = dn.to_vec() {
+                    if let Ok(enc_dn) = dn.to_der() {
                         if enc_dn == crl_info.issuer_name_blob {
                             return Ok(Some(dp));
                         }
@@ -851,7 +851,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
     //		If the CRL issuer name does not match the cert issuer name, the indirectCRL field must be present
     //		in the IDP.
 
-    let enc_iss = match target_cert.decoded_cert.tbs_certificate.issuer.to_vec() {
+    let enc_iss = match target_cert.decoded_cert.tbs_certificate.issuer.to_der() {
         Ok(b) => b,
         Err(_e) => return Err(Error::Unrecognized),
     };
@@ -1121,7 +1121,7 @@ pub(crate) fn process_crl(
                     return Err(Error::UnsupportedCrlEntryExtension);
                 }
 
-                match rc.to_vec() {
+                match rc.to_der() {
                     Ok(enc_entry) => {
                         add_crl_entry(cpr, enc_entry, result_index);
                     }

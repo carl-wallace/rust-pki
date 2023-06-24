@@ -14,7 +14,7 @@ use der::{
 };
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
-use x509_cert::*;
+use x509_cert::Certificate;
 
 use crate::asn1::piv_naci_indicator::PIV_NACI_INDICATOR;
 use const_oid::db::rfc5912::{

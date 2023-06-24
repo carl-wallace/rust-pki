@@ -374,7 +374,7 @@ fn get_dps_from_cert(cert: &PDVCertificate) -> Option<Vec<Vec<u8>>> {
             let mut retval = vec![];
             for crl_dp in &crl_dps.0 {
                 if let Some(dp) = &crl_dp.distribution_point {
-                    if let Ok(enc_dp) = dp.to_vec() {
+                    if let Ok(enc_dp) = dp.to_der() {
                         retval.push(enc_dp);
                     }
                 }
@@ -392,7 +392,7 @@ fn get_dp_from_crl(crl: &CertificateList) -> Option<Vec<u8>> {
             if ext.extn_id == ID_CE_ISSUING_DISTRIBUTION_POINT {
                 if let Ok(idp) = IssuingDistributionPoint::from_der(ext.extn_value.as_bytes()) {
                     if let Some(dp) = idp.distribution_point {
-                        if let Ok(enc_dp) = dp.to_vec() {
+                        if let Ok(enc_dp) = dp.to_der() {
                             return Some(enc_dp);
                         }
                     }
