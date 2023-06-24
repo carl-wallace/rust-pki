@@ -1,4 +1,5 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
+use alloc::vec::Vec;
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,

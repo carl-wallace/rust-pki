@@ -343,7 +343,7 @@ pub fn verify_signature_message_composite_pqcrypto(
         // Parse each composite value
         // Params is an AnyRef, so it needs to be encoded to access value
         let params_enc = if let Some(p) = &signature_alg.parameters {
-            match p.to_vec() {
+            match p.to_der() {
                 Ok(rv) => rv,
                 Err(_e) => return Err(Error::Unrecognized),
             }
