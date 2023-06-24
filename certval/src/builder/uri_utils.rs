@@ -8,8 +8,9 @@ use x509_cert::ext::pkix::name::GeneralName;
 
 use crate::util::pdv_utilities::*;
 use crate::*;
-use cms::content_info::ContentInfo;
-use cms::signed_data::SignedData;
+
+#[cfg(feature = "remote")]
+use cms::{content_info::ContentInfo, signed_data::SignedData};
 
 use cfg_if::cfg_if;
 cfg_if! {
