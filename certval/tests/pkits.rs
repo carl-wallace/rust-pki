@@ -347,7 +347,7 @@ pub fn pkits_guts_sync(
             )
             .unwrap();
             let mut ta = PDVTrustAnchorChoice {
-                encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+                encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].clone(),
                 decoded_ta: tac,
                 metadata: None,
                 parsed_extensions: ParsedExtensions::new(),
@@ -364,7 +364,7 @@ pub fn pkits_guts_sync(
                 }
             };
             let mut ee = PDVCertificate {
-                encoded_cert: pool.certs[case.target_file_name].as_slice(),
+                encoded_cert: pool.certs[case.target_file_name].clone(),
                 decoded_cert: ee_cert,
                 metadata: None,
                 parsed_extensions: ParsedExtensions::new(),
@@ -381,7 +381,7 @@ pub fn pkits_guts_sync(
                     // pool.certs.push(der_encoded_ca);
                     let ca_cert = Certificate::from_der(pool.certs[*ca_file].as_slice()).unwrap();
                     let mut ca = PDVCertificate {
-                        encoded_cert: pool.certs[*ca_file].as_slice(),
+                        encoded_cert: pool.certs[*ca_file].clone(),
                         decoded_cert: ca_cert,
                         metadata: None,
                         parsed_extensions: ParsedExtensions::new(),
@@ -481,7 +481,7 @@ pub fn pkits_guts_sync(
 
                 if !verified_ta_as_target {
                     let ta_as_cert =
-                        parse_cert(ta.encoded_ta.clone(), "TrustAnchorRootCertificate.crt")
+                        parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt")
                             .unwrap();
 
                     let mut cert_path2 =
@@ -511,7 +511,7 @@ pub fn pkits_guts_sync(
                     let tac5914 =
                         TrustAnchorChoice::from_der(der_encoded_ta5914.as_slice()).unwrap();
                     let mut ta5914 = PDVTrustAnchorChoice {
-                        encoded_ta: der_encoded_ta5914.as_slice(),
+                        encoded_ta: der_encoded_ta5914,
                         decoded_ta: tac5914,
                         metadata: None,
                         parsed_extensions: ParsedExtensions::new(),

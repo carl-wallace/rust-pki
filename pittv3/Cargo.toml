@@ -17,14 +17,13 @@ rust-version = "1.57"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version="0.2.3", features = ["pem"] }
+x509-cert = { version="0.2.3", default-features = false, features = ["pem"] }
 const-oid = { version = "0.9.2", default-features = false, features = ["db"] }
 cms = "0.2.1"
 der = { version="0.7.6", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
-#pqckeys = { git = "https://github.com/carl-wallace/formats", branch = "pqc" }
 pem-rfc7468 = { version="0.7.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
@@ -34,14 +33,14 @@ sha2 = {version = "0.10.7", default-features = false, features = ["oid"] }
 async-recursion = "1.0.0"
 bytes = "1.4.0"
 cfg-if = "1.0.0"
-ciborium = "0.2.1"
+ciborium = {version = "0.2.1", default-features = false }
 clap = {version = "4.3.5", default-features = false, features=["std", "derive"]}
-flagset = { version = "0.4.3" }
+flagset = { version = "0.4.3", default-features = false }
 lazy_static = "1.4.*"
-serde = { version = "1.0.164", default-features = false, features = ["derive"] }
-serde_json = "1.0.97"
+serde = { version = "1.0.164", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0.97", default-features = false, features = ["alloc"] }
 
-csv = {version = "1.2.2", optional = true}
+csv = {version = "1.2.2", optional = true, default-features = false}
 log = {version = "0.4.19", optional = true}
 log4rs = {version = "1.2.0", optional = true}
 futures = {version = "0.3.28", optional = true}
