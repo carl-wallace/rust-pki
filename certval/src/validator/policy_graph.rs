@@ -1,7 +1,7 @@
 //! Policy graph-based certificate policy processing
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use crate::alloc::borrow::ToOwned;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::{vec, vec::Vec};
 use core::cell::RefCell;
 use core::ops::Deref;
