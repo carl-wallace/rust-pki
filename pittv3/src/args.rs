@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// PKI Interoperability Test Tool v3 (PITTv3)
 #[derive(Parser, Debug)]
+#[command(arg_required_else_help(true))]
 #[clap(author, version, about, long_about = None)]
 pub struct Pittv3Args {
     /// Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR
