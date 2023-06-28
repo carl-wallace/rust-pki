@@ -352,6 +352,8 @@ pub static PS_URI_BLOCKLIST_FILE: &str = "psUriBlocklistFile";
 pub static PS_CBOR_TA_STORE: &str = "psCborTaStore";
 /// PS_REQUIRE_TA_STORE is used to indicate that the validator should require a TA to affirm given TA is actually a TA.
 pub static PS_REQUIRE_TA_STORE: &str = "psRequireTaStore";
+/// PS_USE_POLICY_GRAPH is used to indicate that the validator should use policy graph-based certificate policy processing.
+pub static PS_USE_POLICY_GRAPH: &str = "psUsePolicyGraph";
 
 //-----------------------------------------------------------------------------------------------
 // Getters/setters for settings
@@ -708,6 +710,7 @@ cps_gets_and_sets_with_default!(PS_REQUIRE_COUNTRY_CODE_INDICATOR, bool, false);
 cps_gets_and_sets!(PS_PERM_COUNTRIES, Strings);
 cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
+cps_gets_and_sets_with_default!(PS_USE_POLICY_GRAPH, bool, false);
 
 /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
 /// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
