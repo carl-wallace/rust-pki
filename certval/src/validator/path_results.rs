@@ -44,6 +44,10 @@ pub static PR_PROCESSED_EXTENSIONS: &str = "cprProcessedExtensions";
 /// object.
 pub static PR_FINAL_VALID_POLICY_TREE: &str = "cprValidPolicyTree";
 
+/// `PR_FINAL_VALID_POLICY_GRAPH` is used to retrieve a FinalValidPolicyGraph value from a [`CertificationPathResults`]
+/// object.
+pub static PR_FINAL_VALID_POLICY_GRAPH: &str = "cprValidPolicyTree";
+
 /// `PR_VALIDATION_STATUS` is used to retrieve a status code indicating validation result.
 pub static PR_VALIDATION_STATUS: &str = "cprValidationStatus";
 
@@ -86,6 +90,7 @@ cpr_gets_and_sets_with_default!(PR_PROCESSED_EXTENSIONS, ObjectIdentifierSet, {
     BTreeSet::new()
 });
 cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_TREE, FinalValidPolicyTree);
+cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_GRAPH, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_VALIDATION_STATUS, PathValidationStatus);
 cpr_gets_and_sets!(PR_FAILED_OCSP_REQUESTS, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults

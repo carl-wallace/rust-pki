@@ -26,13 +26,13 @@ use crate::ObjectIdentifierSet;
 ///
 /// Upon completion of policy processing, an instance of FinalValidPolicyTree is prepared and returned
 /// to the caller.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct PolicyProcessingData {
     pub(crate) valid_policy: ObjectIdentifier,
     pub(crate) qualifier_set: Option<Vec<u8>>,
     pub(crate) expected_policy_set: ObjectIdentifierSet,
     pub(crate) depth: u8,
-    pub(crate) parent: Option<usize>,
+    pub(crate) parent: Option<RefCell<Vec<usize>>>,
     pub(crate) children: RefCell<Vec<usize>>,
 }
 
@@ -127,12 +127,13 @@ pub(crate) fn make_new_policy_node_add_to_pool2(
     depth: u8,
     parent: &Option<usize>,
 ) -> Result<usize> {
+    let parent_opt = parent.as_ref().map(|p| RefCell::new(vec![*p]));
     let node = PolicyProcessingData {
         valid_policy,
         qualifier_set: qualifiers.clone(),
         expected_policy_set,
         depth,
-        parent: *parent,
+        parent: parent_opt,
         children: RefCell::new(vec![]),
     };
     let cur_index = pm.len();
@@ -147,12 +148,14 @@ pub(crate) fn make_new_policy_node(
     depth: u8,
     parent: &Option<usize>,
 ) -> Result<PolicyProcessingData> {
+    let parent_opt = parent.as_ref().map(|p| RefCell::new(vec![*p]));
+
     Ok(PolicyProcessingData {
         valid_policy,
         qualifier_set: qualifiers.clone(),
         expected_policy_set,
         depth,
-        parent: *parent,
+        parent: parent_opt,
         children: RefCell::new(vec![]),
     })
 }
@@ -180,8 +183,8 @@ pub(crate) fn purge_policies(
     for pol in valid_policy_node_set {
         let p = &pool[*pol];
         if p.valid_policy != ANY_POLICY && !initial_policy_set.contains(&p.valid_policy) {
-            if let Some(parent_index) = p.parent {
-                let parent = &pool[parent_index];
+            if let Some(parent_index) = &p.parent {
+                let parent = &pool[parent_index.borrow()[0]];
                 parent
                     .children
                     .borrow_mut()

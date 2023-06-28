@@ -101,6 +101,7 @@ fn pkits_p256() {
         &pe,
         PkitsFlavor::PkitsP256,
         true,
+        false,
     );
 }
 
@@ -137,6 +138,7 @@ async fn pkits_p256() {
         &pe,
         PkitsFlavor::PkitsP256,
         true,
+        false,
     )
     .await;
 }
@@ -175,6 +177,7 @@ async fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             false,
+            false,
         )
         .await;
         pe.clear_all_callbacks();
@@ -190,6 +193,7 @@ async fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             true,
+            false,
         )
         .await;
         pe.clear_all_callbacks();
@@ -230,6 +234,7 @@ fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             false,
+            false,
         );
     }
     #[cfg(not(feature = "revocation"))]
@@ -243,6 +248,192 @@ fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             true,
+            false,
+        );
+    }
+}
+
+#[cfg(not(feature = "std"))]
+#[test]
+fn pkits_p256_graph() {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+    let mut ta_source2 = TaSource::new();
+    {
+        // all tests share common trust anchor so add it to the pool
+        let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
+        if let Ok(der_encoded_ta) = der_encoded_ta {
+            ta_source2.buffers.push(CertFile {
+                filename: "TrustAnchorRootCertificate.crt".to_string(),
+                bytes: der_encoded_ta,
+            });
+        }
+    }
+
+    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
+    ta_source2.index_tas();
+
+    let mut pe = PkiEnvironment::new();
+    populate_5280_pki_environment(&mut pe);
+    pe.add_trust_anchor_source(&ta_source2);
+    pkits_guts_sync(
+        &mut pool,
+        &pkits_data_map,
+        &pe,
+        PkitsFlavor::PkitsP256,
+        true,
+        true,
+    );
+}
+
+#[cfg(feature = "std")]
+#[tokio::test]
+async fn pkits_p256_graph() {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+    let mut ta_source2 = TaSource::new();
+    {
+        // all tests share common trust anchor so add it to the pool
+        let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
+        if let Ok(der_encoded_ta) = der_encoded_ta {
+            ta_source2.buffers.push(CertFile {
+                filename: "TrustAnchorRootCertificate.crt".to_string(),
+                bytes: der_encoded_ta,
+            });
+        }
+    }
+
+    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
+    ta_source2.index_tas();
+
+    let mut pe = PkiEnvironment::new();
+    populate_5280_pki_environment(&mut pe);
+    pe.add_trust_anchor_source(&ta_source2);
+    pkits_guts(
+        &mut pool,
+        &pkits_data_map,
+        &pe,
+        PkitsFlavor::PkitsP256,
+        true,
+        true,
+    )
+    .await;
+}
+
+#[cfg(feature = "std")]
+#[tokio::test]
+async fn pkits_2048_graph() {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+    let mut ta_source2 = TaSource::new();
+    {
+        // all tests share common trust anchor so add it to the pool
+        let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
+        if let Ok(der_encoded_ta) = der_encoded_ta {
+            ta_source2.buffers.push(CertFile {
+                filename: "TrustAnchorRootCertificate.crt".to_string(),
+                bytes: der_encoded_ta,
+            });
+        }
+    }
+
+    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
+    ta_source2.index_tas();
+
+    #[cfg(feature = "revocation")]
+    {
+        let mut pe = PkiEnvironment::new();
+        populate_5280_pki_environment(&mut pe);
+        pe.add_trust_anchor_source(&ta_source2);
+        pkits_guts(
+            &mut pool,
+            &pkits_data_map,
+            &pe,
+            PkitsFlavor::PkitsRsa2048,
+            false,
+            true,
+        )
+        .await;
+        pe.clear_all_callbacks();
+    }
+    #[cfg(not(feature = "revocation"))]
+    {
+        let mut pe = PkiEnvironment::new();
+        populate_5280_pki_environment(&mut pe);
+        pe.add_trust_anchor_source(&ta_source2);
+        pkits_guts(
+            &mut pool,
+            &pkits_data_map,
+            &pe,
+            PkitsFlavor::PkitsRsa2048,
+            true,
+            true,
+        )
+        .await;
+        pe.clear_all_callbacks();
+    }
+}
+
+#[cfg(not(feature = "std"))]
+#[test]
+fn pkits_2048_graph() {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+    let mut ta_source2 = TaSource::new();
+    {
+        // all tests share common trust anchor so add it to the pool
+        let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
+        if let Ok(der_encoded_ta) = der_encoded_ta {
+            ta_source2.buffers.push(CertFile {
+                filename: "TrustAnchorRootCertificate.crt".to_string(),
+                bytes: der_encoded_ta,
+            });
+        }
+    }
+
+    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
+    ta_source2.index_tas();
+
+    #[cfg(feature = "revocation")]
+    {
+        let mut pe = PkiEnvironment::new();
+        populate_5280_pki_environment(&mut pe);
+        pe.add_trust_anchor_source(&ta_source2);
+        pkits_guts_sync(
+            &mut pool,
+            &pkits_data_map,
+            &pe,
+            PkitsFlavor::PkitsRsa2048,
+            false,
+            true,
+        );
+    }
+    #[cfg(not(feature = "revocation"))]
+    {
+        let mut pe = PkiEnvironment::new();
+        populate_5280_pki_environment(&mut pe);
+        pe.add_trust_anchor_source(&ta_source2);
+        pkits_guts_sync(
+            &mut pool,
+            &pkits_data_map,
+            &pe,
+            PkitsFlavor::PkitsRsa2048,
+            true,
+            true,
         );
     }
 }
@@ -254,6 +445,7 @@ pub fn pkits_guts_sync(
     pe: &PkiEnvironment<'_>,
     flavor: PkitsFlavor,
     skip_revocation: bool,
+    policy_graph: bool,
 ) {
     // all tests share common trust anchor so add it to the pool
     let der_encoded_ta = match flavor {
@@ -449,16 +641,19 @@ pub fn pkits_guts_sync(
                     println!("break");
                 }
 
+                let mut tmp_settings = case.settings.clone();
+                set_use_policy_graph(&mut tmp_settings, policy_graph);
+
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(&pe, case.settings, &mut cert_path, &mut cpr);
+                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
-                let mut r = pe.validate_path(&pe, case.settings, &mut cert_path, &mut cpr);
+                let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
                 if r.is_ok() && !skip_revocation_check {
-                    r = check_revocation(pe, case.settings, &mut cert_path, &mut cpr);
+                    r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr);
                 }
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
@@ -488,13 +683,13 @@ pub fn pkits_guts_sync(
                         CertificationPath::new(&ta, CertificateChain::default(), &ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(&pe, case.settings, &mut cert_path2, &mut cpr);
+                    let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
-                    let mut r = pe.validate_path(&pe, case.settings, &mut cert_path2, &mut cpr);
+                    let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
                     #[cfg(feature = "revocation")]
                     if r.is_ok() && !skip_revocation_check {
-                        r = check_revocation(pe, case.settings, &mut cert_path2, &mut cpr);
+                        r = check_revocation(pe, &tmp_settings, &mut cert_path2, &mut cpr);
                     }
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
@@ -533,7 +728,7 @@ pub fn pkits_guts_sync(
                         let mut r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
-                            r = check_revocation(pe, case.settings, &mut cert_path, &mut cpr);
+                            r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr);
                         }
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
@@ -563,6 +758,7 @@ pub async fn pkits_guts(
     pe: &PkiEnvironment<'_>,
     flavor: PkitsFlavor,
     skip_revocation: bool,
+    policy_graph: bool,
 ) {
     // all tests share common trust anchor so add it to the pool
     let der_encoded_ta = match flavor {
@@ -757,15 +953,18 @@ pub async fn pkits_guts(
                     }
                 }
 
+                let mut tmp_settings = case.settings.clone();
+                set_use_policy_graph(&mut tmp_settings, policy_graph);
+
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(&pe, case.settings, &mut cert_path, &mut cpr);
+                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
-                let mut r = pe.validate_path(pe, case.settings, &mut cert_path, &mut cpr);
+                let mut r = pe.validate_path(pe, &tmp_settings, &mut cert_path, &mut cpr);
                 #[cfg(feature = "revocation")]
                 if r.is_ok() && !skip_revocation_check {
-                    r = check_revocation(pe, case.settings, &mut cert_path, &mut cpr).await;
+                    r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr).await;
                 }
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
@@ -784,13 +983,13 @@ pub async fn pkits_guts(
                         CertificationPath::new(&ta, CertificateChain::default(), &ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(&pe, case.settings, &mut cert_path2, &mut cpr);
+                    let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
-                    let mut r = pe.validate_path(pe, case.settings, &mut cert_path2, &mut cpr);
+                    let mut r = pe.validate_path(pe, &tmp_settings, &mut cert_path2, &mut cpr);
                     #[cfg(feature = "revocation")]
                     if r.is_ok() && !skip_revocation_check {
-                        r = check_revocation(pe, case.settings, &mut cert_path2, &mut cpr).await;
+                        r = check_revocation(pe, &tmp_settings, &mut cert_path2, &mut cpr).await;
                     }
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
@@ -829,7 +1028,7 @@ pub async fn pkits_guts(
                         let mut r = pe.validate_path(pe, mod_cps, &mut cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
-                            r = check_revocation(pe, case.settings, &mut cert_path, &mut cpr).await;
+                            r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr).await;
                         }
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
