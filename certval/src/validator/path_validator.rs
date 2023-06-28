@@ -780,6 +780,22 @@ pub fn verify_signatures(
             }
         };
 
+        if cur_cert.decoded_cert.tbs_certificate.signature
+            != cur_cert.decoded_cert.signature_algorithm
+        {
+            log_error_for_ca(
+                cur_cert,
+                format!(
+                    "signature algorithm mismatch: {:?} - {:?}",
+                    cur_cert.decoded_cert.tbs_certificate.signature,
+                    cur_cert.decoded_cert.signature_algorithm
+                )
+                .as_str(),
+            );
+            set_validation_status(cpr, PathValidationStatus::EncodingError);
+            return Err(Error::PathValidation(PathValidationStatus::EncodingError));
+        }
+
         let r = pe.verify_signature_message(
             pe,
             defer_cert.tbs_field,
