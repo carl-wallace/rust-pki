@@ -27,12 +27,6 @@ use log4rs::config::{Appender, Config, Root};
 #[cfg(feature = "std_app")]
 use log4rs::encode::pattern::PatternEncoder;
 
-#[cfg(feature = "std_app")]
-use std::env;
-
-#[cfg(feature = "std_app")]
-use clap::CommandFactory;
-
 #[macro_use]
 extern crate cfg_if;
 
@@ -51,16 +45,6 @@ cfg_if! {
         /// Point of entry for PITTv3 application.
         #[tokio::main]
         async fn main() {
-            // when testing no-default-features, skip the display of help then exit when there are no params
-            // because the no-std build only has one param (to validate all paths instead of one).
-            let e = env::args_os();
-            if 1 == e.len() {
-                let mut a = Pittv3Args::command();
-                if let Err(_e) = a.print_help() {
-                    println!("Error printing help. Try again with -h parameter.")
-                }
-                return;
-            }
             let args = Pittv3Args::parse();
 
             let mut logging_configured = false;
@@ -115,8 +99,6 @@ cfg_if! {
     else if #[cfg(not(feature = "std_app"))] {
         /// Point of entry for PITTv3 application.
         fn main() {
-            // when testing no-default-features, skip the display of help then exit when there are no params
-            // because the no-std build only has one param (to validate all paths instead of one).
             let args = Pittv3Args::parse();
 
             debug!("PITTv3 start");
