@@ -206,9 +206,6 @@ async fn stapled_crl_async() {
     use certval::path_settings::*;
     use certval::validator::path_validator::*;
     use certval::*;
-    use der::Decode;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -219,30 +216,10 @@ async fn stapled_crl_async() {
     let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
     let der_encoded_ee_crl = include_bytes!("examples/harvard.edu/2-crl.crl");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
-
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -310,9 +287,6 @@ async fn stapled_mix_async() {
     use certval::path_settings::*;
     use certval::validator::path_validator::*;
     use certval::*;
-    use der::Decode;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -323,30 +297,11 @@ async fn stapled_mix_async() {
     let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
     let der_encoded_ee_crl = include_bytes!("examples/harvard.edu/2-crl.crl");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -417,10 +372,7 @@ async fn cached_crl_async() {
     use certval::validator::path_validator::*;
     use certval::CrlSourceFolders;
     use certval::*;
-    use der::Decode;
     use std::path::PathBuf;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -429,30 +381,11 @@ async fn cached_crl_async() {
     let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
     let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -518,10 +451,7 @@ async fn cached_crl_revoked_async() {
     use certval::validator::path_validator::*;
     use certval::CrlSourceFolders;
     use certval::*;
-    use der::Decode;
     use std::path::PathBuf;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -530,30 +460,11 @@ async fn cached_crl_revoked_async() {
     let der_encoded_ca = include_bytes!("examples/intel.com/1.der");
     let der_encoded_ee = include_bytes!("examples/intel.com/2-target.der");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -622,10 +533,7 @@ async fn cached_crl_revoked_remote_async() {
     use certval::validator::path_validator::*;
     use certval::CrlSourceFolders;
     use certval::*;
-    use der::Decode;
     use std::path::PathBuf;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -634,30 +542,11 @@ async fn cached_crl_revoked_remote_async() {
     let der_encoded_ca = include_bytes!("examples/intel.com/1.der");
     let der_encoded_ee = include_bytes!("examples/intel.com/2-target.der");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -726,10 +615,7 @@ async fn cached_crl_remote_async() {
     use certval::validator::path_validator::*;
     use certval::CrlSourceFolders;
     use certval::*;
-    use der::Decode;
     use std::path::PathBuf;
-    use x509_cert::anchor::TrustAnchorChoice;
-    use x509_cert::*;
 
     // Target expires UTCTime 02/08/2022 23:59:59 GMT
     // CA expires UTCTime 31/12/2030 23:59:59 GMT
@@ -738,30 +624,11 @@ async fn cached_crl_remote_async() {
     let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
     let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 

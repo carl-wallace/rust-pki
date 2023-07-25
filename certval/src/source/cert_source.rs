@@ -1676,12 +1676,7 @@ where
                     Asn1MetadataTypes::String(cert_file.filename.clone()),
                 );
 
-                let mut pdvcert = PDVCertificate {
-                    encoded_cert: bap.buffers[i].bytes.to_vec(),
-                    decoded_cert: cert,
-                    metadata: Some(md),
-                    parsed_extensions: ParsedExtensions::new(),
-                };
+                let mut pdvcert = PDVCertificate::try_from(bap.buffers[i].bytes.as_slice())?;
                 pdvcert.parse_extensions(EXTS_OF_INTEREST);
                 cert_store.push(Some(pdvcert));
             } else {

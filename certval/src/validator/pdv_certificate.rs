@@ -6,10 +6,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use der::{
-    asn1::{BitStringRef, ObjectIdentifier},
-    Decode,
-};
+use der::{asn1::{BitStringRef, ObjectIdentifier}, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
@@ -66,6 +63,34 @@ pub struct PDVCertificate {
     pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
     pub parsed_extensions: ParsedExtensions,
+}
+
+impl TryFrom<&[u8]> for PDVCertificate {
+    type Error = der::Error;
+
+    fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
+        let cert = Certificate::from_der(enc_cert)?;
+        Ok(PDVCertificate {
+            encoded_cert: enc_cert.to_vec(),
+            decoded_cert: cert,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        })
+    }
+}
+
+impl TryFrom<Certificate> for PDVCertificate {
+    type Error = der::Error;
+
+    fn try_from(cert: Certificate) -> der::Result<Self> {
+        let enc_cert = cert.to_der()?;
+        Ok(PDVCertificate {
+            encoded_cert: enc_cert,
+            decoded_cert: cert,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        })
+    }
 }
 
 impl ExtensionProcessing for PDVCertificate {
