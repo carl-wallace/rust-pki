@@ -334,6 +334,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-e")
@@ -358,6 +359,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-y");
         cmd.arg("-e")
             .arg("tests/examples/end_entities/from_id_CA_62.der");
@@ -438,6 +440,7 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-y");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -499,6 +502,7 @@ fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-y");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -552,6 +556,7 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
@@ -609,6 +614,7 @@ fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
@@ -655,6 +661,7 @@ fn absent_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
@@ -705,6 +712,7 @@ fn absent_cbor2() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
@@ -749,6 +757,7 @@ fn absent_cbor3() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
@@ -795,6 +804,7 @@ fn absent_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-i").arg("1689847755");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-y");
