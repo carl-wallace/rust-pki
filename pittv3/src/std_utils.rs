@@ -46,7 +46,7 @@ pub(crate) async fn validate_cert_file(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cert_filename: &str,
-    stats: &mut PathValidationStats<'_>,
+    stats: &mut PathValidationStats,
     args: &Pittv3Args,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
@@ -72,8 +72,7 @@ pub(crate) async fn validate_cert_file(
         target
     };
 
-    let parsed_cert = parse_cert(b.as_slice(), cert_filename);
-    if let Some(target_cert) = parsed_cert {
+    if let Some(target_cert) = parse_cert(b.as_slice(), cert_filename) {
         info!(
             "Start building and validating path(s) for {}",
             cert_filename
@@ -197,7 +196,7 @@ pub async fn validate_cert_folder<'a>(
     pe: &'a PkiEnvironment<'_>,
     cps: &'a CertificationPathSettings,
     certs_folder: &'a str,
-    stats: &'a mut PathValidationStatsGroup<'_>,
+    stats: &'a mut PathValidationStatsGroup,
     args: &'a Pittv3Args,
     fresh_uris: &'a mut Vec<String>,
     threshold: usize,

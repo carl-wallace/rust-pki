@@ -687,10 +687,7 @@ pub fn pkits_guts_sync(
 
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
-                    let mut m = G_DEFAULT_SETTINGS_5914.clone();
-
-                    let m =
-                        enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914, &mut m);
+                    let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
                     let mut cert_path2 = CertificationPath::new(&ta5914, chain2, cert_path.target);
                     if let Ok(mod_cps) = m {
                         #[cfg(not(feature = "revocation"))]
@@ -963,12 +960,9 @@ pub async fn pkits_guts(
 
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
-                    let mut m = G_DEFAULT_SETTINGS_5914.clone();
-
-                    let m =
-                        enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914, &mut m);
+                    let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
                     let mut cert_path2 = CertificationPath::new(&ta5914, chain2, cert_path.target);
-                    if let Ok(mod_cps) = m {
+                    if let Ok(mod_cps) = &m {
                         #[cfg(not(feature = "revocation"))]
                         let r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
 

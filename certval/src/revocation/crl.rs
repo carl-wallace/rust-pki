@@ -857,7 +857,7 @@ fn verify_crl(
     pe: &PkiEnvironment<'_>,
     crl_buf: &[u8],
     issuer_cert: &Certificate,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
         Ok(crl) => crl,
@@ -980,7 +980,7 @@ fn check_crl_sign(cert: &Certificate) -> Result<()> {
 pub(crate) fn process_crl(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     result_index: usize,
@@ -1132,7 +1132,7 @@ pub(crate) fn process_crl(
 pub(crate) async fn check_revocation_crl_remote(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     pos: usize,

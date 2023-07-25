@@ -19,9 +19,9 @@ use crate::{
 /// validation or that provide functionality in support of certification path validation.
 pub type ValidatePath = fn(
     &PkiEnvironment<'_>,
-    &CertificationPathSettings, // path settings to govern validation
-    &mut CertificationPath<'_>, // path to verify
-    &mut CertificationPathResults<'_>, // path validation results
+    &CertificationPathSettings,    // path settings to govern validation
+    &mut CertificationPath<'_>,    // path to verify
+    &mut CertificationPathResults, // path validation results
 ) -> Result<()>;
 
 /// `CalculateHash` provides a function signature for implementations that perform hashing

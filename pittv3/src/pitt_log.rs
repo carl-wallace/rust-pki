@@ -533,12 +533,7 @@ pub fn log_cert_details(pe: &PkiEnvironment<'_>, f: &mut File, cert: &PDVCertifi
 
 /// `log_cpr` contributes to the manifest file related to
 /// [`CertificationPathResults`](../certval/path_settings/type.CertificationPathResults.html) contents.
-pub fn log_cpr(
-    _pe: &PkiEnvironment<'_>,
-    f: &mut File,
-    np: &Path,
-    cpr: &CertificationPathResults<'_>,
-) {
+pub fn log_cpr(_pe: &PkiEnvironment<'_>, f: &mut File, np: &Path, cpr: &CertificationPathResults) {
     let status = get_validation_status(cpr);
     if let Some(status) = status {
         f.write_all(format!("Status: {:?}\n\n", status).as_bytes())
@@ -651,7 +646,7 @@ pub fn log_path(
     f: &Option<String>,
     path: &CertificationPath<'_>,
     index: usize,
-    cpr: Option<&CertificationPathResults<'_>>,
+    cpr: Option<&CertificationPathResults>,
     cps: Option<&CertificationPathSettings>,
 ) {
     let target_folder = if let Some(rf) = f { rf } else { "" };

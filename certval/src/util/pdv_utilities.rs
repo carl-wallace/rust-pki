@@ -166,10 +166,7 @@ pub fn valid_at_time(target: &TbsCertificate, toi: u64, stifle_log: bool) -> Res
 
 /// `add_processed_extension` takes a [`CertificationPathResults`] and retrieves (or adds then retrieves)
 /// an entry for [`PR_PROCESSED_EXTENSIONS`] to which the oid is added if not already present.
-pub(crate) fn add_processed_extension(
-    cpr: &mut CertificationPathResults<'_>,
-    oid: ObjectIdentifier,
-) {
+pub(crate) fn add_processed_extension(cpr: &mut CertificationPathResults, oid: ObjectIdentifier) {
     let mut oids = get_processed_extensions(cpr);
     if !oids.contains(&oid) {
         oids.insert(oid);

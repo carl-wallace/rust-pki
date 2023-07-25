@@ -339,7 +339,7 @@ pub async fn send_ocsp_request<'a>(
     uri_to_check: &str,
     target_cert: &PDVCertificate,
     issuers_cert: &Certificate,
-    cpr: &'a mut CertificationPathResults<'_>,
+    cpr: &'a mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
     if !uri_to_check.starts_with("http") {
@@ -421,7 +421,7 @@ pub async fn send_ocsp_request<'a>(
 pub fn process_ocsp_response(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
     issuers_cert: &Certificate,
     result_index: usize,
@@ -448,7 +448,7 @@ pub fn process_ocsp_response(
 fn process_ocsp_response_internal(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
     issuers_cert: &Certificate,
     result_index: usize,
@@ -684,7 +684,7 @@ fn get_ocsp_aias(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 pub(crate) async fn check_revocation_ocsp(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
     issuer_cert: &Certificate,
     pos: usize,
