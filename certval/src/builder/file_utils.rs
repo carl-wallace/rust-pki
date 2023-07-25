@@ -4,13 +4,14 @@ use std::ffi::OsStr;
 use std::path::Path;
 use walkdir::WalkDir;
 
+use log::{error, info};
+
 use der::Decode;
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::Certificate;
 
 use crate::source::cert_source::CertFile;
 use crate::util::pdv_utilities::*;
-use crate::PeLogLevels::PeError;
 use crate::*;
 
 #[cfg(feature = "std")]
@@ -74,10 +75,7 @@ fn cert_or_ta_folder_to_vec(
     collect_tas: bool,
 ) -> Result<usize> {
     if !Path::is_dir(Path::new(certsdir)) {
-        log_message(
-            &PeError,
-            format!("{} does not exist or is not a directory", certsdir).as_str(),
-        );
+        error!("{} does not exist or is not a directory", certsdir);
         return Err(Error::NotFound);
     }
 
@@ -89,7 +87,7 @@ fn cert_or_ta_folder_to_vec(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != certsdir {
-                            log_message(&PeError, format!("Recursing {}", path.display()).as_str());
+                            error!("Recursing {}", path.display());
                             let r = cert_or_ta_folder_to_vec(
                                 pe,
                                 s,
@@ -125,13 +123,9 @@ fn cert_or_ta_folder_to_vec(
                         if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
                             let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
                             if let Err(_e) = r {
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!(
-                                        "Ignored {} as not valid at indicated time of interest",
-                                        path.to_str().unwrap_or("")
-                                    )
-                                    .as_str(),
+                                error!(
+                                    "Ignored {} as not valid at indicated time of interest",
+                                    path.to_str().unwrap_or("")
                                 );
                                 continue;
                             }
@@ -143,23 +137,16 @@ fn cert_or_ta_folder_to_vec(
                         if let Ok(cert) = r {
                             let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
                             if let Err(_e) = r {
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!(
-                                        "Ignored {} as not valid at indicated time of interest",
-                                        path.to_str().unwrap_or("")
-                                    )
-                                    .as_str(),
+                                error!(
+                                    "Ignored {} as not valid at indicated time of interest",
+                                    path.to_str().unwrap_or("")
                                 );
                                 continue;
                             }
 
                             if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
                                 if let Some(s) = path.to_str() {
-                                    log_message(
-                                        &PeLogLevels::PeInfo,
-                                        format!("Ignoring {} as self-signed", s).as_str(),
-                                    );
+                                    info!("Ignoring {} as self-signed", s);
                                 }
                                 continue;
                             }
@@ -178,10 +165,7 @@ fn cert_or_ta_folder_to_vec(
                 }
             }
             _ => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    "Failed to unwrap entry in certs_folder_to_certfile_vec",
-                );
+                error!("Failed to unwrap entry in certs_folder_to_certfile_vec");
                 continue;
             }
         }
@@ -270,10 +254,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
                 return Ok(b.1);
             }
             Err(e) => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to parse certificate from {:?}: {:?}", filename, e).as_str(),
-                );
+                error!("Failed to parse certificate from {:?}: {:?}", filename, e);
                 return Err(Error::Unrecognized);
             }
         }

@@ -4,10 +4,11 @@ use std::path::Path;
 
 use crate::Result;
 
+use log::error;
+
 use crate::builder::file_utils::cert_folder_to_vec;
 use crate::builder::file_utils::ta_folder_to_vec;
 use crate::source::cert_source::*;
-use crate::PeLogLevels;
 use crate::*;
 
 #[cfg(feature = "remote")]
@@ -33,10 +34,7 @@ pub async fn build_graph(
     let ca_folder = if let Some(ca_folder) = get_certification_authority_folder(cps) {
         ca_folder
     } else {
-        log_message(
-            &PeLogLevels::PeError,
-            "ca_folder argument must be provided when generate is specified",
-        );
+        error!("ca_folder argument must be provided when generate is specified",);
         return Err(Error::NotFound);
     };
 
@@ -66,13 +64,9 @@ pub async fn build_graph(
         )
     };
     if let Err(e) = r {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "Failed to read certificates from {} with error {:?}",
-                &ca_folder, e
-            )
-            .as_str(),
+        error!(
+            "Failed to read certificates from {} with error {:?}",
+            &ca_folder, e
         );
     }
 
@@ -103,10 +97,7 @@ pub async fn build_graph(
                 let r =
                     populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut tmp_vec);
                 if let Err(e) = r {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!("Failed to populate cert map: {}", e).as_str(),
-                    );
+                    error!("Failed to populate cert map: {}", e);
                 }
 
                 collect_uris_from_aia_and_sia_for_graph_build(&tmp_vec, &mut uris, certs_count);
@@ -126,19 +117,13 @@ pub async fn build_graph(
             )
             .await;
             if let Err(e) = r {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("URI fetching failed with {:?}", e).as_str(),
-                );
+                error!("URI fetching failed with {:?}", e);
             }
             let json_lmm = serde_json::to_string(&lmm);
             if !lmm_file.is_empty() {
                 if let Ok(json_lmm) = &json_lmm {
                     if fs::write(&lmm_file, json_lmm).is_err() {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            "Unable to write last modified map file",
-                        );
+                        error!("Unable to write last modified map file",);
                     }
                 }
             }
@@ -147,7 +132,7 @@ pub async fn build_graph(
             if !blocklist_file.is_empty() {
                 if let Ok(json_blocklist) = &json_blocklist {
                     if fs::write(&blocklist_file, json_blocklist).is_err() {
-                        log_message(&PeLogLevels::PeError, "Unable to write blocklist file");
+                        error!("Unable to write blocklist file");
                     }
                 }
             }
@@ -157,29 +142,20 @@ pub async fn build_graph(
             }
             certs_count = cert_store.buffers_and_paths.buffers.len();
             uris_count = uris.len();
-            log_message(
-                &PeLogLevels::PeError,
-                format!("URI count: {}; Cert count: {}", uris_count, certs_count).as_str(),
-            );
+            error!("URI count: {}; Cert count: {}", uris_count, certs_count);
         }
     }
 
     let r = populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut cert_store.certs);
     if let Err(e) = r {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "Failed to populate parsed certificate vector with error {:?}",
-                e
-            )
-            .as_str(),
+        error!(
+            "Failed to populate parsed certificate vector with error {:?}",
+            e
         );
     }
 
     if cert_store.buffers_and_paths.buffers.is_empty() {
-        log_message(
-            &PeLogLevels::PeError,
-            "No certificates were read, so no partial paths were found and no CBOR certificate store will be generated"
+        error!("No certificates were read, so no partial paths were found and no CBOR certificate store will be generated"
             );
         return Err(Error::NotFound);
     }
@@ -211,13 +187,9 @@ pub fn read_cbor(filename: &Option<String>) -> Vec<u8> {
                     return cbor_data;
                 }
                 Err(e) => {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!(
-                            "Failed to read CBOR data from {} with {:?}. Continuing without it.",
-                            filename, e
-                        )
-                        .as_str(),
+                    error!(
+                        "Failed to read CBOR data from {} with {:?}. Continuing without it.",
+                        filename, e
                     );
                 }
             }

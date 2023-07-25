@@ -15,12 +15,11 @@
 //!
 extern crate alloc;
 
-use alloc::{format, vec};
-use core::ops::Deref;
-
+use alloc::vec;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
+use core::ops::Deref;
+use log::{error, info};
 
-use crate::PeLogLevels::PeError;
 use crate::{
     add_crl, add_failed_crl, get_check_crls, get_check_revocation_status,
     get_crl_grace_periods_as_last_resort,
@@ -28,12 +27,9 @@ use crate::{
 use crate::{
     get_certificate_from_trust_anchor, get_time_of_interest, set_validation_status,
     CertificationPath, CertificationPathResults, CertificationPathSettings, Error,
-    ExtensionProcessing, PDVExtension, PathValidationStatus::*, PeLogLevels, PkiEnvironment,
-    Result,
+    ExtensionProcessing, PDVExtension, PathValidationStatus::*, PkiEnvironment, Result,
 };
 use crate::{name_to_string, prepare_revocation_results};
-
-use crate::util::logging::log_message;
 
 #[cfg(feature = "revocation")]
 use crate::{crl::process_crl, ocsp_client::process_ocsp_response};
@@ -76,16 +72,13 @@ pub async fn check_revocation(
     let check_rev = get_check_revocation_status(cps);
     if !check_rev {
         // nothing to do
-        log_message(&PeLogLevels::PeInfo, "Revocation checking disabled");
+        info!("Revocation checking disabled");
         return Ok(());
     }
 
     if pe.is_cert_a_trust_anchor(cp.target).is_ok() {
         // nothing to do
-        log_message(
-            &PeLogLevels::PeInfo,
-            "Target is a trust anchor, revocation status determination not required.",
-        );
+        info!("Target is a trust anchor, revocation status determination not required.");
         return Ok(());
     }
 
@@ -107,10 +100,7 @@ pub async fn check_revocation(
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
             cert
         } else {
-            log_message(
-                &PeError,
-                "Failed to retrieve certificate from trust anchor object",
-            );
+            error!("Failed to retrieve certificate from trust anchor object");
             return Err(Error::Unrecognized);
         };
 
@@ -132,7 +122,7 @@ pub async fn check_revocation(
         // check revocation status cache
         let mut cur_status = pe.get_status(cur_cert, toi);
         if CertificateRevoked == cur_status {
-            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject).as_str());
+            info!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject);
             set_validation_status(cpr, revoked_error);
             return Err(Error::PathValidation(revoked_error));
         }
@@ -140,7 +130,7 @@ pub async fn check_revocation(
         if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
             ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
         {
-            log_message(&PeLogLevels::PeInfo, format!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject).as_str());
+            info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject);
             cur_status = Valid;
         }
 
@@ -158,34 +148,34 @@ pub async fn check_revocation(
                 ) {
                     Ok(_ok) => {
                         // process_ocsp_response handles adding response (and request) to results, unlike process_crl due to request/response pair in mast cases
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using stapled OCSP for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (valid) using stapled OCSP for certificate issued to {}", cur_cert_subject);
                         cur_status = Valid
                     }
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
                             set_validation_status(cpr, revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
-                            log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                            info!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e);
                         }
                     }
                 }
             } else if let Some(crl) = &cp.crls[pos] {
                 match process_crl(pe, cps, cpr, cur_cert, issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
                         add_crl(cpr, crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
                         add_crl(cpr, crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
                             set_validation_status(cpr, revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
-                            log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                            info!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e);
                         }
                     }
                 };
@@ -207,19 +197,19 @@ pub async fn check_revocation(
                     ) {
                         Ok(_ok) => {
                             add_crl(cpr, crl.as_slice(), pos);
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
                                 add_crl(cpr, crl.as_slice(), pos);
-                                log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject).as_str());
+                                info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
                                 set_validation_status(cpr, revoked_error);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
                                 add_failed_crl(cpr, crl.as_slice(), pos);
-                                log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                                info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                             }
                         }
                     };
@@ -281,16 +271,13 @@ pub fn check_revocation(
     let check_rev = get_check_revocation_status(cps);
     if !check_rev {
         // nothing to do
-        log_message(&PeLogLevels::PeInfo, "Revocation checking disabled");
+        info!("Revocation checking disabled");
         return Ok(());
     }
 
     if pe.is_cert_a_trust_anchor(cp.target).is_ok() {
         // nothing to do
-        log_message(
-            &PeLogLevels::PeInfo,
-            "Target is a trust anchor, revocation status determination not required.",
-        );
+        info!("Target is a trust anchor, revocation status determination not required.",);
         return Ok(());
     }
 
@@ -312,10 +299,7 @@ pub fn check_revocation(
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
             cert
         } else {
-            log_message(
-                &PeError,
-                "Failed to retrieve certificate from trust anchor object",
-            );
+            error!("Failed to retrieve certificate from trust anchor object",);
             return Err(Error::Unrecognized);
         };
 
@@ -340,7 +324,7 @@ pub fn check_revocation(
         if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
             ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
         {
-            log_message(&PeLogLevels::PeInfo, format!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject).as_str());
+            info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject);
             cur_status = Valid;
         }
 
@@ -358,34 +342,34 @@ pub fn check_revocation(
                 ) {
                     Ok(_ok) => {
                         // process_ocsp_response handles adding response (and request) to results, unlike process_crl due to request/response pair in mast cases
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using stapled OCSP for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (valid) using stapled OCSP for certificate issued to {}", cur_cert_subject);
                         cur_status = Valid
                     }
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
                             set_validation_status(cpr, revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
-                            log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                            info!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e);
                         }
                     }
                 }
             } else if let Some(crl) = &cp.crls[pos] {
                 match process_crl(pe, cps, cpr, cur_cert, issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
                         add_crl(cpr, crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
                         add_crl(cpr, crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
                             set_validation_status(cpr, revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
-                            log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                            info!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e);
                         }
                     }
                 };
@@ -407,19 +391,19 @@ pub fn check_revocation(
                     ) {
                         Ok(_ok) => {
                             add_crl(cpr, crl.as_slice(), pos);
-                            log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject).as_str());
+                            info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
                                 add_crl(cpr, crl.as_slice(), pos);
-                                log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject).as_str());
+                                info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
                                 set_validation_status(cpr, revoked_error);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
                                 add_failed_crl(cpr, crl.as_slice(), pos);
-                                log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                                info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                             }
                         }
                     };

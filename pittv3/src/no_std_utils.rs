@@ -4,6 +4,7 @@
 
 use crate::{stats::PathValidationStats, Pittv3Args};
 use certval::*;
+use log::{error, info};
 
 #[cfg(feature = "std_app")]
 use crate::pitt_log::log_path;
@@ -25,14 +26,10 @@ pub(crate) fn validate_cert(
 
     let parsed_cert = parse_cert(target, cert_filename);
     if let Some(target_cert) = parsed_cert {
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
+        info!(
                 "Start building and validating path(s) for {}",
                 cert_filename
-            )
-            .as_str(),
-        );
+            );
 
         stats.files_processed += 1;
 
@@ -43,27 +40,19 @@ pub(crate) fn validate_cert(
                 "Failed to find certification paths for target with error {:?}",
                 e
             );
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
+            error!(
                     "Failed to find certification paths for target with error {:?}",
                     e
-                )
-                .as_str(),
-            );
+                );
             return;
         }
 
         for (_i, path) in paths.iter_mut().enumerate() {
-            log_message(
-                &PeLogLevels::PeInfo,
-                format!(
+            info!(
                     "Validating {} certificate path for {}",
                     (path.intermediates.len() + 2),
                     name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
-                )
-                .as_str(),
-            );
+                );
             let mut cpr = CertificationPathResults::new();
 
             #[cfg(not(feature = "revocation"))]
@@ -94,10 +83,7 @@ pub(crate) fn validate_cert(
                 Ok(_) => {
                     stats.valid_paths_per_target += 1;
 
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!("Successfully validated {}", cert_filename).as_str(),
-                    );
+                    info!("Successfully validated {}", cert_filename);
                     if !args.validate_all {
                         break;
                     }
@@ -107,16 +93,10 @@ pub(crate) fn validate_cert(
 
                     if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity)
                     {
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Failed to validate {} with {:?}", cert_filename, e).as_str(),
-                        );
+                        info!("Failed to validate {} with {:?}", cert_filename, e);
                         break;
                     } else {
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Failed to validate {} with {:?}", cert_filename, e).as_str(),
-                        );
+                        info!("Failed to validate {} with {:?}", cert_filename, e);
                     }
                 }
             }

@@ -5,6 +5,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::str::FromStr;
 
+use log::{debug, error};
+
 #[cfg(feature = "std")]
 use lazy_static::lazy_static;
 
@@ -42,7 +44,6 @@ use crate::{
     pdv_certificate::*,
     pdv_extension::*,
     util::error::*,
-    util::logging::*,
     util::pdv_alg_oids::*,
 };
 
@@ -67,13 +68,9 @@ pub fn is_self_signed_with_buffer(
             matches!(r, Ok(_e))
         }
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "Failed to defer decode certificate in is_self_signed with: {}",
-                    e
-                )
-                .as_str(),
+            error!(
+                "Failed to defer decode certificate in is_self_signed with: {}",
+                e
             );
             false
         }
@@ -498,14 +495,14 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
                 //not checking tag on the any since that is where the issue is most likely
                 if lav.value() == rav.value() {
                     if lav.tag() != rav.tag() {
-                        log_message(&PeLogLevels::PeDebug, "Permitting a DN name constraint match despite different character sets");
+                        debug!("Permitting a DN name constraint match despite different character sets");
                         let_it_slide = true;
                     }
                 } else {
                     let llav = lau.to_string();
                     let rlav = rau.to_string();
                     if llav.to_lowercase() == rlav.to_lowercase() {
-                        log_message(&PeLogLevels::PeDebug, "Permitting a DN name constraint match despite different capitalization");
+                        debug!( "Permitting a DN name constraint match despite different capitalization");
                         let_it_slide = true;
                     }
                 }
@@ -596,13 +593,9 @@ pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<Algorithm
 
 pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
     let name_str = name_to_string(name);
-    log_message(
-        &PeLogLevels::PeError,
-        format!(
-            "Encountered error while processing certificate with subject {}: {}",
-            name_str, msg
-        )
-        .as_str(),
+    error!(
+        "Encountered error while processing certificate with subject {}: {}",
+        name_str, msg
     );
 }
 

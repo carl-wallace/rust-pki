@@ -6,7 +6,7 @@ extern crate alloc;
 
 use alloc::string::String;
 use std::{ffi::OsStr, fs, path::Path, time::Instant};
-
+use log::{error, info};
 use walkdir::WalkDir;
 
 use const_oid::db::rfc5912::ID_CE_BASIC_CONSTRAINTS;
@@ -56,10 +56,7 @@ pub(crate) async fn validate_cert_file(
     let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
         t
     } else {
-        log_message(
-            &PeLogLevels::PeError,
-            format!("Failed to read file at {}", cert_filename).as_str(),
-        );
+        error!("Failed to read file at {}", cert_filename);
         return;
     };
 
@@ -67,10 +64,7 @@ pub(crate) async fn validate_cert_file(
         match pem_rfc7468::decode_vec(target.as_slice()) {
             Ok(b) => b.1,
             Err(e) => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to parse certificate from {}: {}", cert_filename, e).as_str(),
-                );
+                error!("Failed to parse certificate from {}: {}", cert_filename, e);
                 return;
             }
         }
@@ -80,14 +74,10 @@ pub(crate) async fn validate_cert_file(
 
     let parsed_cert = parse_cert(b.as_slice(), cert_filename);
     if let Some(target_cert) = parsed_cert {
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
+        info!(
                 "Start building and validating path(s) for {}",
                 cert_filename
-            )
-            .as_str(),
-        );
+            );
 
         let start2 = Instant::now();
 
@@ -100,36 +90,26 @@ pub(crate) async fn validate_cert_file(
                 "Failed to find certification paths for target with error {:?}",
                 e
             );
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
+            error!(
                     "Failed to find certification paths for target with error {:?}",
                     e
-                )
-                .as_str(),
-            );
+                );
             return;
         }
 
         if paths.is_empty() {
             collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
-            log_message(
-                &PeLogLevels::PeInfo,
-                "Failed to find any certification paths for target",
+            info!("Failed to find any certification paths for target",
             );
             return;
         }
 
         for (i, path) in paths.iter_mut().enumerate() {
-            log_message(
-                &PeLogLevels::PeInfo,
-                format!(
+            info!(
                     "Validating {} certificate path for {}",
                     (path.intermediates.len() + 2),
                     name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
-                )
-                .as_str(),
-            );
+                );
             let mut cpr = CertificationPathResults::new();
 
             #[cfg(not(feature = "remote"))]
@@ -158,10 +138,7 @@ pub(crate) async fn validate_cert_file(
                 Ok(_) => {
                     stats.valid_paths_per_target += 1;
 
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!("Successfully validated {}", cert_filename).as_str(),
-                    );
+                    info!("Successfully validated {}", cert_filename);
                     if !args.validate_all {
                         break;
                     }
@@ -172,16 +149,10 @@ pub(crate) async fn validate_cert_file(
                     log_path(pe, &args.error_folder, path, i, None, None);
                     if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity)
                     {
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Failed to validate {} with {:?}", cert_filename, e).as_str(),
-                        );
+                        info!("Failed to validate {} with {:?}", cert_filename, e);
                         break;
                     } else {
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Failed to validate {} with {:?}", cert_filename, e).as_str(),
-                        );
+                        info!("Failed to validate {} with {:?}", cert_filename, e);
                     }
                 }
             }
@@ -204,16 +175,12 @@ pub(crate) async fn validate_cert_file(
 
         let finish = Instant::now();
         let duration2 = finish - start2;
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
+        info!(
                 "{:?} to build and validate {} path(s) for {}",
                 duration2,
                 paths.len(),
                 cert_filename
-            )
-            .as_str(),
-        );
+            );
     } else {
         // parse_cert writes out an error
         // log_message(
@@ -247,8 +214,7 @@ pub async fn validate_cert_folder<'a>(
                                 .await;
                         }
                     } else {
-                        log_message(
-                            &PeLogLevels::PeError,
+                        error!(
                             "Skipping file due to invalid Unicode in name",
                         );
                     }
@@ -282,19 +248,13 @@ pub async fn validate_cert_folder<'a>(
                                 }
                             }
                         } else {
-                            log_message(
-                                &PeLogLevels::PeInfo,
-                                format!("Skipping {}", filename).as_str(),
-                            );
+                            info!("Skipping {}", filename);
                         }
                     }
                 }
             }
             _ => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to unwrap entry in {}", certs_folder).as_str(),
-                );
+                error!("Failed to unwrap entry in {}", certs_folder);
             }
         }
     }
@@ -365,10 +325,7 @@ pub fn cleanup_certs(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != certs_folder {
-                            log_message(
-                                &PeLogLevels::PeInfo,
-                                format!("Recursing {}", path.display()).as_str(),
-                            );
+                            info!("Recursing {}", path.display());
                             cleanup_certs(pe, s, error_folder, report_only, t);
                         }
                     }
@@ -390,10 +347,7 @@ pub fn cleanup_certs(
                         vec![]
                     };
                     if target.is_empty() {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Failed to read target file at {}", filename).as_str(),
-                        );
+                        error!("Failed to read target file at {}", filename);
                         continue;
                     }
 
@@ -405,41 +359,27 @@ pub fn cleanup_certs(
                                 let r = valid_at_time(&tc.decoded_cert.tbs_certificate, t, true);
                                 if let Err(_e) = r {
                                     delete_file = true;
-                                    log_message(
-                                        &PeLogLevels::PeError,
-                                        format!(
+                                    error!(
                                             "Not valid at indicated time of interest ({}): {}",
                                             t, filename
-                                        )
-                                        .as_str(),
-                                    );
+                                        );
                                 }
                             }
 
                             if is_self_signed(pe, &tc) {
                                 delete_file = true;
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!("Self-signed: {}", filename).as_str(),
-                                );
+                                error!("Self-signed: {}", filename);
                             }
 
                             let bc = tc.get_extension(&ID_CE_BASIC_CONSTRAINTS);
                             if let Ok(Some(PDVExtension::BasicConstraints(bc))) = bc {
                                 if !bc.ca {
                                     delete_file = true;
-                                    log_message(
-                                        &PeLogLevels::PeError,
-                                        format!("Not a CA per basicConstraints: {}", filename)
-                                            .as_str(),
-                                    );
+                                    error!("Not a CA per basicConstraints: {}", filename);
                                 }
                             } else {
                                 delete_file = true;
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!("Missing basicConstraints: {}", filename).as_str(),
-                                );
+                                error!("Missing basicConstraints: {}", filename);
                             }
                         }
                         None => {
@@ -484,10 +424,7 @@ pub fn cleanup_tas(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != tas_folder {
-                            log_message(
-                                &PeLogLevels::PeInfo,
-                                format!("Recursing {}", path.display()).as_str(),
-                            );
+                            info!("Recursing {}", path.display());
                             cleanup_tas(_pe, s, error_folder, report_only, t);
                         }
                     }
@@ -509,10 +446,7 @@ pub fn cleanup_tas(
                         vec![]
                     };
                     if target.is_empty() {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Failed to read target file at {}", filename).as_str(),
-                        );
+                        error!("Failed to read target file at {}", filename);
                         continue;
                     }
 
@@ -522,22 +456,14 @@ pub fn cleanup_tas(
                             let r = ta_valid_at_time(&ta, t, true);
                             if r.is_err() {
                                 delete_file = true;
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!(
+                                error!(
                                         "Not valid at indicated time of interest ({}): {}",
                                         t, filename
-                                    )
-                                    .as_str(),
-                                );
+                                    );
                             }
                         }
                         Err(e) => {
-                            log_message(
-                                &PeLogLevels::PeError,
-                                format!("Failed to parse trust anchor at {} with {}", filename, e)
-                                    .as_str(),
-                            );
+                            error!("Failed to parse trust anchor at {} with {}", filename, e);
                             delete_file = true;
                         }
                     }
@@ -560,20 +486,14 @@ fn delete_or_move_file(error_folder: &str, path: &Path, filename: &str) {
         let r = fs::remove_file(path);
         if let Err(e) = r {
             println!("Failed to delete {} with {:?}", filename, e);
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to delete {} with {:?}", filename, e).as_str(),
-            );
+            error!("Failed to delete {} with {:?}", filename, e);
         }
     } else if let Some(new_filename) = Path::new(error_folder).join(path).file_name() {
         // move file
         let r = fs::rename(filename, new_filename);
         if let Err(e) = r {
             println!("Failed to delete {} with {:?}", filename, e);
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to delete {} with {:?}", filename, e).as_str(),
-            );
+            error!("Failed to delete {} with {:?}", filename, e);
         }
     }
 }

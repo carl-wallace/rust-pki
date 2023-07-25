@@ -1,7 +1,9 @@
 //! Provides implementations of crypto-related [`PkiEnvironment`] interfaces using libraries from the
 //! [Rust Crypto](https://github.com/RustCrypto) project for support.
 
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
+
+use log::{debug, error};
 
 #[cfg(feature = "pqc")]
 use der::Decode;
@@ -13,8 +15,8 @@ use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 use crate::util::error::{Error, PathValidationStatus, Result};
 use crate::{
-    environment::pki_environment::*, log_message, util::pdv_alg_oids::*,
-    util::pdv_utilities::get_hash_alg_from_sig_alg, PeLogLevels,
+    environment::pki_environment::*, util::pdv_alg_oids::*,
+    util::pdv_utilities::get_hash_alg_from_sig_alg,
 };
 
 #[cfg(feature = "pqc")]
@@ -261,13 +263,9 @@ pub fn verify_signature_message_rust_crypto(
             PKIXALG_ECDSA_WITH_SHA256 => Sha256::digest(message_to_verify).to_vec(),
             PKIXALG_ECDSA_WITH_SHA384 => Sha384::digest(message_to_verify).to_vec(),
             _ => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!(
-                        "Unrecognized or unsupported signature algorithm: {}",
-                        signature_alg.oid
-                    )
-                    .as_str(),
+                error!(
+                    "Unrecognized or unsupported signature algorithm: {}",
+                    signature_alg.oid
                 );
                 return Err(Error::Unrecognized);
             }
@@ -279,11 +277,11 @@ pub fn verify_signature_message_rust_crypto(
                 let verifying_key =
                     ecdsa::VerifyingKey::from_sec1_bytes(spki.subject_public_key.raw_bytes())
                         .map_err(|_err| {
-                            log_message(&PeLogLevels::PeError, "Could not decode verifying key");
+                            error!("Could not decode verifying key");
                             Error::PathValidation(PathValidationStatus::EncodingError)
                         })?;
                 let s = ecdsa::Signature::from_der(signature).map_err(|_err| {
-                    log_message(&PeLogLevels::PeError, "Could not decode signature");
+                    error!("Could not decode signature");
                     Error::PathValidation(PathValidationStatus::EncodingError)
                 })?;
                 verifying_key
@@ -302,18 +300,12 @@ pub fn verify_signature_message_rust_crypto(
                 verify_with_ecdsa!(p384)
             }
             _ => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Unrecognized or unsupported named curve: {}", named_curve).as_str(),
-                );
+                error!("Unrecognized or unsupported named curve: {}", named_curve);
                 Err(Error::Unrecognized)
             }
         };
     }
-    log_message(
-        &PeLogLevels::PeDebug,
-        format!("Unrecognized signature algorithm: {}", signature_alg.oid).as_str(),
-    );
+    debug!("Unrecognized signature algorithm: {}", signature_alg.oid);
     Err(Error::Unrecognized)
 }
 #[cfg(feature = "pqc")]

@@ -181,6 +181,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use ciborium::de::from_reader;
+use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
@@ -279,10 +280,7 @@ pub async fn options_std(args: &Pittv3Args) {
             &mut cert_source.certs,
         );
         if let Err(e) = r {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to populate cert vector with: {:?}", e).as_str(),
-            );
+            error!("Failed to populate cert vector with: {:?}", e);
         }
 
         //cert_source.index_certs();
@@ -390,10 +388,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     )
                     .await;
                     if let Err(e) = r {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Encountered error downloading URIs: {}", e).as_str(),
-                        );
+                        error!("Encountered error downloading URIs: {}", e);
                     }
                     let json_lmm = serde_json::to_string(&lmm);
                     if !lmm_file.is_empty() {
@@ -427,10 +422,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     let fname = format!("{}.der", i);
                     let pbuf = p.join(fname);
                     if let Err(e) = fs::write(pbuf, &buffer.bytes) {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Failed to write certificate #{} to file: {}", i, e).as_str(),
-                        );
+                        error!("Failed to write certificate #{} to file: {}", i, e);
                     }
                 }
             }
@@ -442,10 +434,7 @@ pub async fn options_std(args: &Pittv3Args) {
             let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
                 t
             } else {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to read file at {}", cert_filename).as_str(),
-                );
+                error!("Failed to read file at {}", cert_filename);
                 return;
             };
 
@@ -682,10 +671,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             match crl_source.index_crls(get_time_of_interest(&cps)) {
                 Ok(_) => Some(crl_source),
                 Err(e) => {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!("Failed to index CRL source with {}", e).as_str(),
-                    );
+                    error!("Failed to index CRL source with {}", e);
                     None
                 }
             }
@@ -715,10 +701,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             // Empty CBOR is fine when doing dynamic building or when validating certificates
             // issued by a trust anchor
             if 0 == pass {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!("Empty CBOR file at {}. Proceeding without it.", cbor_file).as_str(),
-                );
+                info!("Empty CBOR file at {}. Proceeding without it.", cbor_file);
             }
             cert_source.buffers_and_paths = BuffersAndPaths::default();
 
@@ -731,14 +714,10 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 Ok(cbor_data) => cert_source.buffers_and_paths = cbor_data,
                 Err(e) => {
                     cert_source.buffers_and_paths = BuffersAndPaths::default();
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!(
+                    error!(
                             "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
                             cbor_file, e
-                        )
-                        .as_str(),
-                    );
+                        );
                 }
             }
 
@@ -788,10 +767,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                     if cert_folder_to_vec(&pe, download_folder, bap_ref, args.time_of_interest)
                         .is_err()
                     {
-                        log_message(
-                            &PeLogLevels::PeDebug,
-                            "Encountered error reading certificates from downloads folder",
-                        );
+                        debug!("Encountered error reading certificates from downloads folder");
                     }
                 }
 
@@ -817,8 +793,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 if !lmm_file.is_empty() {
                     if let Ok(json_lmm) = &json_lmm {
                         if fs::write(lmm_file, json_lmm).is_err() {
-                            log_message(
-                                &PeLogLevels::PeError,
+                            error!(
                                 "Unable to write last modified map file",
                             );
                         }
@@ -829,15 +804,12 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 if !blocklist_file.is_empty() {
                     if let Ok(json_blocklist) = &json_blocklist {
                         if fs::write(blocklist_file, json_blocklist).is_err() {
-                            log_message(&PeLogLevels::PeError, "Unable to write blocklist file");
+                            error!("Unable to write blocklist file");
                         }
                     }
                 }
                 if let Err(e) = r {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!("Failed to fetch fresh URIs with {:?}", e).as_str(),
-                    );
+                    error!("Failed to fetch fresh URIs with {:?}", e);
                     break;
                 }
             } else if 0 < pass {
@@ -856,10 +828,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             &mut cert_source.certs,
         );
         if let Err(e) = r {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to populate cert map: {}", e).as_str(),
-            );
+            error!("Failed to populate cert map: {}", e);
             break;
         }
 
@@ -897,14 +866,10 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 Ok(new_cbor) => {
                     cbor = new_cbor;
                 }
-                Err(e) => log_message(
-                    &PeLogLevels::PeError,
-                    format!(
+                Err(e) => error!(
                         "Failed to serialize CBOR after dynamic building with {:?}",
                         e
-                    )
-                    .as_str(),
-                ),
+                    ),
             }
 
             #[cfg(feature = "remote")]
@@ -1025,64 +990,37 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
         let s = &stats[k];
-        log_message(&PeLogLevels::PeInfo, format!("Stats for {}", k).as_str());
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Paths found: {}", s.paths_per_target).as_str(),
-        );
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Valid paths found: {}", s.valid_paths_per_target).as_str(),
-        );
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Invalid paths found: {}", s.invalid_paths_per_target).as_str(),
-        );
+        info!("Stats for {}", k);
+        info!("\t * Paths found: {}", s.paths_per_target);
+        info!("\t * Valid paths found: {}", s.valid_paths_per_target);
+        info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
         totals.paths_per_target += s.paths_per_target;
         totals.valid_paths_per_target += s.valid_paths_per_target;
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
 
         if 0 < s.paths_per_target {
-            log_message(&PeLogLevels::PeInfo, "\t * Status codes");
+            info!("\t * Status codes");
             let ec = &error_counts[k];
             for ekey in ec {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
+                info!(
                         "\t\t - {:?}: {} - Result folder indices: {:?}",
                         ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    )
-                    .as_str(),
-                );
+                    );
             }
         }
     }
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!("Total paths found: {}", totals.paths_per_target).as_str(),
-    );
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!("Total valid paths found: {}", totals.valid_paths_per_target).as_str(),
-    );
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!(
+    info!("Total paths found: {}", totals.paths_per_target);
+    info!("Total valid paths found: {}", totals.valid_paths_per_target);
+    info!(
             "Total invalid paths found: {}",
             totals.invalid_paths_per_target
-        )
-        .as_str(),
-    );
+        );
 
-    log_message(&PeLogLevels::PeDebug, format!("Args: {:?}", args).as_str());
+    debug!("Args: {:?}", args);
 
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!(
+    info!(
             "{:?} to deserialize graph and perform build and validation operation(s) for {} file(s)",
             duration,
             stats.keys().len()
-        )
-            .as_str(),
-    );
+        );
 }

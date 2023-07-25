@@ -39,6 +39,7 @@ use alloc::collections::BTreeMap;
 use ciborium::de::from_reader;
 
 use certval::*;
+use log::{error, info};
 
 use crate::args::Pittv3Args;
 use crate::no_std_utils::validate_cert;
@@ -62,10 +63,7 @@ pub fn options_no_std(args: &Pittv3Args) {
     let r =
         populate_parsed_cert_vector(&cert_source.buffers_and_paths, &cps, &mut cert_source.certs);
     if let Err(e) = r {
-        log_message(
-            &PeLogLevels::PeError,
-            format!("Failed to populate cert vector with: {:?}", e).as_str(),
-        );
+        error!("Failed to populate cert vector with: {:?}", e);
     }
     for (i, cert) in cert_source.certs.iter().enumerate() {
         if let Some(cert) = cert {
@@ -125,11 +123,7 @@ pub fn options_no_std(args: &Pittv3Args) {
                 match pem_rfc7468::decode_vec(&ee.bytes) {
                     Ok(b) => b.1,
                     Err(e) => {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Failed to parse certificate from {}: {}", ee.filename, e)
-                                .as_str(),
-                        );
+                        error!("Failed to parse certificate from {}: {}", ee.filename, e);
                         return;
                     }
                 }
@@ -175,52 +169,29 @@ pub fn options_no_std(args: &Pittv3Args) {
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
         let s = &stats[k];
-        log_message(&PeLogLevels::PeInfo, format!("Stats for {}", k).as_str());
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Paths found: {}", s.paths_per_target).as_str(),
-        );
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Valid paths found: {}", s.valid_paths_per_target).as_str(),
-        );
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("\t * Invalid paths found: {}", s.invalid_paths_per_target).as_str(),
-        );
+        info!("Stats for {}", k);
+        info!("\t * Paths found: {}", s.paths_per_target);
+        info!("\t * Valid paths found: {}", s.valid_paths_per_target);
+        info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
         totals.paths_per_target += s.paths_per_target;
         totals.valid_paths_per_target += s.valid_paths_per_target;
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
 
         if 0 < s.paths_per_target {
-            log_message(&PeLogLevels::PeInfo, "\t * Status codes");
+            info!("\t * Status codes");
             let ec = &error_counts[k];
             for ekey in ec {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
+                info!(
                         "\t\t - {:?}: {} - Result folder indices: {:?}",
                         ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    )
-                    .as_str(),
-                );
+                    );
             }
         }
     }
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!("Total paths found: {}", totals.paths_per_target).as_str(),
-    );
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!("Total valid paths found: {}", totals.valid_paths_per_target).as_str(),
-    );
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!(
+    info!("Total paths found: {}", totals.paths_per_target);
+    info!("Total valid paths found: {}", totals.valid_paths_per_target);
+    info!(
             "Total invalid paths found: {}",
             totals.invalid_paths_per_target
-        )
-        .as_str(),
-    );
+        );
 }

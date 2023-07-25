@@ -11,6 +11,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
+use log::{debug, error, info};
+
 use walkdir::WalkDir;
 
 use sha2::{Digest, Sha256};
@@ -24,10 +26,7 @@ use x509_cert::ext::pkix::IssuingDistributionPoint;
 
 use crate::pdv_extension::ExtensionProcessing;
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
-use crate::{
-    buffer_to_hex, log_message, CheckRemoteResource, PathValidationStatus, PeLogLevels,
-    RevocationStatusCache,
-};
+use crate::{buffer_to_hex, CheckRemoteResource, PathValidationStatus, RevocationStatusCache};
 use crate::{
     get_file_as_byte_vec_pem, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension,
     Result,
@@ -205,10 +204,7 @@ impl CheckRemoteResource for CrlSourceFolders {
             let lmmp = p.join("last_modified_map.json");
             if let Ok(json_lmm) = &json_lmm {
                 if fs::write(lmmp, json_lmm).is_err() {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        "Unable to write last modified map file",
-                    );
+                    error!("Unable to write last modified map file",);
                 }
             }
         }
@@ -468,10 +464,7 @@ fn index_crls_internal(
                     match path.to_str() {
                         Some(s) => {
                             if s != crls_folder {
-                                log_message(
-                                    &PeLogLevels::PeDebug,
-                                    format!("Recursing {}", e.path().display()).as_str(),
-                                );
+                                debug!("Recursing {}", e.path().display());
                                 let r = index_crls_internal(
                                     s, crl_info, issuer_map, idp_map, skid_map, toi,
                                 );
@@ -499,10 +492,7 @@ fn index_crls_internal(
                     let crl = match CertificateList::from_der(crl_buf.as_slice()) {
                         Ok(crl) => crl,
                         Err(e) => {
-                            log_message(
-                                &PeLogLevels::PeError,
-                                format!("Failed to parse CRL with {}", e).as_str(),
-                            );
+                            error!("Failed to parse CRL with {}", e);
                             continue;
                         }
                     };
@@ -523,11 +513,7 @@ fn index_crls_internal(
                                 );
                             } else if fs::remove_file(e.path()).is_err() {
                                 if let Some(filename) = e.path().to_str() {
-                                    log_message(
-                                        &PeLogLevels::PeError,
-                                        format!("Failed to delete stale CRL at {}", filename)
-                                            .as_str(),
-                                    );
+                                    error!("Failed to delete stale CRL at {}", filename);
                                 }
                             }
                         }
@@ -538,10 +524,7 @@ fn index_crls_internal(
                 }
             }
             _ => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    "Failed to unwrap directory entry while indexing CRLs",
-                );
+                error!("Failed to unwrap directory entry while indexing CRLs");
                 continue;
             }
         }
@@ -564,7 +547,7 @@ impl RevocationStatusCache for CrlSourceFolders {
         if cache_map.contains_key(&key) {
             let status_and_time = &cache_map[&key];
             if status_and_time.time > time_of_interest {
-                log_message(&PeLogLevels::PeInfo, format!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.1, key.0).as_str());
+                info!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.1, key.0);
                 return status_and_time.status;
             }
         }
@@ -595,11 +578,11 @@ impl RevocationStatusCache for CrlSourceFolders {
         if cache_map.contains_key(&key) {
             let old_status_and_time = &cache_map[&key];
             if old_status_and_time.time < next_update {
-                log_message(&PeLogLevels::PeDebug, format!("Updating entry in revocation status check for certificate with serial number {} issued by {} in cache", key.1, key.0).as_str());
+                debug!("Updating entry in revocation status check for certificate with serial number {} issued by {} in cache", key.1, key.0);
                 cache_map.insert(key, status_and_time);
             }
         } else {
-            log_message(&PeLogLevels::PeDebug, format!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.1, key.0).as_str());
+            debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.1, key.0);
             cache_map.insert(key, status_and_time);
         }
     }

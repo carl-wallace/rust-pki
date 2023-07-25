@@ -1,7 +1,7 @@
 //! Structures and functions to perform OCSP client functionality
 
 extern crate alloc;
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
 use der::{AnyRef, Decode, Encode};
 use sha1::{Digest, Sha1};
@@ -9,7 +9,11 @@ use x509_cert::ext::Extensions;
 use x509_cert::Certificate;
 use x509_ocsp::*;
 
-use crate::util::logging::*;
+use log::error;
+
+#[cfg(feature = "remote")]
+use log::{debug, info};
+
 use crate::{
     add_failed_ocsp_response, add_ocsp_response, get_time_of_interest, valid_at_time,
     CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate,
@@ -155,10 +159,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     {
         client
     } else {
-        log_message(
-            &PeLogLevels::PeError,
-            format!("Failed to prepare OCSP client: {}", uri_to_check).as_str(),
-        );
+        error!("Failed to prepare OCSP client: {}", uri_to_check);
         return Err(Error::NetworkError);
     };
 
@@ -171,10 +172,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     {
         Ok(b) => b,
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeDebug,
-                format!("OCSP request send failed with {}: {}", e, uri_to_check).as_str(),
-            );
+            debug!("OCSP request send failed with {}: {}", e, uri_to_check);
             return Err(Error::NetworkError);
         }
     };
@@ -182,10 +180,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     let body_bytes = match body.bytes().await {
         Ok(bb) => bb,
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to read OCSP response with {}: {}", e, uri_to_check).as_str(),
-            );
+            error!("Failed to read OCSP response with {}: {}", e, uri_to_check);
             return Err(Error::NetworkError);
         }
     };
@@ -348,10 +343,7 @@ pub async fn send_ocsp_request<'a>(
     result_index: usize,
 ) -> Result<()> {
     if !uri_to_check.starts_with("http") {
-        log_message(
-            &PeLogLevels::PeDebug,
-            "Ignored non-HTTP URI presented to OCSP client",
-        );
+        debug!("Ignored non-HTTP URI presented to OCSP client",);
         return Err(Error::InvalidUriScheme);
     }
 
@@ -378,13 +370,9 @@ pub async fn send_ocsp_request<'a>(
     let enc_ocsp_resp = match post_ocsp(uri_to_check, enc_ocsp_req.as_slice()).await {
         Ok(eor) => eor,
         Err(_e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "Failed sending OCSP request to {} with {:?}",
-                    uri_to_check, _e
-                )
-                .as_str(),
+            error!(
+                "Failed sending OCSP request to {} with {:?}",
+                uri_to_check, _e
             );
             add_failed_ocsp_request(cpr, enc_ocsp_req, result_index);
             return Err(Error::NetworkError);
@@ -472,23 +460,16 @@ fn process_ocsp_response_internal(
     let or = match OcspResponse::from_der(enc_ocsp_resp) {
         Ok(or) => or,
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to parse OcspResponse from {}", uri_to_check).as_str(),
-            );
+            error!("Failed to parse OcspResponse from {}", uri_to_check);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
     };
 
     if or.response_status != OcspResponseStatus::Successful {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "OcspResponse from {} indicates failure ({:?})",
-                uri_to_check, or.response_status
-            )
-            .as_str(),
+        error!(
+            "OcspResponse from {} indicates failure ({:?})",
+            uri_to_check, or.response_status
         );
         add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
@@ -497,13 +478,9 @@ fn process_ocsp_response_internal(
     let rb = match &or.response_bytes {
         Some(rb) => rb,
         None => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "OcspResponse from {} contained no response bytes",
-                    uri_to_check
-                )
-                .as_str(),
+            error!(
+                "OcspResponse from {} contained no response bytes",
+                uri_to_check
             );
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::OcspResponseError);
@@ -511,13 +488,9 @@ fn process_ocsp_response_internal(
     };
 
     if rb.response_type != ID_PKIX_OCSP_BASIC {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "OcspResponse from {} contained response bytes other than basic type ({})",
-                uri_to_check, rb.response_type
-            )
-            .as_str(),
+        error!(
+            "OcspResponse from {} contained response bytes other than basic type ({})",
+            uri_to_check, rb.response_type
         );
         add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
@@ -526,23 +499,16 @@ fn process_ocsp_response_internal(
     let bor = match BasicOcspResponse::from_der(rb.response.as_bytes()) {
         Ok(bor) => bor,
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("OcspResponse from {} contained BasicOcspResponse that could not be parsed with: {}", uri_to_check, e).as_str(),
-            );
+            error!("OcspResponse from {} contained BasicOcspResponse that could not be parsed with: {}", uri_to_check, e);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
     };
 
     if unsupported_critical_extensions_present_response(&bor.tbs_response_data) {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "OcspResponse from {} contained at least one unsupported critical extension",
-                uri_to_check
-            )
-            .as_str(),
+        error!(
+            "OcspResponse from {} contained at least one unsupported critical extension",
+            uri_to_check
         );
         add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::PathValidation(
@@ -571,10 +537,7 @@ fn process_ocsp_response_internal(
                     ) {
                         if let Ok(cert) = Certificate::from_der(certbuf.as_slice()) {
                             if cert.tbs_certificate.signature != defer_cert.signature_algorithm {
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check).as_str(),
-                                );
+                                error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
                                 add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
                                 continue;
                             }
@@ -584,10 +547,7 @@ fn process_ocsp_response_internal(
                                 let target_ttl =
                                     valid_at_time(&cert.tbs_certificate, time_of_interest, false);
                                 if let Err(_e) = target_ttl {
-                                    log_message(
-                                        &PeLogLevels::PeError,
-                                        format!("Verified candidate responder cert from OCSPResponse from {} but certificate has expired", uri_to_check).as_str(),
-                                    );
+                                    error!("Verified candidate responder cert from OCSPResponse from {} but certificate has expired", uri_to_check);
                                     add_failed_ocsp_response(
                                         cpr,
                                         enc_ocsp_resp.to_vec(),
@@ -599,7 +559,7 @@ fn process_ocsp_response_internal(
 
                             if !no_check_present(&cert.tbs_certificate.extensions) {
                                 //TODO implement revocation checking of responder cert
-                                log_message(&PeLogLevels::PeError, "no-check absent");
+                                error!("no-check absent");
                             }
 
                             authorized_responder = true;
@@ -607,10 +567,7 @@ fn process_ocsp_response_internal(
                             let r =
                                 verify_response_signature(pe, &cert, rb.response.as_bytes(), &bor);
                             if r.is_err() {
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!("Verified candidate responder cert from OCSPResponse from {} but response signature verification failed", uri_to_check).as_str(),
-                                );
+                                error!("Verified candidate responder cert from OCSPResponse from {} but response signature verification failed", uri_to_check);
                                 continue;
                             } else {
                                 sigverified = true;
@@ -624,10 +581,7 @@ fn process_ocsp_response_internal(
         // try the issuer's cert
         let r = verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor);
         if r.is_err() {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("OCSPResponse from {} featured no candidate certificate but response signature verification failed using issuing CA certificate", uri_to_check).as_str(),
-            );
+            error!("OCSPResponse from {} featured no candidate certificate but response signature verification failed using issuing CA certificate", uri_to_check);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
             return r;
         } else {
@@ -637,22 +591,15 @@ fn process_ocsp_response_internal(
     }
 
     if !authorized_responder {
-        log_message(
-            &PeLogLevels::PeError,
-            format!("Failed to find authorized OCSP responder from {}. Note, responders signed by key rollover certificates are not presently accepted (though this may not have been a factor here).", uri_to_check).as_str(),
-        );
+        error!("Failed to find authorized OCSP responder from {}. Note, responders signed by key rollover certificates are not presently accepted (though this may not have been a factor here).", uri_to_check);
         add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
     }
 
     if !sigverified {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
-                "Signature on OCSPResponse from {} was not verified.",
-                uri_to_check
-            )
-            .as_str(),
+        error!(
+            "Signature on OCSPResponse from {} was not verified.",
+            uri_to_check
         );
         add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
@@ -669,10 +616,7 @@ fn process_ocsp_response_internal(
             continue;
         }
         if unsupported_critical_extensions_present_single_response(&sr) {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("OCSPResponse from {} featured unrecognized critical extensions in single response.", uri_to_check).as_str(),
-            );
+            error!("OCSPResponse from {} featured unrecognized critical extensions in single response.", uri_to_check);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::PathValidation(
                 PathValidationStatus::UnprocessedCriticalExtension,
@@ -748,13 +692,9 @@ pub(crate) async fn check_revocation_ocsp(
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
     let ocsp_aias = get_ocsp_aias(target_cert);
     if ocsp_aias.is_empty() {
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
-                "No OCSP AIAs found for {}",
-                name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
-            )
-            .as_str(),
+        info!(
+            "No OCSP AIAs found for {}",
+            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
         );
     } else {
         for aia in ocsp_aias {
@@ -768,27 +708,19 @@ pub(crate) async fn check_revocation_ocsp(
                 }
             };
             if target_status != PathValidationStatus::RevocationStatusNotDetermined {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
+                info!(
                         "Determined revocation status ({}) using OCSP for certificate issued to {} via {}",
                         target_status,
                         name_to_string(&target_cert.decoded_cert.tbs_certificate.subject),
                         aia.as_str(),
-                    )
-                    .as_str(),
-                );
+                    );
                 // no need to consider additional AIAs
                 break;
             } else {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
-                        "Failed to determine status for {} via {}",
-                        name_to_string(&target_cert.decoded_cert.tbs_certificate.subject),
-                        aia.as_str()
-                    )
-                    .as_str(),
+                info!(
+                    "Failed to determine status for {} via {}",
+                    name_to_string(&target_cert.decoded_cert.tbs_certificate.subject),
+                    aia.as_str()
                 );
             }
         }
