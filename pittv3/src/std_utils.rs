@@ -5,8 +5,8 @@
 extern crate alloc;
 
 use alloc::string::String;
-use std::{ffi::OsStr, fs, path::Path, time::Instant};
 use log::{error, info};
+use std::{ffi::OsStr, fs, path::Path, time::Instant};
 use walkdir::WalkDir;
 
 use const_oid::db::rfc5912::ID_CE_BASIC_CONSTRAINTS;
@@ -75,9 +75,9 @@ pub(crate) async fn validate_cert_file(
     let parsed_cert = parse_cert(b.as_slice(), cert_filename);
     if let Some(target_cert) = parsed_cert {
         info!(
-                "Start building and validating path(s) for {}",
-                cert_filename
-            );
+            "Start building and validating path(s) for {}",
+            cert_filename
+        );
 
         let start2 = Instant::now();
 
@@ -91,25 +91,24 @@ pub(crate) async fn validate_cert_file(
                 e
             );
             error!(
-                    "Failed to find certification paths for target with error {:?}",
-                    e
-                );
+                "Failed to find certification paths for target with error {:?}",
+                e
+            );
             return;
         }
 
         if paths.is_empty() {
             collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
-            info!("Failed to find any certification paths for target",
-            );
+            info!("Failed to find any certification paths for target",);
             return;
         }
 
         for (i, path) in paths.iter_mut().enumerate() {
             info!(
-                    "Validating {} certificate path for {}",
-                    (path.intermediates.len() + 2),
-                    name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
-                );
+                "Validating {} certificate path for {}",
+                (path.intermediates.len() + 2),
+                name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
+            );
             let mut cpr = CertificationPathResults::new();
 
             #[cfg(not(feature = "remote"))]
@@ -176,11 +175,11 @@ pub(crate) async fn validate_cert_file(
         let finish = Instant::now();
         let duration2 = finish - start2;
         info!(
-                "{:?} to build and validate {} path(s) for {}",
-                duration2,
-                paths.len(),
-                cert_filename
-            );
+            "{:?} to build and validate {} path(s) for {}",
+            duration2,
+            paths.len(),
+            cert_filename
+        );
     } else {
         // parse_cert writes out an error
         // log_message(
@@ -214,9 +213,7 @@ pub async fn validate_cert_folder<'a>(
                                 .await;
                         }
                     } else {
-                        error!(
-                            "Skipping file due to invalid Unicode in name",
-                        );
+                        error!("Skipping file due to invalid Unicode in name",);
                     }
                 } else {
                     let mut do_validate = false;
@@ -360,9 +357,9 @@ pub fn cleanup_certs(
                                 if let Err(_e) = r {
                                     delete_file = true;
                                     error!(
-                                            "Not valid at indicated time of interest ({}): {}",
-                                            t, filename
-                                        );
+                                        "Not valid at indicated time of interest ({}): {}",
+                                        t, filename
+                                    );
                                 }
                             }
 
@@ -457,9 +454,9 @@ pub fn cleanup_tas(
                             if r.is_err() {
                                 delete_file = true;
                                 error!(
-                                        "Not valid at indicated time of interest ({}): {}",
-                                        t, filename
-                                    );
+                                    "Not valid at indicated time of interest ({}): {}",
+                                    t, filename
+                                );
                             }
                         }
                         Err(e) => {

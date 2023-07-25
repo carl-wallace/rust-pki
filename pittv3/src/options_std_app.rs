@@ -221,20 +221,20 @@ pub fn options_std_app(args: &Pittv3Args) {
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
 
         if 0 < s.paths_per_target {
-            info!( "\t * Status codes");
+            info!("\t * Status codes");
             let ec = &error_counts[k];
             for ekey in ec {
                 info!(
-                        "\t\t - {:?}: {} - Result folder indices: {:?}",
-                        ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    );
+                    "\t\t - {:?}: {} - Result folder indices: {:?}",
+                    ekey.0, ekey.1, &error_indices[k][ekey.0]
+                );
             }
         }
     }
     info!("Total paths found: {}", totals.paths_per_target);
     info!("Total valid paths found: {}", totals.valid_paths_per_target);
     info!(
-            "Total invalid paths found: {}",
-            totals.invalid_paths_per_target
-        );
+        "Total invalid paths found: {}",
+        totals.invalid_paths_per_target
+    );
 }

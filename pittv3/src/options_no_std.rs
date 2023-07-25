@@ -182,16 +182,16 @@ pub fn options_no_std(args: &Pittv3Args) {
             let ec = &error_counts[k];
             for ekey in ec {
                 info!(
-                        "\t\t - {:?}: {} - Result folder indices: {:?}",
-                        ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    );
+                    "\t\t - {:?}: {} - Result folder indices: {:?}",
+                    ekey.0, ekey.1, &error_indices[k][ekey.0]
+                );
             }
         }
     }
     info!("Total paths found: {}", totals.paths_per_target);
     info!("Total valid paths found: {}", totals.valid_paths_per_target);
     info!(
-            "Total invalid paths found: {}",
-            totals.invalid_paths_per_target
-        );
+        "Total invalid paths found: {}",
+        totals.invalid_paths_per_target
+    );
 }

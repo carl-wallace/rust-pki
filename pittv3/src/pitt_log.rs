@@ -4,9 +4,9 @@
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use core::ops::Deref;
+use log::error;
 use std::io::Write;
 use std::{fs, fs::File, path::Path};
-use log::error;
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
@@ -682,9 +682,9 @@ pub fn log_path(
     let r = fs::create_dir_all(&np1);
     if let Err(e) = r {
         error!(
-                "Failed to create directories for {} with: {}",
-                target_folder, e
-            );
+            "Failed to create directories for {} with: {}",
+            target_folder, e
+        );
     }
 
     let np = np1.join(Path::new(format!("{}", index).as_str()));

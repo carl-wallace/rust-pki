@@ -530,10 +530,14 @@ pub fn pkits_guts_sync(
             }
 
             println!("{}", case_name);
-            let mut ta = PDVTrustAnchorChoice::try_from(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
+            let mut ta = PDVTrustAnchorChoice::try_from(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
             ta.parse_extensions(EXTS_OF_INTEREST);
 
-            let mut ee = match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
+            let mut ee =
+                match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
                     Ok(ee_cert) => ee_cert,
                     Err(err) => {
                         let k = err.kind();
@@ -677,7 +681,8 @@ pub fn pkits_guts_sync(
                     // no tests defined for EC at present, so skip when revocation check is true (i.e., for EC)
                     let der_encoded_ta5914 =
                         get_pkits_ta5914_2048_bytes(case.ta5914_filename).unwrap();
-                    let mut ta5914 = PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
+                    let mut ta5914 =
+                        PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
                     // validate again with settings supplied by 5914 formatted TA
@@ -814,17 +819,21 @@ pub async fn pkits_guts(
             }
 
             println!("{}", case_name);
-            let mut ta = PDVTrustAnchorChoice::try_from(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
+            let mut ta = PDVTrustAnchorChoice::try_from(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
             ta.parse_extensions(EXTS_OF_INTEREST);
 
-            let mut ee = match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
-                Ok(ee_cert) => ee_cert,
-                Err(err) => {
-                    let k = err.kind();
-                    println!("{}: {}", k, err);
-                    continue;
-                }
-            };
+            let mut ee =
+                match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
+                    Ok(ee_cert) => ee_cert,
+                    Err(err) => {
+                        let k = err.kind();
+                        println!("{}: {}", k, err);
+                        continue;
+                    }
+                };
             if "4.3.11" == case_name {
                 println!("break");
             }
@@ -948,7 +957,8 @@ pub async fn pkits_guts(
                     // no tests defined for EC at present, so skip when revocation check is true (i.e., for EC)
                     let der_encoded_ta5914 =
                         get_pkits_ta5914_2048_bytes(case.ta5914_filename).unwrap();
-                    let mut ta5914 = PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
+                    let mut ta5914 =
+                        PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
                     // validate again with settings supplied by 5914 formatted TA
