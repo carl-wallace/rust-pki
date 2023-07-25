@@ -13,6 +13,9 @@ use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Encode};
 
+#[cfg(doc)]
+use crate::enforce_trust_anchor_constraints;
+
 /// `check_certificate_policies` implements certificate policy processing per RFC 5280.
 ///
 /// It references the following certificate extensions:
