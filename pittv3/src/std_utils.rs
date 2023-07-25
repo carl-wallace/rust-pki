@@ -72,8 +72,7 @@ pub(crate) async fn validate_cert_file(
         target
     };
 
-    let parsed_cert = parse_cert(b.as_slice(), cert_filename);
-    if let Some(target_cert) = parsed_cert {
+    if let Some(target_cert) = parse_cert(b.as_slice(), cert_filename) {
         info!(
             "Start building and validating path(s) for {}",
             cert_filename

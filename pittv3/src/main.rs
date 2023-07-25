@@ -89,9 +89,7 @@ cfg_if! {
             options_std(&args).await;
 
             #[cfg(not(feature = "std"))]
-            {
-                options_std_app(&args);
-            }
+            options_std_app(&args);
 
             debug!("PITTv3 end");
         }
