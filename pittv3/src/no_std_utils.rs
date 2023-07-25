@@ -27,9 +27,9 @@ pub(crate) fn validate_cert(
     let parsed_cert = parse_cert(target, cert_filename);
     if let Some(target_cert) = parsed_cert {
         info!(
-                "Start building and validating path(s) for {}",
-                cert_filename
-            );
+            "Start building and validating path(s) for {}",
+            cert_filename
+        );
 
         stats.files_processed += 1;
 
@@ -41,18 +41,18 @@ pub(crate) fn validate_cert(
                 e
             );
             error!(
-                    "Failed to find certification paths for target with error {:?}",
-                    e
-                );
+                "Failed to find certification paths for target with error {:?}",
+                e
+            );
             return;
         }
 
         for (_i, path) in paths.iter_mut().enumerate() {
             info!(
-                    "Validating {} certificate path for {}",
-                    (path.intermediates.len() + 2),
-                    name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
-                );
+                "Validating {} certificate path for {}",
+                (path.intermediates.len() + 2),
+                name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
+            );
             let mut cpr = CertificationPathResults::new();
 
             #[cfg(not(feature = "revocation"))]

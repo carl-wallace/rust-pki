@@ -715,9 +715,9 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 Err(e) => {
                     cert_source.buffers_and_paths = BuffersAndPaths::default();
                     error!(
-                            "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
-                            cbor_file, e
-                        );
+                        "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
+                        cbor_file, e
+                    );
                 }
             }
 
@@ -793,9 +793,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 if !lmm_file.is_empty() {
                     if let Ok(json_lmm) = &json_lmm {
                         if fs::write(lmm_file, json_lmm).is_err() {
-                            error!(
-                                "Unable to write last modified map file",
-                            );
+                            error!("Unable to write last modified map file",);
                         }
                     }
                 }
@@ -867,9 +865,9 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                     cbor = new_cbor;
                 }
                 Err(e) => error!(
-                        "Failed to serialize CBOR after dynamic building with {:?}",
-                        e
-                    ),
+                    "Failed to serialize CBOR after dynamic building with {:?}",
+                    e
+                ),
             }
 
             #[cfg(feature = "remote")]
@@ -1003,24 +1001,24 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             let ec = &error_counts[k];
             for ekey in ec {
                 info!(
-                        "\t\t - {:?}: {} - Result folder indices: {:?}",
-                        ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    );
+                    "\t\t - {:?}: {} - Result folder indices: {:?}",
+                    ekey.0, ekey.1, &error_indices[k][ekey.0]
+                );
             }
         }
     }
     info!("Total paths found: {}", totals.paths_per_target);
     info!("Total valid paths found: {}", totals.valid_paths_per_target);
     info!(
-            "Total invalid paths found: {}",
-            totals.invalid_paths_per_target
-        );
+        "Total invalid paths found: {}",
+        totals.invalid_paths_per_target
+    );
 
     debug!("Args: {:?}", args);
 
     info!(
-            "{:?} to deserialize graph and perform build and validation operation(s) for {} file(s)",
-            duration,
-            stats.keys().len()
-        );
+        "{:?} to deserialize graph and perform build and validation operation(s) for {} file(s)",
+        duration,
+        stats.keys().len()
+    );
 }

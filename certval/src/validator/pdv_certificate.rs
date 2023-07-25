@@ -6,7 +6,10 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use der::{asn1::{BitStringRef, ObjectIdentifier}, Decode, Encode};
+use der::{
+    asn1::{BitStringRef, ObjectIdentifier},
+    Decode, Encode,
+};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
