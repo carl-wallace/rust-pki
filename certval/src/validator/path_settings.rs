@@ -437,9 +437,9 @@ pub fn get_initial_permitted_subtrees(
 /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
 /// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
 /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
-pub fn get_initial_permitted_subtrees_as_set<'a>(
-    cps: &'a CertificationPathSettings,
-    bufs: &'a mut BTreeMap<String, Vec<Vec<u8>>>,
+pub fn get_initial_permitted_subtrees_as_set(
+    cps: &CertificationPathSettings,
+    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
 ) -> Result<Option<NameConstraintsSet>> {
     if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
         return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
@@ -534,9 +534,9 @@ pub fn get_initial_excluded_subtrees(
 /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
 /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
 /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
-pub fn get_initial_excluded_subtrees_as_set<'a>(
-    cps: &'a CertificationPathSettings,
-    bufs: &'a mut BTreeMap<String, Vec<Vec<u8>>>,
+pub fn get_initial_excluded_subtrees_as_set(
+    cps: &CertificationPathSettings,
+    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
 ) -> Result<Option<NameConstraintsSet>> {
     if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
         return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
