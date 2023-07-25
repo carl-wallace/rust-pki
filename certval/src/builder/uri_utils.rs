@@ -10,14 +10,16 @@ use crate::util::pdv_utilities::*;
 use crate::*;
 
 #[cfg(feature = "remote")]
+use log::{debug, error, info};
+
+#[cfg(feature = "remote")]
 use cms::{content_info::ContentInfo, signed_data::SignedData};
 
 use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "remote")] {
-        use crate::{Error, PeLogLevels, PeLogLevels::*, PkiEnvironment, Result};
+        use crate::{Error, PkiEnvironment, Result};
         use crate::source::cert_source::CertFile;
-        use crate::util::logging::log_message;
         use crate::util::pdv_utilities::{is_self_signed_with_buffer, valid_at_time};
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
@@ -83,10 +85,7 @@ fn save_certs_from_p7(
                     }
                 }
                 Err(e) => {
-                    log_message(
-                        &PeError,
-                        format!("Failed to parse SignedData from {} with {:?}", target, e).as_str(),
-                    );
+                    error!("Failed to parse SignedData from {} with {:?}", target, e);
                 }
             }
         }
@@ -117,21 +116,14 @@ fn save_cert(
     match r {
         Ok(cert) => {
             if let Err(_e) = valid_at_time(&cert.tbs_certificate, time_of_interest, true) {
-                log_message(
-                    &PeLogLevels::PeDebug,
-                    format!("Ignoring certificate downloaded from {} as not valid at indicated time of interest ({})", target, time_of_interest).as_str(),
-                );
+                debug!("Ignoring certificate downloaded from {} as not valid at indicated time of interest ({})", target, time_of_interest);
                 return saved;
             }
 
             if is_self_signed_with_buffer(pe, &cert, bytes) {
-                log_message(
-                    &PeLogLevels::PeDebug,
-                    format!(
-                        "Ignoring certificate downloaded from {} as self-signed",
-                        target
-                    )
-                    .as_str(),
+                debug!(
+                    "Ignoring certificate downloaded from {} as self-signed",
+                    target
                 );
                 return saved;
             }
@@ -148,35 +140,22 @@ fn save_cert(
                     Ok(mut dest) => {
                         let r = dest.write_all(bytes);
                         if let Err(e) = r {
-                            log_message(
-                                &PeError,
-                                format!("Failed to copy {} with {:?}", target, e).as_str(),
-                            );
+                            error!("Failed to copy {} with {:?}", target, e);
                         }
                     }
                     Err(e) => {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Failed to save {} with error: {}", filename, e).as_str(),
-                        );
+                        error!("Failed to save {} with error: {}", filename, e);
                     }
                 }
             } else {
-                log_message(
-                    &PeLogLevels::PeDebug,
-                    format!(
-                        "Ignoring certificate downloaded from {} as already available",
-                        target
-                    )
-                    .as_str(),
+                debug!(
+                    "Ignoring certificate downloaded from {} as already available",
+                    target
                 );
             }
         }
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to parse certificate from {} with: {:?}", target, e).as_str(),
-            );
+            error!("Failed to parse certificate from {} with: {:?}", target, e);
         }
     }
     saved
@@ -218,16 +197,10 @@ pub async fn fetch_to_buffer(
     for target in uris.iter().skip(start_index) {
         // skip targets that have been placed on the blocklist (like URIs from an intranet)
         if blocklist.contains(target) {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Skipping due to blocklist: {}", target).as_str(),
-            );
+            error!("Skipping due to blocklist: {}", target);
             continue;
         } else {
-            log_message(
-                &PeLogLevels::PeInfo,
-                format!("Downloading {}", target).as_str(),
-            );
+            info!("Downloading {}", target);
         }
 
         // Read saved last modified time, if any, for use in avoiding unnecessary download below
@@ -288,10 +261,7 @@ pub async fn fetch_to_buffer(
 
                 let content = &response.bytes().await;
                 if let Ok(bytes) = content {
-                    log_message(
-                        &PeLogLevels::PeDebug,
-                        format!("Downloaded buffer {}", target).as_str(),
-                    );
+                    debug!("Downloaded buffer {}", target);
 
                     // save_certs_from_p7
                     if "application/pkcs7-mime" == content_type {
@@ -340,10 +310,7 @@ pub async fn fetch_to_buffer(
                 }
             }
             Err(e) => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to process {} with {:?}", target, e).as_str(),
-                );
+                error!("Failed to process {} with {:?}", target, e);
                 if !blocklist.contains(target) {
                     blocklist.push(target.clone());
                 }

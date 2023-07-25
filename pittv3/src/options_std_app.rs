@@ -67,21 +67,7 @@ use crate::args::Pittv3Args;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
-use log::{debug, error, info, warn};
-
-/// `log_message_std_app` provides limited support for generating log messages when pittv3 is built
-/// using the `std_app` feature.
-pub fn log_message_std_app(level: &PeLogLevels, message: &str) {
-    if &PeLogLevels::PeError == level {
-        error!("{}", message);
-    } else if &PeLogLevels::PeWarn == level {
-        warn!("{}", message);
-    } else if &PeLogLevels::PeInfo == level {
-        info!("{}", message);
-    } else {
-        debug!("{}", message);
-    }
-}
+use log::{error, info};
 
 /// `get_file_as_byte_vec` provides support for reading artifacts from file when PITTv3 is built using
 /// the `std_app` feature.
@@ -119,10 +105,7 @@ pub fn options_std_app(args: &Pittv3Args) {
     let r =
         populate_parsed_cert_vector(&cert_source.buffers_and_paths, &cps, &mut cert_source.certs);
     if let Err(e) = r {
-        log_message_std_app(
-            &PeLogLevels::PeError,
-            format!("Failed to populate cert vector with: {:?}", e).as_str(),
-        );
+        error!("Failed to populate cert vector with: {:?}", e);
     }
     for (i, cert) in cert_source.certs.iter().enumerate() {
         if let Some(cert) = cert {
@@ -178,11 +161,7 @@ pub fn options_std_app(args: &Pittv3Args) {
                         match pem_rfc7468::decode_vec(&target) {
                             Ok(b) => b.1,
                             Err(e) => {
-                                log_message(
-                                    &PeLogLevels::PeError,
-                                    format!("Failed to parse certificate from {}: {}", filename, e)
-                                        .as_str(),
-                                );
+                                error!("Failed to parse certificate from {}: {}", filename, e);
                                 return;
                             }
                         }
@@ -233,52 +212,29 @@ pub fn options_std_app(args: &Pittv3Args) {
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
         let s = &stats[k];
-        log_message_std_app(&PeLogLevels::PeInfo, format!("Stats for {}", k).as_str());
-        log_message_std_app(
-            &PeLogLevels::PeInfo,
-            format!("\t * Paths found: {}", s.paths_per_target).as_str(),
-        );
-        log_message_std_app(
-            &PeLogLevels::PeInfo,
-            format!("\t * Valid paths found: {}", s.valid_paths_per_target).as_str(),
-        );
-        log_message_std_app(
-            &PeLogLevels::PeInfo,
-            format!("\t * Invalid paths found: {}", s.invalid_paths_per_target).as_str(),
-        );
+        info!("Stats for {}", k);
+        info!("\t * Paths found: {}", s.paths_per_target);
+        info!("\t * Valid paths found: {}", s.valid_paths_per_target);
+        info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
         totals.paths_per_target += s.paths_per_target;
         totals.valid_paths_per_target += s.valid_paths_per_target;
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
 
         if 0 < s.paths_per_target {
-            log_message_std_app(&PeLogLevels::PeInfo, "\t * Status codes");
+            info!( "\t * Status codes");
             let ec = &error_counts[k];
             for ekey in ec {
-                log_message_std_app(
-                    &PeLogLevels::PeInfo,
-                    format!(
+                info!(
                         "\t\t - {:?}: {} - Result folder indices: {:?}",
                         ekey.0, ekey.1, &error_indices[k][ekey.0]
-                    )
-                    .as_str(),
-                );
+                    );
             }
         }
     }
-    log_message_std_app(
-        &PeLogLevels::PeInfo,
-        format!("Total paths found: {}", totals.paths_per_target).as_str(),
-    );
-    log_message_std_app(
-        &PeLogLevels::PeInfo,
-        format!("Total valid paths found: {}", totals.valid_paths_per_target).as_str(),
-    );
-    log_message_std_app(
-        &PeLogLevels::PeInfo,
-        format!(
+    info!("Total paths found: {}", totals.paths_per_target);
+    info!("Total valid paths found: {}", totals.valid_paths_per_target);
+    info!(
             "Total invalid paths found: {}",
             totals.invalid_paths_per_target
-        )
-        .as_str(),
-    );
+        );
 }

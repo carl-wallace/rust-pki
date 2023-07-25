@@ -4,9 +4,10 @@
 extern crate alloc;
 use alloc::{format, string::String, vec::Vec};
 use flagset::{flags, FlagSet};
-
 use lazy_static::lazy_static;
 use ndarray::{arr2, ArrayBase, Dim, OwnedRepr};
+
+use log::{error, info};
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_ISSUER,
@@ -32,7 +33,6 @@ use x509_cert::{
 };
 
 use crate::crl::CrlReasons::AllReasons;
-use crate::util::logging::*;
 use crate::Error::CrlIncompatible;
 use crate::{
     add_crl_entry, compare_names, get_time_of_interest, log_error_for_subject, name_to_string,
@@ -46,6 +46,9 @@ use crate::add_failed_crl;
 
 #[cfg(feature = "remote")]
 use std::time::Duration;
+
+#[cfg(feature = "remote")]
+use log::debug;
 
 #[cfg(feature = "remote")]
 use der::asn1::Ia5String;
@@ -380,18 +383,12 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 #[cfg(feature = "remote")]
 async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
-        log_message(
-            &PeLogLevels::PeDebug,
-            "Ignored non-HTTP URI presented for CRL retrieval",
-        );
+        debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
     }
 
     if pe.check_blocklist(uri) {
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!("{} is on the blocklist", uri).as_str(),
-        );
+        info!("{} is on the blocklist", uri);
         return Err(Error::UriOnBlocklist);
     }
 
@@ -401,10 +398,7 @@ async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> 
     {
         Ok(c) => c,
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeDebug,
-                format!("Failed to prepare HTTP client to retrieve CRL: {}", e).as_str(),
-            );
+            debug!("Failed to prepare HTTP client to retrieve CRL: {}", e);
             return Err(Error::ResourceUnchanged);
         }
     };
@@ -435,19 +429,13 @@ async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> 
             match &b {
                 Ok(bytes) => Ok(bytes.clone().to_vec()),
                 Err(e) => {
-                    log_message(
-                        &PeLogLevels::PeDebug,
-                        format!("Failed to retrieve CRL bytes from {} with {}", uri, e).as_str(),
-                    );
+                    debug!("Failed to retrieve CRL bytes from {} with {}", uri, e);
                     Err(Error::NetworkError)
                 }
             }
         }
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeDebug,
-                format!("Failed to fetch CRL from {}: {:?}", uri, e).as_str(),
-            );
+            debug!("Failed to fetch CRL from {}: {:?}", uri, e);
             pe.add_to_blocklist(uri);
             Err(Error::NetworkError)
         }
@@ -949,12 +937,12 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> 
     if 0 != toi {
         let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
         if tu > toi {
-            log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi).as_str());
+            info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
             return Err(Error::CrlIncompatible);
         }
         if let Some(nu) = crl.tbs_cert_list.next_update {
             if nu.to_unix_duration().as_secs() < toi {
-                log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi).as_str());
+                info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
                 return Err(Error::CrlIncompatible);
             }
         }
@@ -970,25 +958,19 @@ fn check_crl_sign(cert: &Certificate) -> Result<()> {
                     // (n)  If a key usage extension is present, verify that the
                     //      keyCertSign bit is set.
                     if !ku.0.contains(KeyUsages::CRLSign) {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            "crlSign is not set in key usage extension",
-                        );
+                        error!("crlSign is not set in key usage extension");
                         return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                     } else {
                         return Ok(());
                     }
                 } else {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        "key usage extension could not be parsed",
-                    );
+                    error!("key usage extension could not be parsed");
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
             }
         }
     }
-    log_message(&PeLogLevels::PeError, "key usage extension is missing");
+    error!("key usage extension is missing");
     Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
@@ -1013,15 +995,9 @@ pub(crate) fn process_crl(
         Ok(crl) => crl,
         Err(e) => {
             if let Some(uri) = uri {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to parse CRL from {} with {}", uri, e).as_str(),
-                );
+                error!("Failed to parse CRL from {} with {}", uri, e);
             } else {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!("Failed to parse CRL from with {}", e).as_str(),
-                );
+                error!("Failed to parse CRL from with {}", e);
             }
             add_failed_crl(cpr, crl_buf, result_index);
             return Err(Error::Asn1Error(e));
@@ -1031,10 +1007,7 @@ pub(crate) fn process_crl(
 
     if let Some(uri) = uri {
         if let Err(e) = pe.add_crl(crl_buf, &crl, uri) {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to save CRL with: {}", e).as_str(),
-            );
+            error!("Failed to save CRL with: {}", e);
         }
     }
 
@@ -1049,7 +1022,7 @@ pub(crate) fn process_crl(
     if !COMPATIBLE_SCOPE[(cert_type as usize, crl_info.type_info.scope as usize)]
         || !COMPATIBLE_COVERAGE[(cert_type as usize, crl_info.type_info.coverage as usize)]
     {
-        log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)).as_str());
+        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1058,13 +1031,9 @@ pub(crate) fn process_crl(
     let mut collected_reasons = match ReasonFlags::new(0) {
         Ok(rf) => rf,
         Err(_e) => {
-            log_message(
-                &PeLogLevels::PeInfo,
-                format!(
-                    "Discarding CRL from {} due to failure to prepare ReasonFlags",
-                    name_to_string(&crl.tbs_cert_list.issuer)
-                )
-                .as_str(),
+            info!(
+                "Discarding CRL from {} due to failure to prepare ReasonFlags",
+                name_to_string(&crl.tbs_cert_list.issuer)
             );
             return Err(Error::Unrecognized);
         }
@@ -1076,13 +1045,17 @@ pub(crate) fn process_crl(
         target_cert,
         &mut collected_reasons,
     ) {
-        log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)).as_str());
+        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject));
         return Err(Error::CrlIncompatible);
     }
 
     //4-d) Validate CRL authority
     if let Err(_e) = validate_crl_authority(target_cert, &crl_info) {
-        log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} as having incompatible authority for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)).as_str());
+        info!(
+            "Discarding CRL from {} as having incompatible authority for certificate issued to {}",
+            name_to_string(&crl.tbs_cert_list.issuer),
+            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
+        );
         return Err(Error::CrlIncompatible);
     }
 
@@ -1091,13 +1064,9 @@ pub(crate) fn process_crl(
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
         if let Err(_e) = check_crl_extensions(exts) {
-            log_message(
-                &PeLogLevels::PeInfo,
-                format!(
-                    "Discarding CRL from {} due to unrecognized critical extension",
-                    name_to_string(&crl.tbs_cert_list.issuer)
-                )
-                .as_str(),
+            info!(
+                "Discarding CRL from {} due to unrecognized critical extension",
+                name_to_string(&crl.tbs_cert_list.issuer)
             );
             return Err(Error::UnsupportedCrlExtension);
         }
@@ -1109,7 +1078,7 @@ pub(crate) fn process_crl(
             // of the IDP extension, discard the CRL. this check could be dropped is sufficiently satisfied
             // that IDP check is good enough.
             if certificate_issuer_extension_present(&rc) {
-                log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} due to presence of certificate issuer CRL entry extension", name_to_string(&crl.tbs_cert_list.issuer)).as_str());
+                info!("Discarding CRL from {} due to presence of certificate issuer CRL entry extension", name_to_string(&crl.tbs_cert_list.issuer));
                 return Err(Error::UnsupportedIndirectCrl);
             }
 
@@ -1117,7 +1086,10 @@ pub(crate) fn process_crl(
                 // this is probably not a useful check. will change ultimate error from revoked to
                 // status not determined, most likely.
                 if let Err(_e) = check_entry_extensions(&rc) {
-                    log_message(&PeLogLevels::PeInfo, format!("Discarding CRL from {} due to unrecognized critical CRL entry extension", name_to_string(&crl.tbs_cert_list.issuer)).as_str());
+                    info!(
+                        "Discarding CRL from {} due to unrecognized critical CRL entry extension",
+                        name_to_string(&crl.tbs_cert_list.issuer)
+                    );
                     return Err(Error::UnsupportedCrlEntryExtension);
                 }
 
@@ -1126,13 +1098,9 @@ pub(crate) fn process_crl(
                         add_crl_entry(cpr, enc_entry, result_index);
                     }
                     Err(e) => {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!(
-                                "Failed to encode CRL entry for logging purposes with: {}",
-                                e
-                            )
-                            .as_str(),
+                        error!(
+                            "Failed to encode CRL entry for logging purposes with: {}",
+                            e
                         );
                     }
                 };
@@ -1173,30 +1141,20 @@ pub(crate) async fn check_revocation_crl_remote(
     let cur_cert_subject = name_to_string(&target_cert.decoded_cert.tbs_certificate.subject);
     let crl_dps = get_crl_dps(target_cert);
     if crl_dps.is_empty() {
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
-                "No CRL DPs found for {}",
-                name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
-            )
-            .as_str(),
+        info!(
+            "No CRL DPs found for {}",
+            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
         );
     } else {
         let timeout = get_crl_timeout(cps);
         for crl_dp in crl_dps {
-            log_message(
-                &PeLogLevels::PeDebug,
-                format!("Fetching CRL from {}", crl_dp.as_str()).as_str(),
-            );
+            debug!("Fetching CRL from {}", crl_dp.as_str());
 
             let crl = match fetch_crl(pe, crl_dp.as_str(), timeout).await {
                 Ok(crl) => crl,
                 Err(_e) => continue,
             };
-            log_message(
-                &PeLogLevels::PeDebug,
-                format!("Processing CRL from {}", crl_dp.as_str()).as_str(),
-            );
+            debug!("Processing CRL from {}", crl_dp.as_str());
 
             match process_crl(
                 pe,
@@ -1211,17 +1169,17 @@ pub(crate) async fn check_revocation_crl_remote(
                 Ok(_ok) => {
                     target_status = {
                         add_crl(cpr, crl.as_slice(), pos);
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject);
                         PathValidationStatus::Valid
                     }
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
                         add_crl(cpr, crl.as_slice(), pos);
-                        log_message(&PeLogLevels::PeInfo, format!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject).as_str());
+                        info!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject);
                         return PathValidationStatus::CertificateRevoked;
                     } else {
-                        log_message(&PeLogLevels::PeInfo, format!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e).as_str());
+                        info!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e);
                         add_failed_crl(cpr, crl.as_slice(), pos);
                     }
                 }

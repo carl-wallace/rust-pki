@@ -38,6 +38,8 @@ use alloc::{
 use alloc::{format, vec, vec::Vec};
 use core::cell::RefCell;
 
+use log::{debug, error, info};
+
 use ciborium::ser::into_writer;
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +56,7 @@ use x509_cert::Certificate;
 use crate::{
     compare_names,
     environment::pki_environment_traits::*,
-    general_subtree_to_string, get_leaf_rdn, log_message,
+    general_subtree_to_string, get_leaf_rdn,
     path_settings::get_time_of_interest,
     pdv_certificate::*,
     pdv_extension::*,
@@ -65,8 +67,8 @@ use crate::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
     CertificateSource, CertificationPath, CertificationPathBuilder, CertificationPathSettings,
-    ExtensionProcessing, NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PeLogLevels,
-    PkiEnvironment, EXTS_OF_INTEREST, PS_MAX_PATH_LENGTH_CONSTRAINT,
+    ExtensionProcessing, NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
+    EXTS_OF_INTEREST, PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
 #[cfg(feature = "std")]
@@ -465,7 +467,7 @@ impl<'a> CertSource {
     /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
     pub fn log_certs(&self) {
         if self.certs.is_empty() {
-            log_message(&PeLogLevels::PeInfo, "No certificates present");
+            info!("No certificates present");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
@@ -473,13 +475,9 @@ impl<'a> CertSource {
                 let skid = hex_skid_from_cert(cert);
                 let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
                 let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
-                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                        i, skid, iss, sub
-                    )
-                    .as_str(),
+                info!(
+                    "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
+                    i, skid, iss, sub
                 );
             }
         }
@@ -492,13 +490,13 @@ impl<'a> CertSource {
         }
 
         if fresh_uris.is_empty() {
-            log_message(&PeLogLevels::PeInfo, "No AIA or SIA URIs observed");
+            info!("No AIA or SIA URIs observed");
             return;
         }
 
         fresh_uris.sort();
         for u in fresh_uris {
-            log_message(&PeLogLevels::PeInfo, u.as_str());
+            info!("{}", u.as_str());
         }
     }
 
@@ -514,39 +512,25 @@ impl<'a> CertSource {
                     let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
                     if let Some(perm) = &nc.permitted_subtrees {
                         logged_some = true;
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub)
-                                .as_str(),
-                        );
-                        log_message(&PeLogLevels::PeInfo, "Permitted Name Constraints");
+                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Permitted Name Constraints");
                         for gs in perm {
-                            log_message(
-                                &PeLogLevels::PeInfo,
-                                format!("- {}", general_subtree_to_string(gs)).as_str(),
-                            );
+                            info!("- {}", general_subtree_to_string(gs));
                         }
                     }
                     if let Some(excl) = &nc.excluded_subtrees {
                         logged_some = true;
-                        log_message(
-                            &PeLogLevels::PeInfo,
-                            format!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub)
-                                .as_str(),
-                        );
-                        log_message(&PeLogLevels::PeInfo, "Excluded Name Constraints");
+                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Excluded Name Constraints");
                         for gs in excl {
-                            log_message(
-                                &PeLogLevels::PeInfo,
-                                format!("- {}", general_subtree_to_string(gs)).as_str(),
-                            );
+                            info!("- {}", general_subtree_to_string(gs));
                         }
                     }
                 }
             }
         }
         if !logged_some {
-            log_message(&PeLogLevels::PeInfo, "No name constraints observed");
+            info!("No name constraints observed");
         }
     }
 
@@ -565,7 +549,7 @@ impl<'a> CertSource {
         let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
 
         if partial_paths.is_empty() {
-            log_message(&PeLogLevels::PeInfo, "No partial paths available");
+            info!("No partial paths available");
             return;
         }
 
@@ -587,7 +571,7 @@ impl<'a> CertSource {
                     }
                 }
 
-                log_message(&PeLogLevels::PeInfo, format!("{}: ", label).as_str());
+                info!("{}: ", label);
 
                 for v in inner {
                     let cert = &self.certs[v[0]];
@@ -596,10 +580,7 @@ impl<'a> CertSource {
                     } else {
                         "".to_string()
                     };
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!("\t* TA subject: {} - {:?}, ", vlabel, v).as_str(),
-                    );
+                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
                 }
             }
         }
@@ -617,20 +598,16 @@ impl<'a> CertSource {
                 );
             }
         }
-        log_message(&PeLogLevels::PeInfo, message.as_str());
+        info!("{}", message.as_str());
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
     pub fn log_paths_for_target(&'a self, target: &'a PDVCertificate, time_of_interest: u64) {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "No paths found because target is not valid at indicated time of interest ({})",
-                    time_of_interest
-                )
-                .as_str(),
+            error!(
+                "No paths found because target is not valid at indicated time of interest ({})",
+                time_of_interest
             );
             return;
         }
@@ -649,7 +626,7 @@ impl<'a> CertSource {
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
-                log_message(&PeLogLevels::PeInfo, "No partial paths present");
+                info!("No partial paths present");
             }
             return;
         }
@@ -678,13 +655,9 @@ impl<'a> CertSource {
                         if let Some(cert) = &self.certs[*i] {
                             let skid = hex_skid_from_cert(cert);
                             if !skid.is_empty() {
-                                log_message(
-                                    &PeLogLevels::PeDebug,
-                                    format!(
-                                        "Using calculated key identifier in lieu of AKID for {}",
-                                        name_str
-                                    )
-                                    .as_str(),
+                                debug!(
+                                    "Using calculated key identifier in lieu of AKID for {}",
+                                    name_str
                                 );
                                 akid_hex = skid;
                                 break;
@@ -714,15 +687,11 @@ impl<'a> CertSource {
                     }
                 }
 
-                log_message(&PeLogLevels::PeInfo, format!("{}: ", label).as_str());
+                info!("{}: ", label);
 
                 for v in inner {
                     if v.is_empty() {
-                        log_message(
-                            &PeLogLevels::PeError,
-                            format!("Empty partial paths vector for {}: . Skipping.", label)
-                                .as_str(),
-                        );
+                        error!("Empty partial paths vector for {}: . Skipping.", label);
                         continue;
                     }
 
@@ -738,7 +707,7 @@ impl<'a> CertSource {
                             &ca.decoded_cert.tbs_certificate.subject,
                             &target.decoded_cert.tbs_certificate.issuer,
                         ) {
-                            log_message(&PeLogLevels::PeError, "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
+                            error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                             break;
                         }
                     }
@@ -757,21 +726,14 @@ impl<'a> CertSource {
                         }
                     }
                     counter += 1;
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!("\t* TA subject: {} - {:?}, ", vlabel, v).as_str(),
-                    );
+                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "Missing AKID in target and failed to find by name - {}",
-                    fname
-                )
-                .as_str(),
+            error!(
+                "Missing AKID in target and failed to find by name - {}",
+                fname
             );
         }
 
@@ -781,25 +743,17 @@ impl<'a> CertSource {
                     let skid = hex_skid_from_cert(cert);
                     let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
                     let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!(
-                            "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                            i, skid, iss, sub
-                        )
-                        .as_str(),
+                    info!(
+                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
+                        i, skid, iss, sub
                     );
                 }
             }
         }
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
-                "Found {} partial paths featuring {} different intermediate CA certificates",
-                counter,
-                indices.len()
-            )
-            .as_str(),
+        info!(
+            "Found {} partial paths featuring {} different intermediate CA certificates",
+            counter,
+            indices.len()
         );
     }
 
@@ -819,7 +773,7 @@ impl<'a> CertSource {
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
-                log_message(&PeLogLevels::PeInfo, "No partial paths present");
+                info!("No partial paths present");
             }
             return;
         }
@@ -853,7 +807,7 @@ impl<'a> CertSource {
                     }
                 }
 
-                log_message(&PeLogLevels::PeInfo, format!("{}: ", label).as_str());
+                info!("{}: ", label);
 
                 for v in inner {
                     let mut vlabel = "".to_string();
@@ -870,21 +824,14 @@ impl<'a> CertSource {
                         }
                     }
                     counter += 1;
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!("\t* TA subject: {} - {:?}, ", vlabel, v).as_str(),
-                    );
+                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "Missing SKID in leaf CA and failed to calculate one - {}",
-                    fname
-                )
-                .as_str(),
+            error!(
+                "Missing SKID in leaf CA and failed to calculate one - {}",
+                fname
             );
         }
 
@@ -894,25 +841,17 @@ impl<'a> CertSource {
                     let skid = hex_skid_from_cert(cert);
                     let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
                     let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
-                    log_message(
-                        &PeLogLevels::PeInfo,
-                        format!(
-                            "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                            i, skid, iss, sub
-                        )
-                        .as_str(),
+                    info!(
+                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
+                        i, skid, iss, sub
                     );
                 }
             }
         }
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
-                "Found {} partial paths featuring {} different intermediate CA certificates",
-                counter,
-                indices.len()
-            )
-            .as_str(),
+        info!(
+            "Found {} partial paths featuring {} different intermediate CA certificates",
+            counter,
+            indices.len()
         );
     }
 
@@ -1312,7 +1251,7 @@ impl<'a> CertSource {
         format: CertificationPathBuilderFormats,
     ) -> Result<Vec<u8>> {
         if CertificationPathBuilderFormats::Cbor != format {
-            log_message(&PeLogLevels::PeError, "Format other than CBOR requested when serializing partial paths. Only CBOR is accepted presently.");
+            error!("Format other than CBOR requested when serializing partial paths. Only CBOR is accepted presently.");
             return Err(Error::Unrecognized);
         }
 
@@ -1336,14 +1275,10 @@ impl<'a> CertSource {
                 ppcounter += inner.len();
             }
         }
-        log_message(
-            &PeLogLevels::PeInfo,
-            format!(
-                "Serializing {} buffers and {} partial paths",
-                self.buffers_and_paths.buffers.len(),
-                ppcounter
-            )
-            .as_str(),
+        info!(
+            "Serializing {} buffers and {} partial paths",
+            self.buffers_and_paths.buffers.len(),
+            ppcounter
         );
 
         // drop mutex so serde can claim it
@@ -1357,13 +1292,9 @@ impl<'a> CertSource {
         match r {
             Ok(_) => Ok(buffer),
             Err(e) => {
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!(
-                        "Failed to generate CBOR file containing partial paths with error: {:?}",
-                        e
-                    )
-                    .as_str(),
+                error!(
+                    "Failed to generate CBOR file containing partial paths with error: {:?}",
+                    e
                 );
                 Err(Error::Unrecognized)
             }
@@ -1414,13 +1345,9 @@ impl CertificationPathBuilder for CertSource {
     {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
-            log_message(
-                &PeLogLevels::PeError,
-                format!(
-                    "No paths found because target is not valid at indicated time of interest ({})",
-                    time_of_interest
-                )
-                .as_str(),
+            error!(
+                "No paths found because target is not valid at indicated time of interest ({})",
+                time_of_interest
             );
             return Ok(());
         }
@@ -1484,7 +1411,7 @@ impl CertificationPathBuilder for CertSource {
                                     &ca.decoded_cert.tbs_certificate.subject,
                                     &target.decoded_cert.tbs_certificate.issuer,
                                 ) {
-                                    log_message(&PeLogLevels::PeError, "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
+                                    error!("Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                                     continue;
                                 }
                             }
@@ -1526,20 +1453,10 @@ impl CertificationPathBuilder for CertSource {
                                             }
                                         } else {
                                             let fname = get_filename_from_cert_metadata(cert);
-                                            log_message(
-                                                &PeLogLevels::PeError,
-                                                format!(
-                                                    "Missing AKID for trust anchor - {}",
-                                                    fname
-                                                )
-                                                .as_str(),
-                                            );
+                                            error!("Missing AKID for trust anchor - {}", fname);
                                             if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
                                             {
-                                                log_message(
-                                                    &PeLogLevels::PeError,
-                                                    "Found trust anchor by name",
-                                                );
+                                                error!("Found trust anchor by name");
                                                 ta = Some(new_ta);
                                             }
                                         }
@@ -1564,13 +1481,9 @@ impl CertificationPathBuilder for CertSource {
                 }
             } else {
                 let fname = get_filename_from_cert_metadata(target);
-                log_message(
-                    &PeLogLevels::PeError,
-                    format!(
-                        "Missing AKID in target and failed to find by name - {}",
-                        fname
-                    )
-                    .as_str(),
+                error!(
+                    "Missing AKID in target and failed to find by name - {}",
+                    fname
                 );
             }
 
@@ -1584,13 +1497,9 @@ impl CertificationPathBuilder for CertSource {
                             if let Some(cert) = &self.certs[*i] {
                                 let skid = hex_skid_from_cert(cert);
                                 if !skid.is_empty() {
-                                    log_message(
-                                        &PeLogLevels::PeDebug,
-                                        format!(
-                                            "Using calculated key identifier in lieu of AKID for {}",
-                                            name_str
-                                        )
-                                            .as_str(),
+                                    debug!(
+                                        "Using calculated key identifier in lieu of AKID for {}",
+                                        name_str
                                     );
                                     akid_hex = skid;
                                     changed = true;
@@ -1752,13 +1661,9 @@ where
             } else {
                 let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
                 if r.is_err() {
-                    log_message(
-                        &PeLogLevels::PeError,
-                        format!(
-                            "Certificate from {} is not valid at indicated time of interest",
-                            cert_file.filename
-                        )
-                        .as_str(),
+                    error!(
+                        "Certificate from {} is not valid at indicated time of interest",
+                        cert_file.filename
                     );
                 }
                 matches!(r, Ok(_x))

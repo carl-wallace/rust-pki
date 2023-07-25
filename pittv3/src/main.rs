@@ -14,9 +14,7 @@ mod options_no_std;
 mod options_std_app;
 
 use clap::Parser;
-
-// let the compiler choose what to pull in based on feature
-use certval::*;
+use log::{debug};
 
 use crate::args::*;
 
@@ -112,7 +110,7 @@ cfg_if! {
                     }
                 }
             }
-            log_message(&PeLogLevels::PeDebug, "PITTv3 start");
+            debug!("PITTv3 start");
 
             // process options available under std, revocation,std and remote features
             #[cfg(feature = "std")]
@@ -129,7 +127,7 @@ cfg_if! {
                 options_no_std(&args);
             }
 
-            log_message(&PeLogLevels::PeDebug, "PITTv3 end");
+            debug!("PITTv3 end");
         }
     }
     else {
@@ -189,7 +187,7 @@ cfg_if! {
                     }
                 }
             }
-            log_message(&PeLogLevels::PeDebug, "PITTv3 start");
+            debug!("PITTv3 start");
 
             // process options available under std, revocation,std and remote features
             #[cfg(feature = "std")]
@@ -206,7 +204,7 @@ cfg_if! {
                 options_no_std(&args);
             }
 
-            log_message(&PeLogLevels::PeDebug, "PITTv3 end");
+            debug!("PITTv3 end");
         }
     }
 }

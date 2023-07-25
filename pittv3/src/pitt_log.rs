@@ -6,6 +6,7 @@ use alloc::collections::BTreeMap;
 use core::ops::Deref;
 use std::io::Write;
 use std::{fs, fs::File, path::Path};
+use log::error;
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
@@ -680,14 +681,10 @@ pub fn log_path(
     let np1 = ef.join(Path::new(&target_filename));
     let r = fs::create_dir_all(&np1);
     if let Err(e) = r {
-        log_message(
-            &PeLogLevels::PeError,
-            format!(
+        error!(
                 "Failed to create directories for {} with: {}",
                 target_folder, e
-            )
-            .as_str(),
-        );
+            );
     }
 
     let np = np1.join(Path::new(format!("{}", index).as_str()));
@@ -715,7 +712,7 @@ pub fn log_path(
         let mut f = if let Ok(f) = File::create(p) {
             f
         } else {
-            log_message(&PeLogLevels::PeError, "Failed to create manifest file");
+            error!("Failed to create manifest file");
             return;
         };
         let s = get_filename_from_metadata(path.target);

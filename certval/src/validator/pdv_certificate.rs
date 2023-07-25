@@ -1,17 +1,16 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 
+use crate::asn1::piv_naci_indicator::PivNaciIndicator;
 use alloc::collections::BTreeMap;
 use alloc::{
-    format,
     string::{String, ToString},
     vec::Vec,
 };
-
-use crate::asn1::piv_naci_indicator::PivNaciIndicator;
 use der::{
     asn1::{BitStringRef, ObjectIdentifier},
     Decode,
 };
+use log::error;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::Certificate;
@@ -28,7 +27,6 @@ use x509_ocsp::OcspNoCheck;
 
 use crate::pdv_extension::*;
 use crate::util::error::*;
-use crate::util::logging::*;
 use crate::EXTS_OF_INTEREST;
 
 /// [`Asn1Metadata`] is a typedef of a BTreeMap map that associates types represented by the [`Asn1MetadataTypes`]
@@ -260,10 +258,7 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Option<PDVCertificate> {
             Some(pdvcert)
         }
         Err(e) => {
-            log_message(
-                &PeLogLevels::PeError,
-                format!("Failed to parse certificate from {}: {}", filename, e).as_str(),
-            );
+            error!("Failed to parse certificate from {}: {}", filename, e);
             None
         }
     }

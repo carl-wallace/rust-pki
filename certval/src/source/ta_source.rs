@@ -24,10 +24,10 @@
 
 use alloc::borrow::ToOwned;
 use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 use core::str;
+use log::info;
 
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
@@ -45,7 +45,6 @@ use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
 use x509_cert::{anchor::TrustAnchorChoice, Certificate};
 
-use crate::util::logging::log_message;
 use crate::{
     environment::pki_environment_traits::TrustAnchorSource,
     pdv_certificate::*,
@@ -55,7 +54,7 @@ use crate::{
     source::cert_source::CertFile,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    PDVCertificate, PDVTrustAnchorChoice, PeLogLevels, EXTS_OF_INTEREST,
+    PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -273,22 +272,14 @@ impl TaSource {
             let ta_filename = get_filename_from_ta_metadata(ta);
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let sub = get_leaf_rdn(name);
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
-                        "Index: {:3}; SKID: {}; Subject: {}; Filename: {}",
-                        i, hex_skid, sub, ta_filename
-                    )
-                    .as_str(),
+                info!(
+                    "Index: {:3}; SKID: {}; Subject: {}; Filename: {}",
+                    i, hex_skid, sub, ta_filename
                 );
             } else {
-                log_message(
-                    &PeLogLevels::PeInfo,
-                    format!(
-                        "Index: {:3}; SKID: {}; Subject: No Name; Filename: {}",
-                        i, hex_skid, ta_filename
-                    )
-                    .as_str(),
+                info!(
+                    "Index: {:3}; SKID: {}; Subject: No Name; Filename: {}",
+                    i, hex_skid, ta_filename
                 );
             }
         }

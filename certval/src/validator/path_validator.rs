@@ -7,6 +7,8 @@ use core::ops::Deref;
 
 use flagset::FlagSet;
 
+use log::info;
+
 use crate::policy_tree::check_certificate_policies;
 use crate::{
     environment::pki_environment::*, get_subject_public_key_info_from_trust_anchor,
@@ -19,7 +21,6 @@ use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::ext::pkix::KeyUsages;
 
-use crate::util::logging::*;
 use crate::validator::policy_graph::check_certificate_policies_graph;
 
 /// `EXTS_OF_INTEREST` provides a list of extensions that will be automatically parsed when preparing
@@ -96,13 +97,9 @@ pub fn validate_path_rfc5280(
     check_critical_extensions(pe, cps, cp, cpr)?;
     verify_signatures(pe, cps, cp, cpr)?;
     set_validation_status(cpr, PathValidationStatus::Valid);
-    log_message(
-        &PeLogLevels::PeInfo,
-        format!(
-            "Successfully completed basic path validation checks for certificate issued to {}",
-            name_to_string(&cp.target.decoded_cert.tbs_certificate.subject)
-        )
-        .as_str(),
+    info!(
+        "Successfully completed basic path validation checks for certificate issued to {}",
+        name_to_string(&cp.target.decoded_cert.tbs_certificate.subject)
     );
     Ok(())
 }
@@ -201,10 +198,7 @@ pub fn check_validity(
     // get_time_of_interest_or_now will return now or a caller specified time of interest.
     let toi = get_time_of_interest(cps);
     if 0 == toi {
-        log_message(
-            &PeLogLevels::PeInfo,
-            "check_validity invoked with no time of interest; validity check disabled",
-        );
+        info!("check_validity invoked with no time of interest; validity check disabled",);
         return Ok(());
     }
 
