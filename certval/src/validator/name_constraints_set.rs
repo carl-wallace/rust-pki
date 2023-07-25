@@ -71,16 +71,13 @@ pub struct NameConstraintsSet {
     pub not_supported: Vec<GeneralSubtree>, //t = everything else
 }
 
-impl<'a, 'b, 'c> NameConstraintsSet
-where
-    'a: 'b,
-    'a: 'c,
+impl NameConstraintsSet
 {
     //----------------------------------------------------------------------------
     // public
     //----------------------------------------------------------------------------
     /// `calculate_intersection` calculates the intersection of self and ext and saves the result in self.
-    pub(crate) fn calculate_intersection(&'c mut self, ext: &'a GeneralSubtrees) {
+    pub(crate) fn calculate_intersection(&mut self, ext: &GeneralSubtrees) {
         self.calculate_intersection_dn(ext);
 
         self.calculate_intersection_rfc822(ext);
@@ -89,7 +86,7 @@ where
     }
 
     /// `calculate_union calculates` the union of self and ext and saves the result in self.
-    pub(crate) fn calculate_union(&'c mut self, ext: &'a GeneralSubtrees) {
+    pub(crate) fn calculate_union(&mut self, ext: &GeneralSubtrees) {
         for subtree in ext {
             let gn = &subtree.base;
 
@@ -155,7 +152,7 @@ where
 
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
-    pub fn subject_within_permitted_subtrees(&'b self, subject: &'a Name) -> bool {
+    pub fn subject_within_permitted_subtrees(&self, subject: &Name) -> bool {
         if subject.0.is_empty() {
             // NULL subjects get a free pass
             return true;
@@ -181,7 +178,7 @@ where
 
     /// `san_within_permitted_subtrees` returns true if san is within at least one permitted subtree
     /// known to self. RFC822, DNS and URI name constraints are not supported for no-std and will fail.
-    pub fn san_within_permitted_subtrees(&'b self, san: &'a Option<&SubjectAltName>) -> bool {
+    pub fn san_within_permitted_subtrees(&self, san: &Option<&SubjectAltName>) -> bool {
         if san.is_none() {
             return true;
         }
@@ -295,7 +292,7 @@ where
 
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
-    pub fn subject_within_excluded_subtrees(&'b self, subject: &'a Name) -> bool {
+    pub fn subject_within_excluded_subtrees(&self, subject: &Name) -> bool {
         if subject.0.is_empty() {
             // NULL subjects get a free pass
             return false;
@@ -321,7 +318,7 @@ where
 
     /// `san_within_excluded_subtrees` returns true if san is within at least one excluded subtree
     /// known to self.
-    pub fn san_within_excluded_subtrees(&'b self, san: &'a Option<&SubjectAltName>) -> bool {
+    pub fn san_within_excluded_subtrees(&self, san: &Option<&SubjectAltName>) -> bool {
         if san.is_none() {
             return false;
         }
@@ -433,9 +430,7 @@ where
     //----------------------------------------------------------------------------
     // private
     //----------------------------------------------------------------------------
-    fn calculate_intersection_rfc822(&'c mut self, new_names: &'a GeneralSubtrees)
-    where
-        'a: 'b,
+    fn calculate_intersection_rfc822(&mut self, new_names: &GeneralSubtrees)
     {
         if self.rfc822_name_null || !has_rfc822(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
@@ -477,9 +472,7 @@ where
         }
     }
 
-    fn calculate_intersection_dns_name(&'c mut self, new_names: &'a GeneralSubtrees)
-    where
-        'a: 'b,
+    fn calculate_intersection_dns_name(&mut self, new_names: &GeneralSubtrees)
     {
         if self.dns_name_null || !has_dns_name(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
@@ -521,9 +514,7 @@ where
         }
     }
 
-    fn calculate_intersection_dn(&'c mut self, new_names: &'a GeneralSubtrees)
-    where
-        'a: 'b,
+    fn calculate_intersection_dn(&mut self, new_names: &GeneralSubtrees)
     {
         if self.directory_name_null || !has_dn(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
@@ -562,9 +553,7 @@ where
         }
     }
 
-    fn calculate_intersection_uri(&'c mut self, new_names: &'a GeneralSubtrees)
-    where
-        'a: 'b,
+    fn calculate_intersection_uri(&mut self, new_names: &GeneralSubtrees)
     {
         if self.uniform_resource_identifier_null || !has_uri(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
