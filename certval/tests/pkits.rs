@@ -31,18 +31,14 @@
 // support (or in case of p256, lack of CRLs with designated names)
 //  - 4.7.4 and 4.7.5 are not run owing to focus on CRL issuer certificate (and revocation not being performed).
 
-use anchor::*;
 use certval::source::cert_source::CertFile;
 use certval::source::ta_source::*;
 use certval::PDVCertificate;
 use certval::*;
-use x509_cert::*;
 
 use alloc::collections::BTreeMap;
 
 extern crate alloc;
-
-use der::Decode;
 
 use certval::source::ta_source::TaSource;
 
@@ -534,33 +530,17 @@ pub fn pkits_guts_sync(
             }
 
             println!("{}", case_name);
-            let tac = TrustAnchorChoice::from_der(
-                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
-            )
-            .unwrap();
-            let mut ta = PDVTrustAnchorChoice {
-                encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].clone(),
-                decoded_ta: tac,
-                metadata: None,
-                parsed_extensions: ParsedExtensions::new(),
-            };
+            let mut ta = PDVTrustAnchorChoice::try_from(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
             ta.parse_extensions(EXTS_OF_INTEREST);
 
-            let r_ee_cert = Certificate::from_der(pool.certs[case.target_file_name].as_slice());
-            let ee_cert = match r_ee_cert {
-                Ok(ee_cert) => ee_cert,
-                Err(err) => {
-                    let k = err.kind();
-                    println!("{}: {}", k, err);
-                    continue;
-                }
-            };
-            let mut ee = PDVCertificate {
-                encoded_cert: pool.certs[case.target_file_name].clone(),
-                decoded_cert: ee_cert,
-                metadata: None,
-                parsed_extensions: ParsedExtensions::new(),
-            };
+            let mut ee = match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
+                    Ok(ee_cert) => ee_cert,
+                    Err(err) => {
+                        let k = err.kind();
+                        println!("{}: {}", k, err);
+                        continue;
+                    }
+                };
             ee.parse_extensions(EXTS_OF_INTEREST);
 
             let mut chain = vec![];
@@ -571,13 +551,7 @@ pub fn pkits_guts_sync(
                 for ca_file in &case.intermediate_ca_file_names {
                     // let der_encoded_ca = get_pkits_ca_cert_bytes(ca_file).unwrap();
                     // pool.certs.push(der_encoded_ca);
-                    let ca_cert = Certificate::from_der(pool.certs[*ca_file].as_slice()).unwrap();
-                    let mut ca = PDVCertificate {
-                        encoded_cert: pool.certs[*ca_file].clone(),
-                        decoded_cert: ca_cert,
-                        metadata: None,
-                        parsed_extensions: ParsedExtensions::new(),
-                    };
+                    let mut ca = PDVCertificate::try_from(pool.certs[*ca_file].as_slice()).unwrap();
                     ca.parse_extensions(EXTS_OF_INTEREST);
 
                     cpool.push(ca);
@@ -703,14 +677,7 @@ pub fn pkits_guts_sync(
                     // no tests defined for EC at present, so skip when revocation check is true (i.e., for EC)
                     let der_encoded_ta5914 =
                         get_pkits_ta5914_2048_bytes(case.ta5914_filename).unwrap();
-                    let tac5914 =
-                        TrustAnchorChoice::from_der(der_encoded_ta5914.as_slice()).unwrap();
-                    let mut ta5914 = PDVTrustAnchorChoice {
-                        encoded_ta: der_encoded_ta5914,
-                        decoded_ta: tac5914,
-                        metadata: None,
-                        parsed_extensions: ParsedExtensions::new(),
-                    };
+                    let mut ta5914 = PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
                     // validate again with settings supplied by 5914 formatted TA
@@ -847,32 +814,16 @@ pub async fn pkits_guts(
             }
 
             println!("{}", case_name);
-            let tac = TrustAnchorChoice::from_der(
-                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
-            )
-            .unwrap();
-            let mut ta = PDVTrustAnchorChoice {
-                encoded_ta: pool.certs["TrustAnchorRootCertificate.crt"].to_vec(),
-                decoded_ta: tac,
-                metadata: None,
-                parsed_extensions: ParsedExtensions::new(),
-            };
+            let mut ta = PDVTrustAnchorChoice::try_from(pool.certs["TrustAnchorRootCertificate.crt"].as_slice()).unwrap();
             ta.parse_extensions(EXTS_OF_INTEREST);
 
-            let r_ee_cert = Certificate::from_der(pool.certs[case.target_file_name].as_slice());
-            let ee_cert = match r_ee_cert {
+            let mut ee = match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
                 Ok(ee_cert) => ee_cert,
                 Err(err) => {
                     let k = err.kind();
                     println!("{}: {}", k, err);
                     continue;
                 }
-            };
-            let mut ee = PDVCertificate {
-                encoded_cert: pool.certs[case.target_file_name].to_vec(),
-                decoded_cert: ee_cert,
-                metadata: None,
-                parsed_extensions: ParsedExtensions::new(),
             };
             if "4.3.11" == case_name {
                 println!("break");
@@ -887,13 +838,7 @@ pub async fn pkits_guts(
                 for ca_file in &case.intermediate_ca_file_names {
                     // let der_encoded_ca = get_pkits_ca_cert_bytes(ca_file).unwrap();
                     // pool.certs.push(der_encoded_ca);
-                    let ca_cert = Certificate::from_der(pool.certs[*ca_file].as_slice()).unwrap();
-                    let mut ca = PDVCertificate {
-                        encoded_cert: pool.certs[*ca_file].to_vec(),
-                        decoded_cert: ca_cert,
-                        metadata: None,
-                        parsed_extensions: ParsedExtensions::new(),
-                    };
+                    let mut ca = PDVCertificate::try_from(pool.certs[*ca_file].as_slice()).unwrap();
                     ca.parse_extensions(EXTS_OF_INTEREST);
 
                     cpool.push(ca);
@@ -1003,14 +948,7 @@ pub async fn pkits_guts(
                     // no tests defined for EC at present, so skip when revocation check is true (i.e., for EC)
                     let der_encoded_ta5914 =
                         get_pkits_ta5914_2048_bytes(case.ta5914_filename).unwrap();
-                    let tac5914 =
-                        TrustAnchorChoice::from_der(der_encoded_ta5914.as_slice()).unwrap();
-                    let mut ta5914 = PDVTrustAnchorChoice {
-                        encoded_ta: der_encoded_ta5914,
-                        decoded_ta: tac5914,
-                        metadata: None,
-                        parsed_extensions: ParsedExtensions::new(),
-                    };
+                    let mut ta5914 = PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
                     // validate again with settings supplied by 5914 formatted TA

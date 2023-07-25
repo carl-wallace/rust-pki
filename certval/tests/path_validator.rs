@@ -4,7 +4,6 @@ use certval::path_settings::*;
 use certval::validator::path_validator::*;
 use certval::*;
 use der::Decode;
-use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::*;
 
 #[test]
@@ -34,13 +33,7 @@ fn pkits_test1() {
     let der_encoded_ca = include_bytes!("examples/GoodCACert.crt");
     let der_encoded_ee = include_bytes!("examples/ValidCertificatePathTest1EE.crt");
 
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let mut ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
     ta.parse_extensions(EXTS_OF_INTEREST);
 
     let mut ta_source2 = TaSource::new();
@@ -53,22 +46,9 @@ fn pkits_test1() {
     populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
     ta_source2.index_tas();
 
-    let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-    let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-
-    let mut ca = PDVCertificate {
-        encoded_cert: der_encoded_ca.to_vec(),
-        decoded_cert: ca_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
-    let mut ee = PDVCertificate {
-        encoded_cert: der_encoded_ee.to_vec(),
-        decoded_cert: ee_cert,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
     let chain = vec![&ca];
 
@@ -140,13 +120,7 @@ fn is_trust_anchor_test() {
     pe.add_trust_anchor_source(&ta_source);
 
     let der_encoded_ta = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
-    let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
     let r = pe.is_trust_anchor(&ta);
     assert!(r.is_err());
     assert_eq!(r.err(), Some(Error::NotFound));
@@ -164,12 +138,6 @@ fn is_trust_anchor_test() {
     pe.clear_all_callbacks();
     pe.add_trust_anchor_source(&ta_store);
 
-    let tac2 = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-    let ta2 = PDVTrustAnchorChoice {
-        encoded_ta: der_encoded_ta.to_vec(),
-        decoded_ta: tac2,
-        metadata: None,
-        parsed_extensions: ParsedExtensions::new(),
-    };
-    assert!(pe.is_trust_anchor(&ta2).is_ok());
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    assert!(pe.is_trust_anchor(&ta).is_ok());
 }

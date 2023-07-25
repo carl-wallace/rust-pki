@@ -8,8 +8,9 @@ use const_oid::db::rfc5912::{
     ID_CE_PRIVATE_KEY_USAGE_PERIOD, ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
 };
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
-use der::{asn1::ObjectIdentifier, Decode};
+use der::{asn1::ObjectIdentifier, Decode, Encode};
 use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::Certificate;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::name::Name;
 use x509_ocsp::OcspNoCheck;
@@ -32,6 +33,50 @@ pub struct PDVTrustAnchorChoice {
     /// Optional parsed extension from the TrustAnchorChoice
     pub parsed_extensions: ParsedExtensions,
 }
+
+impl TryFrom<&[u8]> for PDVTrustAnchorChoice {
+    type Error = der::Error;
+
+    fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
+        let ta = TrustAnchorChoice::from_der(enc_cert)?;
+        Ok(PDVTrustAnchorChoice {
+            encoded_ta: enc_cert.to_vec(),
+            decoded_ta: ta,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        })
+    }
+}
+
+impl TryFrom<TrustAnchorChoice> for PDVTrustAnchorChoice {
+    type Error = der::Error;
+
+    fn try_from(ta: TrustAnchorChoice) -> der::Result<Self> {
+        let enc_ta = ta.to_der()?;
+        Ok(PDVTrustAnchorChoice {
+            encoded_ta: enc_ta.to_vec(),
+            decoded_ta: ta,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        })
+    }
+}
+
+impl TryFrom<Certificate> for PDVTrustAnchorChoice {
+    type Error = der::Error;
+
+    fn try_from(cert: Certificate) -> der::Result<Self> {
+        let enc_cert = cert.to_der()?;
+        let ta = TrustAnchorChoice::from_der(&enc_cert)?;
+        Ok(PDVTrustAnchorChoice {
+            encoded_ta: enc_cert.to_vec(),
+            decoded_ta: ta,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        })
+    }
+}
+
 
 impl ExtensionProcessing for PDVTrustAnchorChoice {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns

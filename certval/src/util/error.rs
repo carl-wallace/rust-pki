@@ -128,6 +128,12 @@ pub enum Error {
     StdIoError(std::io::ErrorKind),
 }
 
+impl From<der::Error> for Error {
+    fn from(err: der::Error) -> Error {
+        Error::Asn1Error(err)
+    }
+}
+
 impl fmt::Display for PathValidationStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
