@@ -41,7 +41,7 @@ pub fn check_certificate_policies_graph(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_CERTIFICATE_POLICIES);
     add_processed_extension(cpr, ID_CE_INHIBIT_ANY_POLICY);
@@ -61,7 +61,7 @@ pub fn check_certificate_policies_graph(
     let initial_inhibit_any_policy_indicator: bool = get_initial_inhibit_any_policy_indicator(cps);
 
     // Initialize state variables (RFC 6.1.2 a, d, e, and f)
-    let mut valid_policy_graph = Vec::<PolicyTreeRow<'_>>::new();
+    let mut valid_policy_graph = Vec::<PolicyTreeRow>::new();
     let mut explicit_policy: u32 = if let true = initial_explicit_policy_indicator {
         0
     } else {
@@ -612,7 +612,7 @@ fn make_new_policy_node_graph(
 }
 
 fn make_new_policy_node_add_to_pool2_graph(
-    pm: &mut PolicyPool<'_>,
+    pm: &mut PolicyPool,
     valid_policy: ObjectIdentifier,
     qualifiers: &Option<Vec<u8>>,
     expected_policy_set: ObjectIdentifierSet,

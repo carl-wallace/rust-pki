@@ -19,7 +19,7 @@ pub(crate) fn validate_cert(
     cps: &CertificationPathSettings,
     cert_filename: &str,
     target: &[u8],
-    stats: &mut PathValidationStats<'_>,
+    stats: &mut PathValidationStats,
     args: &Pittv3Args,
 ) {
     let time_of_interest = get_time_of_interest(cps);

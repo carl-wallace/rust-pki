@@ -33,7 +33,7 @@ pub enum CertificationPathResultsTypes {
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map. At present, it is the same as CertificationPathSettings (and so macros to generate
 /// getters and setters are reused).
-pub type CertificationPathResults<'a> = BTreeMap<&'a str, CertificationPathResultsTypes>;
+pub type CertificationPathResults = BTreeMap<&'static str, CertificationPathResultsTypes>;
 
 /// `PR_PROCESS_EXTENSIONS` is used to retrieve an ObjectIdentifierSet value, i.e., BTreeSet of ObjectIdentifier,
 /// from a [`CertificationPathResults`] object. This list is populated as extensions are processed then used
@@ -94,7 +94,7 @@ cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_GRAPH, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_VALIDATION_STATUS, PathValidationStatus);
 cpr_gets_and_sets!(PR_FAILED_OCSP_REQUESTS, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_failed_ocsp_request(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, pos: usize) {
+pub fn add_failed_ocsp_request(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_failed_ocsp_requests(cpr) {
         v
     } else {
@@ -107,7 +107,7 @@ pub fn add_failed_ocsp_request(cpr: &mut CertificationPathResults<'_>, req: Vec<
 }
 cpr_gets_and_sets!(PR_FAILED_OCSP_RESPONSES, ListOfBuffers);
 /// Add a failed OCSP response to list maintained by CertificationPathResults
-pub fn add_failed_ocsp_response(cpr: &mut CertificationPathResults<'_>, resp: Vec<u8>, pos: usize) {
+pub fn add_failed_ocsp_response(cpr: &mut CertificationPathResults, resp: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_failed_ocsp_responses(cpr) {
         v
     } else {
@@ -121,7 +121,7 @@ pub fn add_failed_ocsp_response(cpr: &mut CertificationPathResults<'_>, resp: Ve
 
 cpr_gets_and_sets!(PR_FAILED_CRLS, ListOfBuffers);
 /// Add a failed OCSP response to list maintained by CertificationPathResults
-pub fn add_failed_crl(cpr: &mut CertificationPathResults<'_>, crl: &[u8], pos: usize) {
+pub fn add_failed_crl(cpr: &mut CertificationPathResults, crl: &[u8], pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_failed_crls(cpr) {
         v
     } else {
@@ -135,7 +135,7 @@ pub fn add_failed_crl(cpr: &mut CertificationPathResults<'_>, crl: &[u8], pos: u
 //TODO use Vec<CrlInfo> instead?
 cpr_gets_and_sets!(PR_CRL, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_crl(cpr: &mut CertificationPathResults<'_>, crl: &[u8], pos: usize) {
+pub fn add_crl(cpr: &mut CertificationPathResults, crl: &[u8], pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_crl(cpr) {
         v
     } else {
@@ -149,7 +149,7 @@ pub fn add_crl(cpr: &mut CertificationPathResults<'_>, crl: &[u8], pos: usize) {
 
 cpr_gets_and_sets!(PR_CRL_ENTRY, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_crl_entry(cpr: &mut CertificationPathResults<'_>, crl_entry: Vec<u8>, pos: usize) {
+pub fn add_crl_entry(cpr: &mut CertificationPathResults, crl_entry: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_crl_entry(cpr) {
         v
     } else {
@@ -163,7 +163,7 @@ pub fn add_crl_entry(cpr: &mut CertificationPathResults<'_>, crl_entry: Vec<u8>,
 
 cpr_gets_and_sets!(PR_OCSP_REQUESTS, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_request(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, pos: usize) {
+pub fn add_ocsp_request(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_ocsp_requests(cpr) {
         v
     } else {
@@ -177,7 +177,7 @@ pub fn add_ocsp_request(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, po
 
 cpr_gets_and_sets!(PR_OCSP_RESPONSES, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_response(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, pos: usize) {
+pub fn add_ocsp_response(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_ocsp_responses(cpr) {
         v
     } else {
@@ -191,7 +191,7 @@ pub fn add_ocsp_response(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, p
 
 cpr_gets_and_sets!(PR_OCSP_ENTRY, ListOfBuffers);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_entry(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, pos: usize) {
+pub fn add_ocsp_entry(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
     let mut v: ListOfBuffers = if let Some(v) = get_ocsp_entry(cpr) {
         v
     } else {
@@ -205,7 +205,7 @@ pub fn add_ocsp_entry(cpr: &mut CertificationPathResults<'_>, req: Vec<u8>, pos:
 
 cpr_gets_and_sets!(PR_BLOCKLIST_USAGE, Bools);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_blocklist_usage_for_item(cpr: &mut CertificationPathResults<'_>, pos: usize) {
+pub fn set_blocklist_usage_for_item(cpr: &mut CertificationPathResults, pos: usize) {
     let mut v: Vec<bool> = if let Some(v) = get_blocklist_usage(cpr) {
         v
     } else {
@@ -219,7 +219,7 @@ pub fn set_blocklist_usage_for_item(cpr: &mut CertificationPathResults<'_>, pos:
 
 cpr_gets_and_sets!(PR_ALLOWLIST_USAGE, Bools);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_allowlist_usage_for_item(cpr: &mut CertificationPathResults<'_>, pos: usize) {
+pub fn set_allowlist_usage_for_item(cpr: &mut CertificationPathResults, pos: usize) {
     let mut v: Vec<bool> = if let Some(v) = get_allowlist_usage(cpr) {
         v
     } else {
@@ -233,7 +233,7 @@ pub fn set_allowlist_usage_for_item(cpr: &mut CertificationPathResults<'_>, pos:
 
 cpr_gets_and_sets!(PR_NOCHECK_USAGE, Bools);
 /// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_nocheck_for_item(cpr: &mut CertificationPathResults<'_>, pos: usize) {
+pub fn set_nocheck_for_item(cpr: &mut CertificationPathResults, pos: usize) {
     let mut v: Vec<bool> = if let Some(v) = get_nocheck_usage(cpr) {
         v
     } else {
@@ -249,7 +249,7 @@ pub fn set_nocheck_for_item(cpr: &mut CertificationPathResults<'_>, pos: usize) 
 /// path (not counting the trust anchor). It prepares results variables set to appropriate capacity to receive
 /// revocation-related results.
 pub fn prepare_revocation_results(
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
     num_certs: usize,
 ) -> Result<()> {
     set_nocheck_usage(cpr, vec![false; num_certs]);

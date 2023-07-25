@@ -190,7 +190,7 @@ impl<'a> PkiEnvironment<'a> {
         pe: &PkiEnvironment<'_>,
         cps: &CertificationPathSettings,
         cp: &mut CertificationPath<'_>,
-        cpr: &mut CertificationPathResults<'_>,
+        cpr: &mut CertificationPathResults,
     ) -> Result<()> {
         let mut err = None;
         for f in &self.validate_path_callbacks {

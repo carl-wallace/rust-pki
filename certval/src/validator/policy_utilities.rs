@@ -44,14 +44,14 @@ impl PartialEq for PolicyProcessingData {
 
 /// The PolicyPool type is used to maintain a list of PolicyProcessingData instances that are used
 /// to represent a valid_policy_tree.
-pub(crate) type PolicyPool<'a> = Vec<PolicyProcessingData>;
+pub(crate) type PolicyPool = Vec<PolicyProcessingData>;
 
 /// The PolicyTreeRow type is used to represent rows in the valid_policy_tree. Each element is an
 /// index into the PolicyPool instance that supports the valid_policy_tree.
-pub(crate) type PolicyTreeRow<'a> = Vec<usize>;
+pub(crate) type PolicyTreeRow = Vec<usize>;
 
 pub(crate) fn has_child_node(
-    pool: &PolicyPool<'_>,
+    pool: &PolicyPool,
     children: &RefCell<Vec<usize>>,
     oid: &ObjectIdentifier,
 ) -> bool {
@@ -65,7 +65,7 @@ pub(crate) fn has_child_node(
 }
 
 pub(crate) fn add_child_if_not_present(
-    pool: &PolicyPool<'_>,
+    pool: &PolicyPool,
     children: &RefCell<Vec<usize>>,
     new_child_index: usize,
 ) {
@@ -82,11 +82,7 @@ pub(crate) fn add_child_if_not_present(
     }
 }
 
-pub(crate) fn row_elem_is_policy(
-    pool: &PolicyPool<'_>,
-    elem: &usize,
-    oid: ObjectIdentifier,
-) -> bool {
+pub(crate) fn row_elem_is_policy(pool: &PolicyPool, elem: &usize, oid: ObjectIdentifier) -> bool {
     let item = &pool[*elem];
     if item.valid_policy == oid {
         return true;
@@ -97,8 +93,8 @@ pub(crate) fn row_elem_is_policy(
 /// policy_tree_row_contains_policy searches row for policy_oid and returns the index of the PolicyProcessingData
 /// item in the pool if it is found. None is returned if not found.
 pub(crate) fn policy_tree_row_contains_policy(
-    pool: &PolicyPool<'_>,
-    row: &PolicyTreeRow<'_>,
+    pool: &PolicyPool,
+    row: &PolicyTreeRow,
     policy_oid: ObjectIdentifier,
 ) -> Option<usize> {
     for item_index in row {
@@ -110,7 +106,7 @@ pub(crate) fn policy_tree_row_contains_policy(
     None
 }
 
-pub(crate) fn num_kids_is_zero(pool: &PolicyPool<'_>, index: usize) -> bool {
+pub(crate) fn num_kids_is_zero(pool: &PolicyPool, index: usize) -> bool {
     if pool.len() > index {
         let p = &pool[index];
         let retval = p.children.borrow().len();
@@ -120,7 +116,7 @@ pub(crate) fn num_kids_is_zero(pool: &PolicyPool<'_>, index: usize) -> bool {
 }
 
 pub(crate) fn make_new_policy_node_add_to_pool2(
-    pm: &mut PolicyPool<'_>,
+    pm: &mut PolicyPool,
     valid_policy: ObjectIdentifier,
     qualifiers: &Option<Vec<u8>>,
     expected_policy_set: ObjectIdentifierSet,
@@ -161,7 +157,7 @@ pub(crate) fn make_new_policy_node(
 }
 
 pub(crate) fn harvest_valid_policy_node_set(
-    pool: &PolicyPool<'_>,
+    pool: &PolicyPool,
     cur_node: &PolicyProcessingData,
     valid_policy_node_set: &mut Vec<usize>,
 ) {
@@ -175,10 +171,10 @@ pub(crate) fn harvest_valid_policy_node_set(
 }
 
 pub(crate) fn purge_policies(
-    pool: &PolicyPool<'_>,
+    pool: &PolicyPool,
     initial_policy_set: &ObjectIdentifierSet,
     valid_policy_node_set: &[usize],
-    valid_policy_tree: &mut Vec<PolicyTreeRow<'_>>,
+    valid_policy_tree: &mut Vec<PolicyTreeRow>,
 ) {
     for pol in valid_policy_node_set {
         let p = &pool[*pol];
@@ -196,8 +192,8 @@ pub(crate) fn purge_policies(
 }
 
 pub(crate) fn remove_node_and_children(
-    pool: &PolicyPool<'_>,
-    valid_policy_tree: &mut Vec<PolicyTreeRow<'_>>,
+    pool: &PolicyPool,
+    valid_policy_tree: &mut Vec<PolicyTreeRow>,
     node: &PolicyProcessingData,
     node_index: &usize,
 ) {

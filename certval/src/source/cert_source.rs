@@ -1645,14 +1645,11 @@ fn pub_key_repeats(path: &CertificationPath<'_>) -> bool {
 /// field of a [`CertSource`] instance and the `cert_store` parameter is the `certs` field of the same
 /// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
 /// will be parsed to populate the vector.
-pub fn populate_parsed_cert_vector<'a, 'reference>(
-    bap: &'a BuffersAndPaths,
+pub fn populate_parsed_cert_vector(
+    bap: &BuffersAndPaths,
     cps: &CertificationPathSettings,
-    cert_store: &'reference mut Vec<Option<PDVCertificate>>,
-) -> Result<()>
-where
-    'a: 'reference,
-{
+    cert_store: &mut Vec<Option<PDVCertificate>>,
+) -> Result<()> {
     let time_of_interest = get_time_of_interest(cps);
     for (i, cert_file) in bap.buffers.iter().enumerate() {
         if let Ok(cert) = Certificate::from_der(bap.buffers[i].bytes.as_slice()) {

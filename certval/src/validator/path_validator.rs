@@ -69,7 +69,7 @@ pub fn validate_path_rfc5280(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //enforce_alg_and_key_size_constraints(pe, cps, cp, cpr)?;
     check_validity(pe, cps, cp, cpr)?;
@@ -116,7 +116,7 @@ pub fn check_basic_constraints(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_BASIC_CONSTRAINTS);
     let mut path_len_constraint = get_initial_path_length_constraint(cps);
@@ -192,7 +192,7 @@ pub fn check_validity(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
     // get_time_of_interest_or_now will return now or a caller specified time of interest.
@@ -247,7 +247,7 @@ pub fn check_names(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
 
@@ -384,7 +384,7 @@ pub fn check_key_usage(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
@@ -438,7 +438,7 @@ pub fn check_extended_key_usage(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_EXT_KEY_USAGE);
 
@@ -556,7 +556,7 @@ pub fn check_critical_extensions(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
 
@@ -594,16 +594,15 @@ pub fn check_critical_extensions(
 ///
 /// When the `PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS` value in the operative [`CertificationPathSettings`]
 /// is set to false, this function does nothing.
-pub fn enforce_trust_anchor_constraints<'a>(
-    cps: &'a CertificationPathSettings,
-    ta: &'a PDVTrustAnchorChoice,
-    mod_cps: &'a mut CertificationPathSettings,
-) -> Result<&'a CertificationPathSettings> {
+pub fn enforce_trust_anchor_constraints(
+    cps: &CertificationPathSettings,
+    ta: &PDVTrustAnchorChoice,
+) -> Result<CertificationPathSettings> {
     if !get_enforce_trust_anchor_constraints(cps) {
-        return Ok(cps);
+        return Ok(cps.clone());
     }
 
-    *mod_cps = cps.clone();
+    let mut mod_cps = cps.clone();
 
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
@@ -619,7 +618,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
     //max_path_length state variable equal to the pathLenConstraint
     //value from the basic constraints extension.
     let pl = get_path_length_constraint_from_trust_anchor(&ta.decoded_ta)?;
-    set_initial_path_length_constraint(mod_cps, pl);
+    set_initial_path_length_constraint(&mut mod_cps, pl);
 
     //o  If name constraints are associated with the trust anchor, set the
     //initial-permitted-subtrees variable equal to the intersection of
@@ -643,7 +642,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
                                 Err(e) => return Err(e),
                             };
                         initial_perm.calculate_union(permitted);
-                        set_initial_permitted_subtrees_from_set(mod_cps, &initial_perm);
+                        set_initial_permitted_subtrees_from_set(&mut mod_cps, &initial_perm);
                     }
                 }
                 name_constraints = pdv_ext;
@@ -658,7 +657,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
                         Err(e) => return Err(e),
                     };
                 initial_excl.calculate_union(excluded);
-                set_initial_excluded_subtrees_from_set(mod_cps, &initial_excl);
+                set_initial_excluded_subtrees_from_set(&mut mod_cps, &initial_excl);
             }
         }
     }
@@ -703,13 +702,13 @@ pub fn enforce_trust_anchor_constraints<'a>(
                 }
             }
         }
-        set_initial_policy_set_from_oid_set(mod_cps, new_policy_set);
+        set_initial_policy_set_from_oid_set(&mut mod_cps, new_policy_set);
     } else if !ta_policy_set.is_empty() && user_policy_set.is_empty() {
         // use policies from TA
-        set_initial_policy_set_from_oid_set(mod_cps, ta_policy_set);
+        set_initial_policy_set_from_oid_set(&mut mod_cps, ta_policy_set);
     } else {
         //use user policy set (empty or not)
-        set_initial_policy_set_from_oid_set(mod_cps, user_policy_set);
+        set_initial_policy_set_from_oid_set(&mut mod_cps, user_policy_set);
     }
 
     //o  If an inhibit any policy value of true is associated with the
@@ -719,7 +718,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
     let initial_inhibit_any_policy = get_initial_inhibit_any_policy_indicator(cps);
     let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(&ta.decoded_ta)?;
     if ta_inhibit_any_policy && !initial_inhibit_any_policy {
-        set_initial_inhibit_any_policy_indicator(mod_cps, ta_inhibit_any_policy);
+        set_initial_inhibit_any_policy_indicator(&mut mod_cps, ta_inhibit_any_policy);
     }
 
     //o  If a require explicit policy value of true is associated with the
@@ -729,7 +728,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
     let initial_require_explicit_policy = get_initial_explicit_policy_indicator(cps);
     let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(&ta.decoded_ta)?;
     if ta_require_explicit_policy && !initial_require_explicit_policy {
-        set_initial_explicit_policy_indicator(mod_cps, ta_require_explicit_policy);
+        set_initial_explicit_policy_indicator(&mut mod_cps, ta_require_explicit_policy);
     }
 
     //o  If an inhibit policy mapping value of true is associated with the
@@ -740,7 +739,7 @@ pub fn enforce_trust_anchor_constraints<'a>(
     let initial_inhibit_policy_mapping = get_initial_policy_mapping_inhibit_indicator(cps);
     let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(&ta.decoded_ta)?;
     if ta_inhibit_policy_mapping && !initial_inhibit_policy_mapping {
-        set_initial_policy_mapping_inhibit_indicator(mod_cps, ta_inhibit_policy_mapping);
+        set_initial_policy_mapping_inhibit_indicator(&mut mod_cps, ta_inhibit_policy_mapping);
     }
 
     Ok(mod_cps)
@@ -751,7 +750,7 @@ pub fn verify_signatures(
     pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
@@ -822,7 +821,7 @@ pub fn enforce_alg_and_key_size_constraints(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
     _cp: &mut CertificationPath<'_>,
-    _cpr: &mut CertificationPathResults<'_>,
+    _cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //TODO - implement alg and key size constraints enforcement
     Ok(())
@@ -834,7 +833,7 @@ pub fn check_country_codes(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
     _cp: &mut CertificationPath<'_>,
-    _cpr: &mut CertificationPathResults<'_>,
+    _cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //TODO - implement country code enforcement
     Ok(())

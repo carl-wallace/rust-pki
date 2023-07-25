@@ -67,7 +67,7 @@ pub async fn check_revocation(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = get_check_revocation_status(cps);
     if !check_rev {
@@ -266,7 +266,7 @@ pub fn check_revocation(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath<'_>,
-    cpr: &mut CertificationPathResults<'_>,
+    cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = get_check_revocation_status(cps);
     if !check_rev {
