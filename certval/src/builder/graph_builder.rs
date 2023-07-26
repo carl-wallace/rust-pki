@@ -27,10 +27,7 @@ use std::fs;
 ///
 /// The time of interest is used to ignore certificates that are expired at the indicated time (when
 /// time of interest value is zero, the validity check is not performed).
-pub async fn build_graph(
-    pe: &PkiEnvironment,
-    cps: &CertificationPathSettings,
-) -> Result<Vec<u8>> {
+pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -> Result<Vec<u8>> {
     let ca_folder = if let Some(ca_folder) = get_certification_authority_folder(cps) {
         ca_folder
     } else {

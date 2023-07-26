@@ -38,9 +38,9 @@
 //! (via an FFI implementation) or much smaller sets of trust anchors for selected operations.
 //!
 
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
-use alloc::boxed::Box;
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -140,7 +140,7 @@ impl Default for PkiEnvironment {
     }
 }
 
-impl<'a> PkiEnvironment {
+impl PkiEnvironment {
     /// PkiEnvironment::new returns a new [`PkiEnvironment`] with empty callback vectors for each type of callback
     pub fn new() -> PkiEnvironment {
         PkiEnvironment {
@@ -505,17 +505,14 @@ impl<'a> PkiEnvironment {
 
     /// get_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of [`CertificationPath`] objects.
-    pub fn get_paths_for_target<'reference>(
-        &'a self,
-        pe: &'a PkiEnvironment,
-        target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath>,
+    pub fn get_paths_for_target(
+        &self,
+        pe: &PkiEnvironment,
+        target: &PDVCertificate,
+        paths: &mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
-    ) -> Result<()>
-    where
-        'a: 'reference,
-    {
+    ) -> Result<()> {
         for f in &self.path_builders {
             let r = f.get_paths_for_target(pe, target, paths, threshold, time_of_interest);
             if let Ok(r) = r {

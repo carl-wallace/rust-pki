@@ -1303,11 +1303,7 @@ impl CertSource {
 
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(
-        &self,
-        pe: &'_ PkiEnvironment,
-        cps: &CertificationPathSettings,
-    ) {
+    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
         let mut ta_vec = vec![];
         if let Ok(tav) = pe.get_trust_anchors() {
             ta_vec = tav;
@@ -1332,15 +1328,14 @@ impl CertSource {
 impl CertificationPathBuilder for CertSource {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
-    fn get_paths_for_target<'a>(
+    fn get_paths_for_target(
         &self,
         pe: &PkiEnvironment,
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
-    ) -> Result<()>
-    {
+    ) -> Result<()> {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
             error!(

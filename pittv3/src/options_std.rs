@@ -679,6 +679,12 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         _ => None,
     };
 
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    let remote_status = args
+        .crl_folder
+        .as_ref()
+        .map(|crl_folder| RemoteStatus::new(crl_folder));
+
     loop {
         // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
         let mut pe = PkiEnvironment::default();
@@ -687,11 +693,14 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         #[cfg(all(feature = "std", feature = "revocation"))]
         if let Some(crl_source) = &crl_source {
-            //todo - refactor traits to avoid this
             pe.add_crl_source(Box::new(crl_source.clone()));
-            pe.add_check_remote(Box::new(crl_source.clone()));
-            pe.add_revocation_cache(Box::new(crl_source.clone()));
         }
+        #[cfg(all(feature = "std", feature = "revocation"))]
+        if let Some(remote_status) = &remote_status {
+            pe.add_check_remote(Box::new(remote_status.clone()));
+        }
+        #[cfg(all(feature = "std", feature = "revocation"))]
+        pe.add_revocation_cache(Box::new(RevocationCache::new()));
 
         // Create a new CertSource and (re-)deserialize on every iteration due references to
         // buffers in the certs member. On the first pass, cbor will contain data read from file,

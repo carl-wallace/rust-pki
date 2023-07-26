@@ -1197,7 +1197,7 @@ pub(crate) async fn check_revocation_crl_remote(
 #[tokio::test]
 async fn fetch_crl_test() {
     use crate::populate_5280_pki_environment;
-    use crate::CrlSourceFolders;
+    use crate::{CrlSourceFolders, RemoteStatus, RevocationCache};
     use std::path::PathBuf;
     let mut pe = PkiEnvironment::default();
     pe.clear_all_callbacks();
@@ -1209,9 +1209,9 @@ async fn fetch_crl_test() {
     if crl_source.index_crls(1647011592).is_err() {
         panic!("Failed to index CRLs")
     }
-     pe.add_crl_source(Box::new(crl_source.clone()));
-     pe.add_revocation_cache(Box::new(crl_source.clone()));
-     pe.add_check_remote(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_revocation_cache(Box::new(RevocationCache::new()));
+    pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
 
     let r = fetch_crl(&pe, "ldap://ldap.scheme/", 60).await;
     assert!(r.is_err());

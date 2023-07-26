@@ -129,7 +129,7 @@ pub enum CertificationPathBuilderFormats {
 pub trait CertificationPathBuilder {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
-    fn get_paths_for_target<'a>(
+    fn get_paths_for_target(
         &self,
         pe: &PkiEnvironment,
         target: &PDVCertificate,
