@@ -562,8 +562,8 @@ pub fn pkits_guts_sync(
                 }
 
                 for i in 0..case.intermediate_ca_file_names.len() {
-                    chain.push(&cpool[i]);
-                    chain2.push(&cpool[i]);
+                    chain.push(cpool[i].clone());
+                    chain2.push(cpool[i].clone());
                 }
 
                 let mut cert_path = CertificationPath::new(&ta, chain, &ee);
@@ -851,8 +851,8 @@ pub async fn pkits_guts(
                 }
 
                 for c in cpool.iter() {
-                    chain.push(c);
-                    chain2.push(c);
+                    chain.push(c.clone());
+                    chain2.push(c.clone());
                 }
 
                 let mut cert_path = CertificationPath::new(&ta, chain, &ee);

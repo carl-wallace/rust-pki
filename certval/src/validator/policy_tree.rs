@@ -97,7 +97,7 @@ pub fn check_certificate_policies(
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    v.push(cp.target.clone());
 
     // Iterate over the list of intermediate CA certificates (target cert will be processed below loop)
     //for (pos, ca_cert) in cp.intermediates.iter_mut().enumerate() {

@@ -265,14 +265,14 @@ pub fn check_names(
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    v.push(cp.target.clone());
     let certs_in_cert_path = v.len();
 
     let mut perm_names_set = initial_perm.is_some();
     let mut permitted_subtrees = initial_perm.unwrap_or_default();
     let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
-    let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?;
+    let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?.clone();
 
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert_ref) in v.iter().enumerate() {
@@ -280,7 +280,7 @@ pub fn check_names(
 
         if !compare_names(
             &ca_cert.decoded_cert.tbs_certificate.issuer,
-            working_issuer_name,
+            &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
             set_validation_status(cpr, PathValidationStatus::NameChainingFailure);
@@ -290,7 +290,7 @@ pub fn check_names(
         }
 
         if pos + 1 != certs_in_cert_path {
-            working_issuer_name = &ca_cert.decoded_cert.tbs_certificate.subject;
+            working_issuer_name = ca_cert.decoded_cert.tbs_certificate.subject.clone();
         }
     }
 
@@ -456,19 +456,19 @@ pub fn check_extended_key_usage(
 
         let ta_eku = cp.trust_anchor.get_extension(&ID_CE_EXT_KEY_USAGE)?;
         let ekus_from_ta = if let Some(PDVExtension::ExtendedKeyUsage(ekus)) = ta_eku {
-            &ekus.0
+            ekus.0.clone()
         } else {
             if let Some(target_ekus) = &target_ekus {
                 default_eku.clear();
                 default_eku.extend(target_ekus.iter());
             }
 
-            &default_eku
+            default_eku
         };
 
-        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().collect();
+        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().copied().collect();
 
-        let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
+        let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(cp.target));
 
         for ca_cert_ref in intermediates_and_target {
             let ca_cert = ca_cert_ref.deref();
@@ -752,10 +752,10 @@ pub fn verify_signatures(
     cp: &mut CertificationPath<'_>,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
+    let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(cp.target));
 
     let mut working_spki =
-        get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
+        get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
 
     for cur_cert_ref in intermediates_and_target {
         let cur_cert = cur_cert_ref.deref();
@@ -794,7 +794,7 @@ pub fn verify_signatures(
             defer_cert.tbs_field,
             cur_cert.decoded_cert.signature.raw_bytes(),
             &cur_cert.decoded_cert.tbs_certificate.signature,
-            working_spki,
+            &working_spki,
         );
         if let Err(e) = r {
             log_error_for_ca(
@@ -807,10 +807,11 @@ pub fn verify_signatures(
             ));
         }
 
-        working_spki = &cur_cert
+        working_spki = cur_cert
             .decoded_cert
             .tbs_certificate
-            .subject_public_key_info;
+            .subject_public_key_info
+            .clone();
     }
     Ok(())
 }

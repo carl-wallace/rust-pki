@@ -1421,7 +1421,7 @@ impl CertificationPathBuilder for CertSource {
                             let mut found_blank = false;
                             for (i, index) in indices.iter().enumerate() {
                                 if let Some(cert) = &self.certs[*index] {
-                                    intermediates.push(cert);
+                                    intermediates.push(cert.clone());
                                     if 0 == i {
                                         let mut ta_akid_hex = "".to_string();
                                         let mut ta_name_vec =
@@ -1630,7 +1630,7 @@ fn pub_key_repeats(path: &CertificationPath<'_>) -> bool {
             &path.trust_anchor.decoded_ta,
         )];
     for c in &path.intermediates {
-        let ca = *c;
+        let ca = c.clone();
         if spki_array.contains(&&ca.decoded_cert.tbs_certificate.subject_public_key_info) {
             return true;
         } else {

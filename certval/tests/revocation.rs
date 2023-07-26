@@ -43,7 +43,7 @@
 //         parsed_extensions: ParsedExtensions::new(),
 //     };
 //
-//     let chain = vec![&ca];
+//     let chain = vec![ca];
 //
 //     let mut pe = PkiEnvironment::new();
 //     populate_5280_pki_environment(&mut pe);
@@ -138,7 +138,7 @@
 //         parsed_extensions: ParsedExtensions::new(),
 //     };
 //
-//     let chain = vec![&ca];
+//     let chain = vec![ca];
 //
 //     let mut pe = PkiEnvironment::new();
 //     populate_5280_pki_environment(&mut pe);
@@ -221,7 +221,7 @@ async fn stapled_crl_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -303,7 +303,7 @@ async fn stapled_mix_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -387,7 +387,7 @@ async fn cached_crl_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/makaan.com/crls");
@@ -466,7 +466,7 @@ async fn cached_crl_revoked_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/intel.com/crls");
@@ -548,7 +548,7 @@ async fn cached_crl_revoked_remote_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/intel.com/crls2");
@@ -630,7 +630,7 @@ async fn cached_crl_remote_async() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/makaan.com/crls2");
