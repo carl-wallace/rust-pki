@@ -68,7 +68,7 @@ use core::ops::Deref;
 pub async fn check_revocation(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = get_check_revocation_status(cps);
@@ -78,7 +78,7 @@ pub async fn check_revocation(
         return Ok(());
     }
 
-    if pe.is_cert_a_trust_anchor(cp.target).is_ok() {
+    if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
         // nothing to do
         info!("Target is a trust anchor, revocation status determination not required.");
         return Ok(());
@@ -267,7 +267,7 @@ pub async fn check_revocation(
 pub fn check_revocation(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = get_check_revocation_status(cps);
@@ -277,7 +277,7 @@ pub fn check_revocation(
         return Ok(());
     }
 
-    if pe.is_cert_a_trust_anchor(cp.target).is_ok() {
+    if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
         // nothing to do
         info!("Target is a trust anchor, revocation status determination not required.",);
         return Ok(());

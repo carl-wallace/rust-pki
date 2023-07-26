@@ -58,7 +58,7 @@ fn pkits_test1() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let cps = CertificationPathSettings::new();
     let mut cpr = CertificationPathResults::new();

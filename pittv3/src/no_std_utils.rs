@@ -33,7 +33,7 @@ pub(crate) fn validate_cert(
 
         stats.files_processed += 1;
 
-        let mut paths: Vec<CertificationPath<'_>> = vec![];
+        let mut paths: Vec<CertificationPath> = vec![];
         let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, 0, time_of_interest);
         if let Err(e) = r {
             println!(

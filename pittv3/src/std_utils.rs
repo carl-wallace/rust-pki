@@ -82,7 +82,7 @@ pub(crate) async fn validate_cert_file(
 
         stats.files_processed += 1;
 
-        let mut paths: Vec<CertificationPath<'_>> = vec![];
+        let mut paths: Vec<CertificationPath> = vec![];
         let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, threshold, time_of_interest);
         if let Err(e) = r {
             println!(
@@ -159,7 +159,7 @@ pub(crate) async fn validate_cert_file(
             if args.dynamic_build {
                 // if we get here we are validating all possible paths with dynamic building. gather
                 // up URIs from the trust anchor
-                collect_uris_from_aia_and_sia_from_ta(path.trust_anchor, fresh_uris);
+                collect_uris_from_aia_and_sia_from_ta(&path.trust_anchor, fresh_uris);
 
                 // This is possibly overkill as CA certs are processed during preparing of partial
                 // paths following dynamic building. Without this, then URIs from certs in the

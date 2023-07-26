@@ -9,10 +9,10 @@ use alloc::{vec, vec::Vec};
 /// that comprise a certification path.
 #[derive(Clone)]
 #[readonly::make]
-pub struct CertificationPath<'a> {
+pub struct CertificationPath {
     /// `target` contains the target certificate for the certification path
     #[readonly]
-    pub target: &'a PDVCertificate,
+    pub target: PDVCertificate,
     /// `intermediates` contains zero or more intermediate CA certificates, beginning with the certificate that
     /// was issued by `trust_anchor` and proceeding in order to a certificate that issued the target, i.e.,
     /// `intermediates\[0\]` can be used to verify `intermediates\[1\]`, `intermediates\[1\]` can be used to verify
@@ -21,7 +21,7 @@ pub struct CertificationPath<'a> {
     pub intermediates: CertificateChain,
     /// `trust_anchor` contains the trust anchor for the certification path
     #[readonly]
-    pub trust_anchor: &'a PDVTrustAnchorChoice,
+    pub trust_anchor: PDVTrustAnchorChoice,
 
     /// crls is a vector of buffers of size intermediates.len() + 1, to allow for a CRL for each
     /// intermediate CA and the target beginning with the intermediate CA issued by the trust anchor,
@@ -36,13 +36,13 @@ pub struct CertificationPath<'a> {
     pub ocsp_responses: Vec<Option<Vec<u8>>>,
 }
 
-impl<'a> CertificationPath<'_> {
+impl CertificationPath {
     /// instantiates a new TaSource
     pub fn new(
-        trust_anchor: &'a PDVTrustAnchorChoice,
+        trust_anchor: PDVTrustAnchorChoice,
         intermediates: CertificateChain,
-        target: &'a PDVCertificate,
-    ) -> CertificationPath<'a> {
+        target: PDVCertificate,
+    ) -> CertificationPath {
         let len = intermediates.len() + 1;
         CertificationPath {
             trust_anchor,

@@ -566,7 +566,7 @@ pub fn pkits_guts_sync(
                     chain2.push(cpool[i].clone());
                 }
 
-                let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+                let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
 
                 #[allow(unused_variables, unused_mut)]
                 let mut skip_revocation_check = skip_revocation;
@@ -658,7 +658,7 @@ pub fn pkits_guts_sync(
                             .unwrap();
 
                     let mut cert_path2 =
-                        CertificationPath::new(&ta, CertificateChain::default(), &ta_as_cert);
+                        CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
                     let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
@@ -688,7 +688,8 @@ pub fn pkits_guts_sync(
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
-                    let mut cert_path2 = CertificationPath::new(&ta5914, chain2, cert_path.target);
+                    let mut cert_path2 =
+                        CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = m {
                         #[cfg(not(feature = "revocation"))]
                         let r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
@@ -855,7 +856,7 @@ pub async fn pkits_guts(
                     chain2.push(c.clone());
                 }
 
-                let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+                let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
 
                 #[allow(unused_variables, unused_mut)]
                 let mut skip_revocation_check = skip_revocation;
@@ -931,7 +932,7 @@ pub async fn pkits_guts(
                     .unwrap();
 
                     let mut cert_path2 =
-                        CertificationPath::new(&ta, CertificateChain::default(), &ta_as_cert);
+                        CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
                     let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
@@ -961,7 +962,8 @@ pub async fn pkits_guts(
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
-                    let mut cert_path2 = CertificationPath::new(&ta5914, chain2, cert_path.target);
+                    let mut cert_path2 =
+                        CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = &m {
                         #[cfg(not(feature = "revocation"))]
                         let r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);

@@ -644,7 +644,7 @@ pub fn log_cpr(_pe: &PkiEnvironment<'_>, f: &mut File, np: &Path, cpr: &Certific
 pub fn log_path(
     pe: &PkiEnvironment<'_>,
     f: &Option<String>,
-    path: &CertificationPath<'_>,
+    path: &CertificationPath,
     index: usize,
     cpr: Option<&CertificationPathResults>,
     cps: Option<&CertificationPathSettings>,
@@ -654,8 +654,8 @@ pub fn log_path(
         return;
     }
 
-    let ta = path.trust_anchor;
-    let target = path.target;
+    let ta = &path.trust_anchor;
+    let target = &path.target;
 
     let mut target_filename = if let Some(md) = &target.metadata {
         if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
@@ -710,7 +710,7 @@ pub fn log_path(
             error!("Failed to create manifest file");
             return;
         };
-        let s = get_filename_from_metadata(path.target);
+        let s = get_filename_from_metadata(&path.target);
         f.write_all(format!("Certification path validation results for: {}\n\n", s).as_bytes())
             .expect("Unable to write manifest file");
         f.write_all(
@@ -745,7 +745,7 @@ pub fn log_path(
         .expect("Unable to write manifest file");
         f.write_all("\t+ Trust Anchor\n".as_bytes())
             .expect("Unable to write manifest file");
-        log_ta_details(pe, &mut f, path.trust_anchor);
+        log_ta_details(pe, &mut f, &path.trust_anchor);
 
         for (i, c) in path.intermediates.iter().enumerate() {
             f.write_all(format!("\t+ Certificate #{}\n", i + 1).as_bytes())
@@ -755,7 +755,7 @@ pub fn log_path(
 
         f.write_all("\t+ Target Certificate\n".as_bytes())
             .expect("Unable to write manifest file");
-        log_cert_details(pe, &mut f, path.target);
+        log_cert_details(pe, &mut f, &path.target);
 
         f.write_all(
             "\n********************************************************************************\n"

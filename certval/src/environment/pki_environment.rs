@@ -189,7 +189,7 @@ impl<'a> PkiEnvironment<'a> {
         &self,
         pe: &PkiEnvironment<'_>,
         cps: &CertificationPathSettings,
-        cp: &mut CertificationPath<'_>,
+        cp: &mut CertificationPath,
         cpr: &mut CertificationPathResults,
     ) -> Result<()> {
         let mut err = None;
@@ -508,7 +508,7 @@ impl<'a> PkiEnvironment<'a> {
         &'a self,
         pe: &'a PkiEnvironment<'a>,
         target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath<'a>>,
+        paths: &'reference mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()>

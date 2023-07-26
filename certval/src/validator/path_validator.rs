@@ -68,16 +68,16 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
 pub fn validate_path_rfc5280(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //enforce_alg_and_key_size_constraints(pe, cps, cp, cpr)?;
     check_validity(pe, cps, cp, cpr)?;
     if get_require_ta_store(cps) {
-        if pe.is_cert_a_trust_anchor(cp.target).is_ok() {
+        if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
             return Ok(());
         }
-        if pe.is_trust_anchor(cp.trust_anchor).is_err() {
+        if pe.is_trust_anchor(&cp.trust_anchor).is_err() {
             return Err(Error::PathValidation(
                 PathValidationStatus::MissingTrustAnchor,
             ));
@@ -115,7 +115,7 @@ pub fn validate_path_rfc5280(
 pub fn check_basic_constraints(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_BASIC_CONSTRAINTS);
@@ -191,7 +191,7 @@ pub fn check_basic_constraints(
 pub fn check_validity(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
@@ -246,7 +246,7 @@ pub fn check_validity(
 pub fn check_names(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
@@ -383,7 +383,7 @@ pub fn check_names(
 pub fn check_key_usage(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_KEY_USAGE);
@@ -419,7 +419,7 @@ pub fn check_key_usage(
             // TODO TEST THIS
             for i in nku {
                 if !target_ku_bits.0.contains(i) {
-                    log_error_for_ca(cp.target, "key usage violation for target certificate");
+                    log_error_for_ca(&cp.target, "key usage violation for target certificate");
                     set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
@@ -437,7 +437,7 @@ pub fn check_key_usage(
 pub fn check_extended_key_usage(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_EXT_KEY_USAGE);
@@ -468,7 +468,7 @@ pub fn check_extended_key_usage(
 
         let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().copied().collect();
 
-        let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(cp.target));
+        let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
         for ca_cert_ref in intermediates_and_target {
             let ca_cert = ca_cert_ref.deref();
@@ -538,7 +538,7 @@ pub fn check_extended_key_usage(
 
     // if no match, fail
     log_error_for_ca(
-        cp.target,
+        &cp.target,
         "extended key usage violation when processing target certificate",
     );
     set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
@@ -555,7 +555,7 @@ pub fn check_extended_key_usage(
 pub fn check_critical_extensions(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
@@ -581,7 +581,7 @@ pub fn check_critical_extensions(
         ensure_criticals_processed(ca_cert, "unprocessed critical extension")?;
     }
     ensure_criticals_processed(
-        cp.target,
+        &cp.target,
         "unprocessed critical extension in target certificate",
     )?;
 
@@ -749,10 +749,10 @@ pub fn enforce_trust_anchor_constraints(
 pub fn verify_signatures(
     pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(cp.target));
+    let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
@@ -821,7 +821,7 @@ pub fn verify_signatures(
 pub fn enforce_alg_and_key_size_constraints(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
-    _cp: &mut CertificationPath<'_>,
+    _cp: &mut CertificationPath,
     _cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //TODO - implement alg and key size constraints enforcement
@@ -833,7 +833,7 @@ pub fn enforce_alg_and_key_size_constraints(
 pub fn check_country_codes(
     _pe: &PkiEnvironment<'_>,
     _cps: &CertificationPathSettings,
-    _cp: &mut CertificationPath<'_>,
+    _cp: &mut CertificationPath,
     _cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     //TODO - implement country code enforcement

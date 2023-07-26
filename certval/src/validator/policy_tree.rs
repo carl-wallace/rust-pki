@@ -39,7 +39,7 @@ use crate::enforce_trust_anchor_constraints;
 pub fn check_certificate_policies(
     _pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath<'_>,
+    cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_CERTIFICATE_POLICIES);

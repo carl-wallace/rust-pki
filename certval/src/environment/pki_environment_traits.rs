@@ -20,7 +20,7 @@ use crate::{
 pub type ValidatePath = fn(
     &PkiEnvironment<'_>,
     &CertificationPathSettings,    // path settings to govern validation
-    &mut CertificationPath<'_>,    // path to verify
+    &mut CertificationPath,        // path to verify
     &mut CertificationPathResults, // path validation results
 ) -> Result<()>;
 
@@ -133,7 +133,7 @@ pub trait CertificationPathBuilder {
         &'a self,
         pe: &'a PkiEnvironment<'a>,
         target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath<'a>>,
+        paths: &'reference mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()>
