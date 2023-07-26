@@ -1336,7 +1336,7 @@ impl CertificationPathBuilder for CertSource {
         &'a self,
         pe: &'a PkiEnvironment<'a>,
         target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath<'a>>,
+        paths: &'reference mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()>
@@ -1354,7 +1354,7 @@ impl CertificationPathBuilder for CertSource {
 
         let ta = pe.get_trust_anchor_for_target(target);
         if let Ok(ta) = ta {
-            let path = CertificationPath::new(ta, vec![], target);
+            let path = CertificationPath::new(ta.clone(), vec![], target.clone());
             paths.push(path);
         }
 
@@ -1469,7 +1469,11 @@ impl CertificationPathBuilder for CertSource {
                             }
                             if !found_blank {
                                 if let Some(ta) = ta {
-                                    let path = CertificationPath::new(ta, intermediates, target);
+                                    let path = CertificationPath::new(
+                                        ta.clone(),
+                                        intermediates,
+                                        target.clone(),
+                                    );
                                     if !pub_key_repeats(&path) {
                                         ii = 2;
                                         paths.push(path);
@@ -1624,7 +1628,7 @@ fn above_threshold(v: &[usize], t: usize) -> bool {
     false
 }
 
-fn pub_key_repeats(path: &CertificationPath<'_>) -> bool {
+fn pub_key_repeats(path: &CertificationPath) -> bool {
     let mut spki_array: Vec<&SubjectPublicKeyInfoOwned> =
         vec![get_subject_public_key_info_from_trust_anchor(
             &path.trust_anchor.decoded_ta,

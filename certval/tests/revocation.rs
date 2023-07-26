@@ -52,7 +52,7 @@
 //
 //     ee.parse_extensions(EXTS_OF_INTEREST);
 //
-//     let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+//     let mut cert_path = CertificationPath::new(ta, chain, ee);
 //
 //     cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
 //     cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
@@ -147,7 +147,7 @@
 //
 //     ee.parse_extensions(EXTS_OF_INTEREST);
 //
-//     let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+//     let mut cert_path = CertificationPath::new(ta, chain, ee);
 //
 //     cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
 //     cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
@@ -230,7 +230,7 @@ async fn stapled_crl_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     cert_path.crls[0] = Some(der_encoded_ca_crl.to_vec());
     cert_path.crls[1] = Some(der_encoded_ee_crl.to_vec());
@@ -312,7 +312,7 @@ async fn stapled_mix_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
     cert_path.crls[1] = Some(der_encoded_ee_crl.to_vec());
@@ -406,7 +406,7 @@ async fn cached_crl_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     set_require_ta_store(&mut cps, false);
@@ -482,7 +482,7 @@ async fn cached_crl_revoked_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     set_require_ta_store(&mut cps, false);
@@ -564,7 +564,7 @@ async fn cached_crl_revoked_remote_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     set_require_ta_store(&mut cps, false);
@@ -646,7 +646,7 @@ async fn cached_crl_remote_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(&ta, chain, &ee);
+    let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     set_require_ta_store(&mut cps, false);
