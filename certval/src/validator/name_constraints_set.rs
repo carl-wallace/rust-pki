@@ -71,8 +71,7 @@ pub struct NameConstraintsSet {
     pub not_supported: Vec<GeneralSubtree>, //t = everything else
 }
 
-impl NameConstraintsSet
-{
+impl NameConstraintsSet {
     //----------------------------------------------------------------------------
     // public
     //----------------------------------------------------------------------------
@@ -430,8 +429,7 @@ impl NameConstraintsSet
     //----------------------------------------------------------------------------
     // private
     //----------------------------------------------------------------------------
-    fn calculate_intersection_rfc822(&mut self, new_names: &GeneralSubtrees)
-    {
+    fn calculate_intersection_rfc822(&mut self, new_names: &GeneralSubtrees) {
         if self.rfc822_name_null || !has_rfc822(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
             return;
@@ -472,8 +470,7 @@ impl NameConstraintsSet
         }
     }
 
-    fn calculate_intersection_dns_name(&mut self, new_names: &GeneralSubtrees)
-    {
+    fn calculate_intersection_dns_name(&mut self, new_names: &GeneralSubtrees) {
         if self.dns_name_null || !has_dns_name(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
             return;
@@ -514,8 +511,7 @@ impl NameConstraintsSet
         }
     }
 
-    fn calculate_intersection_dn(&mut self, new_names: &GeneralSubtrees)
-    {
+    fn calculate_intersection_dn(&mut self, new_names: &GeneralSubtrees) {
         if self.directory_name_null || !has_dn(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
             return;
@@ -553,8 +549,7 @@ impl NameConstraintsSet
         }
     }
 
-    fn calculate_intersection_uri(&mut self, new_names: &GeneralSubtrees)
-    {
+    fn calculate_intersection_uri(&mut self, new_names: &GeneralSubtrees) {
         if self.uniform_resource_identifier_null || !has_uri(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
             return;

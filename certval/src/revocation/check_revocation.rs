@@ -48,7 +48,6 @@ use crate::get_check_ocsp_from_aia;
 #[cfg(not(feature = "std"))]
 use core::ops::Deref;
 
-
 /// check_revocation is top level revocation checking function supports a variety of revocation status
 /// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses. Assuming all options
 /// are enabled, the order of priority is:

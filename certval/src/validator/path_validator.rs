@@ -466,7 +466,7 @@ pub fn check_extended_key_usage(
             default_eku
         };
 
-        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().map(|x|x.clone()).collect();
+        let mut ekus_from_path: BTreeSet<_> = ekus_from_ta.iter().copied().collect();
 
         let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(cp.target));
 
@@ -810,7 +810,8 @@ pub fn verify_signatures(
         working_spki = cur_cert
             .decoded_cert
             .tbs_certificate
-            .subject_public_key_info.clone();
+            .subject_public_key_info
+            .clone();
     }
     Ok(())
 }
