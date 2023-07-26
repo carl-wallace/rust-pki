@@ -20,10 +20,7 @@
 //! // a file system-based example.
 //!
 //! // add cert_source to provide access to intermediate CA certificates
-//! pe.add_certificate_source(&cert_source);
-//!
-//! // add same object as a path builder to provide path building capabilities
-//! pe.add_path_builder(&cert_source);
+//!  pe.add_certificate_source(Box::new(cert_source.clone()));
 //! ```
 //!
 //! [`CertSource`] instances are used when preparing a serialized file containing intermediate CA
@@ -66,9 +63,9 @@ use crate::{
     util::pdv_utilities::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
-    CertificateSource, CertificationPath, CertificationPathBuilder, CertificationPathSettings,
-    ExtensionProcessing, NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
-    EXTS_OF_INTEREST, PS_MAX_PATH_LENGTH_CONSTRAINT,
+    CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
+    NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, EXTS_OF_INTEREST,
+    PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
 #[cfg(feature = "std")]
@@ -400,11 +397,10 @@ impl BuffersAndPaths {
 /// ```
 ///
 /// The [`CertSource`] instance can then be passed to a [`PkiEnvironment`] instance to serve both as
-/// a source of certificates and as a path building implementation, as shown below.
+/// a source of certificates, which includes a path building implementation, as shown below.
 ///
 /// ```ignore
-///    pe.add_certificate_source(&cert_source);
-///    pe.add_path_builder(&cert_source);
+///     pe.add_certificate_source(Box::new(cert_source.clone()));
 /// ```
 ///
 /// The general idea is to prepare an as comprehensive as possible set of partial certification paths
@@ -1099,7 +1095,7 @@ impl CertSource {
     ///
     fn find_all_partial_paths_internal(
         &self,
-        pe: &'_ PkiEnvironment<'_>,
+        pe: &'_ PkiEnvironment,
         //todo remove param
         _ta_vec: Vec<&PDVTrustAnchorChoice>,
         cps: &CertificationPathSettings,
@@ -1132,7 +1128,7 @@ impl CertSource {
                                     );
                                     let r = pe.verify_signature_message(
                                         pe,
-                                        defer_cert.tbs_field,
+                                        &defer_cert.tbs_field,
                                         cur_cert.decoded_cert.signature.raw_bytes(),
                                         &cur_cert.decoded_cert.tbs_certificate.signature,
                                         spki,
@@ -1192,7 +1188,7 @@ impl CertSource {
                                     {
                                         let r = pe.verify_signature_message(
                                             pe,
-                                            defer_cert.tbs_field,
+                                            &defer_cert.tbs_field,
                                             cur_cert.decoded_cert.signature.raw_bytes(),
                                             &cur_cert.decoded_cert.tbs_certificate.signature,
                                             &prospective_ca_cert
@@ -1303,11 +1299,7 @@ impl CertSource {
 
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(
-        &self,
-        pe: &'_ PkiEnvironment<'_>,
-        cps: &CertificationPathSettings,
-    ) {
+    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
         let mut ta_vec = vec![];
         if let Ok(tav) = pe.get_trust_anchors() {
             ta_vec = tav;
@@ -1329,20 +1321,17 @@ impl CertSource {
     }
 }
 
-impl CertificationPathBuilder for CertSource {
+impl CertificateSource for CertSource {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
-    fn get_paths_for_target<'a, 'reference>(
-        &'a self,
-        pe: &'a PkiEnvironment<'a>,
-        target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath>,
+    fn get_paths_for_target(
+        &self,
+        pe: &PkiEnvironment,
+        target: &PDVCertificate,
+        paths: &mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
-    ) -> Result<()>
-    where
-        'a: 'reference,
-    {
+    ) -> Result<()> {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
             error!(
@@ -1521,9 +1510,7 @@ impl CertificationPathBuilder for CertSource {
 
         Ok(())
     }
-}
 
-impl CertificateSource for CertSource {
     fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
         let hex_skid = buffer_to_hex(skid);
         let mut retval = vec![];

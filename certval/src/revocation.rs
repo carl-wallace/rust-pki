@@ -28,11 +28,10 @@
 //! // Create and populate a PkiEnvironment object
 //! let mut pe = PkiEnvironment::default();
 //! populate_5280_pki_environment(&mut pe);
-//! pe.add_trust_anchor_source(&ta_source);
-//! pe.add_certificate_source(&cert_source);
-//! pe.add_path_builder(&cert_source);
-//! pe.add_crl_source(&crl_source);
-//! pe.add_revocation_cache(&crl_source);
+//! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+//! pe.add_certificate_source(Box::new(cert_source.clone()));
+//! pe.add_crl_source(Box::new(crl_source.clone()));
+//! pe.add_revocation_cache(Box::new(RevocationCache::new()));
 //!
 //! let der_encoded_cert = include_bytes!("../tests/examples/GoodCACert.crt");
 //! let target_cert = parse_cert(der_encoded_cert.as_slice(), "GoodCACert.crt")?;

@@ -381,7 +381,7 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
-async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
+async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
@@ -641,10 +641,10 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
     })
 }
 
-fn validate_crl_issuer_name<'a>(
-    cert: &'a PDVCertificate,
-    crl_info: &'a CrlInfo,
-) -> Result<Option<&'a DistributionPoint>> {
+fn validate_crl_issuer_name(
+    cert: &PDVCertificate,
+    crl_info: &CrlInfo,
+) -> Result<Option<DistributionPoint>> {
     // 4-b) Validate CRL issuer name (discard CRL upon failure)
     //			i.	One of the names in a CRL DP crlIssuer field or the cert issuer shall match the CRL issuer.
     //				If a CRL DP produced the match, set the active CRLDP state variable to the CRL DP containing
@@ -671,7 +671,7 @@ fn validate_crl_issuer_name<'a>(
                 if let GeneralName::DirectoryName(dn) = gn {
                     if let Ok(enc_dn) = dn.to_der() {
                         if enc_dn == crl_info.issuer_name_blob {
-                            return Ok(Some(dp));
+                            return Ok(Some(dp.clone()));
                         }
                     }
                 }
@@ -758,7 +758,7 @@ fn validate_distribution_point(
         };
 
         let mut found_match = false;
-        if let Some(crl_dp) = active_crl_dp {
+        if let Some(ref crl_dp) = active_crl_dp {
             //if there's an active CRL DP, i.e. on that produced a match in the CRL issuer validation
             //function - then require that specific DP to match here
 
@@ -818,7 +818,7 @@ fn validate_distribution_point(
             if let Some(idp_reasons) = idp.only_some_reasons {
                 *collected_reasons = idp_reasons;
 
-                if let Some(crl_dp) = active_crl_dp {
+                if let Some(ref crl_dp) = active_crl_dp {
                     if let Some(crldp_reasons) = crl_dp.reasons {
                         if (crldp_reasons & idp_reasons).is_empty() {
                             return Err(CrlIncompatible);
@@ -854,7 +854,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 }
 
 fn verify_crl(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     crl_buf: &[u8],
     issuer_cert: &Certificate,
     cpr: &mut CertificationPathResults,
@@ -866,7 +866,7 @@ fn verify_crl(
 
     let r = pe.verify_signature_message(
         pe,
-        defer_crl.tbs_field,
+        &defer_crl.tbs_field,
         defer_crl.signature.raw_bytes(),
         &defer_crl.signature_algorithm,
         &issuer_cert.tbs_certificate.subject_public_key_info,
@@ -978,7 +978,7 @@ fn check_crl_sign(cert: &Certificate) -> Result<()> {
 /// certificate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_crl(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
@@ -1130,7 +1130,7 @@ pub(crate) fn process_crl(
 
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_crl_remote(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
@@ -1197,7 +1197,7 @@ pub(crate) async fn check_revocation_crl_remote(
 #[tokio::test]
 async fn fetch_crl_test() {
     use crate::populate_5280_pki_environment;
-    use crate::CrlSourceFolders;
+    use crate::{CrlSourceFolders, RemoteStatus, RevocationCache};
     use std::path::PathBuf;
     let mut pe = PkiEnvironment::default();
     pe.clear_all_callbacks();
@@ -1209,9 +1209,9 @@ async fn fetch_crl_test() {
     if crl_source.index_crls(1647011592).is_err() {
         panic!("Failed to index CRLs")
     }
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
-    pe.add_check_remote(&crl_source);
+    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_revocation_cache(Box::new(RevocationCache::new()));
+    pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
 
     let r = fetch_crl(&pe, "ldap://ldap.scheme/", 60).await;
     assert!(r.is_err());

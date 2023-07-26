@@ -90,7 +90,7 @@ fn pkits_p256() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_source2);
+    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts_sync(
         &mut pool,
         &pkits_data_map,
@@ -127,7 +127,7 @@ async fn pkits_p256() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_source2);
+    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts(
         &mut pool,
         &pkits_data_map,
@@ -166,7 +166,7 @@ async fn pkits_2048() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
             &pkits_data_map,
@@ -182,7 +182,7 @@ async fn pkits_2048() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
             &pkits_data_map,
@@ -223,7 +223,7 @@ fn pkits_2048() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
             &pkits_data_map,
@@ -237,7 +237,7 @@ fn pkits_2048() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
             &pkits_data_map,
@@ -275,7 +275,7 @@ fn pkits_p256_graph() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_source2);
+    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts_sync(
         &mut pool,
         &pkits_data_map,
@@ -312,7 +312,7 @@ async fn pkits_p256_graph() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_source2);
+    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts(
         &mut pool,
         &pkits_data_map,
@@ -351,7 +351,7 @@ async fn pkits_2048_graph() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
             &pkits_data_map,
@@ -367,7 +367,7 @@ async fn pkits_2048_graph() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
             &pkits_data_map,
@@ -408,7 +408,7 @@ fn pkits_2048_graph() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
             &pkits_data_map,
@@ -422,7 +422,7 @@ fn pkits_2048_graph() {
     {
         let mut pe = PkiEnvironment::new();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(&ta_source2);
+        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
             &pkits_data_map,
@@ -437,8 +437,8 @@ fn pkits_2048_graph() {
 #[cfg(not(feature = "std"))]
 pub fn pkits_guts_sync(
     mpool: &mut CertPool,
-    pkits_data_map: &PkitsDataMap<'_>,
-    pe: &PkiEnvironment<'_>,
+    pkits_data_map: &PkitsDataMap,
+    pe: &PkiEnvironment,
     flavor: PkitsFlavor,
     skip_revocation: bool,
     policy_graph: bool,
@@ -724,8 +724,8 @@ pub fn pkits_guts_sync(
 #[cfg(feature = "std")]
 pub async fn pkits_guts(
     mpool: &mut CertPool,
-    pkits_data_map: &PkitsDataMap<'_>,
-    pe: &PkiEnvironment<'_>,
+    pkits_data_map: &PkitsDataMap,
+    pe: &PkiEnvironment,
     flavor: PkitsFlavor,
     skip_revocation: bool,
     policy_graph: bool,

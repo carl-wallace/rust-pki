@@ -3,7 +3,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-use der::{AnyRef, Decode, Encode};
+use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
 use x509_cert::ext::Extensions;
 use x509_cert::Certificate;
@@ -241,26 +241,26 @@ fn prepare_ocsp_request(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct DeferDecodeBasicOcspResponse<'a> {
+struct DeferDecodeBasicOcspResponse {
     ///   tbsResponseData          ResponseData,
-    pub tbs_response_data: &'a [u8],
+    pub tbs_response_data: Vec<u8>,
 
     ///   signatureAlgorithm       AlgorithmIdentifier,
-    pub signature_algorithm: &'a [u8],
+    pub signature_algorithm: Vec<u8>,
 
     ///   signature                BIT STRING,
-    pub signature: &'a [u8],
+    pub signature: Vec<u8>,
 
     ///    certs               \[0\] EXPLICIT SEQUENCE OF Certificate OPTIONAL }
     //#[asn1(context_specific = "0", optional = "true", tag_mode = "EXPLICIT")]
-    pub certs: Option<alloc::vec::Vec<AnyRef<'a>>>,
+    pub certs: Option<alloc::vec::Vec<Any>>,
 }
 
-impl ::der::FixedTag for DeferDecodeBasicOcspResponse<'_> {
+impl ::der::FixedTag for DeferDecodeBasicOcspResponse {
     const TAG: ::der::Tag = ::der::Tag::Sequence;
 }
 
-impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse<'a> {
+impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
@@ -274,9 +274,9 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse<'a> {
                 ::der::asn1::ContextSpecific::decode_explicit(reader, ::der::TagNumber::N0)?
                     .map(|cs| cs.value);
             Ok(Self {
-                tbs_response_data,
-                signature_algorithm,
-                signature,
+                tbs_response_data: tbs_response_data.to_vec(),
+                signature_algorithm: signature_algorithm.to_vec(),
+                signature: signature.to_vec(),
                 certs,
             })
         })
@@ -295,7 +295,7 @@ fn no_check_present(exts: &Option<Extensions>) -> bool {
 }
 
 fn verify_response_signature(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     signers_cert: &Certificate,
     enc_ocsp_resp: &[u8],
     bor: &BasicOcspResponse<'_>,
@@ -313,7 +313,7 @@ fn verify_response_signature(
 
     pe.verify_signature_message(
         pe,
-        ddbor.tbs_response_data,
+        &ddbor.tbs_response_data,
         signature,
         &bor.signature_algorithm,
         &signers_cert.tbs_certificate.subject_public_key_info,
@@ -334,7 +334,7 @@ fn verify_response_signature(
 #[allow(clippy::too_many_arguments)]
 #[cfg(feature = "remote")]
 pub async fn send_ocsp_request(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -419,7 +419,7 @@ pub async fn send_ocsp_request(
 /// when generating log messages.
 #[allow(clippy::too_many_arguments)]
 pub fn process_ocsp_response(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
@@ -446,7 +446,7 @@ pub fn process_ocsp_response(
 
 #[allow(clippy::too_many_arguments)]
 fn process_ocsp_response_internal(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
@@ -530,7 +530,7 @@ fn process_ocsp_response_internal(
                 if let Ok(defer_cert) = DeferDecodeSigned::from_der(certbuf.as_slice()) {
                     if let Ok(_r) = pe.verify_signature_message(
                         pe,
-                        defer_cert.tbs_field,
+                        &defer_cert.tbs_field,
                         defer_cert.signature.raw_bytes(),
                         &defer_cert.signature_algorithm,
                         &issuers_cert.tbs_certificate.subject_public_key_info,
@@ -682,7 +682,7 @@ fn get_ocsp_aias(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_ocsp(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,

@@ -41,7 +41,7 @@ cfg_if! {
 /// valid at the indicated time of interest are discarded as well.
 #[cfg(feature = "remote")]
 fn save_certs_from_p7(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     filename: &Path,
     bytes: &[u8],
     target: &str,
@@ -98,7 +98,7 @@ fn save_certs_from_p7(
 /// file write is best effort. If it fails, life goes on.
 #[cfg(feature = "remote")]
 fn save_cert(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     filename: &Path,
     bytes: &[u8],
     target: &str,
@@ -172,7 +172,7 @@ fn save_cert(
 #[allow(clippy::too_many_arguments)]
 #[cfg(feature = "remote")]
 pub async fn fetch_to_buffer(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     uris: &[String],
     folder: &str,
     buffers: &mut Vec<CertFile>,

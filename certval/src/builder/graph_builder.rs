@@ -27,10 +27,7 @@ use std::fs;
 ///
 /// The time of interest is used to ignore certificates that are expired at the indicated time (when
 /// time of interest value is zero, the validity check is not performed).
-pub async fn build_graph(
-    pe: &PkiEnvironment<'_>,
-    cps: &CertificationPathSettings,
-) -> Result<Vec<u8>> {
+pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -> Result<Vec<u8>> {
     let ca_folder = if let Some(ca_folder) = get_certification_authority_folder(cps) {
         ca_folder
     } else {
@@ -255,7 +252,7 @@ async fn non_existent_dir() {
 
     set_retrieve_from_aia_sia_http(&mut cps, false);
     set_certification_authority_folder(&mut cps, ca_store_folder.clone());
-    pe.add_trust_anchor_source(&ta_store);
+    pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
     let mut cert_source = CertSource::new();

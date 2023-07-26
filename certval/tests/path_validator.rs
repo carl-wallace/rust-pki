@@ -16,7 +16,7 @@ fn prehash_required() {
             let pe = PkiEnvironment::new();
             verify_signature_message_rust_crypto(
                 &pe,
-                parts.tbs_field,
+                &parts.tbs_field,
                 parts.signature.raw_bytes(),
                 &parts.signature_algorithm,
                 &ca_cert.tbs_certificate.subject_public_key_info,
@@ -54,7 +54,7 @@ fn pkits_test1() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_source2);
+    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
@@ -117,7 +117,7 @@ fn unsupported_ee_cert_version() {
 fn is_trust_anchor_test() {
     let mut pe = PkiEnvironment::default();
     let ta_source = TaSource::default();
-    pe.add_trust_anchor_source(&ta_source);
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 
     let der_encoded_ta = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
     let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
@@ -136,7 +136,7 @@ fn is_trust_anchor_test() {
     ta_store.index_tas();
 
     pe.clear_all_callbacks();
-    pe.add_trust_anchor_source(&ta_store);
+    pe.add_trust_anchor_source(Box::new(ta_store.clone()));
 
     let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
     assert!(pe.is_trust_anchor(&ta).is_ok());

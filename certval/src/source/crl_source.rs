@@ -54,7 +54,26 @@ pub struct CrlSourceFolders {
     issuer_map: Arc<Mutex<RefCell<IssuerMap>>>,
     skid_map: Arc<Mutex<RefCell<SkidMap>>>,
     dp_map: Arc<Mutex<RefCell<DpMap>>>,
+    // cache_map: Arc<Mutex<RefCell<CacheMap>>>,
+    // blocklist: Arc<Mutex<RefCell<Blocklist>>>,
+    // last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
+}
+
+/// Provided in-memory revocation status cache
+#[derive(Clone)]
+#[readonly::make]
+pub struct RevocationCache {
     cache_map: Arc<Mutex<RefCell<CacheMap>>>,
+}
+
+/// Provides file-based remote URI status information (relative to a file folder, typically the CRLs
+/// folder used by a CrlSourceFolders instance)
+#[derive(Clone)]
+#[readonly::make]
+pub struct RemoteStatus {
+    #[readonly]
+    pub lmm_folder: String,
+
     blocklist: Arc<Mutex<RefCell<Blocklist>>>,
     last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
 }
@@ -76,9 +95,6 @@ impl CrlSourceFolders {
             issuer_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
             dp_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
             skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            cache_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            last_modified_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            blocklist: Arc::new(Mutex::new(RefCell::new(vec![]))),
         }
     }
 
@@ -135,9 +151,33 @@ impl CrlSourceFolders {
     }
 }
 
-impl CrlSourceFolders {
+impl RevocationCache {
+    /// Create new RevocationCache instance
+    pub fn new() -> Self {
+        RevocationCache {
+            cache_map: Arc::new(Mutex::new(RefCell::new(Default::default()))),
+        }
+    }
+}
+
+impl Default for RevocationCache {
+    /// Create a new default RevocationCache instance
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RemoteStatus {
+    /// Create new RemoteStatus instance
+    pub fn new(folder: &str) -> Self {
+        RemoteStatus {
+            lmm_folder: folder.to_string(),
+            blocklist: Arc::new(Mutex::new(RefCell::new(vec![]))),
+            last_modified_map: Arc::new(Mutex::new(RefCell::new(Default::default()))),
+        }
+    }
     fn load_lmm(&self, last_modified_map: &mut RefMut<'_, LastModifiedMap>) {
-        let p = Path::new(&self.crls_folder);
+        let p = Path::new(&self.lmm_folder);
         let lmmp = p.join("last_modified_map.json");
         if let Some(lmmp) = lmmp.as_path().to_str() {
             last_modified_map.clear();
@@ -165,7 +205,7 @@ impl CrlSourceFolders {
     // }
 }
 
-impl CheckRemoteResource for CrlSourceFolders {
+impl CheckRemoteResource for RemoteStatus {
     /// get_last_modified takes a URI and returns stored last modified value or None.
     fn get_last_modified(&self, uri: &str) -> Option<String> {
         let last_modified_map_guard = if let Ok(g) = self.last_modified_map.lock() {
@@ -200,7 +240,7 @@ impl CheckRemoteResource for CrlSourceFolders {
             e.insert(last_modified.to_string());
 
             let json_lmm = serde_json::to_string(&last_modified_map.deref());
-            let p = Path::new(&self.crls_folder);
+            let p = Path::new(&self.lmm_folder);
             let lmmp = p.join("last_modified_map.json");
             if let Ok(json_lmm) = &json_lmm {
                 if fs::write(lmmp, json_lmm).is_err() {
@@ -532,7 +572,7 @@ fn index_crls_internal(
     Ok(crl_info.len() - initial_count)
 }
 
-impl RevocationStatusCache for CrlSourceFolders {
+impl RevocationStatusCache for RevocationCache {
     fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
         let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
