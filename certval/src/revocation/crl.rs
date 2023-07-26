@@ -641,10 +641,10 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
     })
 }
 
-fn validate_crl_issuer_name<'a>(
-    cert: &'a PDVCertificate,
-    crl_info: &'a CrlInfo,
-) -> Result<Option<&'a DistributionPoint>> {
+fn validate_crl_issuer_name(
+    cert: &PDVCertificate,
+    crl_info: &CrlInfo,
+) -> Result<Option<DistributionPoint>> {
     // 4-b) Validate CRL issuer name (discard CRL upon failure)
     //			i.	One of the names in a CRL DP crlIssuer field or the cert issuer shall match the CRL issuer.
     //				If a CRL DP produced the match, set the active CRLDP state variable to the CRL DP containing
@@ -671,7 +671,7 @@ fn validate_crl_issuer_name<'a>(
                 if let GeneralName::DirectoryName(dn) = gn {
                     if let Ok(enc_dn) = dn.to_der() {
                         if enc_dn == crl_info.issuer_name_blob {
-                            return Ok(Some(dp));
+                            return Ok(Some(dp.clone()));
                         }
                     }
                 }
@@ -758,7 +758,7 @@ fn validate_distribution_point(
         };
 
         let mut found_match = false;
-        if let Some(crl_dp) = active_crl_dp {
+        if let Some(ref crl_dp) = active_crl_dp {
             //if there's an active CRL DP, i.e. on that produced a match in the CRL issuer validation
             //function - then require that specific DP to match here
 
@@ -818,7 +818,7 @@ fn validate_distribution_point(
             if let Some(idp_reasons) = idp.only_some_reasons {
                 *collected_reasons = idp_reasons;
 
-                if let Some(crl_dp) = active_crl_dp {
+                if let Some(ref crl_dp) = active_crl_dp {
                     if let Some(crldp_reasons) = crl_dp.reasons {
                         if (crldp_reasons & idp_reasons).is_empty() {
                             return Err(CrlIncompatible);
@@ -866,7 +866,7 @@ fn verify_crl(
 
     let r = pe.verify_signature_message(
         pe,
-        defer_crl.tbs_field,
+        &defer_crl.tbs_field,
         defer_crl.signature.raw_bytes(),
         &defer_crl.signature_algorithm,
         &issuer_cert.tbs_certificate.subject_public_key_info,

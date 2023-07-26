@@ -7,7 +7,7 @@ use alloc::{
     vec::Vec,
 };
 use der::{
-    asn1::{BitStringRef, ObjectIdentifier},
+    asn1::ObjectIdentifier,
     Decode, Encode,
 };
 use log::error;
@@ -23,6 +23,7 @@ use const_oid::db::rfc5912::{
     ID_CE_PRIVATE_KEY_USAGE_PERIOD, ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
 };
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
+use der::asn1::BitString;
 use x509_ocsp::OcspNoCheck;
 
 use crate::pdv_extension::*;
@@ -232,20 +233,20 @@ impl ExtensionProcessing for PDVCertificate {
 /// (and potentially encountering problems with structures that were not DER-encoded prior to signing).
 /// This is intended to be used in tandem with a [`PDVCertificate`] structure that contains a fully-decoded
 /// Certificate structure.
-pub struct DeferDecodeSigned<'a> {
+pub struct DeferDecodeSigned {
     /// tbsCertificate       TBSCertificate,
-    pub tbs_field: &'a [u8],
+    pub tbs_field: Vec<u8>,
     /// signatureAlgorithm   AlgorithmIdentifier,
     pub signature_algorithm: AlgorithmIdentifierOwned,
     /// signature            BIT STRING
-    pub signature: BitStringRef<'a>,
+    pub signature: BitString,
 }
 
-impl ::der::FixedTag for DeferDecodeSigned<'_> {
+impl ::der::FixedTag for DeferDecodeSigned {
     const TAG: ::der::Tag = ::der::Tag::Sequence;
 }
 
-impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned<'a> {
+impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
@@ -256,7 +257,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned<'a> {
             let signature_algorithm = reader.decode()?;
             let signature = reader.decode()?;
             Ok(Self {
-                tbs_field: tbs_certificate,
+                tbs_field: tbs_certificate.to_vec(),
                 signature_algorithm,
                 signature,
             })

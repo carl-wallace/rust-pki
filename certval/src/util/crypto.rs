@@ -670,7 +670,7 @@ fn test_verify_signature_digest() {
                 parameters: None,
             };
             let result = pe
-                .calculate_hash(&pe, &hash_algorithm, defer_cert.tbs_field)
+                .calculate_hash(&pe, &hash_algorithm, &defer_cert.tbs_field)
                 .unwrap();
             let cert = Certificate::from_der(der_encoded_ta).unwrap();
 

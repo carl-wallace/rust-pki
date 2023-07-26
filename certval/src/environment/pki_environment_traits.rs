@@ -129,16 +129,14 @@ pub enum CertificationPathBuilderFormats {
 pub trait CertificationPathBuilder {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
-    fn get_paths_for_target<'a, 'reference>(
-        &'a self,
-        pe: &'a PkiEnvironment<'a>,
-        target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath>,
+    fn get_paths_for_target<'a>(
+        &self,
+        pe: &PkiEnvironment<'a>,
+        target: &PDVCertificate,
+        paths: &mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
-    ) -> Result<()>
-    where
-        'a: 'reference;
+    ) -> Result<()>;
 }
 
 /// The [`CrlSource`] trait defines the interface for storing and retrieving CRLs in support of certification path validation.

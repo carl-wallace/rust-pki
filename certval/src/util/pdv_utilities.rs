@@ -58,7 +58,7 @@ pub fn is_self_signed_with_buffer(
         Ok(defer_cert) => {
             let r = pe.verify_signature_message(
                 pe,
-                defer_cert.tbs_field,
+                &defer_cert.tbs_field,
                 cert.signature.raw_bytes(),
                 &cert.tbs_certificate.signature,
                 &cert.tbs_certificate.subject_public_key_info,

@@ -16,7 +16,7 @@ fn prehash_required() {
             let pe = PkiEnvironment::new();
             verify_signature_message_rust_crypto(
                 &pe,
-                parts.tbs_field,
+                &parts.tbs_field,
                 parts.signature.raw_bytes(),
                 &parts.signature_algorithm,
                 &ca_cert.tbs_certificate.subject_public_key_info,

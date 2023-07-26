@@ -437,7 +437,7 @@ fn pkits_2048_graph() {
 #[cfg(not(feature = "std"))]
 pub fn pkits_guts_sync(
     mpool: &mut CertPool,
-    pkits_data_map: &PkitsDataMap<'_>,
+    pkits_data_map: &PkitsDataMap,
     pe: &PkiEnvironment<'_>,
     flavor: PkitsFlavor,
     skip_revocation: bool,
@@ -724,7 +724,7 @@ pub fn pkits_guts_sync(
 #[cfg(feature = "std")]
 pub async fn pkits_guts(
     mpool: &mut CertPool,
-    pkits_data_map: &PkitsDataMap<'_>,
+    pkits_data_map: &PkitsDataMap,
     pe: &PkiEnvironment<'_>,
     flavor: PkitsFlavor,
     skip_revocation: bool,

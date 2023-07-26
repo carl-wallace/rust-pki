@@ -1132,7 +1132,7 @@ impl CertSource {
                                     );
                                     let r = pe.verify_signature_message(
                                         pe,
-                                        defer_cert.tbs_field,
+                                        &defer_cert.tbs_field,
                                         cur_cert.decoded_cert.signature.raw_bytes(),
                                         &cur_cert.decoded_cert.tbs_certificate.signature,
                                         spki,
@@ -1192,7 +1192,7 @@ impl CertSource {
                                     {
                                         let r = pe.verify_signature_message(
                                             pe,
-                                            defer_cert.tbs_field,
+                                            &defer_cert.tbs_field,
                                             cur_cert.decoded_cert.signature.raw_bytes(),
                                             &cur_cert.decoded_cert.tbs_certificate.signature,
                                             &prospective_ca_cert
@@ -1332,16 +1332,14 @@ impl CertSource {
 impl CertificationPathBuilder for CertSource {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
-    fn get_paths_for_target<'a, 'reference>(
-        &'a self,
-        pe: &'a PkiEnvironment<'a>,
-        target: &'a PDVCertificate,
-        paths: &'reference mut Vec<CertificationPath>,
+    fn get_paths_for_target<'a>(
+        &self,
+        pe: &PkiEnvironment<'a>,
+        target: &PDVCertificate,
+        paths: &mut Vec<CertificationPath>,
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()>
-    where
-        'a: 'reference,
     {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {

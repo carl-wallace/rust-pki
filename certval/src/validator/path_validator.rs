@@ -791,7 +791,7 @@ pub fn verify_signatures(
 
         let r = pe.verify_signature_message(
             pe,
-            defer_cert.tbs_field,
+            &defer_cert.tbs_field,
             cur_cert.decoded_cert.signature.raw_bytes(),
             &cur_cert.decoded_cert.tbs_certificate.signature,
             &working_spki,

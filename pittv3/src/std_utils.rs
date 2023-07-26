@@ -192,13 +192,13 @@ pub(crate) async fn validate_cert_file(
 /// for each .der, .crt or .cer file that is found.
 #[async_recursion::async_recursion]
 #[cfg(feature = "std")]
-pub async fn validate_cert_folder<'a>(
-    pe: &'a PkiEnvironment<'_>,
-    cps: &'a CertificationPathSettings,
-    certs_folder: &'a str,
-    stats: &'a mut PathValidationStatsGroup,
-    args: &'a Pittv3Args,
-    fresh_uris: &'a mut Vec<String>,
+pub async fn validate_cert_folder(
+    pe: &PkiEnvironment<'_>,
+    cps: &CertificationPathSettings,
+    certs_folder: &str,
+    stats: &mut PathValidationStatsGroup,
+    args: &Pittv3Args,
+    fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) {
     for entry in WalkDir::new(certs_folder) {

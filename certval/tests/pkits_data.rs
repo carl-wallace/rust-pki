@@ -10,19 +10,19 @@ extern crate alloc;
 use certval::PathValidationStatus::{CertificateRevoked, RevocationStatusNotDetermined};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct PkitsTestCase<'a> {
-    pub intermediate_ca_file_names: Vec<&'a str>,
-    pub target_file_name: &'a str,
-    pub settings: &'a CertificationPathSettings,
-    pub ta5914_filename: &'a str,
-    pub alt_test_name: Option<&'a str>,
+pub struct PkitsTestCase {
+    pub intermediate_ca_file_names: Vec<&'static str>,
+    pub target_file_name: &'static str,
+    pub settings: &'static CertificationPathSettings,
+    pub ta5914_filename: &'static str,
+    pub alt_test_name: Option<&'static str>,
     pub expected_error: Option<Error>,
 }
 
 // The PkitsDataMap structure is used to group tests by section number. The key into each is a
 // string representing a section in the NIST PKITS doc. The corresponding vector accumulates
 // PkitTestCase or CertificationPathSettings for each test case in the section identified by the key.
-pub type PkitsDataMap<'a> = BTreeMap<&'a str, Vec<PkitsTestCase<'a>>>;
+pub type PkitsDataMap = BTreeMap<&'static str, Vec<PkitsTestCase>>;
 
 // Policy OIDs used by PKITS test cases
 pub const PKITS_TEST_POLICY_1: ObjectIdentifier =
