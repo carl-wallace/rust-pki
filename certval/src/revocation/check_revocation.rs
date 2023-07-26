@@ -66,7 +66,7 @@ use core::ops::Deref;
 /// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
 #[cfg(feature = "std")]
 pub async fn check_revocation(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -265,7 +265,7 @@ pub async fn check_revocation(
 /// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
 #[cfg(not(feature = "std"))]
 pub fn check_revocation(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,

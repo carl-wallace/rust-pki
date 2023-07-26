@@ -24,11 +24,11 @@
 //! // i.e., populate the name and spki maps.
 //!
 //! // add ta_source and cert_source to provide access to trust anchors and intermediate CA certificates
-//! pe.add_trust_anchor_source(&ta_source);
-//! pe.add_certificate_source(&cert_source);
+//! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+//!  pe.add_certificate_source(Box::new(cert_source.clone()));
 //!
 //! // add certification path building capabilities
-//! pe.add_path_builder(&cert_source);
+//!  pe.add_path_builder(Box::new(cert_source.clone()));
 //!
 //! ```
 //!
@@ -40,6 +40,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
+use alloc::boxed::Box;
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -54,7 +55,7 @@ use crate::{
 
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
 /// different platforms or to allow support to be tailored for specific use cases.
-pub struct PkiEnvironment<'a> {
+pub struct PkiEnvironment {
     //--------------------------------------------------------------------------
     //Crypto interfaces
     //--------------------------------------------------------------------------
@@ -75,42 +76,42 @@ pub struct PkiEnvironment<'a> {
 
     /// List of trait objects that provide certification path building functionality
     #[cfg(feature = "std")]
-    path_builders: Vec<&'a (dyn CertificationPathBuilder + Sync)>,
+    path_builders: Vec<Box<(dyn CertificationPathBuilder + Sync)>>,
     #[cfg(not(feature = "std"))]
-    path_builders: Vec<&'a dyn CertificationPathBuilder>,
+    path_builders: Vec<Box<(dyn CertificationPathBuilder)>>,
 
     //--------------------------------------------------------------------------
     //Storage and retrieval interfaces
     //--------------------------------------------------------------------------
     /// List of trait objects that provide access to trust anchors
     #[cfg(feature = "std")]
-    trust_anchor_sources: Vec<&'a (dyn TrustAnchorSource + Sync)>,
+    trust_anchor_sources: Vec<Box<(dyn TrustAnchorSource + Sync)>>,
     #[cfg(not(feature = "std"))]
-    trust_anchor_sources: Vec<&'a dyn TrustAnchorSource>,
+    trust_anchor_sources: Vec<Box<(dyn TrustAnchorSource)>>,
 
     /// List of trait objects that provide access to certificates
     #[cfg(feature = "std")]
-    certificate_sources: Vec<&'a (dyn CertificateSource + Sync)>,
+    certificate_sources: Vec<Box<(dyn CertificateSource + Sync)>>,
     #[cfg(not(feature = "std"))]
-    certificate_sources: Vec<&'a dyn CertificateSource>,
+    certificate_sources: Vec<Box<(dyn CertificateSource)>>,
 
     /// List of trait objects that provide access to CRLs
     #[cfg(feature = "std")]
-    crl_sources: Vec<&'a (dyn CrlSource + Sync)>,
+    crl_sources: Vec<Box<(dyn CrlSource + Sync)>>,
     #[cfg(not(feature = "std"))]
-    crl_sources: Vec<&'a dyn CrlSource>,
+    crl_sources: Vec<Box<(dyn CrlSource)>>,
 
     /// List of trait objects that provide access to cached revocation status determinations
     #[cfg(feature = "std")]
-    revocation_cache: Vec<&'a (dyn RevocationStatusCache + Sync)>,
+    revocation_cache: Vec<Box<(dyn RevocationStatusCache + Sync)>>,
     #[cfg(not(feature = "std"))]
-    revocation_cache: Vec<&'a dyn RevocationStatusCache>,
+    revocation_cache: Vec<Box<(dyn RevocationStatusCache)>>,
 
     /// List of trait objects that provide access to blocklist and last modified info
     #[cfg(feature = "std")]
-    check_remote: Vec<&'a (dyn CheckRemoteResource + Sync)>,
+    check_remote: Vec<Box<(dyn CheckRemoteResource + Sync)>>,
     #[cfg(not(feature = "std"))]
-    check_remote: Vec<&'a dyn CheckRemoteResource>,
+    check_remote: Vec<Box<(dyn CheckRemoteResource)>>,
 
     //--------------------------------------------------------------------------
     //Miscellaneous interfaces
@@ -119,7 +120,7 @@ pub struct PkiEnvironment<'a> {
     oid_lookups: Vec<OidLookup>,
 }
 
-impl Default for PkiEnvironment<'_> {
+impl Default for PkiEnvironment {
     /// PkiEnvironment::default returns a new [`PkiEnvironment`] with empty callback vectors for each
     /// type of callback except `oid_lookups`, which features the [`oid_lookup`] function.
     fn default() -> Self {
@@ -139,9 +140,9 @@ impl Default for PkiEnvironment<'_> {
     }
 }
 
-impl<'a> PkiEnvironment<'a> {
+impl<'a> PkiEnvironment {
     /// PkiEnvironment::new returns a new [`PkiEnvironment`] with empty callback vectors for each type of callback
-    pub fn new() -> PkiEnvironment<'a> {
+    pub fn new() -> PkiEnvironment {
         PkiEnvironment {
             calculate_hash_callbacks: vec![],
             verify_signature_digest_callbacks: vec![],
@@ -187,7 +188,7 @@ impl<'a> PkiEnvironment<'a> {
     /// or all options have been exhausted
     pub fn validate_path(
         &self,
-        pe: &PkiEnvironment<'_>,
+        pe: &PkiEnvironment,
         cps: &CertificationPathSettings,
         cp: &mut CertificationPath,
         cpr: &mut CertificationPathResults,
@@ -223,7 +224,7 @@ impl<'a> PkiEnvironment<'a> {
     /// or all options have been exhausted
     pub fn calculate_hash(
         &self,
-        pe: &PkiEnvironment<'_>,
+        pe: &PkiEnvironment,
         hash_alg: &AlgorithmIdentifierOwned,
         buffer_to_hash: &[u8],
     ) -> Result<Vec<u8>> {
@@ -250,7 +251,7 @@ impl<'a> PkiEnvironment<'a> {
     /// or all options have been exhausted
     pub fn verify_signature_digest(
         &self,
-        pe: &PkiEnvironment<'_>,
+        pe: &PkiEnvironment,
         hash_to_verify: &[u8],                    // buffer to verify
         signature: &[u8],                         // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
@@ -279,7 +280,7 @@ impl<'a> PkiEnvironment<'a> {
     /// or all options have been exhausted
     pub fn verify_signature_message(
         &self,
-        pe: &PkiEnvironment<'_>,
+        pe: &PkiEnvironment,
         message_to_verify: &[u8],                 // buffer to verify
         signature: &[u8],                         // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
@@ -296,13 +297,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_trust_anchor_source adds a [`TrustAnchorSource`] object to the list used by get_trust_anchor.
     #[cfg(feature = "std")]
-    pub fn add_trust_anchor_source(&mut self, c: &'a (dyn TrustAnchorSource + Sync)) {
+    pub fn add_trust_anchor_source(&mut self, c: Box<(dyn TrustAnchorSource + Sync)>) {
         self.trust_anchor_sources.push(c);
     }
 
     /// add_trust_anchor_source adds a [`TrustAnchorSource`] object to the list used by get_trust_anchor.
     #[cfg(not(feature = "std"))]
-    pub fn add_trust_anchor_source(&mut self, c: &'a dyn TrustAnchorSource) {
+    pub fn add_trust_anchor_source(&mut self, c: Box<(dyn TrustAnchorSource)>) {
         self.trust_anchor_sources.push(c);
     }
 
@@ -383,13 +384,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_certificate_source adds a [`CertificateSource`] object to the list.
     #[cfg(feature = "std")]
-    pub fn add_certificate_source(&mut self, c: &'a (dyn CertificateSource + Sync)) {
+    pub fn add_certificate_source(&mut self, c: Box<(dyn CertificateSource + Sync)>) {
         self.certificate_sources.push(c);
     }
 
     /// add_certificate_source adds a [`CertificateSource`] object to the list.
     #[cfg(not(feature = "std"))]
-    pub fn add_certificate_source(&mut self, c: &'a dyn CertificateSource) {
+    pub fn add_certificate_source(&mut self, c: Box<(dyn CertificateSource)>) {
         self.certificate_sources.push(c);
     }
 
@@ -400,13 +401,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_crl_source adds a [`CrlSource`] object to the list.
     #[cfg(feature = "std")]
-    pub fn add_crl_source(&mut self, c: &'a (dyn CrlSource + Sync)) {
+    pub fn add_crl_source(&mut self, c: Box<(dyn CrlSource + Sync)>) {
         self.crl_sources.push(c);
     }
 
     /// add_crl_source adds a [`CrlSource`] object to the list.
     #[cfg(not(feature = "std"))]
-    pub fn add_crl_source(&mut self, c: &'a dyn CrlSource) {
+    pub fn add_crl_source(&mut self, c: Box<(dyn CrlSource)>) {
         self.crl_sources.push(c);
     }
 
@@ -447,13 +448,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_revocation_cache adds a [`RevocationStatusCache`] object to the list.
     #[cfg(feature = "std")]
-    pub fn add_revocation_cache(&mut self, c: &'a (dyn RevocationStatusCache + Sync)) {
+    pub fn add_revocation_cache(&mut self, c: Box<(dyn RevocationStatusCache + Sync)>) {
         self.revocation_cache.push(c);
     }
 
     /// add_revocation_cache adds a [`RevocationStatusCache`] object to the list.
     #[cfg(not(feature = "std"))]
-    pub fn add_revocation_cache(&mut self, c: &'a dyn RevocationStatusCache) {
+    pub fn add_revocation_cache(&mut self, c: Box<(dyn RevocationStatusCache)>) {
         self.revocation_cache.push(c);
     }
 
@@ -487,13 +488,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_path_builder adds a [`CertificationPathBuilder`] object to the list to support path building.
     #[cfg(feature = "std")]
-    pub fn add_path_builder(&mut self, c: &'a (dyn CertificationPathBuilder + Sync)) {
+    pub fn add_path_builder(&mut self, c: Box<(dyn CertificationPathBuilder + Sync)>) {
         self.path_builders.push(c);
     }
 
     /// add_path_builder adds a [`CertificationPathBuilder`] object to the list to support path building.
     #[cfg(not(feature = "std"))]
-    pub fn add_path_builder(&mut self, c: &'a dyn CertificationPathBuilder) {
+    pub fn add_path_builder(&mut self, c: Box<(dyn CertificationPathBuilder)>) {
         self.path_builders.push(c);
     }
 
@@ -506,7 +507,7 @@ impl<'a> PkiEnvironment<'a> {
     /// a vector of [`CertificationPath`] objects.
     pub fn get_paths_for_target<'reference>(
         &'a self,
-        pe: &'a PkiEnvironment<'a>,
+        pe: &'a PkiEnvironment,
         target: &'a PDVCertificate,
         paths: &'reference mut Vec<CertificationPath>,
         threshold: usize,
@@ -548,13 +549,13 @@ impl<'a> PkiEnvironment<'a> {
 
     /// add_check_remote adds a [`CheckRemoteResource`] object to the list.
     #[cfg(feature = "std")]
-    pub fn add_check_remote(&mut self, c: &'a (dyn CheckRemoteResource + Sync)) {
+    pub fn add_check_remote(&mut self, c: Box<(dyn CheckRemoteResource + Sync)>) {
         self.check_remote.push(c);
     }
 
     /// add_check_remote adds a [`CheckRemoteResource`] object to the list.
     #[cfg(not(feature = "std"))]
-    pub fn add_check_remote(&mut self, c: &'a dyn CheckRemoteResource) {
+    pub fn add_check_remote(&mut self, c: Box<(dyn CheckRemoteResource)>) {
         self.check_remote.push(c);
     }
 
@@ -609,7 +610,7 @@ impl<'a> PkiEnvironment<'a> {
 /// This function assumes that [`oid_lookup`] is either present due to [`PkiEnvironment::default`] creation
 /// or that it has been deliberately removed or replaced by the caller but will add oid_lookup if
 /// OID lookup support is absent.
-pub fn populate_5280_pki_environment(pe: &mut PkiEnvironment<'_>) {
+pub fn populate_5280_pki_environment(pe: &mut PkiEnvironment) {
     pe.add_validate_path_callback(validate_path_rfc5280);
     pe.add_calculate_hash_callback(calculate_hash_rust_crypto);
     pe.add_verify_signature_digest_callback(verify_signature_digest_rust_crypto);

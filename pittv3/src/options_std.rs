@@ -321,7 +321,7 @@ pub async fn options_std(args: &Pittv3Args) {
             ta_store.index_tas();
 
             populate_5280_pki_environment(&mut pe);
-            pe.add_trust_anchor_source(&ta_store);
+            pe.add_trust_anchor_source(Box::new(ta_store));
 
             {
                 let partial_paths =
@@ -631,7 +631,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
     if args.generate {
         let mut pe = PkiEnvironment::default();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(ta_source);
+        pe.add_trust_anchor_source(Box::new(ta_source.clone()));
         generate(args, &mut cps, &mut pe).await;
     }
 
@@ -683,13 +683,14 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
         let mut pe = PkiEnvironment::default();
         populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(ta_source);
+        pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 
         #[cfg(all(feature = "std", feature = "revocation"))]
         if let Some(crl_source) = &crl_source {
-            pe.add_crl_source(crl_source);
-            pe.add_check_remote(crl_source);
-            pe.add_revocation_cache(crl_source);
+            //todo - refactor traits to avoid this
+            pe.add_crl_source(Box::new(crl_source.clone()));
+            pe.add_check_remote(Box::new(crl_source.clone()));
+            pe.add_revocation_cache(Box::new(crl_source.clone()));
         }
 
         // Create a new CertSource and (re-)deserialize on every iteration due references to
@@ -883,8 +884,9 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         // add the CertSource instance to the PkiEnvironment as both a source of certificates and
         // as a path builder
-        pe.add_certificate_source(&cert_source);
-        pe.add_path_builder(&cert_source);
+        //todo - refactor traits to avoid this
+        pe.add_certificate_source(Box::new(cert_source.clone()));
+        pe.add_path_builder(Box::new(cert_source.clone()));
 
         // perform validation of end entity certificate file or folder. pass in fresh_uris to collect
         // URIs from any relevant trust anchors.

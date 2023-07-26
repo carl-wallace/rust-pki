@@ -38,7 +38,7 @@ use std::fs::File;
 ///
 /// Only files with .der, .cer, .crt or .ta extensions are processed.
 pub fn ta_folder_to_vec(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     tas_dir: &str,
     tas_vec: &mut Vec<CertFile>,
     time_of_interest: u64,
@@ -57,7 +57,7 @@ pub fn ta_folder_to_vec(
 ///
 /// Only files with .der, .cer, or .crt extensions are processed.
 pub fn cert_folder_to_vec(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     certs_dir: &str,
     certs_vec: &mut Vec<CertFile>,
     time_of_interest: u64,
@@ -68,7 +68,7 @@ pub fn cert_folder_to_vec(
 /// `cert_or_ta_folder_to_vec` is used by [`ta_folder_to_vec`] and [`cert_folder_to_vec`] to recursively traverse
 /// a folder in search of [`Certificate`] or [`TrustAnchorChoice`] objects, as appropriate.
 fn cert_or_ta_folder_to_vec(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     certsdir: &str,
     certsvec: &mut Vec<CertFile>,
     time_of_interest: u64,

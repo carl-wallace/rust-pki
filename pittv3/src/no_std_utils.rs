@@ -15,7 +15,7 @@ use crate::pitt_log::log_path;
 /// available via [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html)
 /// parameter.
 pub(crate) fn validate_cert(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cert_filename: &str,
     target: &[u8],

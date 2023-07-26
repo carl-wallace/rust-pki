@@ -37,7 +37,7 @@ use crate::enforce_trust_anchor_constraints;
 /// that if such processing is desired the information has already been factored into the [`CertificationPathSettings`]
 /// as per RFC 5937 and as provided for in [`enforce_trust_anchor_constraints`].
 pub fn check_certificate_policies(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,

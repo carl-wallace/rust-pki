@@ -161,7 +161,7 @@ pub(crate) fn is_sphincsp_sha256_256s_simple(oid: &ObjectIdentifier) -> bool {
 ///
 /// It supports [`PKIXALG_SHA224`], [`PKIXALG_SHA256`], [`PKIXALG_SHA384`] and [`PKIXALG_SHA512`].
 pub fn calculate_hash_rust_crypto(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     hash_alg: &AlgorithmIdentifierOwned,
     buffer_to_hash: &[u8],
 ) -> Result<Vec<u8>> {
@@ -191,7 +191,7 @@ pub fn calculate_hash_rust_crypto(
 ///
 /// Only RSA is supported by this function. To verify ECDSA signatures, use [`verify_signature_message_rust_crypto`].
 pub fn verify_signature_digest_rust_crypto(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     hash_to_verify: &[u8],                    // buffer to verify
     signature: &[u8],                         // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
@@ -236,7 +236,7 @@ fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<Object
 ///
 /// RSA, P256, and P384 signatures are supported at present.
 pub fn verify_signature_message_rust_crypto(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
     signature: &[u8],                         // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
@@ -324,7 +324,7 @@ fn is_composite(oid: ObjectIdentifier) -> bool {
 #[cfg(feature = "pqc")]
 /// verify_signature_message_composite_pqcrypto
 pub fn verify_signature_message_composite_pqcrypto(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
     signature: &[u8],                         // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
@@ -435,7 +435,7 @@ macro_rules! pqverify {
 #[cfg(feature = "pqc")]
 /// Write some stuff. TODO
 pub fn verify_signature_message_pqcrypto(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
     signature: &[u8],                         // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm

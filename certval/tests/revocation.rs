@@ -401,8 +401,8 @@ async fn cached_crl_async() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
+     pe.add_crl_source(Box::new(crl_source.clone()));
+     pe.add_revocation_cache(Box::new(crl_source.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
@@ -477,8 +477,8 @@ async fn cached_crl_revoked_async() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
+     pe.add_crl_source(Box::new(crl_source.clone()));
+     pe.add_revocation_cache(Box::new(crl_source.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
@@ -559,8 +559,8 @@ async fn cached_crl_revoked_remote_async() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
+     pe.add_crl_source(Box::new(crl_source.clone()));
+     pe.add_revocation_cache(Box::new(crl_source.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
@@ -641,8 +641,8 @@ async fn cached_crl_remote_async() {
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
+     pe.add_crl_source(Box::new(crl_source.clone()));
+     pe.add_revocation_cache(Box::new(crl_source.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 

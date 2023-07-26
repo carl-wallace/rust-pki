@@ -18,7 +18,7 @@ use crate::{
 /// `ValidatePath` provides a function signature for implementations that perform certification path
 /// validation or that provide functionality in support of certification path validation.
 pub type ValidatePath = fn(
-    &PkiEnvironment<'_>,
+    &PkiEnvironment,
     &CertificationPathSettings,    // path settings to govern validation
     &mut CertificationPath,        // path to verify
     &mut CertificationPathResults, // path validation results
@@ -26,7 +26,7 @@ pub type ValidatePath = fn(
 
 /// `CalculateHash` provides a function signature for implementations that perform hashing
 pub type CalculateHash = fn(
-    &PkiEnvironment<'_>,
+    &PkiEnvironment,
     &AlgorithmIdentifierOwned, // hash alg
     &[u8],                     // buffer to hash
 ) -> Result<Vec<u8>>;
@@ -34,7 +34,7 @@ pub type CalculateHash = fn(
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
 pub type VerifySignatureDigest = fn(
-    &PkiEnvironment<'_>,
+    &PkiEnvironment,
     &[u8],                      // buffer to verify
     &[u8],                      // signature
     &AlgorithmIdentifierOwned,  // signature algorithm
@@ -44,7 +44,7 @@ pub type VerifySignatureDigest = fn(
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
 pub type VerifySignatureMessage = fn(
-    &PkiEnvironment<'_>,
+    &PkiEnvironment,
     &[u8],                      // message to hash and verify
     &[u8],                      // signature
     &AlgorithmIdentifierOwned,  // signature algorithm
@@ -52,7 +52,7 @@ pub type VerifySignatureMessage = fn(
 ) -> Result<()>;
 
 /// `GetTrustAnchors` provides a function signature for implementations that return a list of trust anchors
-pub type GetTrustAnchors = fn(&PkiEnvironment<'_>, &mut Vec<Vec<u8>>) -> Result<()>;
+pub type GetTrustAnchors = fn(&PkiEnvironment, &mut Vec<Vec<u8>>) -> Result<()>;
 
 /// `OidLookup` implementations take an OID and returns either a friendly name for the OID or a
 /// NotFound error. Where NotFound is returned by all OidLookup implementations, the
@@ -131,7 +131,7 @@ pub trait CertificationPathBuilder {
     /// a vector of CertificationPath objects.
     fn get_paths_for_target<'a>(
         &self,
-        pe: &PkiEnvironment<'a>,
+        pe: &PkiEnvironment,
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,

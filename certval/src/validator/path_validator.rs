@@ -66,7 +66,7 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
 /// [RFC 5280 Section 6.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1>
 /// [RFC 5280 Section 6.1.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1.1>
 pub fn validate_path_rfc5280(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -113,7 +113,7 @@ pub fn validate_path_rfc5280(
 /// It uses values from the [`PS_INITIAL_PATH_LENGTH_CONSTRAINT`] item in the [`CertificationPathSettings`]
 /// and the path_len_constraint field of basicConstraints extensions.
 pub fn check_basic_constraints(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -189,7 +189,7 @@ pub fn check_basic_constraints(
 /// `check_validity` evaluates the target certificate and intermediate certificates against the
 /// `PS_TIME_OF_INTEREST` value read from the [`CertificationPathSettings`] parameter.
 pub fn check_validity(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -244,7 +244,7 @@ pub fn check_validity(
 ///
 /// Additional name forms may be added in the future.
 pub fn check_names(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -381,7 +381,7 @@ pub fn check_names(
 /// target certificate asserts the bits from the `PS_KEY_USAGE` item in the [`CertificationPathSettings`],
 /// if any.
 pub fn check_key_usage(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -435,7 +435,7 @@ pub fn check_key_usage(
 /// to the target certificate. It also affirms the target certificate matches at least one EKU expressed
 /// in the `PS_EXTENDED_KEY_USAGE` element in the [`CertificationPathSettings`], if any.
 pub fn check_extended_key_usage(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -553,7 +553,7 @@ pub fn check_extended_key_usage(
 /// [`CertificationPathResults`] object to facilitate this check. This implementation assumes that
 /// if an extension is processed for one certificate then it is processed for all.
 pub fn check_critical_extensions(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -747,7 +747,7 @@ pub fn enforce_trust_anchor_constraints(
 
 /// `verify_signatures` verifies the certificate signatures of certificates found in a certification path.
 pub fn verify_signatures(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -819,7 +819,7 @@ pub fn verify_signatures(
 /*
 /// `enforce_alg_and_key_size_constraints` enforces algorithm and key size constraints, if any.
 pub fn enforce_alg_and_key_size_constraints(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
     _cp: &mut CertificationPath,
     _cpr: &mut CertificationPathResults,
@@ -831,7 +831,7 @@ pub fn enforce_alg_and_key_size_constraints(
 /// `check_country_codes` ensures the target certificate from a CertificationPath does not violate any
 /// constraints defined in the `PS_PERM_COUNTRIES` and `PS_EXCL_COUNTRIES` values from the [`CertificationPathSettings`].
 pub fn check_country_codes(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
     _cp: &mut CertificationPath,
     _cpr: &mut CertificationPathResults,

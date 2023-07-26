@@ -295,7 +295,7 @@ fn no_check_present(exts: &Option<Extensions>) -> bool {
 }
 
 fn verify_response_signature(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     signers_cert: &Certificate,
     enc_ocsp_resp: &[u8],
     bor: &BasicOcspResponse<'_>,
@@ -334,7 +334,7 @@ fn verify_response_signature(
 #[allow(clippy::too_many_arguments)]
 #[cfg(feature = "remote")]
 pub async fn send_ocsp_request(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -419,7 +419,7 @@ pub async fn send_ocsp_request(
 /// when generating log messages.
 #[allow(clippy::too_many_arguments)]
 pub fn process_ocsp_response(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
@@ -446,7 +446,7 @@ pub fn process_ocsp_response(
 
 #[allow(clippy::too_many_arguments)]
 fn process_ocsp_response_internal(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
@@ -682,7 +682,7 @@ fn get_ocsp_aias(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_ocsp(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,

@@ -110,9 +110,9 @@ pub fn options_no_std(args: &Pittv3Args) {
 
     let mut pe = PkiEnvironment::default();
     populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(&ta_store);
-    pe.add_certificate_source(&cert_source);
-    pe.add_path_builder(&cert_source);
+    pe.add_trust_anchor_source(Box::new(ta_store.clone()));
+     pe.add_certificate_source(Box::new(cert_source.clone()));
+     pe.add_path_builder(Box::new(cert_source.clone()));
 
     let mut stats = PathValidationStatsGroup::new();
 

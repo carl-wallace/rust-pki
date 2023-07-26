@@ -14,7 +14,7 @@
 //! ta_source.index_tas();
 //!
 //! // add ta_source to provide access to trust anchors
-//! pe.add_trust_anchor_source(&ta_source);
+//! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 //! ```
 //!
 //! [`TaSource`] instances are used when preparing a serialized file containing intermediate CA
@@ -514,7 +514,7 @@ fn get_trust_anchor_test() {
     //         ta_store.name_map.insert(name_str, i);
     //     };
     // }
-    pe.add_trust_anchor_source(&ta_store);
+    pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let bad = hex!("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD");
     let good = hex!("6C8A94A277B180721D817A16AAF2DCCE66EE45C0");
     assert!(pe.get_trust_anchor(&bad).is_err());

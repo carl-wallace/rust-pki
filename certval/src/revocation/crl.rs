@@ -381,7 +381,7 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
-async fn fetch_crl(pe: &PkiEnvironment<'_>, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
+async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
@@ -854,7 +854,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 }
 
 fn verify_crl(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     crl_buf: &[u8],
     issuer_cert: &Certificate,
     cpr: &mut CertificationPathResults,
@@ -978,7 +978,7 @@ fn check_crl_sign(cert: &Certificate) -> Result<()> {
 /// certificate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_crl(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
@@ -1130,7 +1130,7 @@ pub(crate) fn process_crl(
 
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_crl_remote(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
@@ -1209,9 +1209,9 @@ async fn fetch_crl_test() {
     if crl_source.index_crls(1647011592).is_err() {
         panic!("Failed to index CRLs")
     }
-    pe.add_crl_source(&crl_source);
-    pe.add_revocation_cache(&crl_source);
-    pe.add_check_remote(&crl_source);
+     pe.add_crl_source(Box::new(crl_source.clone()));
+     pe.add_revocation_cache(Box::new(crl_source.clone()));
+     pe.add_check_remote(Box::new(crl_source.clone()));
 
     let r = fetch_crl(&pe, "ldap://ldap.scheme/", 60).await;
     assert!(r.is_err());

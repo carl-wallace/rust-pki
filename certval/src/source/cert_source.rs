@@ -20,10 +20,10 @@
 //! // a file system-based example.
 //!
 //! // add cert_source to provide access to intermediate CA certificates
-//! pe.add_certificate_source(&cert_source);
+//!  pe.add_certificate_source(Box::new(cert_source.clone()));
 //!
 //! // add same object as a path builder to provide path building capabilities
-//! pe.add_path_builder(&cert_source);
+//!  pe.add_path_builder(Box::new(cert_source.clone()));
 //! ```
 //!
 //! [`CertSource`] instances are used when preparing a serialized file containing intermediate CA
@@ -403,8 +403,8 @@ impl BuffersAndPaths {
 /// a source of certificates and as a path building implementation, as shown below.
 ///
 /// ```ignore
-///    pe.add_certificate_source(&cert_source);
-///    pe.add_path_builder(&cert_source);
+///     pe.add_certificate_source(Box::new(cert_source.clone()));
+///     pe.add_path_builder(Box::new(cert_source.clone()));
 /// ```
 ///
 /// The general idea is to prepare an as comprehensive as possible set of partial certification paths
@@ -1099,7 +1099,7 @@ impl CertSource {
     ///
     fn find_all_partial_paths_internal(
         &self,
-        pe: &'_ PkiEnvironment<'_>,
+        pe: &'_ PkiEnvironment,
         //todo remove param
         _ta_vec: Vec<&PDVTrustAnchorChoice>,
         cps: &CertificationPathSettings,
@@ -1305,7 +1305,7 @@ impl CertSource {
     /// serializing a set of partial paths.
     pub fn find_all_partial_paths(
         &self,
-        pe: &'_ PkiEnvironment<'_>,
+        pe: &'_ PkiEnvironment,
         cps: &CertificationPathSettings,
     ) {
         let mut ta_vec = vec![];
@@ -1334,7 +1334,7 @@ impl CertificationPathBuilder for CertSource {
     /// a vector of CertificationPath objects.
     fn get_paths_for_target<'a>(
         &self,
-        pe: &PkiEnvironment<'a>,
+        pe: &PkiEnvironment,
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,

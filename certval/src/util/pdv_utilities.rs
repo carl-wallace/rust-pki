@@ -50,7 +50,7 @@ use crate::{
 /// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
 /// used to verify the TBSCertificate field as parsed from the encoded certificate object.
 pub fn is_self_signed_with_buffer(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cert: &Certificate,
     enc_cert: &[u8],
 ) -> bool {
@@ -79,7 +79,7 @@ pub fn is_self_signed_with_buffer(
 
 /// `is_self_signed` returns true if the public key in the certificate can be used to verify the
 /// signature on the certificate.
-pub fn is_self_signed(pe: &PkiEnvironment<'_>, cert: &PDVCertificate) -> bool {
+pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
     is_self_signed_with_buffer(pe, &cert.decoded_cert, cert.encoded_cert.as_slice())
 }
 

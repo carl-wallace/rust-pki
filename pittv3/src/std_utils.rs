@@ -43,7 +43,7 @@ use certval::check_revocation;
 /// The `stats` parameter is used to aggregate basic path processing statistics.
 #[cfg(feature = "std")]
 pub(crate) async fn validate_cert_file(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cert_filename: &str,
     stats: &mut PathValidationStats,
@@ -193,7 +193,7 @@ pub(crate) async fn validate_cert_file(
 #[async_recursion::async_recursion]
 #[cfg(feature = "std")]
 pub async fn validate_cert_folder(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     certs_folder: &str,
     stats: &mut PathValidationStatsGroup,
@@ -264,7 +264,7 @@ pub async fn validate_cert_folder(
 pub async fn generate(
     args: &Pittv3Args,
     cps: &mut CertificationPathSettings,
-    pe: &mut PkiEnvironment<'_>,
+    pe: &mut PkiEnvironment,
 ) {
     let start = Instant::now();
 
@@ -308,7 +308,7 @@ pub async fn generate(
 /// - Certificate is self-signed
 #[cfg(feature = "std")]
 pub fn cleanup_certs(
-    pe: &PkiEnvironment<'_>,
+    pe: &PkiEnvironment,
     certs_folder: &str,
     error_folder: &str,
     report_only: bool,
@@ -407,7 +407,7 @@ pub fn cleanup_certs(
 /// - Trust anchor is not valid at indicated time `t`
 #[cfg(feature = "std")]
 pub fn cleanup_tas(
-    _pe: &PkiEnvironment<'_>,
+    _pe: &PkiEnvironment,
     tas_folder: &str,
     error_folder: &str,
     report_only: bool,
@@ -496,7 +496,7 @@ fn delete_or_move_file(error_folder: &str, path: &Path, filename: &str) {
 
 /// `cleanup` implements the `cleanup` option using [`cleanup_certs`] for support.
 #[cfg(feature = "std")]
-pub fn cleanup(pe: &PkiEnvironment<'_>, args: &Pittv3Args) {
+pub fn cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
     let ca_folder = if let Some(ca_folder) = &args.ca_folder {
         ca_folder
     } else {
@@ -520,7 +520,7 @@ pub fn cleanup(pe: &PkiEnvironment<'_>, args: &Pittv3Args) {
 
 /// `ta_cleanup` implements the `ta-cleanup` option using [`cleanup_tas`] for support.
 #[cfg(feature = "std")]
-pub fn ta_cleanup(pe: &PkiEnvironment<'_>, args: &Pittv3Args) {
+pub fn ta_cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
     let ta_folder = if let Some(ta_folder) = &args.ta_folder {
         ta_folder
     } else {
