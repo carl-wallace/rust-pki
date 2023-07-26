@@ -21,9 +21,6 @@
 //!
 //! // add cert_source to provide access to intermediate CA certificates
 //!  pe.add_certificate_source(Box::new(cert_source.clone()));
-//!
-//! // add same object as a path builder to provide path building capabilities
-//!  pe.add_path_builder(Box::new(cert_source.clone()));
 //! ```
 //!
 //! [`CertSource`] instances are used when preparing a serialized file containing intermediate CA
@@ -66,9 +63,9 @@ use crate::{
     util::pdv_utilities::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
-    CertificateSource, CertificationPath, CertificationPathBuilder, CertificationPathSettings,
-    ExtensionProcessing, NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
-    EXTS_OF_INTEREST, PS_MAX_PATH_LENGTH_CONSTRAINT,
+    CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
+    NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, EXTS_OF_INTEREST,
+    PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
 #[cfg(feature = "std")]
@@ -400,11 +397,10 @@ impl BuffersAndPaths {
 /// ```
 ///
 /// The [`CertSource`] instance can then be passed to a [`PkiEnvironment`] instance to serve both as
-/// a source of certificates and as a path building implementation, as shown below.
+/// a source of certificates, which includes a path building implementation, as shown below.
 ///
 /// ```ignore
 ///     pe.add_certificate_source(Box::new(cert_source.clone()));
-///     pe.add_path_builder(Box::new(cert_source.clone()));
 /// ```
 ///
 /// The general idea is to prepare an as comprehensive as possible set of partial certification paths
@@ -1325,7 +1321,7 @@ impl CertSource {
     }
 }
 
-impl CertificationPathBuilder for CertSource {
+impl CertificateSource for CertSource {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
     fn get_paths_for_target(
@@ -1514,9 +1510,7 @@ impl CertificationPathBuilder for CertSource {
 
         Ok(())
     }
-}
 
-impl CertificateSource for CertSource {
     fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
         let hex_skid = buffer_to_hex(skid);
         let mut retval = vec![];

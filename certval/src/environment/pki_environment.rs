@@ -26,10 +26,6 @@
 //! // add ta_source and cert_source to provide access to trust anchors and intermediate CA certificates
 //! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 //!  pe.add_certificate_source(Box::new(cert_source.clone()));
-//!
-//! // add certification path building capabilities
-//!  pe.add_path_builder(Box::new(cert_source.clone()));
-//!
 //! ```
 //!
 //! The aggregation of function pointers and trait objects allows for implementations of features to
@@ -73,12 +69,6 @@ pub struct PkiEnvironment {
     //--------------------------------------------------------------------------
     /// List of functions that provide certification path validation functionality
     validate_path_callbacks: Vec<ValidatePath>,
-
-    /// List of trait objects that provide certification path building functionality
-    #[cfg(feature = "std")]
-    path_builders: Vec<Box<(dyn CertificationPathBuilder + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    path_builders: Vec<Box<(dyn CertificationPathBuilder)>>,
 
     //--------------------------------------------------------------------------
     //Storage and retrieval interfaces
@@ -131,7 +121,6 @@ impl Default for PkiEnvironment {
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
-            path_builders: vec![],
             oid_lookups: vec![oid_lookup],
             crl_sources: vec![],
             revocation_cache: vec![],
@@ -150,7 +139,6 @@ impl PkiEnvironment {
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
-            path_builders: vec![],
             oid_lookups: vec![],
             crl_sources: vec![],
             revocation_cache: vec![],
@@ -162,7 +150,6 @@ impl PkiEnvironment {
     /// associated with an instance of [`PkiEnvironment`].
     pub fn clear_all_callbacks(&mut self) {
         self.clear_crl_sources();
-        self.clear_path_builders();
         self.clear_oid_lookups();
         self.clear_revocation_cache();
         self.clear_certificate_sources();
@@ -486,23 +473,6 @@ impl PkiEnvironment {
         }
     }
 
-    /// add_path_builder adds a [`CertificationPathBuilder`] object to the list to support path building.
-    #[cfg(feature = "std")]
-    pub fn add_path_builder(&mut self, c: Box<(dyn CertificationPathBuilder + Sync)>) {
-        self.path_builders.push(c);
-    }
-
-    /// add_path_builder adds a [`CertificationPathBuilder`] object to the list to support path building.
-    #[cfg(not(feature = "std"))]
-    pub fn add_path_builder(&mut self, c: Box<(dyn CertificationPathBuilder)>) {
-        self.path_builders.push(c);
-    }
-
-    /// clear_path_builders clears the list of [`CertificationPathBuilder`] objects.
-    pub fn clear_path_builders(&mut self) {
-        self.path_builders.clear();
-    }
-
     /// get_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of [`CertificationPath`] objects.
     pub fn get_paths_for_target(
@@ -513,7 +483,7 @@ impl PkiEnvironment {
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()> {
-        for f in &self.path_builders {
+        for f in &self.certificate_sources {
             let r = f.get_paths_for_target(pe, target, paths, threshold, time_of_interest);
             if let Ok(r) = r {
                 return Ok(r);

@@ -893,9 +893,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         // add the CertSource instance to the PkiEnvironment as both a source of certificates and
         // as a path builder
-        //todo - refactor traits to avoid this
         pe.add_certificate_source(Box::new(cert_source.clone()));
-        pe.add_path_builder(Box::new(cert_source.clone()));
 
         // perform validation of end entity certificate file or folder. pass in fresh_uris to collect
         // URIs from any relevant trust anchors.

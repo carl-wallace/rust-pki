@@ -30,7 +30,6 @@
 //! populate_5280_pki_environment(&mut pe);
 //! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 //! pe.add_certificate_source(Box::new(cert_source.clone()));
-//! pe.add_path_builder(Box::new(cert_source.clone()));
 //! pe.add_crl_source(Box::new(crl_source.clone()));
 //! pe.add_revocation_cache(Box::new(RevocationCache::new()));
 //!

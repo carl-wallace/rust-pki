@@ -114,19 +114,7 @@ pub trait CertificateSource {
 
     /// get_encoded_certificates returns a vector containing copies of the available encoded certificates.
     fn get_encoded_certificates(&self) -> Result<Vec<Vec<u8>>>;
-}
 
-/// The `CertificationPathBuilderFormats` enum is used to support possible future support for alternative
-/// formats when serializing partial certification paths. At present, only CBOR is supported.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum CertificationPathBuilderFormats {
-    /// Serialize using CBOR format
-    Cbor,
-}
-
-/// The [`CertificationPathBuilder`] trait defines the interface for implementations that support building
-/// certification paths.
-pub trait CertificationPathBuilder {
     /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
     /// a vector of CertificationPath objects.
     fn get_paths_for_target(
@@ -137,6 +125,14 @@ pub trait CertificationPathBuilder {
         threshold: usize,
         time_of_interest: u64,
     ) -> Result<()>;
+}
+
+/// The `CertificationPathBuilderFormats` enum is used to support possible future support for alternative
+/// formats when serializing partial certification paths. At present, only CBOR is supported.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CertificationPathBuilderFormats {
+    /// Serialize using CBOR format
+    Cbor,
 }
 
 /// The [`CrlSource`] trait defines the interface for storing and retrieving CRLs in support of certification path validation.
