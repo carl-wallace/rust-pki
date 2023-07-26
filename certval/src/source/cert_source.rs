@@ -451,7 +451,7 @@ impl Default for CertSource {
     }
 }
 
-impl<'a> CertSource {
+impl CertSource {
     /// CertSource::new instantiates a new empty CertSource. The caller is responsible for populating
     /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
     /// member then preparing skid and name maps prior to using instance.
@@ -602,7 +602,7 @@ impl<'a> CertSource {
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_target(&'a self, target: &'a PDVCertificate, time_of_interest: u64) {
+    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: u64) {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
             error!(
@@ -758,7 +758,7 @@ impl<'a> CertSource {
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_leaf_ca(&'a self, target: &'a PDVCertificate) {
+    pub fn log_paths_for_leaf_ca(&self, target: &PDVCertificate) {
         #[cfg(feature = "std")]
         let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
             g

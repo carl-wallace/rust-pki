@@ -167,7 +167,7 @@ impl CrlSourceFolders {
 
 impl CheckRemoteResource for CrlSourceFolders {
     /// get_last_modified takes a URI and returns stored last modified value or None.
-    fn get_last_modified<'a>(&self, uri: &str) -> Option<String> {
+    fn get_last_modified(&self, uri: &str) -> Option<String> {
         let last_modified_map_guard = if let Ok(g) = self.last_modified_map.lock() {
             g
         } else {
@@ -184,7 +184,7 @@ impl CheckRemoteResource for CrlSourceFolders {
         }
     }
     /// Save last modified value, if desired
-    fn set_last_modified<'a>(&self, uri: &str, last_modified: &str) {
+    fn set_last_modified(&self, uri: &str, last_modified: &str) {
         let last_modified_map_guard = if let Ok(g) = self.last_modified_map.lock() {
             g
         } else {
@@ -210,7 +210,7 @@ impl CheckRemoteResource for CrlSourceFolders {
         }
     }
     /// Gets blocklist takes a URI and returns true if it is on blocklist and false otherwise
-    fn check_blocklist<'a>(&self, uri: &str) -> bool {
+    fn check_blocklist(&self, uri: &str) -> bool {
         let blocklist_guard = if let Ok(g) = self.blocklist.lock() {
             g
         } else {
@@ -223,7 +223,7 @@ impl CheckRemoteResource for CrlSourceFolders {
         blocklist.contains(&uri.to_string())
     }
     /// Save blocklist, if desired
-    fn add_to_blocklist<'a>(&self, uri: &str) {
+    fn add_to_blocklist(&self, uri: &str) {
         let blocklist_guard = if let Ok(g) = self.blocklist.lock() {
             g
         } else {

@@ -776,7 +776,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
 }
 
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
-pub fn compare_names<'a>(left: &'a Name, right: &'a Name) -> bool {
+pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
     if left.0.len() != right.0.len() {
         return false;

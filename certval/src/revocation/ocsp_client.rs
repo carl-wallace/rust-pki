@@ -333,13 +333,13 @@ fn verify_response_signature(
 /// trusted OCSP responders are not currently supported.
 #[allow(clippy::too_many_arguments)]
 #[cfg(feature = "remote")]
-pub async fn send_ocsp_request<'a>(
+pub async fn send_ocsp_request(
     pe: &PkiEnvironment<'_>,
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
     issuers_cert: &Certificate,
-    cpr: &'a mut CertificationPathResults,
+    cpr: &mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
     if !uri_to_check.starts_with("http") {
