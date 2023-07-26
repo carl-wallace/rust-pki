@@ -18,7 +18,7 @@ pub struct CertificationPath<'a> {
     /// `intermediates\[0\]` can be used to verify `intermediates\[1\]`, `intermediates\[1\]` can be used to verify
     /// `intermediates\[2\]`, etc. until `intermediates[intermediates.len() - 1]` can be used to verify `target`.
     #[readonly]
-    pub intermediates: CertificateChain<'a>,
+    pub intermediates: CertificateChain,
     /// `trust_anchor` contains the trust anchor for the certification path
     #[readonly]
     pub trust_anchor: &'a PDVTrustAnchorChoice,
@@ -36,11 +36,11 @@ pub struct CertificationPath<'a> {
     pub ocsp_responses: Vec<Option<Vec<u8>>>,
 }
 
-impl<'a> CertificationPath<'a> {
+impl<'a> CertificationPath<'_> {
     /// instantiates a new TaSource
     pub fn new(
         trust_anchor: &'a PDVTrustAnchorChoice,
-        intermediates: CertificateChain<'a>,
+        intermediates: CertificateChain,
         target: &'a PDVCertificate,
     ) -> CertificationPath<'a> {
         let len = intermediates.len() + 1;

@@ -17,7 +17,6 @@ extern crate alloc;
 
 use alloc::vec;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
-use core::ops::Deref;
 use log::{error, info};
 
 use crate::{
@@ -45,6 +44,10 @@ use crate::get_check_crldp_http;
 
 #[cfg(feature = "remote")]
 use crate::get_check_ocsp_from_aia;
+
+#[cfg(not(feature = "std"))]
+use core::ops::Deref;
+
 
 /// check_revocation is top level revocation checking function supports a variety of revocation status
 /// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses. Assuming all options
@@ -92,13 +95,13 @@ pub async fn check_revocation(
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    v.push(cp.target.clone());
 
     prepare_revocation_results(cpr, v.len())?;
 
     let mut issuer_cert =
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
-            cert
+            cert.clone()
         } else {
             error!("Failed to retrieve certificate from trust anchor object");
             return Err(Error::Unrecognized);
@@ -111,7 +114,7 @@ pub async fn check_revocation(
     // save up the statuses and return Ok only if none are RevocationStatusNotDetermined
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let cur_cert = ca_cert_ref.deref();
+        let cur_cert = ca_cert_ref;
         let cur_cert_subject = name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate.subject);
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
@@ -141,7 +144,7 @@ pub async fn check_revocation(
                     cps,
                     cpr,
                     enc_ocsp_resp,
-                    issuer_cert,
+                    &issuer_cert,
                     pos,
                     "stapled",
                     cur_cert,
@@ -162,7 +165,7 @@ pub async fn check_revocation(
                     }
                 }
             } else if let Some(crl) = &cp.crls[pos] {
-                match process_crl(pe, cps, cpr, cur_cert, issuer_cert, pos, crl, None) {
+                match process_crl(pe, cps, cpr, cur_cert, &issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
                         add_crl(cpr, crl, pos);
@@ -190,7 +193,7 @@ pub async fn check_revocation(
                         cps,
                         cpr,
                         cur_cert,
-                        issuer_cert,
+                        &issuer_cert,
                         pos,
                         crl.as_slice(),
                         None,
@@ -220,7 +223,7 @@ pub async fn check_revocation(
         #[cfg(feature = "remote")]
         if cur_status == RevocationStatusNotDetermined && check_ocsp_from_aia {
             // check_revocation_ocsp emits log message that includes which AIA was used to determine status
-            cur_status = check_revocation_ocsp(pe, cps, cpr, cur_cert, issuer_cert, pos).await;
+            cur_status = check_revocation_ocsp(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
                 set_validation_status(cpr, revoked_error);
                 return Err(Error::PathValidation(revoked_error));
@@ -230,7 +233,7 @@ pub async fn check_revocation(
         #[cfg(feature = "remote")]
         if cur_status == RevocationStatusNotDetermined && check_crldp_http {
             cur_status =
-                check_revocation_crl_remote(pe, cps, cpr, cur_cert, issuer_cert, pos).await;
+                check_revocation_crl_remote(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
                 set_validation_status(cpr, revoked_error);
                 return Err(Error::PathValidation(revoked_error));
@@ -242,7 +245,7 @@ pub async fn check_revocation(
         }
 
         statuses.push(cur_status);
-        issuer_cert = &cur_cert.decoded_cert;
+        issuer_cert = cur_cert.decoded_cert.clone();
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {
@@ -291,13 +294,13 @@ pub fn check_revocation(
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
-    v.push(cp.target);
+    v.push(cp.target.clone());
 
     prepare_revocation_results(cpr, v.len())?;
 
     let mut issuer_cert =
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
-            cert
+            cert.clone()
         } else {
             error!("Failed to retrieve certificate from trust anchor object",);
             return Err(Error::Unrecognized);
@@ -335,7 +338,7 @@ pub fn check_revocation(
                     cps,
                     cpr,
                     enc_ocsp_resp,
-                    issuer_cert,
+                    &issuer_cert,
                     pos,
                     "stapled",
                     cur_cert,
@@ -356,7 +359,7 @@ pub fn check_revocation(
                     }
                 }
             } else if let Some(crl) = &cp.crls[pos] {
-                match process_crl(pe, cps, cpr, cur_cert, issuer_cert, pos, crl, None) {
+                match process_crl(pe, cps, cpr, cur_cert, &issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
                         add_crl(cpr, crl, pos);
@@ -384,7 +387,7 @@ pub fn check_revocation(
                         cps,
                         cpr,
                         cur_cert,
-                        issuer_cert,
+                        &issuer_cert,
                         pos,
                         crl.as_slice(),
                         None,
@@ -416,7 +419,7 @@ pub fn check_revocation(
         }
 
         statuses.push(cur_status);
-        issuer_cert = &cur_cert.decoded_cert;
+        issuer_cert = cur_cert.decoded_cert.clone();
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {

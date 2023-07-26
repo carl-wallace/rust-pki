@@ -50,7 +50,7 @@ fn pkits_test1() {
     ca.parse_extensions(EXTS_OF_INTEREST);
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
 
-    let chain = vec![&ca];
+    let chain = vec![ca];
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
