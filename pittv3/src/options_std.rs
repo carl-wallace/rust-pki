@@ -660,23 +660,22 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         .as_ref()
         .map(|crl_folder| RemoteStatus::new(crl_folder));
 
+    // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
+    let mut pe = PkiEnvironment::default();
+    populate_5280_pki_environment(&mut pe);
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    if let Some(crl_source) = &crl_source {
+        pe.add_crl_source(Box::new(crl_source.clone()));
+    }
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    if let Some(remote_status) = &remote_status {
+        pe.add_check_remote(Box::new(remote_status.clone()));
+    }
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    pe.add_revocation_cache(Box::new(RevocationCache::new()));
     loop {
-        // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
-        let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(Box::new(ta_source.clone()));
-
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        if let Some(crl_source) = &crl_source {
-            pe.add_crl_source(Box::new(crl_source.clone()));
-        }
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        if let Some(remote_status) = &remote_status {
-            pe.add_check_remote(Box::new(remote_status.clone()));
-        }
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        pe.add_revocation_cache(Box::new(RevocationCache::new()));
-
         // Create a new CertSource and (re-)deserialize on every iteration due references to
         // buffers in the certs member. On the first pass, cbor will contain data read from file,
         // on subsequent passes it will contain a fresh CBOR blob that features buffers downloaded
@@ -881,6 +880,8 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             )
             .await;
         }
+
+        pe.clear_certificate_sources();
 
         #[cfg(feature = "remote")]
         if !args.dynamic_build {
