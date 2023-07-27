@@ -233,18 +233,27 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
                 let mut buffer = vec![0; metadata.len() as usize];
                 match f.read_exact(&mut buffer) {
                     Ok(_) => Ok(buffer),
-                    Err(e) => Err(Error::StdIoError(e.kind())),
+                    Err(e) => {
+                        error!("Failed to read data from {:?}: {}", filename, e);
+                        Err(Error::StdIoError(e.kind()))
+                    }
                 }
             }
-            Err(e) => Err(Error::StdIoError(e.kind())),
+            Err(e) => {
+                error!("Failed to read metadata for {:?}: {}", filename, e);
+                Err(Error::StdIoError(e.kind()))
+            }
         },
-        Err(e) => Err(Error::StdIoError(e.kind())),
+        Err(e) => {
+            error!("Failed to read {:?}: {}", filename, e);
+            Err(Error::StdIoError(e.kind()))
+        }
     }
 }
 
 /// `get_file_as_byte_vec_pem` takes a Path containing a file name and returns a vector of bytes containing
 /// the contents of that file or an [Error::StdIoError]. If the file is PEM encoded, it is decoded
-/// prior to returning the vector of bytes. To read without PEM, use `get_file_as_byte_vec`.
+/// prior to returning the vector of bytes. To read without PEM support, use `get_file_as_byte_vec`.
 #[cfg(feature = "std")]
 pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
     let b = get_file_as_byte_vec(filename)?;
@@ -254,7 +263,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
                 return Ok(b.1);
             }
             Err(e) => {
-                error!("Failed to parse certificate from {:?}: {:?}", filename, e);
+                error!("Failed to PEM decode data from {:?}: {:?}", filename, e);
                 return Err(Error::Unrecognized);
             }
         }

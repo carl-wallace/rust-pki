@@ -414,7 +414,7 @@ pub async fn options_std(args: &Pittv3Args) {
             };
 
             let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
-            if let Some(target_cert) = parsed_cert {
+            if let Ok(target_cert) = parsed_cert {
                 cert_source.log_paths_for_target(&target_cert, args.time_of_interest);
             }
         }
@@ -485,7 +485,7 @@ pub async fn options_std(args: &Pittv3Args) {
         if let Some(eff) = &args.end_entity_file {
             if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&eff)) {
                 let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
-                if let Some(target_cert) = parsed_cert {
+                if let Ok(target_cert) = parsed_cert {
                     let mut pe = PkiEnvironment::default();
                     populate_5280_pki_environment(&mut pe);
                     if is_self_signed(&pe, &target_cert) {
@@ -497,7 +497,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     // try base 64
                     if let Ok(encoded) = pem_rfc7468::decode_vec(t.as_slice()) {
                         let parsed_cert = parse_cert(&encoded.1, eff.as_str());
-                        if let Some(target_cert) = parsed_cert {
+                        if let Ok(target_cert) = parsed_cert {
                             let mut pe = PkiEnvironment::default();
                             populate_5280_pki_environment(&mut pe);
                             if is_self_signed(&pe, &target_cert) {
@@ -855,7 +855,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                         && !stats_for_file.target_is_revoked)
                 {
                     // validate when validating all or we don't have a definitive answer yet
-                    validate_cert_file(
+                    let _ = validate_cert_file(
                         &pe,
                         &cps,
                         filename.as_str(),

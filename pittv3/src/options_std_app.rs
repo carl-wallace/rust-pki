@@ -148,7 +148,7 @@ pub fn options_std_app(args: &Pittv3Args) {
                     };
 
                     // validate when validating all or we don't have a definitive answer yet
-                    validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
+                    let _ = validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
                 }
                 Err(e) => {
                     println!("Failed to read file at {} with {}", filename, e);

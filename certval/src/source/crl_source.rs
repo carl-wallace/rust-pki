@@ -71,6 +71,8 @@ pub struct RevocationCache {
 #[derive(Clone)]
 #[readonly::make]
 pub struct RemoteStatus {
+    /// Folder where remote status information is stored, i.e., last_modified_map.json. This is
+    /// typically the same as the crls_folder used by a CrlSourceFolders instance
     #[readonly]
     pub lmm_folder: String,
 

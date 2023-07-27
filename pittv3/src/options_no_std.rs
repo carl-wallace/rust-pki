@@ -109,7 +109,7 @@ pub fn options_no_std(args: &Pittv3Args) {
                 ee.bytes
             };
 
-            validate_cert(&pe, &cps, ee.filename.as_str(), &b, stats_for_file, &args);
+            let _ = validate_cert(&pe, &cps, ee.filename.as_str(), &b, stats_for_file, &args);
         }
     }
 

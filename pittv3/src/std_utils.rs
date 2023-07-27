@@ -50,142 +50,116 @@ pub(crate) async fn validate_cert_file(
     args: &Pittv3Args,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
-) {
+) -> Result<()> {
     let time_of_interest = get_time_of_interest(cps);
+    let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
 
-    let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
-        t
-    } else {
-        error!("Failed to read file at {}", cert_filename);
-        return;
-    };
+    let target_cert = parse_cert(target_bytes.as_slice(), cert_filename)?;
+    info!(
+        "Start building and validating path(s) for {}",
+        cert_filename
+    );
 
-    let b = if target[0] != 0x30 {
-        match pem_rfc7468::decode_vec(target.as_slice()) {
-            Ok(b) => b.1,
-            Err(e) => {
-                error!("Failed to parse certificate from {}: {}", cert_filename, e);
-                return;
-            }
-        }
-    } else {
-        target
-    };
+    let start2 = Instant::now();
+    stats.files_processed += 1;
 
-    if let Some(target_cert) = parse_cert(b.as_slice(), cert_filename) {
-        info!(
-            "Start building and validating path(s) for {}",
-            cert_filename
+    let mut paths: Vec<CertificationPath> = vec![];
+    let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, threshold, time_of_interest);
+    if let Err(e) = r {
+        println!(
+            "Failed to find certification paths for target with error {:?}",
+            e
         );
-
-        let start2 = Instant::now();
-
-        stats.files_processed += 1;
-
-        let mut paths: Vec<CertificationPath> = vec![];
-        let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, threshold, time_of_interest);
-        if let Err(e) = r {
-            println!(
-                "Failed to find certification paths for target with error {:?}",
-                e
-            );
-            error!(
-                "Failed to find certification paths for target with error {:?}",
-                e
-            );
-            return;
-        }
-
-        if paths.is_empty() {
-            collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
-            info!("Failed to find any certification paths for target",);
-            return;
-        }
-
-        for (i, path) in paths.iter_mut().enumerate() {
-            info!(
-                "Validating {} certificate path for {}",
-                (path.intermediates.len() + 2),
-                name_to_string(&path.target.decoded_cert.tbs_certificate.subject)
-            );
-            let mut cpr = CertificationPathResults::new();
-
-            #[cfg(not(feature = "remote"))]
-            let r = pe.validate_path(pe, cps, path, &mut cpr);
-
-            #[cfg(feature = "remote")]
-            let mut r = pe.validate_path(pe, cps, path, &mut cpr);
-
-            #[cfg(feature = "remote")]
-            if let Ok(_valresult) = r {
-                if get_check_revocation_status(cps) {
-                    r = check_revocation(pe, cps, path, &mut cpr).await;
-                }
-            }
-
-            log_path(
-                pe,
-                &args.results_folder,
-                path,
-                stats.paths_per_target + i,
-                Some(&cpr),
-                Some(cps),
-            );
-            stats.results.push(cpr.clone());
-            match r {
-                Ok(_) => {
-                    stats.valid_paths_per_target += 1;
-
-                    info!("Successfully validated {}", cert_filename);
-                    if !args.validate_all {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    stats.invalid_paths_per_target += 1;
-
-                    log_path(pe, &args.error_folder, path, i, None, None);
-                    if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity)
-                    {
-                        info!("Failed to validate {} with {:?}", cert_filename, e);
-                        break;
-                    } else {
-                        info!("Failed to validate {} with {:?}", cert_filename, e);
-                    }
-                }
-            }
-
-            #[cfg(feature = "remote")]
-            if args.dynamic_build {
-                // if we get here we are validating all possible paths with dynamic building. gather
-                // up URIs from the trust anchor
-                collect_uris_from_aia_and_sia_from_ta(&path.trust_anchor, fresh_uris);
-
-                // This is possibly overkill as CA certs are processed during preparing of partial
-                // paths following dynamic building. Without this, then URIs from certs in the
-                // intially deserialized CBOR may not be followed.
-                for c in path.intermediates.iter() {
-                    collect_uris_from_aia_and_sia(c, fresh_uris);
-                }
-            }
-        }
-        stats.paths_per_target += paths.len();
-
-        let finish = Instant::now();
-        let duration2 = finish - start2;
-        info!(
-            "{:?} to build and validate {} path(s) for {}",
-            duration2,
-            paths.len(),
-            cert_filename
+        error!(
+            "Failed to find certification paths for target with error {:?}",
+            e
         );
-    } else {
-        // parse_cert writes out an error
-        // log_message(
-        //     &PeError,
-        //     format!("Failed to parse certificate from file {}", cert_filename).as_str(),
-        // );
+        return Err(Error::Unrecognized);
     }
+
+    if paths.is_empty() {
+        collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
+        info!("Failed to find any certification paths for target",);
+        return Err(Error::Unrecognized);
+    }
+
+    for (i, path) in paths.iter_mut().enumerate() {
+        info!(
+            "Validating {} certificate path for {}",
+            (path.intermediates.len() + 2),
+            path.target.decoded_cert.tbs_certificate.subject.to_string()
+        );
+        let mut cpr = CertificationPathResults::new();
+
+        #[cfg(not(feature = "remote"))]
+        let r = pe.validate_path(pe, cps, path, &mut cpr);
+
+        #[cfg(feature = "remote")]
+        let mut r = pe.validate_path(pe, cps, path, &mut cpr);
+
+        #[cfg(feature = "remote")]
+        if r.is_ok() {
+            if get_check_revocation_status(cps) {
+                r = check_revocation(pe, cps, path, &mut cpr).await;
+            }
+        }
+
+        log_path(
+            pe,
+            &args.results_folder,
+            path,
+            stats.paths_per_target + i,
+            Some(&cpr),
+            Some(cps),
+        );
+        stats.results.push(cpr.clone());
+        match r {
+            Ok(_) => {
+                stats.valid_paths_per_target += 1;
+
+                info!("Successfully validated {}", cert_filename);
+                if !args.validate_all {
+                    break;
+                }
+            }
+            Err(e) => {
+                stats.invalid_paths_per_target += 1;
+
+                log_path(pe, &args.error_folder, path, i, None, None);
+                if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) {
+                    info!("Failed to validate {} with {:?}", cert_filename, e);
+                    break;
+                } else {
+                    info!("Failed to validate {} with {:?}", cert_filename, e);
+                }
+            }
+        }
+
+        #[cfg(feature = "remote")]
+        if args.dynamic_build {
+            // if we get here we are validating all possible paths with dynamic building. gather
+            // up URIs from the trust anchor
+            collect_uris_from_aia_and_sia_from_ta(&path.trust_anchor, fresh_uris);
+
+            // This is possibly overkill as CA certs are processed during preparing of partial
+            // paths following dynamic building. Without this, then URIs from certs in the
+            // intially deserialized CBOR may not be followed.
+            for c in path.intermediates.iter() {
+                collect_uris_from_aia_and_sia(c, fresh_uris);
+            }
+        }
+    }
+    stats.paths_per_target += paths.len();
+
+    let finish = Instant::now();
+    let duration2 = finish - start2;
+    info!(
+        "{:?} to build and validate {} path(s) for {}",
+        duration2,
+        paths.len(),
+        cert_filename
+    );
+    Ok(())
 }
 
 /// validate_cert_folder recursively traverses the given `certs_folder` and invokes [validate_cert_file]
@@ -231,7 +205,7 @@ pub async fn validate_cert_folder(
                                         && !stats_for_file.target_is_revoked)
                                 {
                                     // validate when validating all or we don't have a definitive answer yet
-                                    validate_cert_file(
+                                    let _ = validate_cert_file(
                                         pe,
                                         cps,
                                         filename,
@@ -348,9 +322,8 @@ pub fn cleanup_certs(
                     }
 
                     let mut delete_file = false;
-                    let target_cert = parse_cert(target.as_slice(), filename);
-                    match target_cert {
-                        Some(tc) => {
+                    match parse_cert(target.as_slice(), filename) {
+                        Ok(tc) => {
                             if t > 0 {
                                 let r = valid_at_time(&tc.decoded_cert.tbs_certificate, t, true);
                                 if let Err(_e) = r {
@@ -378,7 +351,7 @@ pub fn cleanup_certs(
                                 error!("Missing basicConstraints: {}", filename);
                             }
                         }
-                        None => {
+                        Err(_e) => {
                             //parse_cert writes out a log messaage
                             delete_file = true;
                         }
