@@ -1320,7 +1320,7 @@ impl CertSource {
             } // end if let Some(cur_cert) = cur_cert {
         }
         if !new_additions.is_empty() {
-            error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
+            //error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
             partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
