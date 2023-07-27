@@ -45,7 +45,7 @@ fn save_certs_from_p7(
     filename: &Path,
     bytes: &[u8],
     target: &str,
-    buffers: &mut Vec<CertFile>,
+    buffers: &mut dyn CertVector,
     time_of_interest: u64,
 ) -> bool {
     let mut at_least_one_saved = false;
@@ -102,7 +102,7 @@ fn save_cert(
     filename: &Path,
     bytes: &[u8],
     target: &str,
-    buffers: &mut Vec<CertFile>,
+    buffers: &mut dyn CertVector,
     time_of_interest: u64,
 ) -> bool {
     let mut saved = false;
@@ -175,7 +175,7 @@ pub async fn fetch_to_buffer(
     pe: &PkiEnvironment,
     uris: &[String],
     folder: &str,
-    buffers: &mut Vec<CertFile>,
+    buffers: &mut dyn CertVector,
     start_index: usize,
     last_mod_map: &mut BTreeMap<String, String>,
     blocklist: &mut Vec<String>,

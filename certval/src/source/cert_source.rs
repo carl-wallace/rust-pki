@@ -75,6 +75,7 @@ use core::ops::Deref;
 use alloc::sync::Arc;
 #[cfg(feature = "std")]
 use std::sync::Mutex;
+use ciborium::from_reader;
 
 /// The CertFile struct associates a string, notionally containing a filename or URI, with a vector
 /// of bytes. The vector of bytes is assumed to contain a binary DER encoded certificate.
@@ -447,17 +448,52 @@ impl Default for CertSource {
     }
 }
 
+impl CertVector for CertSource {
+    fn contains(&self, cert: &CertFile) -> bool {
+        self.buffers_and_paths.buffers.contains(cert)
+    }
+    fn push(&mut self, cert: CertFile) {
+        if !self.buffers_and_paths.buffers.contains(&cert) {
+            self.buffers_and_paths.buffers.push(cert)
+        }
+    }
+    fn len(&self) -> usize {
+        self.buffers_and_paths.buffers.len()
+    }
+}
+
 impl CertSource {
     /// CertSource::new instantiates a new empty CertSource. The caller is responsible for populating
     /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
     /// member then preparing skid and name maps prior to using instance.
-    pub fn new() -> CertSource {
-        CertSource {
+    pub fn new() -> Self {
+        Self {
             certs: Vec::new(),
             buffers_and_paths: BuffersAndPaths::default(),
             skid_map: BTreeMap::new(),
             name_map: BTreeMap::new(),
         }
+    }
+
+    /// Create new instance from CBOR
+    pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
+        match from_reader(cbor) {
+            Ok(buffers_and_paths) =>
+                Ok(Self {
+                certs: Vec::new(),
+                buffers_and_paths,
+                skid_map: BTreeMap::new(),
+                name_map: BTreeMap::new(),
+            }),
+            Err(_e) => {
+                Err(Error::ParseError)
+            }
+        }
+    }
+
+    /// Returns number of certificates currently held by instance
+    pub fn num_buffers(&self) -> usize {
+        self.buffers_and_paths.buffers.len()
     }
 
     /// Returns number of certificates currently held by instance
@@ -1284,7 +1320,7 @@ impl CertSource {
             } // end if let Some(cur_cert) = cur_cert {
         }
         if !new_additions.is_empty() {
-            //log_message(&PeLogLevels::PeDebug, format!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions).as_str());
+            error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
             partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
@@ -1709,7 +1745,7 @@ fn get_certificates_test() {
     assert!(cert_folder_to_vec(
         &pe,
         "tests/examples/PKITS_data_2048/certs",
-        &mut cert_store.buffers_and_paths.buffers,
+        &mut cert_store,
         1647258133,
     )
     .is_ok());

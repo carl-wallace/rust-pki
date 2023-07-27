@@ -216,7 +216,7 @@ pub async fn options_std(args: &Pittv3Args) {
         };
 
         let mut ta_store = TaSource::new();
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
         if let Err(e) = r {
             println!(
                 "Failed to load trust anchors from {} with error {:?}",
@@ -284,7 +284,7 @@ pub async fn options_std(args: &Pittv3Args) {
         let mut ta_store = TaSource::new();
 
         if let Some(ta_folder) = &args.ta_folder {
-            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
             if let Err(e) = r {
                 println!(
                     "Failed to load trust anchors from {} with error {:?}",
@@ -346,7 +346,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 let blocklist_file = if let Some(bl) = blp.to_str() { bl } else { "" };
 
                 if let Some(download_folder) = &args.download_folder {
-                    let mut buffers: Vec<CertFile> = vec![];
+                    //let mut buffers: Vec<CertFile> = vec![];
 
                     let mut blocklist = read_blocklist(blocklist_file);
                     let mut lmm = read_last_modified_map(lmm_file);
@@ -355,7 +355,7 @@ pub async fn options_std(args: &Pittv3Args) {
                         &pe,
                         &fresh_uris,
                         download_folder,
-                        &mut buffers,
+                        &mut CertSource::default(),
                         0,
                         &mut lmm,
                         &mut blocklist,
@@ -522,7 +522,7 @@ pub async fn options_std(args: &Pittv3Args) {
             return;
         };
 
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
         if let Err(e) = r {
             println!(
                 "Failed to load trust anchors from {} with error {:?}",
@@ -745,10 +745,10 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 let mut lmm = read_last_modified_map(lmm_file);
                 let mut blocklist = read_blocklist(blocklist_file);
 
-                let bap_ref = &mut cert_source.buffers_and_paths.buffers;
+                //let bap_ref = &mut cert_source.buffers_and_paths.buffers;
                 if 1 == pass {
                     // on first dynamic action, pick up certs from downloads folder
-                    if cert_folder_to_vec(&pe, download_folder, bap_ref, args.time_of_interest)
+                    if cert_folder_to_vec(&pe, download_folder, &mut cert_source, args.time_of_interest)
                         .is_err()
                     {
                         debug!("Encountered error reading certificates from downloads folder");
@@ -761,7 +761,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                     &pe,
                     &fresh_uris,
                     download_folder,
-                    bap_ref,
+                    &mut cert_source,
                     if uri_threshold == 0 {
                         0
                     } else {

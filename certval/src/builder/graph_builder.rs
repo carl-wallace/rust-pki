@@ -48,14 +48,14 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         ta_folder_to_vec(
             pe,
             &ca_folder,
-            &mut cert_store.buffers_and_paths.buffers,
+            &mut cert_store,
             toi,
         )
     } else {
         cert_folder_to_vec(
             pe,
             &ca_folder,
-            &mut cert_store.buffers_and_paths.buffers,
+            &mut cert_store,
             toi,
         )
     };
@@ -104,7 +104,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 pe,
                 &uris,
                 &download_folder,
-                &mut cert_store.buffers_and_paths.buffers,
+                &mut cert_store,
                 uris_count,
                 &mut lmm,
                 &mut blocklist,
@@ -132,10 +132,10 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 }
             }
 
-            if certs_count == cert_store.buffers_and_paths.buffers.len() {
+            if certs_count == cert_store.num_buffers() {
                 break;
             }
-            certs_count = cert_store.buffers_and_paths.buffers.len();
+            certs_count = cert_store.num_buffers();
             uris_count = uris.len();
             error!("URI count: {}; Cert count: {}", uris_count, certs_count);
         }
@@ -149,7 +149,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         );
     }
 
-    if cert_store.buffers_and_paths.buffers.is_empty() {
+    if cert_store.num_buffers() == 0 {
         error!("No certificates were read, so no partial paths were found and no CBOR certificate store will be generated"
             );
         return Err(Error::NotFound);
@@ -218,7 +218,7 @@ async fn non_existent_dir() {
     populate_5280_pki_environment(&mut pe);
 
     let mut ta_store = TaSource::new();
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store.buffers, 0).unwrap();
+    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
     populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
     ta_store.index_tas();
     // for (i, ta) in ta_store.tas.iter().enumerate() {
