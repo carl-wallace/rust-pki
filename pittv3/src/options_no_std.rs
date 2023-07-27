@@ -60,32 +60,11 @@ pub fn options_no_std(args: &Pittv3Args) {
             panic!("Failed to parse embedded CA CBOR with: {}", e)
         }
     }
-    let r =
-        populate_parsed_cert_vector(&cert_source.buffers_and_paths, &cps, &mut cert_source.certs);
+    let r = cert_source.populate_parsed_cert_vector(&cps);
     if let Err(e) = r {
         error!("Failed to populate cert vector with: {:?}", e);
     }
-    for (i, cert) in cert_source.certs.iter().enumerate() {
-        if let Some(cert) = cert {
-            let hex_skid = hex_skid_from_cert(cert);
-            if cert_source.skid_map.contains_key(&hex_skid) {
-                let mut v = cert_source.skid_map[&hex_skid].clone();
-                v.push(i);
-                cert_source.skid_map.insert(hex_skid, v);
-            } else {
-                cert_source.skid_map.insert(hex_skid, vec![i]);
-            }
-
-            let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-            if cert_source.name_map.contains_key(&name_str) {
-                let mut v = cert_source.name_map[&name_str].clone();
-                v.push(i);
-                cert_source.name_map.insert(name_str, v);
-            } else {
-                cert_source.name_map.insert(name_str, vec![i]);
-            }
-        }
-    }
+    cert_source.index_certs();
 
     let ta_cbor = include_bytes!("../resources/ta.cbor");
     let ta_bap: BuffersAndPaths = match from_reader(ta_cbor.as_slice()) {

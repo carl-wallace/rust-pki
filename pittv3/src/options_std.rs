@@ -274,37 +274,12 @@ pub async fn options_std(args: &Pittv3Args) {
                 panic!("Failed to parse CBOR file at {} with: {}", cbor_file, e)
             }
         }
-        let r = populate_parsed_cert_vector(
-            &cert_source.buffers_and_paths,
-            &cps,
-            &mut cert_source.certs,
-        );
+        let r = cert_source.populate_parsed_cert_vector(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert vector with: {:?}", e);
         }
 
-        //cert_source.index_certs();
-        for (i, cert) in cert_source.certs.iter().enumerate() {
-            if let Some(cert) = cert {
-                let hex_skid = hex_skid_from_cert(cert);
-                if cert_source.skid_map.contains_key(&hex_skid) {
-                    let mut v = cert_source.skid_map[&hex_skid].clone();
-                    v.push(i);
-                    cert_source.skid_map.insert(hex_skid, v);
-                } else {
-                    cert_source.skid_map.insert(hex_skid, vec![i]);
-                }
-
-                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-                if cert_source.name_map.contains_key(&name_str) {
-                    let mut v = cert_source.name_map[&name_str].clone();
-                    v.push(i);
-                    cert_source.name_map.insert(name_str, v);
-                } else {
-                    cert_source.name_map.insert(name_str, vec![i]);
-                }
-            }
-        }
+        cert_source.index_certs();
 
         let mut ta_store = TaSource::new();
 
@@ -336,14 +311,14 @@ pub async fn options_std(args: &Pittv3Args) {
         }
 
         if let Some(index) = args.dump_cert_at_index {
-            if index >= cert_source.certs.len() {
+            if index >= cert_source.num_certs() {
                 println!(
                     "Requested index does not exist. Try again with an index value less than {}",
-                    cert_source.certs.len()
+                    cert_source.num_certs()
                 );
                 return;
             }
-            let c = &cert_source.certs[index];
+            let c = &cert_source.get_cert_at_index(index);
             if let Some(cert) = c {
                 let p = Path::new(&download_folder);
                 let fname = format!("{}.der", index);
@@ -444,14 +419,14 @@ pub async fn options_std(args: &Pittv3Args) {
             }
         }
         if let Some(leaf_ca_index) = args.list_partial_paths_for_leaf_ca {
-            if leaf_ca_index >= cert_source.certs.len() {
+            if leaf_ca_index >= cert_source.num_certs() {
                 println!(
                     "Requested index does not exist. Try again with an index value less than {}",
-                    cert_source.certs.len()
+                    cert_source.num_certs()
                 );
                 return;
             }
-            let c = &cert_source.certs[leaf_ca_index];
+            let c = &cert_source.get_cert_at_index(leaf_ca_index);
             if let Some(leaf_ca_cert) = c {
                 cert_source.log_paths_for_leaf_ca(leaf_ca_cert);
             } else {
@@ -830,39 +805,14 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
-        let r = populate_parsed_cert_vector(
-            &cert_source.buffers_and_paths,
-            &cps,
-            &mut cert_source.certs,
-        );
+        let r = cert_source.populate_parsed_cert_vector(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert map: {}", e);
             break;
         }
 
         // Set up the SKID and name maps
-        // cert_source.index_certs();
-        for (i, cert) in cert_source.certs.iter().enumerate() {
-            if let Some(cert) = cert {
-                let hex_skid = hex_skid_from_cert(cert);
-                if cert_source.skid_map.contains_key(&hex_skid) {
-                    let mut v = cert_source.skid_map[&hex_skid].clone();
-                    v.push(i);
-                    cert_source.skid_map.insert(hex_skid, v);
-                } else {
-                    cert_source.skid_map.insert(hex_skid, vec![i]);
-                }
-
-                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-                if cert_source.name_map.contains_key(&name_str) {
-                    let mut v = cert_source.name_map[&name_str].clone();
-                    v.push(i);
-                    cert_source.name_map.insert(name_str, v);
-                } else {
-                    cert_source.name_map.insert(name_str, vec![i]);
-                }
-            }
-        }
+        cert_source.index_certs();
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
         // this is the first pass, we expect this to have been present in the deserialized CBOR.
@@ -883,8 +833,8 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             #[cfg(feature = "remote")]
             if args.dynamic_build {
                 // Iterate over freshly added certs and collect up URIs from AIA and SIA
-                for i in threshold..cert_source.certs.len() {
-                    if let Some(c) = &cert_source.certs[i] {
+                for i in threshold..cert_source.num_certs() {
+                    if let Some(c) = &cert_source.get_cert_at_index(i) {
                         collect_uris_from_aia_and_sia(c, &mut fresh_uris);
                     }
                 }

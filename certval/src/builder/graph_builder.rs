@@ -8,7 +8,6 @@ use log::error;
 
 use crate::builder::file_utils::cert_folder_to_vec;
 use crate::builder::file_utils::ta_folder_to_vec;
-use crate::source::cert_source::*;
 use crate::*;
 
 #[cfg(feature = "remote")]
@@ -90,9 +89,8 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
 
         loop {
             {
-                let mut tmp_vec: Vec<Option<PDVCertificate>> = vec![];
-                let r =
-                    populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut tmp_vec);
+                let tmp_vec: Vec<Option<PDVCertificate>> = vec![];
+                let r = cert_store.populate_parsed_cert_vector(cps);
                 if let Err(e) = r {
                     error!("Failed to populate cert map: {}", e);
                 }
@@ -143,7 +141,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         }
     }
 
-    let r = populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut cert_store.certs);
+    let r = cert_store.populate_parsed_cert_vector(cps);
     if let Err(e) = r {
         error!(
             "Failed to populate parsed certificate vector with error {:?}",

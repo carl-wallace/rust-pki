@@ -422,7 +422,7 @@ pub struct CertSource {
     /// MUST be the same as the order of buffers in the buffers_and_paths.buffers field. If a buffer
     /// cannot be parsed successfully (or is otherwise rejected immediately, i.e., expired), the
     /// corresponding element in the certs field should be set to None.
-    pub certs: Vec<Option<PDVCertificate>>,
+    certs: Vec<Option<PDVCertificate>>,
 
     /// Contains list of buffers referenced by certs field and, optionally, partial paths
     /// relationships between certificates corresponding to those buffers. This field is the target
@@ -432,10 +432,10 @@ pub struct CertSource {
     /// Maps certificate SKIDs to keys in the `certs` field. Typically, the SKID value is read from
     /// a SKID extension. If no extension is present, the value is calculated as the SHA256 hash of
     /// the SubjectPublicKeyInfoOwned field from the certificate.
-    pub skid_map: BTreeMap<String, Vec<usize>>,
+    skid_map: BTreeMap<String, Vec<usize>>,
 
     /// Maps certificate subject names to keys in the `certs` field.
-    pub name_map: BTreeMap<String, Vec<usize>>,
+    name_map: BTreeMap<String, Vec<usize>>,
 }
 
 impl Default for CertSource {
@@ -458,6 +458,61 @@ impl CertSource {
             skid_map: BTreeMap::new(),
             name_map: BTreeMap::new(),
         }
+    }
+
+    /// Returns number of certificates currently held by instance
+    pub fn num_certs(&self) -> usize {
+        self.certs.len()
+    }
+    /// Retrieves certificate at a given index
+    pub fn get_cert_at_index(&self, index: usize) -> Option<PDVCertificate> {
+        self.certs[index].clone()
+    }
+
+    /// The populate_cert_map is used to prepare a vector of [`PDVCertificate`] instances. This is typically be done
+    /// in support of preparing a [`CertSource`] instance, where the `bap` parameter is `buffer_and_paths`
+    /// field of a [`CertSource`] instance and the `cert_store` parameter is the `certs` field of the same
+    /// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
+    /// will be parsed to populate the vector.
+    pub fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
+        let time_of_interest = get_time_of_interest(cps);
+        for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
+            if let Ok(cert) =
+                Certificate::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
+            {
+                let valid = if let 0 = time_of_interest {
+                    true
+                } else {
+                    let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
+                    if r.is_err() {
+                        error!(
+                            "Certificate from {} is not valid at indicated time of interest",
+                            cert_file.filename
+                        );
+                    }
+                    matches!(r, Ok(_x))
+                };
+
+                if valid {
+                    let mut md = Asn1Metadata::new();
+                    md.insert(
+                        MD_LOCATOR.to_string(),
+                        Asn1MetadataTypes::String(cert_file.filename.clone()),
+                    );
+
+                    let mut pdvcert = PDVCertificate::try_from(
+                        self.buffers_and_paths.buffers[i].bytes.as_slice(),
+                    )?;
+                    pdvcert.parse_extensions(EXTS_OF_INTEREST);
+                    self.certs.push(Some(pdvcert));
+                } else {
+                    self.certs.push(None);
+                }
+            } else {
+                self.certs.push(None);
+            }
+        }
+        Ok(())
     }
 
     /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
@@ -851,32 +906,31 @@ impl CertSource {
         );
     }
 
-    //TODO restore (probably by changing maps to rely on interior mutability)
-    // index_certs prepares internally used key identifier and name maps after the caller has modified
-    // the buffers_and_paths and certs fields.
-    // pub fn index_certs(&mut self) {
-    //     for (i, cert) in self.certs.iter().enumerate() {
-    //         if let Some(cert) = cert {
-    //             let hex_skid = hex_skid_from_cert(cert);
-    //             if self.skid_map.contains_key(&hex_skid) {
-    //                 let mut v = self.skid_map[&hex_skid].clone();
-    //                 v.push(i);
-    //                 self.skid_map.insert(hex_skid, v);
-    //             } else {
-    //                 self.skid_map.insert(hex_skid, vec![i]);
-    //             }
-    //
-    //             let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-    //             if self.name_map.contains_key(&name_str) {
-    //                 let mut v = self.name_map[&name_str].clone();
-    //                 v.push(i);
-    //                 self.name_map.insert(name_str, v);
-    //             } else {
-    //                 self.name_map.insert(name_str, vec![i]);
-    //             }
-    //         }
-    //     }
-    // }
+    /// index_certs prepares internally used key identifier and name maps after the caller has modified
+    /// the buffers_and_paths and certs fields.
+    pub fn index_certs(&mut self) {
+        for (i, cert) in self.certs.iter().enumerate() {
+            if let Some(cert) = cert {
+                let hex_skid = hex_skid_from_cert(cert);
+                if self.skid_map.contains_key(&hex_skid) {
+                    let mut v = self.skid_map[&hex_skid].clone();
+                    v.push(i);
+                    self.skid_map.insert(hex_skid, v);
+                } else {
+                    self.skid_map.insert(hex_skid, vec![i]);
+                }
+
+                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
+                if self.name_map.contains_key(&name_str) {
+                    let mut v = self.name_map[&name_str].clone();
+                    v.push(i);
+                    self.name_map.insert(name_str, v);
+                } else {
+                    self.name_map.insert(name_str, vec![i]);
+                }
+            }
+        }
+    }
 
     fn pub_key_in_path(&self, prospective_cert: &PDVCertificate, path: &[usize]) -> bool {
         for i in path {
@@ -1631,52 +1685,6 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
     false
 }
 
-/// The populate_cert_map is used to prepare a vector of [`PDVCertificate`] instances. This is typically be done
-/// in support of preparing a [`CertSource`] instance, where the `bap` parameter is `buffer_and_paths`
-/// field of a [`CertSource`] instance and the `cert_store` parameter is the `certs` field of the same
-/// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
-/// will be parsed to populate the vector.
-pub fn populate_parsed_cert_vector(
-    bap: &BuffersAndPaths,
-    cps: &CertificationPathSettings,
-    cert_store: &mut Vec<Option<PDVCertificate>>,
-) -> Result<()> {
-    let time_of_interest = get_time_of_interest(cps);
-    for (i, cert_file) in bap.buffers.iter().enumerate() {
-        if let Ok(cert) = Certificate::from_der(bap.buffers[i].bytes.as_slice()) {
-            let valid = if let 0 = time_of_interest {
-                true
-            } else {
-                let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
-                if r.is_err() {
-                    error!(
-                        "Certificate from {} is not valid at indicated time of interest",
-                        cert_file.filename
-                    );
-                }
-                matches!(r, Ok(_x))
-            };
-
-            if valid {
-                let mut md = Asn1Metadata::new();
-                md.insert(
-                    MD_LOCATOR.to_string(),
-                    Asn1MetadataTypes::String(cert_file.filename.clone()),
-                );
-
-                let mut pdvcert = PDVCertificate::try_from(bap.buffers[i].bytes.as_slice())?;
-                pdvcert.parse_extensions(EXTS_OF_INTEREST);
-                cert_store.push(Some(pdvcert));
-            } else {
-                cert_store.push(None);
-            }
-        } else {
-            cert_store.push(None);
-        }
-    }
-    Ok(())
-}
-
 /// get_filename_from_ta_metadata returns the string from the MD_LOCATOR in the metadata or an
 /// empty string.
 pub fn get_filename_from_cert_metadata(cert: &PDVCertificate) -> String {
@@ -1706,12 +1714,7 @@ fn get_certificates_test() {
     )
     .is_ok());
     let cps = CertificationPathSettings::default();
-    assert!(populate_parsed_cert_vector(
-        &cert_store.buffers_and_paths,
-        &cps,
-        &mut cert_store.certs
-    )
-    .is_ok());
+    assert!(cert_store.populate_parsed_cert_vector(&cps,).is_ok());
     for (i, cert) in cert_store.certs.iter().enumerate() {
         if let Some(cert) = cert {
             let hex_skid = hex_skid_from_cert(cert);
