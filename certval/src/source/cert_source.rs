@@ -503,6 +503,13 @@ impl CertSource {
         }
     }
 
+    /// Processes any buffers passed to the instance, i.e., via new_from_cbor
+    pub fn initialize(&mut self, cps: &CertificationPathSettings) -> Result<()> {
+        self.populate_parsed_cert_vector(cps)?;
+        self.index_certs();
+        Ok(())
+    }
+
     /// Returns number of certificates currently held by instance
     pub fn num_buffers(&self) -> usize {
         self.buffers_and_paths.buffers.len()
@@ -515,52 +522,6 @@ impl CertSource {
     /// Retrieves certificate at a given index
     pub fn get_cert_at_index(&self, index: usize) -> Option<PDVCertificate> {
         self.certs[index].clone()
-    }
-
-    /// The populate_cert_map is used to prepare a vector of [`PDVCertificate`] instances. This is typically be done
-    /// in support of preparing a [`CertSource`] instance, where the `bap` parameter is `buffer_and_paths`
-    /// field of a [`CertSource`] instance and the `cert_store` parameter is the `certs` field of the same
-    /// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
-    /// will be parsed to populate the vector.
-    pub fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
-        let time_of_interest = get_time_of_interest(cps);
-        for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
-            if let Ok(cert) =
-                Certificate::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
-            {
-                let valid = if let 0 = time_of_interest {
-                    true
-                } else {
-                    let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
-                    if r.is_err() {
-                        error!(
-                            "Certificate from {} is not valid at indicated time of interest",
-                            cert_file.filename
-                        );
-                    }
-                    matches!(r, Ok(_x))
-                };
-
-                if valid {
-                    let mut md = Asn1Metadata::new();
-                    md.insert(
-                        MD_LOCATOR.to_string(),
-                        Asn1MetadataTypes::String(cert_file.filename.clone()),
-                    );
-
-                    let mut pdvcert = PDVCertificate::try_from(
-                        self.buffers_and_paths.buffers[i].bytes.as_slice(),
-                    )?;
-                    pdvcert.parse_extensions(EXTS_OF_INTEREST);
-                    self.certs.push(Some(pdvcert));
-                } else {
-                    self.certs.push(None);
-                }
-            } else {
-                self.certs.push(None);
-            }
-        }
-        Ok(())
     }
 
     /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
@@ -954,9 +915,140 @@ impl CertSource {
         );
     }
 
+    /// serialize_partial_paths returns a buffer containing a CBOR encoding of the buffers_and_paths
+    /// field of a CertSource instance. This can be deserialized then used as input to the process
+    /// to prepare a new CertSource instance for use.
+    pub fn serialize(&self, format: CertificationPathBuilderFormats) -> Result<Vec<u8>> {
+        if CertificationPathBuilderFormats::Cbor != format {
+            error!("Format other than CBOR requested when serializing partial paths. Only CBOR is accepted presently.");
+            return Err(Error::Unrecognized);
+        }
+
+        let mut ppcounter = 0;
+
+        #[cfg(feature = "std")]
+        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
+            g
+        } else {
+            return Err(Error::Unrecognized);
+        };
+        #[cfg(feature = "std")]
+        let partial_paths = partial_paths_guard.deref().borrow();
+
+        #[cfg(not(feature = "std"))]
+        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+
+        for outer in partial_paths.iter() {
+            for key in outer.keys() {
+                let inner = &outer[key];
+                ppcounter += inner.len();
+            }
+        }
+        info!(
+            "Serializing {} buffers and {} partial paths",
+            self.buffers_and_paths.buffers.len(),
+            ppcounter
+        );
+
+        // drop mutex so serde can claim it
+        #[cfg(feature = "std")]
+        std::mem::drop(partial_paths);
+        #[cfg(feature = "std")]
+        std::mem::drop(partial_paths_guard);
+
+        let mut buffer = Vec::new();
+        let r = into_writer(&self.buffers_and_paths, &mut buffer);
+        match r {
+            Ok(_) => Ok(buffer),
+            Err(e) => {
+                error!(
+                    "Failed to generate CBOR file containing partial paths with error: {:?}",
+                    e
+                );
+                Err(Error::Unrecognized)
+            }
+        }
+    }
+
+    /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
+    /// serializing a set of partial paths.
+    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
+        let mut ta_vec = vec![];
+        if let Ok(tav) = pe.get_trust_anchors() {
+            ta_vec = tav;
+        }
+
+        #[cfg(feature = "std")]
+        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
+            g
+        } else {
+            return;
+        };
+        #[cfg(feature = "std")]
+        let mut partial_paths = partial_paths_guard.deref().borrow_mut();
+
+        #[cfg(not(feature = "std"))]
+        let mut partial_paths = self.buffers_and_paths.partial_paths.borrow_mut();
+
+        partial_paths.clear();
+
+        self.find_all_partial_paths_internal(pe, ta_vec, cps, 0, &mut partial_paths);
+    }
+
+    /// Return list of buffers
+    pub fn get_buffers(&self) -> Vec<CertFile> {
+        self.buffers_and_paths.buffers.clone()
+    }
+
+    /// The populate_cert_map is used to prepare a vector of [`PDVCertificate`] instances. This is typically be done
+    /// in support of preparing a [`CertSource`] instance, where the `bap` parameter is `buffer_and_paths`
+    /// field of a [`CertSource`] instance and the `cert_store` parameter is the `certs` field of the same
+    /// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
+    /// will be parsed to populate the vector.
+    fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
+        let time_of_interest = get_time_of_interest(cps);
+        for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
+            if let Ok(cert) =
+                Certificate::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
+            {
+                let valid = if let 0 = time_of_interest {
+                    true
+                } else {
+                    let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
+                    if r.is_err() {
+                        error!(
+                            "Certificate from {} is not valid at indicated time of interest",
+                            cert_file.filename
+                        );
+                    }
+                    matches!(r, Ok(_x))
+                };
+
+                if valid {
+                    let mut md = Asn1Metadata::new();
+                    md.insert(
+                        MD_LOCATOR.to_string(),
+                        Asn1MetadataTypes::String(cert_file.filename.clone()),
+                    );
+
+                    let mut pdvcert = PDVCertificate::try_from(
+                        self.buffers_and_paths.buffers[i].bytes.as_slice(),
+                    )?;
+                    pdvcert.parse_extensions(EXTS_OF_INTEREST);
+                    self.certs.push(Some(pdvcert));
+                } else {
+                    self.certs.push(None);
+                }
+            } else {
+                self.certs.push(None);
+            }
+        }
+        Ok(())
+    }
+
     /// index_certs prepares internally used key identifier and name maps after the caller has modified
     /// the buffers_and_paths and certs fields.
-    pub fn index_certs(&mut self) {
+    fn index_certs(&mut self) {
         for (i, cert) in self.certs.iter().enumerate() {
             if let Some(cert) = cert {
                 let hex_skid = hex_skid_from_cert(cert);
@@ -1051,7 +1143,7 @@ impl CertSource {
 
     /// check_validity_in_partial_path takes a set of indices and returns true if all are valid at time of interest and false
     /// otherwise. if there is no time of interest, true is returned.
-    pub fn check_validity_in_partial_path(
+    fn check_validity_in_partial_path(
         &self,
         path: &[usize],
         cps: &CertificationPathSettings,
@@ -1077,7 +1169,7 @@ impl CertSource {
     /// check_names_in_partial_path takes a vector of indices that comprise a prospective partial
     /// path and checks for name constraints violations. This only checks for violations in the
     /// partial path itself. Issues when paired with some trust anchors or targets may still exist.
-    pub fn check_names_in_partial_path(&self, path: &[usize]) -> bool {
+    fn check_names_in_partial_path(&self, path: &[usize]) -> bool {
         let mut permitted_subtrees = NameConstraintsSet::default();
         let mut excluded_subtrees = NameConstraintsSet::default();
         let mut perm_names_set = false;
@@ -1339,94 +1431,6 @@ impl CertSource {
                 self.find_all_partial_paths_internal(pe, _ta_vec, cps, pass + 1, partial_paths);
             }
         }
-    }
-
-    /// serialize_partial_paths returns a buffer containing a CBOR encoding of the buffers_and_paths
-    /// field of a CertSource instance. This can be deserialized then used as input to the process
-    /// to prepare a new CertSource instance for use.
-    pub fn serialize_partial_paths(
-        &self,
-        format: CertificationPathBuilderFormats,
-    ) -> Result<Vec<u8>> {
-        if CertificationPathBuilderFormats::Cbor != format {
-            error!("Format other than CBOR requested when serializing partial paths. Only CBOR is accepted presently.");
-            return Err(Error::Unrecognized);
-        }
-
-        let mut ppcounter = 0;
-
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
-
-        for outer in partial_paths.iter() {
-            for key in outer.keys() {
-                let inner = &outer[key];
-                ppcounter += inner.len();
-            }
-        }
-        info!(
-            "Serializing {} buffers and {} partial paths",
-            self.buffers_and_paths.buffers.len(),
-            ppcounter
-        );
-
-        // drop mutex so serde can claim it
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths);
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths_guard);
-
-        let mut buffer = Vec::new();
-        let r = into_writer(&self.buffers_and_paths, &mut buffer);
-        match r {
-            Ok(_) => Ok(buffer),
-            Err(e) => {
-                error!(
-                    "Failed to generate CBOR file containing partial paths with error: {:?}",
-                    e
-                );
-                Err(Error::Unrecognized)
-            }
-        }
-    }
-
-    /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
-    /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
-        let mut ta_vec = vec![];
-        if let Ok(tav) = pe.get_trust_anchors() {
-            ta_vec = tav;
-        }
-
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut partial_paths = partial_paths_guard.deref().borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut partial_paths = self.buffers_and_paths.partial_paths.borrow_mut();
-
-        partial_paths.clear();
-
-        self.find_all_partial_paths_internal(pe, ta_vec, cps, 0, &mut partial_paths);
-    }
-
-    /// Return list of buffers
-    pub fn get_buffers(&self) -> Vec<CertFile> {
-        self.buffers_and_paths.buffers.clone()
     }
 }
 

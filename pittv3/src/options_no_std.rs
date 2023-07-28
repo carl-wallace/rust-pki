@@ -57,24 +57,21 @@ pub fn options_no_std(args: &Pittv3Args) {
             panic!("Failed to parse embedded CA CBOR with: {}", e)
         }
     };
-    let r = cert_source.populate_parsed_cert_vector(&cps);
+    let r = cert_source.initialize(&cps);
     if let Err(e) = r {
         error!("Failed to populate cert vector with: {:?}", e);
     }
-    cert_source.index_certs();
 
     let ta_cbor = include_bytes!("../resources/ta.cbor");
-    let ta_bap: BuffersAndPaths = match from_reader(ta_cbor.as_slice()) {
-        Ok(cbor_data) => cbor_data,
+    let mut ta_store = match TaSource::new_from_cbor(ta_cbor) {
+        Ok(ta_store) => ta_store,
         Err(e) => {
             panic!("Failed to parse embedded TA CBOR with: {}", e)
         }
     };
-
-    let mut ta_store = TaSource::new();
-    ta_store.buffers = ta_bap.buffers;
-    populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-    ta_store.index_tas();
+    if let Err(e) = ta_store.initialize() {
+        panic!("Failed to initialize TA source with: {}", e)
+    }
 
     let ee_cbor = include_bytes!("../resources/ee.cbor");
     let ee_bap: BuffersAndPaths = match from_reader(ee_cbor.as_slice()) {

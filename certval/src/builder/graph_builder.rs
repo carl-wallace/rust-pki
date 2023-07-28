@@ -80,7 +80,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         loop {
             {
                 let tmp_vec: Vec<Option<PDVCertificate>> = vec![];
-                let r = cert_store.populate_parsed_cert_vector(cps);
+                let r = cert_store.initialize(cps);
                 if let Err(e) = r {
                     error!("Failed to populate cert map: {}", e);
                 }
@@ -131,7 +131,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         }
     }
 
-    let r = cert_store.populate_parsed_cert_vector(cps);
+    let r = cert_store.initialize(cps);
     if let Err(e) = r {
         error!(
             "Failed to populate parsed certificate vector with error {:?}",
@@ -149,12 +149,11 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         cert_store.find_all_partial_paths(pe, cps);
     }
 
-    let buffer =
-        if let Ok(b) = cert_store.serialize_partial_paths(CertificationPathBuilderFormats::Cbor) {
-            b
-        } else {
-            return Err(Error::Unrecognized);
-        };
+    let buffer = if let Ok(b) = cert_store.serialize(CertificationPathBuilderFormats::Cbor) {
+        b
+    } else {
+        return Err(Error::Unrecognized);
+    };
     Ok(buffer)
 }
 
@@ -207,17 +206,7 @@ async fn non_existent_dir() {
 
     let mut ta_store = TaSource::new();
     ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
-    populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-    ta_store.index_tas();
-    // for (i, ta) in ta_store.tas.iter().enumerate() {
-    //     let hex_skid = hex_skid_from_ta(ta);
-    //     ta_store.skid_map.insert(hex_skid, i);
-    //
-    //     if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
-    //         let name_str = name_to_string(name);
-    //         ta_store.name_map.insert(name_str, i);
-    //     };
-    // }
+    ta_store.initialize().unwrap();
 
     let mut cps = CertificationPathSettings::default();
     let r = build_graph(&pe, &cps).await;

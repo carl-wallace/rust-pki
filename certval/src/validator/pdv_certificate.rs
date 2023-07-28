@@ -71,12 +71,14 @@ impl TryFrom<&[u8]> for PDVCertificate {
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
         let cert = Certificate::from_der(enc_cert)?;
-        Ok(PDVCertificate {
+        let mut pdv_cert = PDVCertificate {
             encoded_cert: enc_cert.to_vec(),
             decoded_cert: cert,
             metadata: None,
             parsed_extensions: Default::default(),
-        })
+        };
+        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_cert)
     }
 }
 
@@ -85,12 +87,14 @@ impl TryFrom<Certificate> for PDVCertificate {
 
     fn try_from(cert: Certificate) -> der::Result<Self> {
         let enc_cert = cert.to_der()?;
-        Ok(PDVCertificate {
+        let mut pdv_cert = PDVCertificate {
             encoded_cert: enc_cert,
             decoded_cert: cert,
             metadata: None,
             parsed_extensions: Default::default(),
-        })
+        };
+        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_cert)
     }
 }
 

@@ -1,6 +1,7 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 use alloc::vec::Vec;
 
+use crate::EXTS_OF_INTEREST;
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE,
@@ -39,12 +40,14 @@ impl TryFrom<&[u8]> for PDVTrustAnchorChoice {
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
         let ta = TrustAnchorChoice::from_der(enc_cert)?;
-        Ok(PDVTrustAnchorChoice {
+        let mut pdv_ta = PDVTrustAnchorChoice {
             encoded_ta: enc_cert.to_vec(),
             decoded_ta: ta,
             metadata: None,
             parsed_extensions: Default::default(),
-        })
+        };
+        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_ta)
     }
 }
 
@@ -53,12 +56,14 @@ impl TryFrom<TrustAnchorChoice> for PDVTrustAnchorChoice {
 
     fn try_from(ta: TrustAnchorChoice) -> der::Result<Self> {
         let enc_ta = ta.to_der()?;
-        Ok(PDVTrustAnchorChoice {
+        let mut pdv_ta = PDVTrustAnchorChoice {
             encoded_ta: enc_ta.to_vec(),
             decoded_ta: ta,
             metadata: None,
             parsed_extensions: Default::default(),
-        })
+        };
+        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_ta)
     }
 }
 
