@@ -32,7 +32,6 @@
 //  - 4.7.4 and 4.7.5 are not run owing to focus on CRL issuer certificate (and revocation not being performed).
 
 use certval::source::cert_source::CertFile;
-use certval::source::ta_source::*;
 use certval::PDVCertificate;
 use certval::*;
 
@@ -78,15 +77,14 @@ fn pkits_p256() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -115,15 +113,14 @@ async fn pkits_p256() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -152,15 +149,14 @@ async fn pkits_2048() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     #[cfg(feature = "revocation")]
     {
@@ -209,15 +205,14 @@ fn pkits_2048() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     #[cfg(feature = "revocation")]
     {
@@ -263,15 +258,14 @@ fn pkits_p256_graph() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -300,15 +294,14 @@ async fn pkits_p256_graph() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
@@ -337,15 +330,14 @@ async fn pkits_2048_graph() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     #[cfg(feature = "revocation")]
     {
@@ -394,15 +386,14 @@ fn pkits_2048_graph() {
         // all tests share common trust anchor so add it to the pool
         let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
         if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.buffers.push(CertFile {
+            ta_source2.push(CertFile {
                 filename: "TrustAnchorRootCertificate.crt".to_string(),
                 bytes: der_encoded_ta,
             });
         }
     }
 
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     #[cfg(feature = "revocation")]
     {

@@ -38,13 +38,11 @@ fn pkits_test1() {
 
     let mut ta_source2 = TaSource::new();
     let der_encoded_ta2 = include_bytes!("examples/TrustAnchorRootCertificate.crt");
-    ta_source2.buffers.push(CertFile {
+    ta_source2.push(CertFile {
         filename: "TrustAnchorRootCertificate.crt".to_string(),
         bytes: der_encoded_ta2.to_vec(),
     });
-
-    populate_parsed_ta_vector(&ta_source2.buffers, &mut ta_source2.tas);
-    ta_source2.index_tas();
+    ta_source2.initialize().unwrap();
 
     let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);
@@ -129,11 +127,10 @@ fn is_trust_anchor_test() {
         bytes: der_encoded_ta.to_vec(),
         filename: "TrustAnchorRootCertificate.crt".to_string(),
     };
-    let v = vec![cf];
+
     let mut ta_store = TaSource::new();
-    ta_store.buffers = v;
-    ta_store.tas = vec![ta];
-    ta_store.index_tas();
+    ta_store.push(cf.clone());
+    ta_store.initialize().unwrap();
 
     pe.clear_all_callbacks();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));

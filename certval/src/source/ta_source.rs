@@ -31,6 +31,7 @@ use log::info;
 
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
+use ciborium::from_reader;
 use core::cell::RefCell;
 #[cfg(feature = "std")]
 use std::sync::Mutex;
@@ -53,7 +54,7 @@ use crate::{
     source::cert_source::CertFile,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
+    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -181,26 +182,26 @@ pub type TrustAnchorKeyId = String;
 /// key IDs to values in the caller-supplied map.
 pub struct TaSource {
     /// list of TAs prepared by the caller
-    pub tas: Vec<PDVTrustAnchorChoice>,
+    tas: Vec<PDVTrustAnchorChoice>,
 
     /// Contains list of buffers referenced by tas field
-    pub buffers: Vec<CertFile>,
+    buffers: Vec<CertFile>,
 
     #[cfg(feature = "std")]
     /// Maps TA SKIDs to keys in the tas map
-    pub skid_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
+    skid_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
 
     #[cfg(feature = "std")]
     /// Maps TA Names to keys in the tas map
-    pub name_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
+    name_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
 
     #[cfg(not(feature = "std"))]
     /// Maps TA SKIDs to keys in the tas map
-    pub skid_map: RefCell<BTreeMap<String, usize>>,
+    skid_map: RefCell<BTreeMap<String, usize>>,
 
     #[cfg(not(feature = "std"))]
     /// Maps TA Names to keys in the tas map
-    pub name_map: RefCell<BTreeMap<String, usize>>,
+    name_map: RefCell<BTreeMap<String, usize>>,
 }
 
 impl Default for TaSource {
@@ -241,6 +242,37 @@ impl TaSource {
             #[cfg(not(feature = "std"))]
             name_map: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    /// Create new instance from CBOR
+    pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
+        // todo - change serialization?
+        let bap: BuffersAndPaths = match from_reader(cbor) {
+            Ok(cbor_data) => cbor_data,
+            Err(e) => {
+                panic!("Failed to parse embedded EE CBOR with: {}", e)
+            }
+        };
+
+        Ok(Self {
+            tas: Vec::new(),
+            buffers: bap.buffers,
+            #[cfg(feature = "std")]
+            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            #[cfg(not(feature = "std"))]
+            skid_map: RefCell::new(BTreeMap::new()),
+            #[cfg(feature = "std")]
+            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            #[cfg(not(feature = "std"))]
+            name_map: RefCell::new(BTreeMap::new()),
+        })
+    }
+
+    /// Processes any buffers passed to the instance, i.e., via new_from_cbor
+    pub fn initialize(&mut self) -> Result<()> {
+        populate_parsed_ta_vector(&self.buffers, &mut self.tas);
+        self.index_tas();
+        Ok(())
     }
 
     /// Returns vector of TAs
@@ -489,7 +521,7 @@ impl TrustAnchorSource for TaSource {
 /// field, the [`TaSource::tas`](`TaSource`) field does not contain
 /// optionally present parsed structures (because there is not need to maintain correlation for trust
 /// anchors because indices are not used).
-pub fn populate_parsed_ta_vector(
+fn populate_parsed_ta_vector(
     ta_buffer_vec: &[CertFile],
     parsed_ta_vec: &mut Vec<PDVTrustAnchorChoice>,
 ) {
@@ -525,17 +557,7 @@ fn get_trust_anchor_test() {
     let mut pe = PkiEnvironment::default();
     populate_5280_pki_environment(&mut pe);
     ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
-    populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-    ta_store.index_tas();
-    // for (i, ta) in ta_store.tas.iter().enumerate() {
-    //     let hex_skid = hex_skid_from_ta(ta);
-    //     ta_store.skid_map.insert(hex_skid, i);
-    //
-    //     if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
-    //         let name_str = name_to_string(name);
-    //         ta_store.name_map.insert(name_str, i);
-    //     };
-    // }
+    ta_store.initialize().unwrap();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let bad = hex!("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD");
     let good = hex!("6C8A94A277B180721D817A16AAF2DCCE66EE45C0");

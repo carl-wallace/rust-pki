@@ -189,14 +189,14 @@ use crate::std_utils::*;
 /// `certval` are built with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
 pub async fn options_std(args: &Pittv3Args) {
     if args.cleanup {
-        // Cleanup runs in isolation because it does not require or process a TA folder
+        // Cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
         populate_5280_pki_environment(&mut pe);
         cleanup(&pe, args);
     }
 
     if args.ta_cleanup {
-        // Cleanup runs in isolation because it does not require or process a TA folder
+        // TA cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
         populate_5280_pki_environment(&mut pe);
         ta_cleanup(&pe, args);
@@ -222,8 +222,14 @@ pub async fn options_std(args: &Pittv3Args) {
             );
             return;
         }
-        populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-        ta_store.index_tas();
+
+        if let Err(e) = ta_store.initialize() {
+            println!(
+                "Failed to initialize trust anchor source from {} with error {:?}",
+                ta_folder, e
+            );
+            return;
+        }
 
         ta_store.log_tas();
     }
@@ -269,12 +275,10 @@ pub async fn options_std(args: &Pittv3Args) {
                 panic!("Failed to parse CBOR file at {} with: {}", cbor_file, e)
             }
         };
-        let r = cert_source.populate_parsed_cert_vector(&cps);
+        let r = cert_source.initialize(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert vector with: {:?}", e);
         }
-
-        cert_source.index_certs();
 
         let mut ta_store = TaSource::new();
 
@@ -287,8 +291,13 @@ pub async fn options_std(args: &Pittv3Args) {
                 );
                 return;
             }
-            populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-            ta_store.index_tas();
+            if let Err(e) = ta_store.initialize() {
+                println!(
+                    "Failed to initialize trust anchor source from {} with error {:?}",
+                    ta_folder, e
+                );
+                return;
+            }
 
             populate_5280_pki_environment(&mut pe);
             pe.add_trust_anchor_source(Box::new(ta_store));
@@ -518,8 +527,13 @@ pub async fn options_std(args: &Pittv3Args) {
             );
             return;
         }
-        populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
-        ta_store.index_tas();
+        if let Err(e) = ta_store.initialize() {
+            println!(
+                "Failed to initialize trust anchor source from {} with error {:?}",
+                ta_folder, e
+            );
+            return;
+        }
 
         // Generate, validate certificate file, or validate certificates folder per args.
         generate_and_validate(&ta_store, args).await;
@@ -781,14 +795,11 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
-        let r = cert_source.populate_parsed_cert_vector(&cps);
+        let r = cert_source.initialize(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert map: {}", e);
             break;
         }
-
-        // Set up the SKID and name maps
-        cert_source.index_certs();
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
         // this is the first pass, we expect this to have been present in the deserialized CBOR.
@@ -796,7 +807,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             cert_source.find_all_partial_paths(&pe, &cps);
 
             // After finding all partial paths, serialize as CBOR and save for next pass
-            match cert_source.serialize_partial_paths(CertificationPathBuilderFormats::Cbor) {
+            match cert_source.serialize(CertificationPathBuilderFormats::Cbor) {
                 Ok(new_cbor) => {
                     cbor = new_cbor;
                 }
