@@ -1800,10 +1800,10 @@ fn get_certificates_test() {
     assert!(r.is_err());
     assert_eq!(r.err(), Some(Error::NotFound));
 
-    let en = encode_dn_from_string("C=US,O=Test Certificates 2011,CN=Valid EE Certificate Test1")
+    let en = encode_dn_from_string("CN=Valid EE Certificate Test1,O=Test Certificates 2011,C=US")
         .unwrap();
     let n = Name::from_der(en.as_slice()).unwrap();
-    let en2 = encode_dn_from_string("C=US,O=Test Certificates 2011,CN=Does Not Exist").unwrap();
+    let en2 = encode_dn_from_string("CN=Does Not Exist,O=Test Certificates 2011,C=US").unwrap();
     let n2 = Name::from_der(en2.as_slice()).unwrap();
     let v = cert_store.get_certificates_for_name(&n).unwrap();
     assert_eq!(v.len(), 1);

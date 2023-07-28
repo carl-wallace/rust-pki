@@ -8,7 +8,7 @@ as augmented by [RFC 5937]. Support for certification path building and revocati
 
 ASN.1 encoders and decoders and cryptographic support are primarily provided by various [RustCrypto] libraries.
 
-A change log is available at the root of the certval project.
+A [change log](CHANGELOG.md) is available at the root of the certval project.
 
 ## Crate Feature Flags
 
@@ -23,7 +23,7 @@ The certval library provides five feature gates that enable varying levels of su
 
 ## Sample Usage
 
-The [PITTv3](../pittv3/index.html) application provides means of exercising the certval library and can serve as sample code for usage of the library.
+The [PITTv3](../pittv3/index.html) application uses the certval library and can serve as sample code for usage of the library.
 
 ## Status
 
@@ -34,9 +34,9 @@ development.
 
 ## Minimum Supported Rust Version
 
-This crate requires **Rust 1.56** at a minimum.
+This crate requires **Rust 1.65** at a minimum.
 
-We may change the MSRV in the future, but it will be accompanied by a minor
+The MSRV may change in the future, but it will be accompanied by a minor
 version bump.
 
 ## License

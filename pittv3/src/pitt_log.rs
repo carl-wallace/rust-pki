@@ -793,7 +793,7 @@ fn test_cps_log() {
     let policies = vec![ANY_POLICY.to_string()];
     set_initial_policy_set(&mut cps, policies);
     let perm = NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Joe".to_string()]),
+        directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
@@ -801,7 +801,7 @@ fn test_cps_log() {
     };
     set_initial_permitted_subtrees(&mut cps, perm);
     let excl = NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Sue".to_string()]),
+        directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),

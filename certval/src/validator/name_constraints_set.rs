@@ -890,28 +890,28 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
 fn intersection_tests() {
     use crate::path_settings::*;
     let perm = crate::NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Joe".to_string()]),
+        directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
     };
     let perm_copy = crate::NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Joe".to_string()]),
+        directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
     };
     let perm2 = crate::NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Sue".to_string()]),
+        directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
     };
     let perm3 = crate::NameConstraintsSettings {
-        directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Abe".to_string()]),
+        directory_name: Some(vec!["CN=Abe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["z@example.com".to_string()]),
         user_principal_name: Some(vec!["1236547890@mil".to_string()]),
         dns_name: Some(vec!["t.example.com".to_string()]),

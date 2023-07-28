@@ -1,6 +1,6 @@
 [package]
 name = "pkiprocmacros"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,7 +9,7 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.60"
-quote = "1.0.28"
-syn = { version = "2.0.18", features = ["extra-traits", "full"] }
+proc-macro2 = "1.0.66"
+quote = "1.0.32"
+syn = { version = "2.0.27", features = ["extra-traits", "full"] }
 
