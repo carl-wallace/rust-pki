@@ -1,4 +1,4 @@
-//! Sources of ASN.1 encoders and decoders not included in a RustCrypto formats repo
+//! ASN.1 encoders and decoders not included in a RustCrypto formats repo
 
 pub mod piv_naci_indicator;
 

@@ -964,7 +964,7 @@ fn test_no_default_sets_cps() {
     set_initial_permitted_subtrees(
         &mut cps,
         crate::NameConstraintsSettings {
-            directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Joe".to_string()]),
+            directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
             rfc822_name: Some(vec!["x@example.com".to_string()]),
             user_principal_name: Some(vec!["1234567890@mil".to_string()]),
             dns_name: Some(vec!["j.example.com".to_string()]),
@@ -983,7 +983,7 @@ fn test_no_default_sets_cps() {
     );
     assert_eq!(Some(vec!["x@example.com".to_string()]), perm.rfc822_name);
     assert_eq!(
-        Some(vec!["C=US,O=Org,OU=Org Unit,CN=Joe".to_string()]),
+        Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         perm.directory_name
     );
     let perm_set = get_initial_permitted_subtrees_as_set(&cps, &mut bufs1)
@@ -1019,7 +1019,7 @@ fn test_no_default_sets_cps() {
     set_initial_excluded_subtrees(
         &mut cps,
         crate::NameConstraintsSettings {
-            directory_name: Some(vec!["C=US,O=Org,OU=Org Unit,CN=Sue".to_string()]),
+            directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
             rfc822_name: Some(vec!["y@example.com".to_string()]),
             user_principal_name: Some(vec!["0987654321@mil".to_string()]),
             dns_name: Some(vec!["s.example.com".to_string()]),
@@ -1038,7 +1038,7 @@ fn test_no_default_sets_cps() {
     );
     assert_eq!(Some(vec!["y@example.com".to_string()]), excl.rfc822_name);
     assert_eq!(
-        Some(vec!["C=US,O=Org,OU=Org Unit,CN=Sue".to_string()]),
+        Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         excl.directory_name
     );
     let excl_set = get_initial_excluded_subtrees_as_set(&cps, &mut bufs1)

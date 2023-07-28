@@ -120,7 +120,7 @@ fn dump_cert_at_index() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("pittv3")?;
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--dump-cert-at-index").arg("1781");
-    cmd.assert().stdout(predicate::str::contains("Encountered error while processing certificate with subject C=US,O=U.S. Government,OU=DoD,OU=PKI,CN=DOD ID SW CA-45: certificate is expired relative to the configured time of interest"));
+    cmd.assert().stdout(predicate::str::contains("Encountered error while processing certificate with subject CN=DOD ID SW CA-45,OU=PKI,OU=DoD,O=U.S. Government,C=US: certificate is expired relative to the configured time of interest"));
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("1781.der");
     let p = Path::new(&d);
