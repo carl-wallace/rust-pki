@@ -40,7 +40,7 @@ use std::fs::File;
 pub fn ta_folder_to_vec(
     pe: &PkiEnvironment,
     tas_dir: &str,
-    tas_vec: &mut Vec<CertFile>,
+    tas_vec: &mut dyn CertVector,
     time_of_interest: u64,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, tas_dir, tas_vec, time_of_interest, true)
@@ -59,7 +59,7 @@ pub fn ta_folder_to_vec(
 pub fn cert_folder_to_vec(
     pe: &PkiEnvironment,
     certs_dir: &str,
-    certs_vec: &mut Vec<CertFile>,
+    certs_vec: &mut dyn CertVector,
     time_of_interest: u64,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, certs_dir, certs_vec, time_of_interest, false)
@@ -70,7 +70,7 @@ pub fn cert_folder_to_vec(
 fn cert_or_ta_folder_to_vec(
     pe: &PkiEnvironment,
     certsdir: &str,
-    certsvec: &mut Vec<CertFile>,
+    certsvec: &mut dyn CertVector,
     time_of_interest: u64,
     collect_tas: bool,
 ) -> Result<usize> {
@@ -233,18 +233,27 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
                 let mut buffer = vec![0; metadata.len() as usize];
                 match f.read_exact(&mut buffer) {
                     Ok(_) => Ok(buffer),
-                    Err(e) => Err(Error::StdIoError(e.kind())),
+                    Err(e) => {
+                        error!("Failed to read data from {:?}: {}", filename, e);
+                        Err(Error::StdIoError(e.kind()))
+                    }
                 }
             }
-            Err(e) => Err(Error::StdIoError(e.kind())),
+            Err(e) => {
+                error!("Failed to read metadata for {:?}: {}", filename, e);
+                Err(Error::StdIoError(e.kind()))
+            }
         },
-        Err(e) => Err(Error::StdIoError(e.kind())),
+        Err(e) => {
+            error!("Failed to read {:?}: {}", filename, e);
+            Err(Error::StdIoError(e.kind()))
+        }
     }
 }
 
 /// `get_file_as_byte_vec_pem` takes a Path containing a file name and returns a vector of bytes containing
 /// the contents of that file or an [Error::StdIoError]. If the file is PEM encoded, it is decoded
-/// prior to returning the vector of bytes. To read without PEM, use `get_file_as_byte_vec`.
+/// prior to returning the vector of bytes. To read without PEM support, use `get_file_as_byte_vec`.
 #[cfg(feature = "std")]
 pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
     let b = get_file_as_byte_vec(filename)?;
@@ -254,7 +263,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
                 return Ok(b.1);
             }
             Err(e) => {
-                error!("Failed to parse certificate from {:?}: {:?}", filename, e);
+                error!("Failed to PEM decode data from {:?}: {:?}", filename, e);
                 return Err(Error::Unrecognized);
             }
         }
@@ -265,7 +274,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
 #[test]
 fn non_existent_dir() {
     let pe = PkiEnvironment::default();
-    let mut certsvec = vec![];
+    let mut certsvec = CertSource::default();
     let toi = 0;
     let r = cert_or_ta_folder_to_vec(&pe, "tests/examples/nonexistent", &mut certsvec, toi, false);
     assert!(r.is_err());
@@ -278,7 +287,7 @@ fn with_expired() {
     let pe = PkiEnvironment::default();
 
     //disable validity check
-    let mut certsvec = vec![];
+    let mut certsvec = CertSource::default();
     let toi = 0;
     let r = cert_or_ta_folder_to_vec(
         &pe,
@@ -303,7 +312,7 @@ fn with_expired() {
     assert_eq!(0, r.unwrap());
 
     // validity check with empty vector results in one fewer certificate being harvested
-    let mut certsvec = vec![];
+    let mut certsvec = CertSource::default();
     let toi = 1647443375;
     let r = cert_or_ta_folder_to_vec(
         &pe,

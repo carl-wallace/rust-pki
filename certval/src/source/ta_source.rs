@@ -53,7 +53,7 @@ use crate::{
     source::cert_source::CertFile,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
+    CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -209,6 +209,23 @@ impl Default for TaSource {
     }
 }
 
+impl CertVector for TaSource {
+    fn contains(&self, cert: &CertFile) -> bool {
+        self.buffers.contains(cert)
+    }
+    fn push(&mut self, cert: CertFile) {
+        if !self.buffers.contains(&cert) {
+            self.buffers.push(cert)
+        }
+    }
+    fn len(&self) -> usize {
+        self.buffers.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.buffers.is_empty()
+    }
+}
+
 impl TaSource {
     /// instantiates a new TaSource
     pub fn new() -> TaSource {
@@ -224,6 +241,11 @@ impl TaSource {
             #[cfg(not(feature = "std"))]
             name_map: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    /// Returns vector of TAs
+    pub fn get_tas(&self) -> Vec<CertFile> {
+        self.buffers.clone()
     }
 
     /// index_tas builds internally used maps based on key identifiers and names. It must be called
@@ -502,7 +524,7 @@ fn get_trust_anchor_test() {
 
     let mut pe = PkiEnvironment::default();
     populate_5280_pki_environment(&mut pe);
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store.buffers, 0).unwrap();
+    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
     populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
     ta_store.index_tas();
     // for (i, ta) in ta_store.tas.iter().enumerate() {

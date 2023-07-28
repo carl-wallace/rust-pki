@@ -264,8 +264,8 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
 
 /// `parse_cert` takes a buffer containing a binary DER encoded certificate and returns
 /// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
-/// parsed certificate if parsing was successful (and None upon failure).
-pub fn parse_cert(buffer: &[u8], filename: &str) -> Option<PDVCertificate> {
+/// parsed certificate if parsing was successful.
+pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
     let r = Certificate::from_der(buffer);
     match r {
         Ok(cert) => {
@@ -281,11 +281,11 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Option<PDVCertificate> {
                 parsed_extensions: ParsedExtensions::new(),
             };
             pdvcert.parse_extensions(EXTS_OF_INTEREST);
-            Some(pdvcert)
+            Ok(pdvcert)
         }
         Err(e) => {
             error!("Failed to parse certificate from {}: {}", filename, e);
-            None
+            Err(Error::Asn1Error(e))
         }
     }
 }

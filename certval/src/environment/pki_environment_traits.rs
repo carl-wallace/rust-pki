@@ -11,8 +11,8 @@ use x509_cert::name::Name;
 
 use crate::util::error::*;
 use crate::{
-    CertificationPath, CertificationPathResults, CertificationPathSettings, PDVCertificate,
-    PDVTrustAnchorChoice, PkiEnvironment,
+    CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings,
+    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
 };
 
 /// `ValidatePath` provides a function signature for implementations that perform certification path
@@ -92,6 +92,18 @@ pub trait TrustAnchorSource {
 
     /// is_trust_anchor returns true if presented certificate object is a trust anchor
     fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()>;
+}
+
+/// Vector-like methods for TA store or certificate store
+pub trait CertVector {
+    /// Returns true if cert is already present and false otherwise
+    fn contains(&self, cert: &CertFile) -> bool;
+    /// Adds cert to collection
+    fn push(&mut self, cert: CertFile);
+    /// Returns number of certs in collection
+    fn len(&self) -> usize;
+    /// Returns true if len is 0
+    fn is_empty(&self) -> bool;
 }
 
 /// The [`CertificateSource`] trait enables trait objects to provide access to certificates backed via

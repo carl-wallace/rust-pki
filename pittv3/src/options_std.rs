@@ -175,12 +175,10 @@ extern crate alloc;
 use certval::*;
 
 use alloc::collections::BTreeMap;
-use core::ops::Deref;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use ciborium::de::from_reader;
 use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
@@ -216,7 +214,7 @@ pub async fn options_std(args: &Pittv3Args) {
         };
 
         let mut ta_store = TaSource::new();
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
         if let Err(e) = r {
             println!(
                 "Failed to load trust anchors from {} with error {:?}",
@@ -265,51 +263,23 @@ pub async fn options_std(args: &Pittv3Args) {
             return;
         }
 
-        let mut cert_source = CertSource::new();
-        match from_reader(cbor.as_slice()) {
-            Ok(cbor_data) => {
-                cert_source.buffers_and_paths = cbor_data;
-            }
+        let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
+            Ok(cbor_data) => cbor_data,
             Err(e) => {
                 panic!("Failed to parse CBOR file at {} with: {}", cbor_file, e)
             }
-        }
-        let r = populate_parsed_cert_vector(
-            &cert_source.buffers_and_paths,
-            &cps,
-            &mut cert_source.certs,
-        );
+        };
+        let r = cert_source.populate_parsed_cert_vector(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert vector with: {:?}", e);
         }
 
-        //cert_source.index_certs();
-        for (i, cert) in cert_source.certs.iter().enumerate() {
-            if let Some(cert) = cert {
-                let hex_skid = hex_skid_from_cert(cert);
-                if cert_source.skid_map.contains_key(&hex_skid) {
-                    let mut v = cert_source.skid_map[&hex_skid].clone();
-                    v.push(i);
-                    cert_source.skid_map.insert(hex_skid, v);
-                } else {
-                    cert_source.skid_map.insert(hex_skid, vec![i]);
-                }
-
-                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-                if cert_source.name_map.contains_key(&name_str) {
-                    let mut v = cert_source.name_map[&name_str].clone();
-                    v.push(i);
-                    cert_source.name_map.insert(name_str, v);
-                } else {
-                    cert_source.name_map.insert(name_str, vec![i]);
-                }
-            }
-        }
+        cert_source.index_certs();
 
         let mut ta_store = TaSource::new();
 
         if let Some(ta_folder) = &args.ta_folder {
-            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
             if let Err(e) = r {
                 println!(
                     "Failed to load trust anchors from {} with error {:?}",
@@ -323,27 +293,19 @@ pub async fn options_std(args: &Pittv3Args) {
             populate_5280_pki_environment(&mut pe);
             pe.add_trust_anchor_source(Box::new(ta_store));
 
-            {
-                let partial_paths =
-                    if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock() {
-                        g
-                    } else {
-                        return;
-                    };
-                partial_paths.deref().borrow_mut().clear();
-            }
+            cert_source.clear_paths();
             cert_source.find_all_partial_paths(&pe, &cps);
         }
 
         if let Some(index) = args.dump_cert_at_index {
-            if index >= cert_source.certs.len() {
+            if index >= cert_source.num_certs() {
                 println!(
                     "Requested index does not exist. Try again with an index value less than {}",
-                    cert_source.certs.len()
+                    cert_source.num_certs()
                 );
                 return;
             }
-            let c = &cert_source.certs[index];
+            let c = &cert_source.get_cert_at_index(index);
             if let Some(cert) = c {
                 let p = Path::new(&download_folder);
                 let fname = format!("{}.der", index);
@@ -371,7 +333,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 let blocklist_file = if let Some(bl) = blp.to_str() { bl } else { "" };
 
                 if let Some(download_folder) = &args.download_folder {
-                    let mut buffers: Vec<CertFile> = vec![];
+                    //let mut buffers: Vec<CertFile> = vec![];
 
                     let mut blocklist = read_blocklist(blocklist_file);
                     let mut lmm = read_last_modified_map(lmm_file);
@@ -380,7 +342,7 @@ pub async fn options_std(args: &Pittv3Args) {
                         &pe,
                         &fresh_uris,
                         download_folder,
-                        &mut buffers,
+                        &mut CertSource::default(),
                         0,
                         &mut lmm,
                         &mut blocklist,
@@ -417,7 +379,8 @@ pub async fn options_std(args: &Pittv3Args) {
             cert_source.log_certs();
 
             if let Some(download_folder) = &args.download_folder {
-                for (i, buffer) in cert_source.buffers_and_paths.buffers.iter().enumerate() {
+                let buffers = cert_source.get_buffers();
+                for (i, buffer) in buffers.iter().enumerate() {
                     let p = Path::new(download_folder);
                     let fname = format!("{}.der", i);
                     let pbuf = p.join(fname);
@@ -439,19 +402,19 @@ pub async fn options_std(args: &Pittv3Args) {
             };
 
             let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
-            if let Some(target_cert) = parsed_cert {
+            if let Ok(target_cert) = parsed_cert {
                 cert_source.log_paths_for_target(&target_cert, args.time_of_interest);
             }
         }
         if let Some(leaf_ca_index) = args.list_partial_paths_for_leaf_ca {
-            if leaf_ca_index >= cert_source.certs.len() {
+            if leaf_ca_index >= cert_source.num_certs() {
                 println!(
                     "Requested index does not exist. Try again with an index value less than {}",
-                    cert_source.certs.len()
+                    cert_source.num_certs()
                 );
                 return;
             }
-            let c = &cert_source.certs[leaf_ca_index];
+            let c = &cert_source.get_cert_at_index(leaf_ca_index);
             if let Some(leaf_ca_cert) = c {
                 cert_source.log_paths_for_leaf_ca(leaf_ca_cert);
             } else {
@@ -510,7 +473,7 @@ pub async fn options_std(args: &Pittv3Args) {
         if let Some(eff) = &args.end_entity_file {
             if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&eff)) {
                 let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
-                if let Some(target_cert) = parsed_cert {
+                if let Ok(target_cert) = parsed_cert {
                     let mut pe = PkiEnvironment::default();
                     populate_5280_pki_environment(&mut pe);
                     if is_self_signed(&pe, &target_cert) {
@@ -522,7 +485,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     // try base 64
                     if let Ok(encoded) = pem_rfc7468::decode_vec(t.as_slice()) {
                         let parsed_cert = parse_cert(&encoded.1, eff.as_str());
-                        if let Some(target_cert) = parsed_cert {
+                        if let Ok(target_cert) = parsed_cert {
                             let mut pe = PkiEnvironment::default();
                             populate_5280_pki_environment(&mut pe);
                             if is_self_signed(&pe, &target_cert) {
@@ -547,7 +510,7 @@ pub async fn options_std(args: &Pittv3Args) {
             return;
         };
 
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store.buffers, args.time_of_interest);
+        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
         if let Err(e) = r {
             println!(
                 "Failed to load trust anchors from {} with error {:?}",
@@ -685,74 +648,57 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         .as_ref()
         .map(|crl_folder| RemoteStatus::new(crl_folder));
 
+    // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
+    let mut pe = PkiEnvironment::default();
+    populate_5280_pki_environment(&mut pe);
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    if let Some(crl_source) = &crl_source {
+        pe.add_crl_source(Box::new(crl_source.clone()));
+    }
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    if let Some(remote_status) = &remote_status {
+        pe.add_check_remote(Box::new(remote_status.clone()));
+    }
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    pe.add_revocation_cache(Box::new(RevocationCache::new()));
     loop {
-        // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
-        let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(Box::new(ta_source.clone()));
-
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        if let Some(crl_source) = &crl_source {
-            pe.add_crl_source(Box::new(crl_source.clone()));
-        }
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        if let Some(remote_status) = &remote_status {
-            pe.add_check_remote(Box::new(remote_status.clone()));
-        }
-        #[cfg(all(feature = "std", feature = "revocation"))]
-        pe.add_revocation_cache(Box::new(RevocationCache::new()));
-
         // Create a new CertSource and (re-)deserialize on every iteration due references to
         // buffers in the certs member. On the first pass, cbor will contain data read from file,
         // on subsequent passes it will contain a fresh CBOR blob that features buffers downloaded
         // from AIA or SIA locations.
-        let mut cert_source = CertSource::new();
-        if cbor.is_empty() {
+        let mut cert_source = if cbor.is_empty() {
             // Empty CBOR is fine when doing dynamic building or when validating certificates
             // issued by a trust anchor
             if 0 == pass {
                 info!("Empty CBOR file at {}. Proceeding without it.", cbor_file);
             }
-            cert_source.buffers_and_paths = BuffersAndPaths::default();
+            CertSource::default()
 
             // Not harvesting URIs and doing dynamic on first pass on off chance the end entity
             // was issued by a trust anchor. It may be better to harvest here and save a loop.
         } else {
             // we want to use the buffers as augmented by last round but want to start from scratch
             // on the partial paths.
-            match from_reader(cbor.as_slice()) {
-                Ok(cbor_data) => cert_source.buffers_and_paths = cbor_data,
+            match CertSource::new_from_cbor(cbor.as_slice()) {
+                Ok(cbor_data) => cbor_data,
                 Err(e) => {
-                    cert_source.buffers_and_paths = BuffersAndPaths::default();
                     error!(
                         "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
                         cbor_file, e
                     );
+                    CertSource::default()
                 }
             }
-
-            if 0 < pass {
-                let partial_paths =
-                    if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock() {
-                        g
-                    } else {
-                        return;
-                    };
-
-                partial_paths.deref().borrow_mut().clear();
-            }
-        }
+        };
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
         // Since buffers from AIA/SIA are appended to the cert_source.buffers_and_paths.buffers
         // vector, set a threshold to limit paths returned to the caller when building paths. On
         // first pass, use zero so all paths are available. On subsequent passes, only use paths
         // with at least one index above the length of the buffers vector prior to augmentation.
-        let threshold = if 0 == pass || cert_source.buffers_and_paths.buffers.is_empty() {
-            0
-        } else {
-            cert_source.buffers_and_paths.buffers.len()
-        };
+        let threshold = if 0 == pass { 0 } else { cert_source.len() };
 
         // Don't do AIA and SIA chasing on first pass (fresh_uris and uri_threshold will be
         // zero). On subsequent passes, if the number of URIs did not change, then we have
@@ -771,11 +717,16 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 let mut lmm = read_last_modified_map(lmm_file);
                 let mut blocklist = read_blocklist(blocklist_file);
 
-                let bap_ref = &mut cert_source.buffers_and_paths.buffers;
+                //let bap_ref = &mut cert_source.buffers_and_paths.buffers;
                 if 1 == pass {
                     // on first dynamic action, pick up certs from downloads folder
-                    if cert_folder_to_vec(&pe, download_folder, bap_ref, args.time_of_interest)
-                        .is_err()
+                    if cert_folder_to_vec(
+                        &pe,
+                        download_folder,
+                        &mut cert_source,
+                        args.time_of_interest,
+                    )
+                    .is_err()
                     {
                         debug!("Encountered error reading certificates from downloads folder");
                     }
@@ -787,7 +738,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                     &pe,
                     &fresh_uris,
                     download_folder,
-                    bap_ref,
+                    &mut cert_source,
                     if uri_threshold == 0 {
                         0
                     } else {
@@ -830,39 +781,14 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
 
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
-        let r = populate_parsed_cert_vector(
-            &cert_source.buffers_and_paths,
-            &cps,
-            &mut cert_source.certs,
-        );
+        let r = cert_source.populate_parsed_cert_vector(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert map: {}", e);
             break;
         }
 
         // Set up the SKID and name maps
-        // cert_source.index_certs();
-        for (i, cert) in cert_source.certs.iter().enumerate() {
-            if let Some(cert) = cert {
-                let hex_skid = hex_skid_from_cert(cert);
-                if cert_source.skid_map.contains_key(&hex_skid) {
-                    let mut v = cert_source.skid_map[&hex_skid].clone();
-                    v.push(i);
-                    cert_source.skid_map.insert(hex_skid, v);
-                } else {
-                    cert_source.skid_map.insert(hex_skid, vec![i]);
-                }
-
-                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-                if cert_source.name_map.contains_key(&name_str) {
-                    let mut v = cert_source.name_map[&name_str].clone();
-                    v.push(i);
-                    cert_source.name_map.insert(name_str, v);
-                } else {
-                    cert_source.name_map.insert(name_str, vec![i]);
-                }
-            }
-        }
+        cert_source.index_certs();
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
         // this is the first pass, we expect this to have been present in the deserialized CBOR.
@@ -883,8 +809,8 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             #[cfg(feature = "remote")]
             if args.dynamic_build {
                 // Iterate over freshly added certs and collect up URIs from AIA and SIA
-                for i in threshold..cert_source.certs.len() {
-                    if let Some(c) = &cert_source.certs[i] {
+                for i in threshold..cert_source.num_certs() {
+                    if let Some(c) = &cert_source.get_cert_at_index(i) {
                         collect_uris_from_aia_and_sia(c, &mut fresh_uris);
                     }
                 }
@@ -905,7 +831,7 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                         && !stats_for_file.target_is_revoked)
                 {
                     // validate when validating all or we don't have a definitive answer yet
-                    validate_cert_file(
+                    let _ = validate_cert_file(
                         &pe,
                         &cps,
                         filename.as_str(),
@@ -931,6 +857,8 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
             )
             .await;
         }
+
+        pe.clear_certificate_sources();
 
         #[cfg(feature = "remote")]
         if !args.dynamic_build {

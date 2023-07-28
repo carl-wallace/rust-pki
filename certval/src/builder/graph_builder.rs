@@ -8,7 +8,6 @@ use log::error;
 
 use crate::builder::file_utils::cert_folder_to_vec;
 use crate::builder::file_utils::ta_folder_to_vec;
-use crate::source::cert_source::*;
 use crate::*;
 
 #[cfg(feature = "remote")]
@@ -46,19 +45,9 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
 
     let mut cert_store = CertSource::new();
     let r = if get_cbor_ta_store(cps) {
-        ta_folder_to_vec(
-            pe,
-            &ca_folder,
-            &mut cert_store.buffers_and_paths.buffers,
-            toi,
-        )
+        ta_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
     } else {
-        cert_folder_to_vec(
-            pe,
-            &ca_folder,
-            &mut cert_store.buffers_and_paths.buffers,
-            toi,
-        )
+        cert_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
     };
     if let Err(e) = r {
         error!(
@@ -90,9 +79,8 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
 
         loop {
             {
-                let mut tmp_vec: Vec<Option<PDVCertificate>> = vec![];
-                let r =
-                    populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut tmp_vec);
+                let tmp_vec: Vec<Option<PDVCertificate>> = vec![];
+                let r = cert_store.populate_parsed_cert_vector(cps);
                 if let Err(e) = r {
                     error!("Failed to populate cert map: {}", e);
                 }
@@ -106,7 +94,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 pe,
                 &uris,
                 &download_folder,
-                &mut cert_store.buffers_and_paths.buffers,
+                &mut cert_store,
                 uris_count,
                 &mut lmm,
                 &mut blocklist,
@@ -134,16 +122,16 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 }
             }
 
-            if certs_count == cert_store.buffers_and_paths.buffers.len() {
+            if certs_count == cert_store.num_buffers() {
                 break;
             }
-            certs_count = cert_store.buffers_and_paths.buffers.len();
+            certs_count = cert_store.num_buffers();
             uris_count = uris.len();
             error!("URI count: {}; Cert count: {}", uris_count, certs_count);
         }
     }
 
-    let r = populate_parsed_cert_vector(&cert_store.buffers_and_paths, cps, &mut cert_store.certs);
+    let r = cert_store.populate_parsed_cert_vector(cps);
     if let Err(e) = r {
         error!(
             "Failed to populate parsed certificate vector with error {:?}",
@@ -151,7 +139,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         );
     }
 
-    if cert_store.buffers_and_paths.buffers.is_empty() {
+    if cert_store.num_buffers() == 0 {
         error!("No certificates were read, so no partial paths were found and no CBOR certificate store will be generated"
             );
         return Err(Error::NotFound);
@@ -198,8 +186,6 @@ pub fn read_cbor(filename: &Option<String>) -> Vec<u8> {
 #[cfg(feature = "std")]
 #[tokio::test]
 async fn non_existent_dir() {
-    use ciborium::de::from_reader;
-
     let ta_store_folder = format!(
         "{}{}",
         env!("CARGO_MANIFEST_DIR"),
@@ -220,7 +206,7 @@ async fn non_existent_dir() {
     populate_5280_pki_environment(&mut pe);
 
     let mut ta_store = TaSource::new();
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store.buffers, 0).unwrap();
+    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
     populate_parsed_ta_vector(&ta_store.buffers, &mut ta_store.tas);
     ta_store.index_tas();
     // for (i, ta) in ta_store.tas.iter().enumerate() {
@@ -255,48 +241,24 @@ async fn non_existent_dir() {
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
-    let mut cert_source = CertSource::new();
-    match from_reader(cbor.unwrap().as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse CBOR file: {}", e)
         }
-    }
-    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
-    {
-        let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
-        {
-            g
-        } else {
-            panic!()
-        };
-        assert_eq!(1, partial_paths_guard.borrow().len());
-    }
+    };
+    assert_eq!(3, cert_source.len());
 
     // serialize as TA store (so no partial paths)
     set_cbor_ta_store(&mut cps, true);
     set_certification_authority_folder(&mut cps, ca_store_folder.clone());
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
-    let mut cert_source = CertSource::new();
-    match from_reader(cbor.unwrap().as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse CBOR file: {}", e)
         }
-    }
-    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
-    {
-        let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
-        {
-            g
-        } else {
-            panic!()
-        };
-        assert_eq!(0, partial_paths_guard.borrow().len());
-    }
+    };
+    assert_eq!(3, cert_source.len());
 }

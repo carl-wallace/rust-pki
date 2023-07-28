@@ -93,41 +93,17 @@ pub fn options_std_app(args: &Pittv3Args) {
     let cps = CertificationPathSettings::default();
 
     let ca_cbor = include_bytes!("../resources/ca.cbor");
-    let mut cert_source = CertSource::new();
-    match from_reader(ca_cbor.as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let mut cert_source = match CertSource::new_from_cbor(ca_cbor.as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse embedded CA CBOR with: {}", e)
         }
-    }
-    let r =
-        populate_parsed_cert_vector(&cert_source.buffers_and_paths, &cps, &mut cert_source.certs);
+    };
+    let r = cert_source.populate_parsed_cert_vector(&cps);
     if let Err(e) = r {
         error!("Failed to populate cert vector with: {:?}", e);
     }
-    for (i, cert) in cert_source.certs.iter().enumerate() {
-        if let Some(cert) = cert {
-            let hex_skid = hex_skid_from_cert(cert);
-            if cert_source.skid_map.contains_key(&hex_skid) {
-                let mut v = cert_source.skid_map[&hex_skid].clone();
-                v.push(i);
-                cert_source.skid_map.insert(hex_skid, v);
-            } else {
-                cert_source.skid_map.insert(hex_skid, vec![i]);
-            }
-
-            let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
-            if cert_source.name_map.contains_key(&name_str) {
-                let mut v = cert_source.name_map[&name_str].clone();
-                v.push(i);
-                cert_source.name_map.insert(name_str, v);
-            } else {
-                cert_source.name_map.insert(name_str, vec![i]);
-            }
-        }
-    }
+    cert_source.index_certs();
 
     let ta_cbor = include_bytes!("../resources/ta.cbor");
     let ta_bap: BuffersAndPaths = match from_reader(ta_cbor.as_slice()) {
@@ -169,7 +145,7 @@ pub fn options_std_app(args: &Pittv3Args) {
                     };
 
                     // validate when validating all or we don't have a definitive answer yet
-                    validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
+                    let _ = validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
                 }
                 Err(e) => {
                     println!("Failed to read file at {} with {}", filename, e);

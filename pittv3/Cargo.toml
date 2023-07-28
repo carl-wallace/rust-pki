@@ -1,6 +1,6 @@
 [package]
 name = "pittv3"
-version = "0.1.1"
+version = "0.1.3"
 description = """
 PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
 of trust anchors, intermediate CA certificates and end entity certificates.
