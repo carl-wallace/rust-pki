@@ -37,3 +37,9 @@ cases in the repo) is roughly 90%.
 - Aligned with significant changes to the formats repo, i.e., change from no-copy to owned types.
 - Add PQC support with associated pqc feature flag to turn off/on.
 - Modify or temporarily comment out test cases due to artifact expiration.
+
+## [0.1.3] - 2023-07-28
+
+- Align with certval changes
+- Cleanup use of cfg-if
+- Remove some no-longer-necessary clap code used to display help information

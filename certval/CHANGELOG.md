@@ -60,3 +60,10 @@ These may or may not be addressed.
 - Aligned with significant changes to the formats repo, i.e., change from no-copy to owned types.
 - Add PQC support with associated pqc feature flag to turn off/on.
 - Modify or temporarily comment out test cases due to artifact expiration.
+
+## [0.1.3] - 2023-07-28
+
+- Use log macros directly, instead of a through a wrapper. The log crate is no longer optional.
+- Continued move towards using owned types. Refactored some trait implementations and added new CertVector trait in support of this. Eliminated CertificationPathBuilder trait and moved get_paths_for_target to CertificateSource. CertSource and TaSource fields are no longer public.
+- Implemented support for [draft-ietf-lamps-x509-policy-graph-01](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-x509-policy-graph-01) as an optional policy processing implementation.
+- Added a few TryFrom implementations to simplify creation of PDVTrustAnchorChoice and PDVCertificate instances.
