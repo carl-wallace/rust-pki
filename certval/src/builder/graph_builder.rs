@@ -45,19 +45,9 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
 
     let mut cert_store = CertSource::new();
     let r = if get_cbor_ta_store(cps) {
-        ta_folder_to_vec(
-            pe,
-            &ca_folder,
-            &mut cert_store,
-            toi,
-        )
+        ta_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
     } else {
-        cert_folder_to_vec(
-            pe,
-            &ca_folder,
-            &mut cert_store,
-            toi,
-        )
+        cert_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
     };
     if let Err(e) = r {
         error!(
@@ -196,8 +186,6 @@ pub fn read_cbor(filename: &Option<String>) -> Vec<u8> {
 #[cfg(feature = "std")]
 #[tokio::test]
 async fn non_existent_dir() {
-    use ciborium::de::from_reader;
-
     let ta_store_folder = format!(
         "{}{}",
         env!("CARGO_MANIFEST_DIR"),
@@ -253,48 +241,24 @@ async fn non_existent_dir() {
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
-    let mut cert_source = CertSource::new();
-    match from_reader(cbor.unwrap().as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse CBOR file: {}", e)
         }
-    }
-    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
-    {
-        let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
-        {
-            g
-        } else {
-            panic!()
-        };
-        assert_eq!(1, partial_paths_guard.borrow().len());
-    }
+    };
+    assert_eq!(3, cert_source.len());
 
     // serialize as TA store (so no partial paths)
     set_cbor_ta_store(&mut cps, true);
     set_certification_authority_folder(&mut cps, ca_store_folder.clone());
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
-    let mut cert_source = CertSource::new();
-    match from_reader(cbor.unwrap().as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse CBOR file: {}", e)
         }
-    }
-    assert_eq!(3, cert_source.buffers_and_paths.buffers.len());
-    {
-        let partial_paths_guard = if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock()
-        {
-            g
-        } else {
-            panic!()
-        };
-        assert_eq!(0, partial_paths_guard.borrow().len());
-    }
+    };
+    assert_eq!(3, cert_source.len());
 }

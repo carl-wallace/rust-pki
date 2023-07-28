@@ -44,7 +44,17 @@ use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
 use x509_cert::{anchor::TrustAnchorChoice, Certificate};
 
-use crate::{environment::pki_environment_traits::TrustAnchorSource, pdv_certificate::*, pdv_extension::PDVExtension, pdv_extension::*, pdv_trust_anchor::get_trust_anchor_name, source::cert_source::CertFile, util::error::*, util::pdv_utilities::{get_leaf_rdn, name_to_string}, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST, CertVector};
+use crate::{
+    environment::pki_environment_traits::TrustAnchorSource,
+    pdv_certificate::*,
+    pdv_extension::PDVExtension,
+    pdv_extension::*,
+    pdv_trust_anchor::get_trust_anchor_name,
+    source::cert_source::CertFile,
+    util::error::*,
+    util::pdv_utilities::{get_leaf_rdn, name_to_string},
+    CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
+};
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
 /// containing in a TrustAnchorChoice object:
@@ -210,6 +220,9 @@ impl CertVector for TaSource {
     }
     fn len(&self) -> usize {
         self.buffers.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.buffers.is_empty()
     }
 }
 

@@ -175,12 +175,10 @@ extern crate alloc;
 use certval::*;
 
 use alloc::collections::BTreeMap;
-use core::ops::Deref;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use ciborium::de::from_reader;
 use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
@@ -265,15 +263,12 @@ pub async fn options_std(args: &Pittv3Args) {
             return;
         }
 
-        let mut cert_source = CertSource::new();
-        match from_reader(cbor.as_slice()) {
-            Ok(cbor_data) => {
-                cert_source.buffers_and_paths = cbor_data;
-            }
+        let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
+            Ok(cbor_data) => cbor_data,
             Err(e) => {
                 panic!("Failed to parse CBOR file at {} with: {}", cbor_file, e)
             }
-        }
+        };
         let r = cert_source.populate_parsed_cert_vector(&cps);
         if let Err(e) = r {
             error!("Failed to populate cert vector with: {:?}", e);
@@ -298,15 +293,7 @@ pub async fn options_std(args: &Pittv3Args) {
             populate_5280_pki_environment(&mut pe);
             pe.add_trust_anchor_source(Box::new(ta_store));
 
-            {
-                let partial_paths =
-                    if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock() {
-                        g
-                    } else {
-                        return;
-                    };
-                partial_paths.deref().borrow_mut().clear();
-            }
+            cert_source.clear_paths();
             cert_source.find_all_partial_paths(&pe, &cps);
         }
 
@@ -392,7 +379,8 @@ pub async fn options_std(args: &Pittv3Args) {
             cert_source.log_certs();
 
             if let Some(download_folder) = &args.download_folder {
-                for (i, buffer) in cert_source.buffers_and_paths.buffers.iter().enumerate() {
+                let buffers = cert_source.get_buffers();
+                for (i, buffer) in buffers.iter().enumerate() {
                     let p = Path::new(download_folder);
                     let fname = format!("{}.der", i);
                     let pbuf = p.join(fname);
@@ -680,53 +668,37 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         // buffers in the certs member. On the first pass, cbor will contain data read from file,
         // on subsequent passes it will contain a fresh CBOR blob that features buffers downloaded
         // from AIA or SIA locations.
-        let mut cert_source = CertSource::new();
-        if cbor.is_empty() {
+        let mut cert_source = if cbor.is_empty() {
             // Empty CBOR is fine when doing dynamic building or when validating certificates
             // issued by a trust anchor
             if 0 == pass {
                 info!("Empty CBOR file at {}. Proceeding without it.", cbor_file);
             }
-            cert_source.buffers_and_paths = BuffersAndPaths::default();
+            CertSource::default()
 
             // Not harvesting URIs and doing dynamic on first pass on off chance the end entity
             // was issued by a trust anchor. It may be better to harvest here and save a loop.
         } else {
             // we want to use the buffers as augmented by last round but want to start from scratch
             // on the partial paths.
-            match from_reader(cbor.as_slice()) {
-                Ok(cbor_data) => cert_source.buffers_and_paths = cbor_data,
+            match CertSource::new_from_cbor(cbor.as_slice()) {
+                Ok(cbor_data) => cbor_data,
                 Err(e) => {
-                    cert_source.buffers_and_paths = BuffersAndPaths::default();
                     error!(
                         "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
                         cbor_file, e
                     );
+                    CertSource::default()
                 }
             }
-
-            if 0 < pass {
-                let partial_paths =
-                    if let Ok(g) = cert_source.buffers_and_paths.partial_paths.lock() {
-                        g
-                    } else {
-                        return;
-                    };
-
-                partial_paths.deref().borrow_mut().clear();
-            }
-        }
+        };
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
         // Since buffers from AIA/SIA are appended to the cert_source.buffers_and_paths.buffers
         // vector, set a threshold to limit paths returned to the caller when building paths. On
         // first pass, use zero so all paths are available. On subsequent passes, only use paths
         // with at least one index above the length of the buffers vector prior to augmentation.
-        let threshold = if 0 == pass || cert_source.buffers_and_paths.buffers.is_empty() {
-            0
-        } else {
-            cert_source.buffers_and_paths.buffers.len()
-        };
+        let threshold = if 0 == pass { 0 } else { cert_source.len() };
 
         // Don't do AIA and SIA chasing on first pass (fresh_uris and uri_threshold will be
         // zero). On subsequent passes, if the number of URIs did not change, then we have
@@ -748,8 +720,13 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
                 //let bap_ref = &mut cert_source.buffers_and_paths.buffers;
                 if 1 == pass {
                     // on first dynamic action, pick up certs from downloads folder
-                    if cert_folder_to_vec(&pe, download_folder, &mut cert_source, args.time_of_interest)
-                        .is_err()
+                    if cert_folder_to_vec(
+                        &pe,
+                        download_folder,
+                        &mut cert_source,
+                        args.time_of_interest,
+                    )
+                    .is_err()
                     {
                         debug!("Encountered error reading certificates from downloads folder");
                     }

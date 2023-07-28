@@ -10,7 +10,10 @@ use x509_cert::crl::CertificateList;
 use x509_cert::name::Name;
 
 use crate::util::error::*;
-use crate::{CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment};
+use crate::{
+    CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings,
+    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
+};
 
 /// `ValidatePath` provides a function signature for implementations that perform certification path
 /// validation or that provide functionality in support of certification path validation.
@@ -99,6 +102,8 @@ pub trait CertVector {
     fn push(&mut self, cert: CertFile);
     /// Returns number of certs in collection
     fn len(&self) -> usize;
+    /// Returns true if len is 0
+    fn is_empty(&self) -> bool;
 }
 
 /// The [`CertificateSource`] trait enables trait objects to provide access to certificates backed via

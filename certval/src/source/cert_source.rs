@@ -73,9 +73,9 @@ use core::ops::Deref;
 
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
+use ciborium::from_reader;
 #[cfg(feature = "std")]
 use std::sync::Mutex;
-use ciborium::from_reader;
 
 /// The CertFile struct associates a string, notionally containing a filename or URI, with a vector
 /// of bytes. The vector of bytes is assumed to contain a binary DER encoded certificate.
@@ -428,7 +428,7 @@ pub struct CertSource {
     /// Contains list of buffers referenced by certs field and, optionally, partial paths
     /// relationships between certificates corresponding to those buffers. This field is the target
     /// of serialization/deserialization.
-    pub buffers_and_paths: BuffersAndPaths,
+    buffers_and_paths: BuffersAndPaths,
 
     /// Maps certificate SKIDs to keys in the `certs` field. Typically, the SKID value is read from
     /// a SKID extension. If no extension is present, the value is calculated as the SHA256 hash of
@@ -460,6 +460,10 @@ impl CertVector for CertSource {
     fn len(&self) -> usize {
         self.buffers_and_paths.buffers.len()
     }
+
+    fn is_empty(&self) -> bool {
+        self.buffers_and_paths.buffers.is_empty()
+    }
 }
 
 impl CertSource {
@@ -475,19 +479,27 @@ impl CertSource {
         }
     }
 
+    /// Clear list of partial paths
+    #[cfg(feature = "std")]
+    pub fn clear_paths(&self) {
+        let partial_paths = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
+            g
+        } else {
+            return;
+        };
+        partial_paths.deref().borrow_mut().clear();
+    }
+
     /// Create new instance from CBOR
     pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
         match from_reader(cbor) {
-            Ok(buffers_and_paths) =>
-                Ok(Self {
+            Ok(buffers_and_paths) => Ok(Self {
                 certs: Vec::new(),
                 buffers_and_paths,
                 skid_map: BTreeMap::new(),
                 name_map: BTreeMap::new(),
             }),
-            Err(_e) => {
-                Err(Error::ParseError)
-            }
+            Err(_e) => Err(Error::ParseError),
         }
     }
 
@@ -1320,7 +1332,7 @@ impl CertSource {
             } // end if let Some(cur_cert) = cur_cert {
         }
         if !new_additions.is_empty() {
-            //error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
+            // error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
             partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
@@ -1407,7 +1419,14 @@ impl CertSource {
         #[cfg(not(feature = "std"))]
         let mut partial_paths = self.buffers_and_paths.partial_paths.borrow_mut();
 
+        partial_paths.clear();
+
         self.find_all_partial_paths_internal(pe, ta_vec, cps, 0, &mut partial_paths);
+    }
+
+    /// Return list of buffers
+    pub fn get_buffers(&self) -> Vec<CertFile> {
+        self.buffers_and_paths.buffers.clone()
     }
 }
 

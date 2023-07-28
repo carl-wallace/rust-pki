@@ -51,15 +51,12 @@ pub fn options_no_std(args: &Pittv3Args) {
     let cps = CertificationPathSettings::default();
 
     let ca_cbor = include_bytes!("../resources/ca.cbor");
-    let mut cert_source = CertSource::new();
-    match from_reader(ca_cbor.as_slice()) {
-        Ok(cbor_data) => {
-            cert_source.buffers_and_paths = cbor_data;
-        }
+    let mut cert_source = match CertSource::new_from_cbor(ca_cbor.as_slice()) {
+        Ok(cbor_data) => cbor_data,
         Err(e) => {
             panic!("Failed to parse embedded CA CBOR with: {}", e)
         }
-    }
+    };
     let r = cert_source.populate_parsed_cert_vector(&cps);
     if let Err(e) = r {
         error!("Failed to populate cert vector with: {:?}", e);

@@ -98,10 +98,8 @@ pub(crate) async fn validate_cert_file(
         let mut r = pe.validate_path(pe, cps, path, &mut cpr);
 
         #[cfg(feature = "remote")]
-        if r.is_ok() {
-            if get_check_revocation_status(cps) {
-                r = check_revocation(pe, cps, path, &mut cpr).await;
-            }
+        if r.is_ok() && get_check_revocation_status(cps) {
+            r = check_revocation(pe, cps, path, &mut cpr).await;
         }
 
         log_path(
