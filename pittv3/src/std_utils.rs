@@ -240,6 +240,16 @@ pub async fn generate(
 ) {
     let start = Instant::now();
 
+    #[cfg(feature = "webpki")]
+    if args.cbor.is_none()
+        || (args.ta_folder.is_none() && !args.webpki_tas)
+        || args.ca_folder.is_none()
+    {
+        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus either ta-folder or webpki-tas");
+        return;
+    }
+
+    #[cfg(not(feature = "webpki"))]
     if args.cbor.is_none() || args.ta_folder.is_none() || args.ca_folder.is_none() {
         println!("ERROR: The cbor, ta-folder and ca-folder options are required when generate is specified");
         return;

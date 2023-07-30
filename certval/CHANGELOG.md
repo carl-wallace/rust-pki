@@ -67,3 +67,4 @@ These may or may not be addressed.
 - Continued move towards using owned types. Refactored some trait implementations and added new CertVector trait in support of this. Eliminated CertificationPathBuilder trait and moved get_paths_for_target to CertificateSource. CertSource and TaSource fields are no longer public.
 - Implemented support for [draft-ietf-lamps-x509-policy-graph-01](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-x509-policy-graph-01) as an optional policy processing implementation.
 - Added a few TryFrom implementations to simplify creation of PDVTrustAnchorChoice and PDVCertificate instances.
+- Added webpki feature to allow instantiating TaSource instance using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate.

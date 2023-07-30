@@ -1,7 +1,21 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
-use alloc::vec::Vec;
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "webpki")] {
+        use log::error;
+        use sha1::{Digest, Sha1};
+        use webpki_roots::TrustAnchor;
+        use alloc::vec;
+        use alloc::string::ToString;
+        use der::{asn1::OctetString, Length};
+        use spki::SubjectPublicKeyInfoOwned;
+        use x509_cert::anchor::{CertPathControls, TrustAnchorInfo};
+    }
+}
 
 use crate::EXTS_OF_INTEREST;
+use alloc::vec::Vec;
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE,
@@ -11,6 +25,7 @@ use const_oid::db::rfc5912::{
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::ext::pkix::NameConstraints;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::name::Name;
 use x509_cert::Certificate;
@@ -59,6 +74,90 @@ impl TryFrom<TrustAnchorChoice> for PDVTrustAnchorChoice {
         let mut pdv_ta = PDVTrustAnchorChoice {
             encoded_ta: enc_ta.to_vec(),
             decoded_ta: ta,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        };
+        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_ta)
+    }
+}
+
+/// The webpki-roots TrustAnchor structure stores values with the outer SEQUENCE tag and length
+/// removed (!). This means approximately nothing can parse it. This function restores the outer
+/// SEQUENCE tag for Name values and returns a parsed Name.
+#[cfg(feature = "webpki")]
+fn partial_name_to_name(partial_name_bytes: &[u8]) -> der::Result<Name> {
+    let l = Length::new(partial_name_bytes.len() as u16);
+    let mut length_bytes = l.to_der()?;
+    let mut enc_name = vec![0x30];
+    enc_name.append(&mut length_bytes);
+    enc_name.append(&mut partial_name_bytes.to_vec());
+    Name::from_der(&enc_name)
+}
+
+/// The webpki-roots TrustAnchor structure stores values with the outer SEQUENCE tag and length
+/// removed (!). This means approximately nothing can parse it. This function restores the outer
+/// SEQUENCE tag for SubjectPublicKeyInfo values and returns a parsed SubjectPublicKeyInfoOwned.
+#[cfg(feature = "webpki")]
+fn partial_spki_to_spki(partial_spki_bytes: &[u8]) -> der::Result<SubjectPublicKeyInfoOwned> {
+    let l = Length::new(partial_spki_bytes.len() as u16);
+    let mut length_bytes = l.to_der()?;
+    let mut enc_spki = vec![0x30];
+    enc_spki.append(&mut length_bytes);
+    enc_spki.append(&mut partial_spki_bytes.to_vec());
+    SubjectPublicKeyInfoOwned::from_der(&enc_spki)
+}
+
+#[cfg(feature = "webpki")]
+impl TryFrom<&TrustAnchor<'_>> for PDVTrustAnchorChoice {
+    type Error = crate::Error;
+
+    /// Takes a webpki-roots TrustAnchor and attempts to produce a PDVTrustAnchorChoice by first
+    /// generating an [RFC5914](https://datatracker.ietf.org/doc/html/rfc5914) TrustAnchorInfo info
+    /// structure containing the name, public key and, optionally, name constraints from the TrustAnchor.
+    fn try_from(ta: &TrustAnchor<'_>) -> crate::Result<Self> {
+        let n = partial_name_to_name(ta.subject)?;
+        let spki = partial_spki_to_spki(ta.spki)?;
+        let nc = match ta.name_constraints {
+            Some(nc) => Some(NameConstraints::from_der(nc)?),
+            None => None,
+        };
+
+        // TrustAnchorInfo (and the certval library) require a key identifier for trust anchors.
+        // Since the webpki-roots structure omits this value, calculate one (which may be different
+        // from what the TA includes in a SKID extension in its cert, but c'est la vie.
+        let key_id = match spki.subject_public_key.as_bytes() {
+            Some(b) => Sha1::digest(b),
+            None => {
+                error!("Failed to calculate key identifier for {}", n.to_string());
+                return Err(Error::Unrecognized);
+            }
+        };
+
+        // TrustAnchorInfo structures that are used for path validation MUST have a CertPathControls
+        // member (because this is where the name is conveyed in that structure).
+        let cp = CertPathControls {
+            ta_name: n,
+            certificate: None,
+            policy_set: None,
+            policy_flags: None,
+            name_constr: nc,
+            path_len_constraint: None,
+        };
+        let tai = TrustAnchorInfo {
+            version: Default::default(),
+            pub_key: spki,
+            key_id: OctetString::new(key_id.to_vec())?,
+            ta_title: None,
+            cert_path: Some(cp),
+            extensions: None,
+            ta_title_lang_tag: None,
+        };
+        let tac = TrustAnchorChoice::TaInfo(tai);
+        let enc_ta = tac.to_der()?;
+        let mut pdv_ta = PDVTrustAnchorChoice {
+            encoded_ta: enc_ta.to_vec(),
+            decoded_ta: tac,
             metadata: None,
             parsed_extensions: Default::default(),
         };

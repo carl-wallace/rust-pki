@@ -207,31 +207,51 @@ pub async fn options_std(args: &Pittv3Args) {
         let pe = PkiEnvironment::default();
 
         // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-        let ta_folder: &String = if let Some(ta_folder) = &args.ta_folder {
-            ta_folder
-        } else {
-            panic!("The ta_folder argument must be provided")
-        };
+        if let Some(ta_folder) = &args.ta_folder {
+            let mut ta_store = TaSource::new();
+            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
+            if let Err(e) = r {
+                println!(
+                    "Failed to load trust anchors from {} with error {:?}",
+                    ta_folder, e
+                );
+                return;
+            }
 
-        let mut ta_store = TaSource::new();
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
-        if let Err(e) = r {
-            println!(
-                "Failed to load trust anchors from {} with error {:?}",
-                ta_folder, e
-            );
-            return;
+            if let Err(e) = ta_store.initialize() {
+                println!(
+                    "Failed to initialize trust anchor source from {} with error {:?}",
+                    ta_folder, e
+                );
+                return;
+            }
+
+            ta_store.log_tas();
         }
 
-        if let Err(e) = ta_store.initialize() {
-            println!(
-                "Failed to initialize trust anchor source from {} with error {:?}",
-                ta_folder, e
-            );
-            return;
-        }
+        #[cfg(feature = "webpki")]
+        if args.webpki_tas {
+            match TaSource::new_from_webpki() {
+                Ok(mut ta_store) => {
+                    if let Err(e) = ta_store.initialize() {
+                        println!(
+                            "Failed to initialize trust anchor source from webpki-roots with error {:?}",
+                            e
+                        );
+                        return;
+                    }
 
-        ta_store.log_tas();
+                    ta_store.log_tas();
+                }
+                Err(e) => {
+                    println!(
+                        "Failed to create trust anchor source from webpki-roots with error {:?}",
+                        e
+                    );
+                    return;
+                }
+            }
+        }
     }
 
     #[cfg(feature = "std")]
@@ -280,6 +300,26 @@ pub async fn options_std(args: &Pittv3Args) {
             error!("Failed to populate cert vector with: {:?}", e);
         }
 
+        populate_5280_pki_environment(&mut pe);
+
+        #[cfg(feature = "webpki")]
+        if args.webpki_tas {
+            // the TAs read from webpki-roots do not assert a validity do turn off this check
+            set_enforce_trust_anchor_validity(&mut cps, false);
+
+            match TaSource::new_from_webpki() {
+                Ok(ta_store) => {
+                    pe.add_trust_anchor_source(Box::new(ta_store));
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to initialize TA store from webpki-roots: {:?}. Continuing...",
+                        e
+                    );
+                }
+            };
+        }
+
         let mut ta_store = TaSource::new();
 
         if let Some(ta_folder) = &args.ta_folder {
@@ -299,9 +339,12 @@ pub async fn options_std(args: &Pittv3Args) {
                 return;
             }
 
-            populate_5280_pki_environment(&mut pe);
             pe.add_trust_anchor_source(Box::new(ta_store));
-
+            cert_source.clear_paths();
+            cert_source.find_all_partial_paths(&pe, &cps);
+        }
+        #[cfg(feature = "webpki")]
+        if args.webpki_tas && args.ta_folder.is_none() {
             cert_source.clear_paths();
             cert_source.find_all_partial_paths(&pe, &cps);
         }
@@ -508,35 +551,8 @@ pub async fn options_std(args: &Pittv3Args) {
             };
         };
     } else {
-        let pe = PkiEnvironment::default();
-        let mut ta_store = TaSource::new();
-
-        // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-        let ta_folder: &String = if let Some(ta_folder) = &args.ta_folder {
-            ta_folder
-        } else {
-            //panic!("The ta_folder argument must be provided")
-            return;
-        };
-
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
-        if let Err(e) = r {
-            println!(
-                "Failed to load trust anchors from {} with error {:?}",
-                ta_folder, e
-            );
-            return;
-        }
-        if let Err(e) = ta_store.initialize() {
-            println!(
-                "Failed to initialize trust anchor source from {} with error {:?}",
-                ta_folder, e
-            );
-            return;
-        }
-
         // Generate, validate certificate file, or validate certificates folder per args.
-        generate_and_validate(&ta_store, args).await;
+        generate_and_validate(args).await;
     }
 }
 
@@ -559,7 +575,7 @@ pub async fn options_std(args: &Pittv3Args) {
 /// then downloading fresh artifacts, updating the buffers and partial paths and trying again until no
 /// further options are available.
 #[cfg(feature = "std")]
-async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
+async fn generate_and_validate(args: &Pittv3Args) {
     // The CBOR file is required (but can be an empty file if doing dynamic building only)
     let cbor_file = if let Some(cbor) = &args.cbor {
         cbor
@@ -604,11 +620,53 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         set_retrieve_from_aia_sia_http(&mut cps, false);
     }
 
+    let mut pe = PkiEnvironment::default();
+    populate_5280_pki_environment(&mut pe);
+
+    let mut ta_store_added = false;
+    #[cfg(feature = "webpki")]
+    if args.webpki_tas {
+        // the TAs read from webpki-roots do not assert a validity do turn off this check
+        set_enforce_trust_anchor_validity(&mut cps, false);
+
+        match TaSource::new_from_webpki() {
+            Ok(ta_store) => {
+                pe.add_trust_anchor_source(Box::new(ta_store));
+                ta_store_added = true;
+            }
+            Err(e) => {
+                error!(
+                    "Failed to initialize TA store from webpki-roots: {:?}. Continuing...",
+                    e
+                );
+            }
+        };
+    }
+
+    // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
+    if let Some(ta_folder) = &args.ta_folder {
+        let mut ta_store = TaSource::new();
+        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
+        if let Err(e) = r {
+            println!(
+                "Failed to load trust anchors from {} with error {:?}",
+                ta_folder, e
+            );
+            return;
+        }
+        if let Err(e) = ta_store.initialize() {
+            println!(
+                "Failed to initialize trust anchor source from {} with error {:?}",
+                ta_folder, e
+            );
+            return;
+        }
+        pe.add_trust_anchor_source(Box::new(ta_store));
+        ta_store_added = true;
+    }
+
     // Generate can be paired with validation to ensure the CBOR file used during validation is current
     if args.generate {
-        let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
-        pe.add_trust_anchor_source(Box::new(ta_source.clone()));
         generate(args, &mut cps, &mut pe).await;
     }
 
@@ -616,6 +674,15 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
     if args.end_entity_folder.is_none() && args.end_entity_file.is_none() {
         return;
     }
+
+    if !ta_store_added {
+        #[cfg(feature = "webpki")]
+        error!("Either the ta_folder argument or webpki argument must be provided");
+
+        #[cfg(not(feature = "webpki"))]
+        error!("The ta_folder argument argument must be provided");
+        return;
+    };
 
     // The pass value governs two actions during the loop. AIA/SIA fetch operations are only
     // performed on second and subsequent loops. The threshold for evaluating partial paths is set
@@ -661,11 +728,6 @@ async fn generate_and_validate(ta_source: &TaSource, args: &Pittv3Args) {
         .crl_folder
         .as_ref()
         .map(|crl_folder| RemoteStatus::new(crl_folder));
-
-    // TODO add means to remove specific items from a PkiEnvironment then move this outside the loop
-    let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
-    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 
     #[cfg(all(feature = "std", feature = "revocation"))]
     if let Some(crl_source) = &crl_source {
