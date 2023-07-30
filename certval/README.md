@@ -8,11 +8,11 @@ as augmented by [RFC 5937]. Support for certification path building and revocati
 
 ASN.1 encoders and decoders and cryptographic support are primarily provided by various [RustCrypto] libraries.
 
-A [change log](CHANGELOG.md) is available at the root of the certval project.
+A change log is available at the root of the certval project.
 
 ## Crate Feature Flags
 
-The certval library provides five feature gates that enable varying levels of support.
+The certval library provides seven feature gates that enable varying levels of support.
 
 - `default-features = false` provides path validation support for no-std applications without support for revocation status determination or multi-thread support. Certificates and partial paths can be provided via a CBOR file, providing rich certification path development support for environments in which new CAs are introduced infrequently.
 - `revocation` augments the `default-features = false` feature by adding support for processing CRLs and OCSP responses that are provided by the caller, such as may have been obtained by stapling to a higher level protocol.
@@ -20,6 +20,7 @@ The certval library provides five feature gates that enable varying levels of su
 - `revocation,std` augments the `std` feature by adding support for processing CRLs and OCSP responses that are provided by the caller or obtained via the file system.
 - `remote` is the default. It replaces and augments the `revocation,std` features by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
 - `pqc` adds support for dilithium, falcon and sphincsplus using algorithm implementations from the [pqcrypto](https://github.com/rustpq/pqcrypto) project and object identifiers from the [IETF 115 PQC hackathon](https://github.com/IETF-Hackathon/pqc-certificates).
+- `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
 
 ## Sample Usage
 

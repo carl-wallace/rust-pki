@@ -1271,6 +1271,37 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+#[cfg(all(feature = "webpki", feature = "remote"))]
+#[test]
+fn webpki_test() -> Result<(), Box<dyn std::error::Error>> {
+    let dp = Path::new("tests/examples/downloads_webpki");
+    if Path::exists(dp) {
+        fs::remove_dir_all(dp).unwrap();
+    }
+    fs::create_dir_all(dp).unwrap();
+
+    // Same as above but without clearing downloads folder
+    let mut cmd = Command::cargo_bin("pittv3")?;
+    cmd.arg("--webpki-tas");
+    cmd.arg("-d").arg(dp.to_str().unwrap());
+    cmd.arg("-s")
+        .arg("tests/examples/disable_revocation_checking.json");
+    cmd.arg("-i").arg("1690728616");
+    cmd.arg("-y");
+    cmd.arg("-e").arg("tests/examples/amazon_2023.der");
+    cmd.assert().stdout(predicate::str::contains(
+        "Valid: 1 - Result folder indices: [0]",
+    ));
+    cmd.assert()
+        .stdout(predicate::str::contains("Invalid paths found: 0"));
+    cmd.assert()
+        .stdout(predicate::str::contains("Paths found: 1"));
+    if Path::exists(dp) {
+        fs::remove_dir_all(dp).unwrap();
+    }
+    Ok(())
+}
+
 #[test]
 fn bad_input() -> Result<(), Box<dyn std::error::Error>> {
     {

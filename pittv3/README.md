@@ -86,7 +86,7 @@ level and higher is directed to stdout.
 ## Crate Feature Flags
 
 The pittv3 binary features the same five feature gates as the certval library, plus one additional.
-The five feature gates shared with certval enable varying levels of support and are as follows:
+The seven feature gates shared with certval enable varying levels of support and are as follows:
 
 - `default-features = false` provides path validation support for no-std applications without support for revocation status determination or multi-thread support.
   Trust anchors and CA certificates/partial paths are provided by a pair of CBOR files built into the app.
@@ -97,6 +97,7 @@ The five feature gates shared with certval enable varying levels of support and 
 - `remote` is the default. It replaces and augments the `revocation,std` feature by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs
   expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
 - `pqc` adds support for dilithium, falcon and sphincsplus using algorithm implementations from the [pqcrypto](https://github.com/rustpq/pqcrypto) project and object identifiers from the [IETF 115 PQC hackathon](https://github.com/IETF-Hackathon/pqc-certificates).
+- `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
 
 The one additional feature gate is `std_app`, which builds certval as `default-features = false` but
 builds pittv3 with std support so that end entity files can be selected for validation (additional

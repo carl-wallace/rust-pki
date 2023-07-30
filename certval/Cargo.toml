@@ -64,6 +64,8 @@ pqcrypto-sphincsplus = {version = "0.6.4", optional = true}
 pqcrypto = {version = "0.16.1", optional = true}
 pqcrypto-traits = {version = "0.3.4", optional = true}
 
+webpki-roots = {version = "0.25.1", optional = true}
+
 [dev-dependencies]
 tempfile = "3.7.0"
 hex-literal = "0.4.1"
@@ -75,13 +77,15 @@ tokio-test = "0.4.2"
 #   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
 #   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
 #   - remote adds support for dynamic path building, CRL fetching and OCSP
-# Default is set to be the most all encompassing (i.e., remote).
+# Default is set to be the most all encompassing (i.e., remote,webpki).
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
-default = ["remote"]
+default = ["remote", "webpki"]
 revocation = ["ndarray"]
 std = ["ndarray", "tokio", "base64ct", "walkdir", "url", "serde_json", "serde/rc",  "flagset/serde", "regex", "lazy_static/spin"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
+webpki = ["webpki-roots"]
 
 [package.metadata.docs.rs]
 all-features = true

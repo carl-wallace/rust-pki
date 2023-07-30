@@ -27,7 +27,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 use core::str;
-use log::info;
+use log::{error, info, warn};
 
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
@@ -35,6 +35,12 @@ use ciborium::from_reader;
 use core::cell::RefCell;
 #[cfg(feature = "std")]
 use std::sync::Mutex;
+
+#[cfg(feature = "webpki")]
+use webpki_roots::TLS_SERVER_ROOTS;
+
+#[cfg(feature = "webpki")]
+use alloc::format;
 
 use subtle_encoding::hex;
 
@@ -268,6 +274,42 @@ impl TaSource {
         })
     }
 
+    /// Creates a new TaSource instance from the [TLS_SERVER_ROOTS](https://docs.rs/webpki-roots/0.25.1/webpki_roots/constant.TLS_SERVER_ROOTS.html)
+    /// variable in [webpki-roots crate](https://crates.io/crates/webpki-roots). This conversion is best effort.
+    /// Any trust anchors that cannot be converted are logged and the process continues.
+    #[cfg(feature = "webpki")]
+    pub fn new_from_webpki() -> Result<Self> {
+        let mut buffers = vec![];
+        for (i, ta) in TLS_SERVER_ROOTS.iter().enumerate() {
+            let pdv_ta = match PDVTrustAnchorChoice::try_from(ta) {
+                Ok(t) => t,
+                Err(e) => {
+                    error!("Failed to convert WebPKI TrustAnchor #{i}: {e}");
+                    continue;
+                }
+            };
+            let cf = CertFile {
+                filename: format!("WebPKI TrustAnchor #{i}"),
+                bytes: pdv_ta.encoded_ta.clone(),
+            };
+            buffers.push(cf);
+        }
+        let mut tas = Self {
+            tas: Vec::new(),
+            buffers,
+            #[cfg(feature = "std")]
+            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            #[cfg(not(feature = "std"))]
+            skid_map: RefCell::new(BTreeMap::new()),
+            #[cfg(feature = "std")]
+            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            #[cfg(not(feature = "std"))]
+            name_map: RefCell::new(BTreeMap::new()),
+        };
+        tas.initialize()?;
+        Ok(tas)
+    }
+
     /// Processes any buffers passed to the instance, i.e., via new_from_cbor
     pub fn initialize(&mut self) -> Result<()> {
         populate_parsed_ta_vector(&self.buffers, &mut self.tas);
@@ -358,19 +400,18 @@ impl TrustAnchorSource for TaSource {
                 }
             }
         }
-        let retval = if !akid_hex.is_empty() {
-            Some(self.get_trust_anchor_by_hex_skid(&akid_hex))
-        } else {
-            None
-        };
-        if let Some(r) = retval {
-            return r;
-        } else {
-            for n in name_vec {
-                let r = self.get_trust_anchor_by_name(n);
-                if r.is_ok() {
-                    return r;
+        if !akid_hex.is_empty() {
+            match self.get_trust_anchor_by_hex_skid(&akid_hex) {
+                Ok(s) => return Ok(s),
+                Err(_e) => {
+                    warn!("Failed to find trust anchor by key identifier {akid_hex}");
                 }
+            }
+        }
+        for n in name_vec {
+            let r = self.get_trust_anchor_by_name(n);
+            if r.is_ok() {
+                return r;
             }
         }
         Err(Error::Unrecognized)
@@ -534,10 +575,14 @@ fn populate_parsed_ta_vector(
                     Asn1MetadataTypes::String(cf.filename.clone()),
                 );
                 ta.metadata = Some(md);
-                ta.parse_extensions(EXTS_OF_INTEREST);
-                parsed_ta_vec.push(ta);
+                if !parsed_ta_vec.contains(&ta) {
+                    ta.parse_extensions(EXTS_OF_INTEREST);
+                    parsed_ta_vec.push(ta);
+                }
             }
-            Err(_e) => {}
+            Err(e) => {
+                error!("Failed to parse TrustAnchorChoice: {:?}", e);
+            }
         }
     }
 }

@@ -16,6 +16,11 @@ pub struct Pittv3Args {
     #[clap(short, long, help_heading = "COMMON OPTIONS")]
     pub ta_folder: Option<String>,
 
+    /// Use trust anchors from webpki-roots crate (which are from Mozilla)
+    #[cfg(feature = "webpki")]
+    #[clap(long, help_heading = "COMMON OPTIONS")]
+    pub webpki_tas: bool,
+
     /// Full path and filename of file to provide and/or receive CBOR-formatted representation of
     /// buffers containing binary DER-encoded CA certificates and map containing set of partial
     /// certification paths.

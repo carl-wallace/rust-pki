@@ -43,3 +43,4 @@ cases in the repo) is roughly 90%.
 - Align with certval changes
 - Cleanup use of cfg-if
 - Remove some no-longer-necessary clap code used to display help information
+- Added webpki feature to allow instantiating TaSource instance using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate.

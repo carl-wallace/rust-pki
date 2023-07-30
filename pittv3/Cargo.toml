@@ -70,14 +70,16 @@ tokio-test = "0.4.2"
 #   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
 #   - remote adds support for dynamic path building, CRL fetching and OCSP
 #   - std-app provides the Pittv3 app with std support while building certval with no-default-features
-# Default is set to be the most all encompassing (i.e., remote).
+# Default is set to be the most all encompassing (i.e., remote,webpki).
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
-default = ["remote"]
+default = ["remote", "webpki"]
 revocation = ["certval/revocation"]
 std_app = ["certval/revocation", "ndarray", "tokio", "base64ct", "walkdir", "log4rs", "csv"]
 std = ["std_app", "certval/std", "revocation"]
 remote = ["certval/remote", "revocation", "std"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits"]
+webpki = ["certval/webpki"]
 
 [package.metadata.docs.rs]
 all-features = true
