@@ -56,6 +56,12 @@ pqcrypto-sphincsplus = {version = "0.6.4", optional = true}
 pqcrypto = {version = "0.16.1", optional = true}
 pqcrypto-traits = {version = "0.3.4", optional = true}
 
+# todo: running against crates.io version does not at present (fails to parse in HTML transit.rs and hits an unwrap)
+#dioxus = {version = "0.3.2", optional = true}
+#dioxus-desktop = {version = "0.3.0", optional = true}
+dioxus = { path = "../../../third-party/dioxus/packages/dioxus", optional = true }
+dioxus-desktop = { path = "../../../third-party/dioxus/packages/desktop", optional = true }
+
 [dev-dependencies]
 assert_cmd = "2.0.12"
 predicates = "3.0.3"
@@ -80,6 +86,7 @@ std = ["std_app", "certval/std", "revocation"]
 remote = ["certval/remote", "revocation", "std"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits"]
 webpki = ["certval/webpki"]
+gui = ["dioxus", "dioxus-desktop"]
 
 [package.metadata.docs.rs]
 all-features = true

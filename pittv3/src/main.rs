@@ -13,19 +13,15 @@ mod no_std_utils;
 mod options_no_std;
 mod options_std_app;
 
+mod gui;
+
+#[cfg(not(feature = "gui"))]
 use clap::Parser;
+
+#[cfg(not(feature = "gui"))]
 use log::debug;
 
 use crate::args::*;
-
-#[cfg(feature = "std_app")]
-use log::LevelFilter;
-#[cfg(feature = "std_app")]
-use log4rs::append::console::ConsoleAppender;
-#[cfg(feature = "std_app")]
-use log4rs::config::{Appender, Config, Root};
-#[cfg(feature = "std_app")]
-use log4rs::encode::pattern::PatternEncoder;
 
 #[macro_use]
 extern crate cfg_if;
@@ -41,7 +37,18 @@ cfg_if! {
 }
 
 cfg_if! {
-    if #[cfg(feature = "std_app")] {
+    if #[cfg(feature = "gui")] {
+        use crate::gui::*;
+        fn main() {
+            dioxus_desktop::launch(App);
+        }
+    }
+    else if #[cfg(feature = "std_app")] {
+        use log::LevelFilter;
+        use log4rs::append::console::ConsoleAppender;
+        use log4rs::config::{Appender, Config, Root};
+        use log4rs::encode::pattern::PatternEncoder;
+
         /// Point of entry for PITTv3 application.
         #[tokio::main]
         async fn main() {
