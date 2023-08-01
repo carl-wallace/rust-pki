@@ -1,6 +1,6 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
-#![cfg(any(feature = "gui", doc))]
+#![cfg(feature = "gui")]
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
 
@@ -242,24 +242,37 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "ta-folder", "TA Folder: "}} td{input { r#type: "text", name: "ta-folder", value: "{ta_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "cbor", "CBOR: "}} td{ input { r#type: "text", name: "cbor", value: "{cbor}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "time-of-interest", "Time of Interest: "}} td{ input { r#type: "text", name: "time-of-interest", value: "{time_of_interest}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "logging-config", "Logging Configuration: "}} td{ input { r#type: "text", name: "logging-config", value: "{logging_config}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "error-folder", "Error Folder: "}} td{ input { r#type: "text", name: "error-folder", value: "{error_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "download-folder", "Download Folder: "}} td{ input { r#type: "text", name: "download-folder", value: "{download_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "ca-folder", "CA Folder: "}} td{ input { r#type: "text", name: "ca-folder", value: "{ca_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "webpki-tas", "WebPKI TAs: "}} td{ input { r#type: "checkbox", name: "webpki-tas", checked: "{webpki_tas}", value: "{webpki_tas}" }}}
-                        }
-                    }
-                }
-                fieldset {
-                    table {
-                        tbody {
                             tr{
-                                td{td{label {r#for: "generate", "Generate:"}} td{ input { r#type: "checkbox", name: "generate", checked: "{generate}", value: "{generate}" }}}
-                                td{td{label {r#for: "chase-aia-and-sia", " Chase SIA and AIA:"}} td{ input { r#type: "checkbox", name: "chase-aia-and-sia", checked: "{chase_aia_and_sia}", value: "{chase_aia_and_sia}" }}}
-                                td{td{label {r#for: "cbor-ta-store", " CBOR TA store:"}} td{ input { r#type: "checkbox", name: "cbor-ta-store", checked: "{cbor_ta_store}", value: "{cbor_ta_store}" }}}
+                                td{div{title: "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR file containing partial certification paths and when validating certification paths.", class: "visible", label {r#for: "ta-folder", "TA Folder: "}}}
+                                td{input { r#type: "text", name: "ta-folder", value: "{ta_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "cbor", "CBOR: "}}
+                                td{input { r#type: "text", name: "cbor", value: "{cbor}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "time-of-interest", "Time of Interest: "}}
+                                td{input { r#type: "text", name: "time-of-interest", value: "{time_of_interest}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "logging-config", "Logging Configuration: "}}
+                                td{input { r#type: "text", name: "logging-config", value: "{logging_config}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "error-folder", "Error Folder: "}}
+                                td{input { r#type: "text", name: "error-folder", value: "{error_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "download-folder", "Download Folder: "}}
+                                td{input { r#type: "text", name: "download-folder", value: "{download_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "ca-folder", "CA Folder: "}}
+                                td{input { r#type: "text", name: "ca-folder", value: "{ca_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "webpki-tas", "WebPKI TAs: "}}
+                                td{input { r#type: "checkbox", name: "webpki-tas", checked: "{webpki_tas}", value: "{webpki_tas}" }}
                             }
                         }
                     }
@@ -267,19 +280,63 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "end-entity-file", "End Entity File: "}} td{input { r#type: "text", name: "end-entity-file", value: "{end_entity_file}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "end-entity-folder", "End Entity Folder: "}} td{input { r#type: "text", name: "end-entity-folder", value: "{end_entity_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "results-folder", "Results Folder: "}} td{input { r#type: "text", name: "results-folder", value: "{results_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "settings", "Settings: "}} td{input { r#type: "text", name: "settings", value: "{settings}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "crl-folder", "CRL Folder: "}} td{input { r#type: "text", name: "crl-folder", value: "{crl_folder}", style: "width: 500px;"}}}
+                            tr{
+                                td{
+                                    td{label {r#for: "generate", "Generate:"}}
+                                    td{ input { r#type: "checkbox", name: "generate", checked: "{generate}", value: "{generate}" }}
+                                }
+                                td{
+                                    td{label {r#for: "chase-aia-and-sia", " Chase SIA and AIA:"}}
+                                    td{ input { r#type: "checkbox", name: "chase-aia-and-sia", checked: "{chase_aia_and_sia}", value: "{chase_aia_and_sia}" }}
+                                }
+                                td{
+                                    td{label {r#for: "cbor-ta-store", " CBOR TA store:"}}
+                                    td{ input { r#type: "checkbox", name: "cbor-ta-store", checked: "{cbor_ta_store}", value: "{cbor_ta_store}" }}
+                                }
+                            }
+                        }
+                    }
+                }
+                fieldset {
+                    table {
+                        tbody {
+                            tr{
+                                td{label {r#for: "end-entity-file", "End Entity File: "}}
+                                td{input { r#type: "text", name: "end-entity-file", value: "{end_entity_file}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "end-entity-folder", "End Entity Folder: "}}
+                                td{input { r#type: "text", name: "end-entity-folder", value: "{end_entity_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "results-folder", "Results Folder: "}}
+                                td{input { r#type: "text", name: "results-folder", value: "{results_folder}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "settings", "Settings: "}}
+                                td{input { r#type: "text", name: "settings", value: "{settings}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "crl-folder", "CRL Folder: "}}
+                                td{input { r#type: "text", name: "crl-folder", value: "{crl_folder}", style: "width: 500px;"}}
+                            }
                         }
                     }
                     table {
                         tbody {
                             tr {
-                                td{td{label {r#for: "validate-all", "Validate All: "}} td{ input { r#type: "checkbox", name: "validate-all", checked: "{validate_all}", value: "{validate_all}" }}}
-                                td{td{label {r#for: "validate-self-signed", "Validate Self-Signed: "}} td{ input { r#type: "checkbox", name: "validate-self-signed", checked: "{validate_self_signed}", value: "{validate_self_signed}" }}}
-                                td{td{label {r#for: "dynamic-build", "Dynamic Build: "}} td{ input { r#type: "checkbox", name: "dynamic-build", checked: "{dynamic_build}", value: "{dynamic_build}" }}}
+                                td{
+                                    td{label {r#for: "validate-all", "Validate All: "}}
+                                    td{input { r#type: "checkbox", name: "validate-all", checked: "{validate_all}", value: "{validate_all}" }}
+                                }
+                                td{
+                                    td{label {r#for: "validate-self-signed", "Validate Self-Signed: "}}
+                                    td{input { r#type: "checkbox", name: "validate-self-signed", checked: "{validate_self_signed}", value: "{validate_self_signed}" }}
+                                }
+                                td{
+                                    td{label {r#for: "dynamic-build", "Dynamic Build: "}}
+                                    td{input { r#type: "checkbox", name: "dynamic-build", checked: "{dynamic_build}", value: "{dynamic_build}" }}
+                                }
                             }
                         }
                     }
@@ -288,9 +345,18 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                     table {
                         tbody {
                             tr{
-                                td{td{label {r#for: "cleanup", "Cleanup:"}} td{ input { r#type: "checkbox", name: "cleanup", checked: "{cleanup}", value: "{cleanup}" }}}
-                                td{td{label {r#for: "ta-cleanup", " TA Cleanup:"}} td{ input { r#type: "checkbox", name: "ta-cleanup", checked: "{ta_cleanup}", value: "{ta_cleanup}" }}}
-                                td{td{label {r#for: "report-only", " Report Only:"}} td{ input { r#type: "checkbox", name: "report-only", checked: "{report_only}", value: "{report_only}" }}}
+                                td{
+                                    td{label {r#for: "cleanup", "Cleanup:"}}
+                                    td{input { r#type: "checkbox", name: "cleanup", checked: "{cleanup}", value: "{cleanup}" }}
+                                }
+                                td{
+                                    td{label {r#for: "ta-cleanup", " TA Cleanup:"}}
+                                    td{input { r#type: "checkbox", name: "ta-cleanup", checked: "{ta_cleanup}", value: "{ta_cleanup}" }}
+                                }
+                                td{
+                                    td{label {r#for: "report-only", " Report Only:"}}
+                                    td{input { r#type: "checkbox", name: "report-only", checked: "{report_only}", value: "{report_only}" }}
+                                }
                             }
                         }
                     }
@@ -299,28 +365,55 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                     table {
                         tbody {
                             tr{
-                                td{td{label {r#for: "list-partial-paths", "List Partial Paths: "}} td{ input { r#type: "checkbox", name: "list-partial-paths", checked: "{list_partial_paths}", value: "{list_partial_paths}" }}}
-                                td{td{label {r#for: "list-buffers", "List Buffers: "}} td{ input { r#type: "checkbox", name: "list-buffers", checked: "{list_buffers}", value: "{list_buffers}" }}}
-                                td{td{label {r#for: "list-aia-and-sia", "List SIA and AIA: "}} td{ input { r#type: "checkbox", name: "list-aia-and-sia", checked: "{list_aia_and_sia}", value: "{list_aia_and_sia}" }}}
+                                td{
+                                    td{label {r#for: "list-partial-paths", "List Partial Paths: "}}
+                                    td{input { r#type: "checkbox", name: "list-partial-paths", checked: "{list_partial_paths}", value: "{list_partial_paths}" }}
+                                }
+                                td{
+                                    td{label {r#for: "list-buffers", "List Buffers: "}}
+                                    td{input { r#type: "checkbox", name: "list-buffers", checked: "{list_buffers}", value: "{list_buffers}" }}
+                                }
+                                td{
+                                    td{label {r#for: "list-aia-and-sia", "List SIA and AIA: "}}
+                                    td{input { r#type: "checkbox", name: "list-aia-and-sia", checked: "{list_aia_and_sia}", value: "{list_aia_and_sia}" }}
+                                }
                             }
                             tr{
-                                td{td{label {r#for: "list-name-constraints", "List Name Constraints: "}} td{ input { r#type: "checkbox", name: "list-name-constraints", checked: "{list_name_constraints}", value: "{list_name_constraints}" }}}
-                                td{td{label {r#for: "list-trust-anchors", "List Trust Anchors: "}} td{ input { r#type: "checkbox", name: "list-trust-anchors", checked: "{list_trust_anchors}", value: "{list_trust_anchors}" }}}
+                                td{
+                                    td{label {r#for: "list-name-constraints", "List Name Constraints: "}}
+                                    td{input { r#type: "checkbox", name: "list-name-constraints", checked: "{list_name_constraints}", value: "{list_name_constraints}" }}
+                                }
+                                td{
+                                    td{label {r#for: "list-trust-anchors", "List Trust Anchors: "}}
+                                    td{input { r#type: "checkbox", name: "list-trust-anchors", checked: "{list_trust_anchors}", value: "{list_trust_anchors}" }}
+                                }
                             }
                         }
                     }
                     table {
                         tbody {
-                            tr{td{label {r#for: "dump-certs-at-index", "Dump Certificate At Index: "}} td{input { r#type: "text", name: "dump-certs-at-index", value: "{dump_cert_at_index}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "list-partial-paths-for-target", "List Partial Paths for Target: "}} td{input { r#type: "text", name: "list-partial-paths-for-target", value: "{list_partial_paths_for_target}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "list-partial-paths-for-leaf-ca", "List Partial Paths for Leaf CA: "}} td{input { r#type: "text", name: "list-partial-paths-for-leaf-ca", value: "{list_partial_paths_for_leaf_ca}", style: "width: 500px;"}}}
+                            tr{
+                                td{label {r#for: "dump-certs-at-index", "Dump Certificate At Index: "}}
+                                td{input { r#type: "text", name: "dump-certs-at-index", value: "{dump_cert_at_index}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "list-partial-paths-for-target", "List Partial Paths for Target: "}}
+                                td{input {r#type: "text", name: "list-partial-paths-for-target", value: "{list_partial_paths_for_target}", style: "width: 500px;"}}
+                            }
+                            tr{
+                                td{label {r#for: "list-partial-paths-for-leaf-ca", "List Partial Paths for Leaf CA: "}}
+                                td{input {r#type: "text", name: "list-partial-paths-for-leaf-ca", value: "{list_partial_paths_for_leaf_ca}", style: "width: 500px;"}}
+                            }
                         }
                     }
                 }
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "mozilla-csv", "Mozilla CSV: "}} td{input { r#type: "text", name: "mozilla-csv", value: "{mozilla_csv}", style: "width: 500px;"}}}
+                            tr{
+                                td{label {r#for: "mozilla-csv", "Mozilla CSV: "}}
+                                td{input {r#type: "text", name: "mozilla-csv", value: "{mozilla_csv}", style: "width: 500px;"}}
+                            }
                         }
                     }
                 }
