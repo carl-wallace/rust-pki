@@ -39,8 +39,11 @@ cfg_if! {
 cfg_if! {
     if #[cfg(feature = "gui")] {
         use crate::gui::*;
+        use dioxus_desktop::Config;
+        use dioxus_desktop::WindowBuilder;
         fn main() {
-            dioxus_desktop::launch(App);
+            dioxus_desktop::launch_cfg(App, Config::new().with_window(WindowBuilder::new().with_resizable(true).with_title("PITTv3")
+            .with_inner_size(dioxus_desktop::LogicalSize::new(775.0, 775.0)),),);
         }
     }
     else if #[cfg(feature = "std_app")] {

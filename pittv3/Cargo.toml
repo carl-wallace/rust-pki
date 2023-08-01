@@ -62,6 +62,8 @@ pqcrypto-traits = {version = "0.3.4", optional = true}
 dioxus = { path = "../../../third-party/dioxus/packages/dioxus", optional = true }
 dioxus-desktop = { path = "../../../third-party/dioxus/packages/desktop", optional = true }
 
+home = {version = "0.5.5", optional = true}
+
 [dev-dependencies]
 assert_cmd = "2.0.12"
 predicates = "3.0.3"
@@ -78,6 +80,7 @@ tokio-test = "0.4.2"
 #   - std-app provides the Pittv3 app with std support while building certval with no-default-features
 # Default is set to be the most all encompassing (i.e., remote,webpki).
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
+# gui adds a graphical user interface (in place of command line) in addition to default
 [features]
 default = ["remote", "webpki"]
 revocation = ["certval/revocation"]
@@ -86,7 +89,7 @@ std = ["std_app", "certval/std", "revocation"]
 remote = ["certval/remote", "revocation", "std"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits"]
 webpki = ["certval/webpki"]
-gui = ["dioxus", "dioxus-desktop"]
+gui = ["dioxus", "dioxus-desktop", "home", "default"]
 
 [package.metadata.docs.rs]
 all-features = true

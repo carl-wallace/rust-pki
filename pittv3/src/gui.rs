@@ -1,7 +1,6 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
 #![cfg(any(feature = "gui", doc))]
-
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
 
@@ -18,40 +17,124 @@ use crate::options_std_app;
 
 use crate::args::Pittv3Args;
 use crate::get_now_as_unix_epoch;
+use certval::{Error, Result};
+use home::home_dir;
+use log::{debug, error};
+use std::fs;
+use std::fs::{create_dir_all, File};
+
+fn read_saved_args() -> Result<Pittv3Args> {
+    if let Some(hd) = home_dir() {
+        let app_home = hd.join(".pittv3");
+        if !app_home.exists() {
+            let _ = create_dir_all(app_home);
+        }
+        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
+        if let Ok(f) = File::open(&app_cfg) {
+            if let Ok(a) = serde_json::from_reader(&f) {
+                return Ok(a);
+            } else {
+                return Err(Error::Unrecognized);
+            }
+        }
+    }
+    return Err(Error::Unrecognized);
+}
+fn save_args(args: &Pittv3Args) -> Result<()> {
+    if let Some(hd) = home_dir() {
+        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
+        if let Ok(json_args) = serde_json::to_string(&args) {
+            if let Err(e) = fs::write(&app_cfg, json_args) {
+                error!("Unable to write args to file: {e}");
+                return Err(Error::Unrecognized);
+            } else {
+                return Ok(());
+            }
+        }
+    }
+    Err(Error::Unrecognized)
+}
+
+fn string_or_none(ev: &Event<FormData>, key: &str) -> Option<String> {
+    if let Some(v) = ev.values.get(key) {
+        if v[0].is_empty() {
+            None
+        } else {
+            Some(v[0].clone())
+        }
+    } else {
+        None
+    }
+}
+
+fn usize_or_none(ev: &Event<FormData>, key: &str) -> Option<usize> {
+    match string_or_none(ev, key) {
+        Some(v) => match v.parse::<usize>() {
+            Ok(u) => Some(u),
+            Err(_) => None,
+        },
+        None => None,
+    }
+}
+
+fn true_or_false(ev: &Event<FormData>, key: &str) -> bool {
+    if let Some(v) = ev.values.get(key) {
+        if "0" == v[0] {
+            false
+        } else {
+            true
+        }
+    } else {
+        false
+    }
+}
 
 pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     // --webpki-tas -d pittv3/tests/examples/downloads_webpki/ -s pittv3/tests/examples/disable_revocation_checking.json -y -e pittv3/tests/examples/amazon_2023.der
-    let ta_folder =  "";
-    let webpki_tas =  true;
-    let cbor =  "";
-    let time_of_interest =  "";
-    let logging_config =  "";
-    let error_folder =  "";
-    let download_folder =  "pittv3/tests/examples/downloads_webpki";
-    let ca_folder =  "";
-    let generate =  false;
-    let chase_aia_and_sia =  false;
-    let cbor_ta_store =  false;
-    let validate_all =  false;
-    let validate_self_signed =  false;
-    let dynamic_build =  true;
-    let end_entity_file =  "pittv3/tests/examples/amazon_2023.der";
-    let end_entity_folder =  "";
-    let results_folder =  "";
-    let settings =  "pittv3/tests/examples/disable_revocation_checking.json";
-    let crl_folder =  "";
-    let cleanup =  false;
-    let ta_cleanup =  false;
-    let report_only =  false;
-    let list_partial_paths =  false;
-    let list_buffers =  false;
-    let list_aia_and_sia =  false;
-    let list_name_constraints =  false;
-    let list_trust_anchors =  false;
-    let dump_cert_at_index =  "";
-    let list_partial_paths_for_target =  "";
-    let list_partial_paths_for_leaf_ca =  "";
-    let mozilla_csv =  "";
+    let sa = match read_saved_args() {
+        Ok(sa) => sa,
+        Err(_) => Pittv3Args::default(),
+    };
+
+    let ta_folder = sa.ta_folder.unwrap_or_default();
+    let webpki_tas = sa.webpki_tas;
+    let cbor = sa.cbor.unwrap_or_default();
+    let time_of_interest = get_now_as_unix_epoch().to_string();
+    let logging_config = sa.logging_config.unwrap_or_default();
+    let error_folder = sa.error_folder.unwrap_or_default();
+    let download_folder = sa.download_folder.unwrap_or_default();
+    let ca_folder = sa.ca_folder.unwrap_or_default();
+    let generate = sa.generate;
+    let chase_aia_and_sia = sa.chase_aia_and_sia;
+    let cbor_ta_store = sa.cbor_ta_store;
+    let validate_all = sa.validate_all;
+    let validate_self_signed = sa.validate_self_signed;
+    let dynamic_build = sa.dynamic_build;
+    let end_entity_file = sa.end_entity_file.unwrap_or_default();
+    let end_entity_folder = sa.end_entity_folder.unwrap_or_default();
+    let results_folder = sa.results_folder.unwrap_or_default();
+    let settings = sa.settings.unwrap_or_default();
+    let crl_folder = sa.crl_folder.unwrap_or_default();
+    let cleanup = sa.cleanup;
+    let ta_cleanup = sa.ta_cleanup;
+    let report_only = sa.report_only;
+    let list_partial_paths = sa.list_partial_paths;
+    let list_buffers = sa.list_buffers;
+    let list_aia_and_sia = sa.list_aia_and_sia;
+    let list_name_constraints = sa.list_name_constraints;
+    let list_trust_anchors = sa.list_trust_anchors;
+    let dump_cert_at_index = if let Some(u) = sa.dump_cert_at_index {
+        u.to_string()
+    } else {
+        "".to_string()
+    };
+    let list_partial_paths_for_target = sa.list_partial_paths_for_target.unwrap_or_default();
+    let list_partial_paths_for_leaf_ca = if let Some(u) = sa.list_partial_paths_for_leaf_ca {
+        u.to_string()
+    } else {
+        "".to_string()
+    };
+    let mozilla_csv = sa.mozilla_csv.unwrap_or_default();
 
     cx.render(rsx! {
         div {
@@ -59,51 +142,53 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                 onsubmit: move |ev| {
                     println!("Submitted {:?}", ev.values);
 
-                    let toi = if time_of_interest.is_empty() {
-                        get_now_as_unix_epoch()
-                    } else {
-                        if let Ok(toi) = dump_cert_at_index.to_string().parse::<u64>() {
+                    let toi = if let Some(v) = ev.values.get("time_of_interest") {
+                        if let Ok(toi) = v[0].to_string().parse::<u64>() {
                             toi
                         }
                         else {
                             get_now_as_unix_epoch()
                         }
+                    } else {
+                        get_now_as_unix_epoch()
                     };
 
                     async move {
                         let args = Pittv3Args{
-                            ta_folder: if ta_folder.is_empty() {None} else {Some(ta_folder.to_string())},
-                            webpki_tas,
-                            cbor: if cbor.is_empty() {None} else {Some(cbor.to_string())},
+                            ta_folder: string_or_none(&ev, "ta-folder"),
+                            webpki_tas: true_or_false(&ev, "webpki-tas"),
+                            cbor: string_or_none(&ev, "cbor"),
                             time_of_interest: toi,
-                            logging_config: if logging_config.is_empty() {None} else {Some(logging_config.to_string())},
-                            error_folder: if error_folder.is_empty() {None} else {Some(error_folder.to_string())},
-                            download_folder: if download_folder.is_empty() {None} else {Some(download_folder.to_string())},
-                            ca_folder: if ca_folder.is_empty() {None} else {Some(ca_folder.to_string())},
-                            generate,
-                            chase_aia_and_sia,
-                            cbor_ta_store,
-                            validate_all,
-                            validate_self_signed,
-                            dynamic_build,
-                            end_entity_file: if end_entity_file.is_empty() {None} else {Some(end_entity_file.to_string())},
-                            end_entity_folder: if end_entity_folder.is_empty() {None} else {Some(end_entity_folder.to_string())},
-                            results_folder: if results_folder.is_empty() {None} else {Some(results_folder.to_string())},
-                            settings: if settings.is_empty() {None} else {Some(settings.to_string())},
-                            crl_folder: if crl_folder.is_empty() {None} else {Some(crl_folder.to_string())},
-                            cleanup,
-                            ta_cleanup,
-                            report_only,
-                            list_partial_paths,
-                            list_buffers,
-                            list_aia_and_sia,
-                            list_name_constraints,
-                            list_trust_anchors,
-                            dump_cert_at_index: if dump_cert_at_index.is_empty() {None} else {Some(dump_cert_at_index.to_string().parse::<usize>().unwrap())},
-                            list_partial_paths_for_target: if list_partial_paths_for_target.is_empty() {None} else {Some(list_partial_paths_for_target.to_string())},
-                            list_partial_paths_for_leaf_ca: if list_partial_paths_for_leaf_ca.is_empty() {None} else {Some(list_partial_paths_for_leaf_ca.to_string().parse::<usize>().unwrap())},
-                            mozilla_csv: if mozilla_csv.is_empty() {None} else {Some(mozilla_csv.to_string())},
+                            logging_config: string_or_none(&ev, "logging-config"),
+                            error_folder: string_or_none(&ev, "error-folder"),
+                            download_folder: string_or_none(&ev, "download-folder"),
+                            ca_folder: string_or_none(&ev, "ca-folder"),
+                            generate: true_or_false(&ev, "generate"),
+                            chase_aia_and_sia: true_or_false(&ev, "chase-aia-and-sia"),
+                            cbor_ta_store: true_or_false(&ev, "cbor-ta-store"),
+                            validate_all: true_or_false(&ev, "validate-all"),
+                            validate_self_signed: true_or_false(&ev, "validate-self-signed"),
+                            dynamic_build: true_or_false(&ev, "dynamic-build"),
+                            end_entity_file: string_or_none(&ev, "end-entity-file"),
+                            end_entity_folder: string_or_none(&ev, "end-entity-folder"),
+                            results_folder: string_or_none(&ev, "results-folder"),
+                            settings: string_or_none(&ev, "settings"),
+                            crl_folder: string_or_none(&ev, "crl-folder"),
+                            cleanup: true_or_false(&ev, "cleanup"),
+                            ta_cleanup: true_or_false(&ev, "ta-cleanup"),
+                            report_only: true_or_false(&ev, "report-only"),
+                            list_partial_paths: true_or_false(&ev, "list-partial-paths"),
+                            list_buffers: true_or_false(&ev, "list-buffers"),
+                            list_aia_and_sia: true_or_false(&ev, "list-aia-and-sia"),
+                            list_name_constraints: true_or_false(&ev, "list-name-constraints"),
+                            list_trust_anchors: true_or_false(&ev, "list-trust-anchors"),
+                            dump_cert_at_index: usize_or_none(&ev, "dump_cert_at_index"),
+                            list_partial_paths_for_target: string_or_none(&ev, "list-partial-paths-for-target"),
+                            list_partial_paths_for_leaf_ca: usize_or_none(&ev, "dump_cert_at_index"),
+                            mozilla_csv: string_or_none(&ev, "mozilla-csv"),
                         };
+
+                        let _ = save_args(&args);
 
                         let mut logging_configured = false;
 
@@ -141,11 +226,15 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                         }
 
+                        debug!("PITTv3 start");
+
                         #[cfg(feature = "std")]
                         options_std(&args).await;
 
                         #[cfg(not(feature = "std"))]
                         options_std_app(&args);
+
+                        debug!("PITTv3 end");
                     }
                     // future.restart();
                 },
@@ -160,16 +249,18 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             tr{td{label {r#for: "error-folder", "Error Folder: "}} td{ input { r#type: "text", name: "error-folder", value: "{error_folder}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "download-folder", "Download Folder: "}} td{ input { r#type: "text", name: "download-folder", value: "{download_folder}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "ca-folder", "CA Folder: "}} td{ input { r#type: "text", name: "ca-folder", value: "{ca_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "webpki-tas", "WebPKI TAs: "}} td{ input { r#type: "checkbox", name: "webpki-tas", value: "{cbor_ta_store}" }}}
+                            tr{td{label {r#for: "webpki-tas", "WebPKI TAs: "}} td{ input { r#type: "checkbox", name: "webpki-tas", checked: "{webpki_tas}", value: "{webpki_tas}" }}}
                         }
                     }
                 }
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "generate", "Generate: "}} td{ input { r#type: "checkbox", name: "generate", value: "{generate}" }}}
-                            tr{td{label {r#for: "chase-aia-and-sia", "Chase SIA and AIA: "}} td{ input { r#type: "checkbox", name: "chase-aia-and-sia", value: "{chase_aia_and_sia}" }}}
-                            tr{td{label {r#for: "cbor-ta-store", "CBOR TA store: "}} td{ input { r#type: "checkbox", name: "cbor-ta-store", value: "{webpki_tas}" }}}
+                            tr{
+                                td{td{label {r#for: "generate", "Generate:"}} td{ input { r#type: "checkbox", name: "generate", checked: "{generate}", value: "{generate}" }}}
+                                td{td{label {r#for: "chase-aia-and-sia", " Chase SIA and AIA:"}} td{ input { r#type: "checkbox", name: "chase-aia-and-sia", checked: "{chase_aia_and_sia}", value: "{chase_aia_and_sia}" }}}
+                                td{td{label {r#for: "cbor-ta-store", " CBOR TA store:"}} td{ input { r#type: "checkbox", name: "cbor-ta-store", checked: "{cbor_ta_store}", value: "{cbor_ta_store}" }}}
+                            }
                         }
                     }
                 }
@@ -181,29 +272,46 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             tr{td{label {r#for: "results-folder", "Results Folder: "}} td{input { r#type: "text", name: "results-folder", value: "{results_folder}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "settings", "Settings: "}} td{input { r#type: "text", name: "settings", value: "{settings}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "crl-folder", "CRL Folder: "}} td{input { r#type: "text", name: "crl-folder", value: "{crl_folder}", style: "width: 500px;"}}}
-                            tr{td{label {r#for: "validate-all", "Validate All: "}} td{ input { r#type: "checkbox", name: "validate-all", value: "{validate_all}" }}}
-                            tr{td{label {r#for: "validate-self-signed", "Validate Self-Signed: "}} td{ input { r#type: "checkbox", name: "validate-self-signed", value: "{validate_self_signed}" }}}
-                            tr{td{label {r#for: "dynamic-build", "Dynamic Build: "}} td{ input { r#type: "checkbox", name: "dynamic-build", value: "{dynamic_build}" }}}
+                        }
+                    }
+                    table {
+                        tbody {
+                            tr {
+                                td{td{label {r#for: "validate-all", "Validate All: "}} td{ input { r#type: "checkbox", name: "validate-all", checked: "{validate_all}", value: "{validate_all}" }}}
+                                td{td{label {r#for: "validate-self-signed", "Validate Self-Signed: "}} td{ input { r#type: "checkbox", name: "validate-self-signed", checked: "{validate_self_signed}", value: "{validate_self_signed}" }}}
+                                td{td{label {r#for: "dynamic-build", "Dynamic Build: "}} td{ input { r#type: "checkbox", name: "dynamic-build", checked: "{dynamic_build}", value: "{dynamic_build}" }}}
+                            }
                         }
                     }
                 }
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "cleanup", "Cleanup: "}} td{ input { r#type: "checkbox", name: "cleanup", value: "{cleanup}" }}}
-                            tr{td{label {r#for: "ta-cleanup", "TA Cleanup: "}} td{ input { r#type: "checkbox", name: "ta-cleanup", value: "{ta_cleanup}" }}}
-                            tr{td{label {r#for: "report-only", "Report Only: "}} td{ input { r#type: "checkbox", name: "report-only", value: "{report_only}" }}}
+                            tr{
+                                td{td{label {r#for: "cleanup", "Cleanup:"}} td{ input { r#type: "checkbox", name: "cleanup", checked: "{cleanup}", value: "{cleanup}" }}}
+                                td{td{label {r#for: "ta-cleanup", " TA Cleanup:"}} td{ input { r#type: "checkbox", name: "ta-cleanup", checked: "{ta_cleanup}", value: "{ta_cleanup}" }}}
+                                td{td{label {r#for: "report-only", " Report Only:"}} td{ input { r#type: "checkbox", name: "report-only", checked: "{report_only}", value: "{report_only}" }}}
+                            }
                         }
                     }
                 }
                 fieldset {
                     table {
                         tbody {
-                            tr{td{label {r#for: "list-partial-paths", "List Partial Paths: "}} td{ input { r#type: "checkbox", name: "list-partial-paths", value: "{list_partial_paths}" }}}
-                            tr{td{label {r#for: "list-buffers", "List Buffers: "}} td{ input { r#type: "checkbox", name: "list-buffers", value: "{list_buffers}" }}}
-                            tr{td{label {r#for: "list-aia-and-sia", "List SIA and AIA: "}} td{ input { r#type: "checkbox", name: "list-aia-and-sia", value: "{list_aia_and_sia}" }}}
-                            tr{td{label {r#for: "list-name-constraints", "List Name Constraints: "}} td{ input { r#type: "checkbox", name: "list-name-constraints", value: "{list_name_constraints}" }}}
-                            tr{td{label {r#for: "list-trust-anchors", "List Trust Anchors: "}} td{ input { r#type: "checkbox", name: "list-trust-anchors", value: "{list_trust_anchors}" }}}
+                            tr{
+                                td{td{label {r#for: "list-partial-paths", "List Partial Paths: "}} td{ input { r#type: "checkbox", name: "list-partial-paths", checked: "{list_partial_paths}", value: "{list_partial_paths}" }}}
+                                td{td{label {r#for: "list-buffers", "List Buffers: "}} td{ input { r#type: "checkbox", name: "list-buffers", checked: "{list_buffers}", value: "{list_buffers}" }}}
+                                td{td{label {r#for: "list-aia-and-sia", "List SIA and AIA: "}} td{ input { r#type: "checkbox", name: "list-aia-and-sia", checked: "{list_aia_and_sia}", value: "{list_aia_and_sia}" }}}
+                            }
+                            tr{
+                                td{td{label {r#for: "list-name-constraints", "List Name Constraints: "}} td{ input { r#type: "checkbox", name: "list-name-constraints", checked: "{list_name_constraints}", value: "{list_name_constraints}" }}}
+                                td{td{label {r#for: "list-trust-anchors", "List Trust Anchors: "}} td{ input { r#type: "checkbox", name: "list-trust-anchors", checked: "{list_trust_anchors}", value: "{list_trust_anchors}" }}}
+                            }
+                        }
+                    }
+                    table {
+                        tbody {
+                            tr{td{label {r#for: "dump-certs-at-index", "Dump Certificate At Index: "}} td{input { r#type: "text", name: "dump-certs-at-index", value: "{dump_cert_at_index}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "list-partial-paths-for-target", "List Partial Paths for Target: "}} td{input { r#type: "text", name: "list-partial-paths-for-target", value: "{list_partial_paths_for_target}", style: "width: 500px;"}}}
                             tr{td{label {r#for: "list-partial-paths-for-leaf-ca", "List Partial Paths for Leaf CA: "}} td{input { r#type: "text", name: "list-partial-paths-for-leaf-ca", value: "{list_partial_paths_for_leaf_ca}", style: "width: 500px;"}}}
                         }
@@ -221,4 +329,3 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
         }
     })
 }
-

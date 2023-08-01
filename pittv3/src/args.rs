@@ -5,8 +5,10 @@ use clap::Parser;
 #[cfg(feature = "std_app")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+
 /// PKI Interoperability Test Tool v3 (PITTv3)
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Serialize, Deserialize, Default)]
 #[command(arg_required_else_help(true))]
 #[clap(author, version, about, long_about = None)]
 pub struct Pittv3Args {
