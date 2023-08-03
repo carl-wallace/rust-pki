@@ -63,6 +63,8 @@ dioxus = { path = "../../../third-party/dioxus/packages/dioxus", optional = true
 dioxus-desktop = { path = "../../../third-party/dioxus/packages/desktop", optional = true }
 
 home = {version = "0.5.5", optional = true}
+anyhow = {version = "1.0.72", optional = true}
+rfd = {version = "0.11.4", optional = true}
 
 [dev-dependencies]
 assert_cmd = "2.0.12"
@@ -89,7 +91,7 @@ std = ["std_app", "certval/std", "revocation"]
 remote = ["certval/remote", "revocation", "std"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits"]
 webpki = ["certval/webpki"]
-gui = ["dioxus", "dioxus-desktop", "home", "default"]
+gui = ["dioxus", "dioxus-desktop", "home", "default", "anyhow", "rfd"]
 
 [package.metadata.docs.rs]
 all-features = true

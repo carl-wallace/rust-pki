@@ -2,10 +2,13 @@
 
 #![cfg(feature = "gui")]
 #![allow(non_snake_case)]
+
+use core::fmt::{Debug, Formatter};
 use dioxus::prelude::*;
 
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
+use log4rs::append::Append;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 
@@ -20,6 +23,7 @@ use crate::get_now_as_unix_epoch;
 use certval::{Error, Result};
 use home::home_dir;
 use log::{debug, error};
+use rfd::FileDialog;
 use std::fs;
 use std::fs::{create_dir_all, File};
 
@@ -89,6 +93,24 @@ fn true_or_false(ev: &Event<FormData>, key: &str) -> bool {
     }
 }
 
+use log::Record;
+
+struct SimpleLogger;
+
+impl Debug for SimpleLogger {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
+        Ok(())
+    }
+}
+
+impl Append for SimpleLogger {
+    fn append(&self, _record: &Record<'_>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn flush(&self) {}
+}
+
 pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     // --webpki-tas -d pittv3/tests/examples/downloads_webpki/ -s pittv3/tests/examples/disable_revocation_checking.json -y -e pittv3/tests/examples/amazon_2023.der
     let sa = match read_saved_args() {
@@ -99,11 +121,16 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     let ta_folder = sa.ta_folder.unwrap_or_default();
     let webpki_tas = sa.webpki_tas;
     let cbor = sa.cbor.unwrap_or_default();
+    let s_cbor = use_state(cx, || cbor);
     let time_of_interest = get_now_as_unix_epoch().to_string();
     let logging_config = sa.logging_config.unwrap_or_default();
+    let s_logging_config = use_state(cx, || logging_config);
     let error_folder = sa.error_folder.unwrap_or_default();
+    let s_error_folder = use_state(cx, || error_folder);
     let download_folder = sa.download_folder.unwrap_or_default();
+    let s_download_folder = use_state(cx, || download_folder);
     let ca_folder = sa.ca_folder.unwrap_or_default();
+    let s_ca_folder = use_state(cx, || ca_folder);
     let generate = sa.generate;
     let chase_aia_and_sia = sa.chase_aia_and_sia;
     let cbor_ta_store = sa.cbor_ta_store;
@@ -111,10 +138,14 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     let validate_self_signed = sa.validate_self_signed;
     let dynamic_build = sa.dynamic_build;
     let end_entity_file = sa.end_entity_file.unwrap_or_default();
+    let s_end_entity_file = use_state(cx, || end_entity_file);
     let end_entity_folder = sa.end_entity_folder.unwrap_or_default();
+    let s_end_entity_folder = use_state(cx, || end_entity_folder);
     let results_folder = sa.results_folder.unwrap_or_default();
+    let s_results_folder = use_state(cx, || results_folder);
     let settings = sa.settings.unwrap_or_default();
     let crl_folder = sa.crl_folder.unwrap_or_default();
+    let s_crl_folder = use_state(cx, || crl_folder);
     let cleanup = sa.cleanup;
     let ta_cleanup = sa.ta_cleanup;
     let report_only = sa.report_only;
@@ -129,12 +160,14 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
         "".to_string()
     };
     let list_partial_paths_for_target = sa.list_partial_paths_for_target.unwrap_or_default();
+    let s_list_partial_paths_for_target = use_state(cx, || list_partial_paths_for_target);
     let list_partial_paths_for_leaf_ca = if let Some(u) = sa.list_partial_paths_for_leaf_ca {
         u.to_string()
     } else {
         "".to_string()
     };
     let mozilla_csv = sa.mozilla_csv.unwrap_or_default();
+    let s_mozilla_csv = use_state(cx, || mozilla_csv);
 
     cx.render(rsx! {
         div {
@@ -193,13 +226,23 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                         let mut logging_configured = false;
 
                         if let Some(logging_config) = &args.logging_config {
-                            if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
-                                println!(
-                                    "ERROR: failed to configure logging using {} with {:?}. Continuing without logging.",
-                                    logging_config, e
-                                );
-                            } else {
-                                logging_configured = true;
+                            match log4rs::config::load_config_file(logging_config, Default::default()) {
+                                Ok(_c) => {
+                                    logging_configured = true;
+                                    let c = Config::builder().appender(Appender::builder().build("SimpleLogger", Box::new(SimpleLogger))).build(Root::builder().appender("SimpleLogger").build(LevelFilter::Info)).unwrap();
+                                    if let Err(e) = log4rs::init_config(c) {
+                                        println!(
+                                            "ERROR: failed to configure logging using {} with {:?}. Continuing without logging.",
+                                            logging_config, e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "ERROR: failed to load logging configuration from {} with {:?}. Continuing without logging.",
+                                        logging_config, e
+                                    );
+                                }
                             }
                         }
 
@@ -248,7 +291,23 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                             tr{
                                 td{label {r#for: "cbor", "CBOR: "}}
-                                td{input { r#type: "text", name: "cbor", value: "{cbor}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "cbor", value: "{s_cbor}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_cbor.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("PITTv3 CBOR-serialized PKI", &["cbor", "pki"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_file();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "time-of-interest", "Time of Interest: "}}
@@ -256,19 +315,80 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                             tr{
                                 td{label {r#for: "logging-config", "Logging Configuration: "}}
-                                td{input { r#type: "text", name: "logging-config", value: "{logging_config}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "logging-config", value: "{s_logging_config}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_logging_config.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("log4rs Configuration", &["yaml"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_file();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "error-folder", "Error Folder: "}}
-                                td{input { r#type: "text", name: "error-folder", value: "{error_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "error-folder", value: "{s_error_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_error_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "download-folder", "Download Folder: "}}
-                                td{input { r#type: "text", name: "download-folder", value: "{download_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "download-folder", value: "{s_download_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_download_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "ca-folder", "CA Folder: "}}
-                                td{input { r#type: "text", name: "ca-folder", value: "{ca_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "ca-folder", value: "{s_ca_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_ca_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "webpki-tas", "WebPKI TAs: "}}
@@ -302,15 +422,61 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                         tbody {
                             tr{
                                 td{label {r#for: "end-entity-file", "End Entity File: "}}
-                                td{input { r#type: "text", name: "end-entity-file", value: "{end_entity_file}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "end-entity-file", value: "{s_end_entity_file}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_end_entity_file.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("Certificate File", &["der", "crt"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_file();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "end-entity-folder", "End Entity Folder: "}}
-                                td{input { r#type: "text", name: "end-entity-folder", value: "{end_entity_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "end-entity-folder", value: "{s_end_entity_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_end_entity_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "results-folder", "Results Folder: "}}
-                                td{input { r#type: "text", name: "results-folder", value: "{results_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "results-folder", value: "{s_results_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_results_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "settings", "Settings: "}}
@@ -318,7 +484,22 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                             tr{
                                 td{label {r#for: "crl-folder", "CRL Folder: "}}
-                                td{input { r#type: "text", name: "crl-folder", value: "{crl_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "crl-folder", value: "{s_crl_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_crl_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                         }
                     }
@@ -398,7 +579,23 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                             tr{
                                 td{label {r#for: "list-partial-paths-for-target", "List Partial Paths for Target: "}}
-                                td{input {r#type: "text", name: "list-partial-paths-for-target", value: "{list_partial_paths_for_target}", style: "width: 500px;"}}
+                                td{input {r#type: "text", name: "list-partial-paths-for-target", value: "{s_list_partial_paths_for_target}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_list_partial_paths_for_target.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("Certificate File", &["der", "crt"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "list-partial-paths-for-leaf-ca", "List Partial Paths for Leaf CA: "}}
@@ -412,12 +609,31 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                         tbody {
                             tr{
                                 td{label {r#for: "mozilla-csv", "Mozilla CSV: "}}
-                                td{input {r#type: "text", name: "mozilla-csv", value: "{mozilla_csv}", style: "width: 500px;"}}
+                                td{input {r#type: "text", name: "mozilla-csv", value: "{s_mozilla_csv}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_mozilla_csv.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("CSV file", &["csv"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_file();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                         }
                     }
                 }
-                button { r#type: "submit", value: "Submit", "Submit the form" }
+                div{
+                    style: "text-align:center",
+                    button { r#type: "submit", value: "Submit", "Run Command(s)" }
+                }
             }
         }
     })
