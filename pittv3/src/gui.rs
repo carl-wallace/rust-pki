@@ -119,6 +119,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     };
 
     let ta_folder = sa.ta_folder.unwrap_or_default();
+    let s_ta_folder = use_state(cx, || ta_folder);
     let webpki_tas = sa.webpki_tas;
     let cbor = sa.cbor.unwrap_or_default();
     let s_cbor = use_state(cx, || cbor);
@@ -287,7 +288,22 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                         tbody {
                             tr{
                                 td{div{title: "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR file containing partial certification paths and when validating certification paths.", class: "visible", label {r#for: "ta-folder", "TA Folder: "}}}
-                                td{input { r#type: "text", name: "ta-folder", value: "{ta_folder}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "ta-folder", value: "{s_ta_folder}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_ta_folder.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_folder();
+                                            if let Some(file) = file {
+                                                setter(file.into_os_string().into_string().unwrap());
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
                             }
                             tr{
                                 td{label {r#for: "cbor", "CBOR: "}}
