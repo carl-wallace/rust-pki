@@ -1,0 +1,64 @@
+[package]
+name = "pittv3_gui"
+version = "0.1.4"
+description = """
+PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+of trust anchors, intermediate CA certificates and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pittv3_lib = {path = "../pittv3-lib"}
+pittv3_gui_lib = {path = "../pittv3-gui-lib", features = ["gui_desktop"]}
+
+cfg-if = "1.0.0"
+log = {version = "0.4.20"}
+log4rs = {version = "1.2.0", default-features = false}
+
+# todo: running against crates.io version does not at present (fails to parse in HTML transit.rs and hits an unwrap)
+# use the commit that ebou (https://github.com/terhechte/Ebou) is pinned to
+#dioxus = {version = "0.3.2", optional = true}
+#dioxus-desktop = {version = "0.3.0", optional = true}
+dioxus = "0.4.0"
+dioxus-desktop = "0.4.0"
+#dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "388fb30" }
+#dioxus-desktop = { git = "https://github.com/DioxusLabs/dioxus", rev = "388fb30" }
+#dioxus = { path = "../../../third-party/dioxus/packages/dioxus", optional = true }
+#dioxus-desktop = { path = "../../../third-party/dioxus/packages/desktop", optional = true }
+
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+home = {version = "0.5.5"}
+anyhow = {version = "1.0.75"}
+rfd = {version = "0.11.4"}
+getrandom = { version = "0.2.10", features = ["js"] }
+
+# Similar to certval, there are six feature gates:
+#   - no-default-features (i.e., no-std) provides full path validation. Unlike pittv3-cli, there is no no-std build for this utility.
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+# Default is set to be the most all encompassing (i.e., remote,webpki).
+# There is no std-app for GUI utility builds as there is with pittv3-cli. If you need to test with no-std certval, use that.
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
+[features]
+default = ["remote", "webpki"]
+revocation = ["pittv3_gui_lib/revocation"]
+std = ["pittv3_gui_lib/std"]
+remote = ["pittv3_gui_lib/remote"]
+pqc = ["pittv3_gui_lib/pqc"]
+webpki = ["pittv3_gui_lib/webpki"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

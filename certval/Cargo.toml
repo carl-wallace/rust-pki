@@ -9,7 +9,7 @@ authors = [""]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/carl-wallace/rust-pki"
 categories = ["cryptography", "pki", "no-std"]
-keywords = ["crypto", "x.509", "OCSP"]
+keywords = ["crypto", "x509", "OCSP"]
 readme = "README.md"
 edition = "2021"
 rust-version = "1.65"
@@ -18,9 +18,9 @@ rust-version = "1.65"
 
 [dependencies]
 x509-cert = { version="0.2.4", default-features = false, features = ["pem"] }
-const-oid = { version = "0.9.4", default-features = false, features = ["db"] }
+const-oid = { version = "0.9.5", default-features = false, features = ["db"] }
 cms = "0.2.2"
-der = { version="0.7.7", features = ["alloc", "derive", "flagset", "oid"] }
+der = { version="0.7.8", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
@@ -38,38 +38,41 @@ sha2 = {version = "0.10.7", default-features = false, features = ["oid"] }
 
 cfg-if = "1.0.0"
 # serde feature is added to std, revocation,std and remote
-flagset = { version = "0.4.3", package = "flagset", default-features = false }
+flagset = { version = "0.4.4", package = "flagset", default-features = false }
 lazy_static = {version = "1.4.*", features = ["spin_no_std"]}
 readonly = "0.2.11"
-serde = {version = "1.0.177", default-features = false, features = ["derive", "alloc"]}
+serde = {version = "1.0.188", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
 
 ciborium = {version = "0.2.1", default-features = false }
-log = {version = "0.4.19", default-features = false}
+log = {version = "0.4.20", default-features = false}
 ndarray = {version = "0.15.6", optional = true, default-features = false}
-reqwest = { version = "0.11.18", features = ["blocking"], optional = true}
-serde_json = {version = "1.0.104", optional = true, default-features = false, features = ["alloc"] }
-tokio = { version = "1.29.1", features = ["full", "time", "rt-multi-thread"], optional = true }
-url = {version = "2.4.0", optional = true}
-walkdir = { version = "2.2.3", optional = true}
+reqwest = { version = "0.11.20", optional = true, default-features = false}
+serde_json = {version = "1.0.106", optional = true, default-features = false, features = ["alloc"] }
+tokio = { version = "1.32.0", features = ["macros"], optional = true }
+url = {version = "2.4.1", optional = true}
+walkdir = { version = "2.4.0", optional = true}
 
 # regex documentation notes a std feature that at some point in the future could be omitted
 # to enable no_std support, but for now std is required, so mark it optional
-regex = {version = "1.9.1", optional = true}
+regex = {version = "1.9.5", optional = true}
 
-pqcrypto-internals =  {version = "0.2.4", optional = true}
+pqcrypto-internals =  {version = "0.2.5", optional = true}
 pqcrypto-dilithium =  {version = "0.4.6", optional = true}
 pqcrypto-falcon = {version = "0.2.10", optional = true}
 pqcrypto-sphincsplus = {version = "0.6.4", optional = true}
 pqcrypto = {version = "0.16.1", optional = true}
 pqcrypto-traits = {version = "0.3.4", optional = true}
 
+pqc_dilithium = {git = "https://github.com/carl-wallace/dilithium.git", branch = "macros", optional = true}
+# pqc_sphincsplus = {version = "0.2.0", optional = true, features = ["f128", "f192", "f256", "s128", "s192", "s256", "simple", "robust"]}
+
 webpki-roots = {version = "0.25.1", optional = true}
 
 [dev-dependencies]
-tempfile = "3.7.0"
+tempfile = "3.8.0"
 hex-literal = "0.4.1"
-tokio-test = "0.4.2"
+tokio-test = "0.4.3"
 
 # There are five feature gates:
 #   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
@@ -85,6 +88,7 @@ revocation = ["ndarray"]
 std = ["ndarray", "tokio", "base64ct", "walkdir", "url", "serde_json", "serde/rc",  "flagset/serde", "regex", "lazy_static/spin"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
+pqc_wasm = ["pqc_dilithium", "pqckeys"]
 webpki = ["webpki-roots"]
 
 [package.metadata.docs.rs]

@@ -44,3 +44,12 @@ cases in the repo) is roughly 90%.
 - Cleanup use of cfg-if
 - Remove some no-longer-necessary clap code used to display help information
 - Added webpki feature to allow instantiating TaSource instance using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate.
+
+## [0.1.4] - 2023-09-30
+
+- Refactored the pittv3 crate to move command line utility to the new pittv3-cli crate (i.e., this crate) with supporting 
+code moved to pittv3-lib. This alignment allows a command line utility and a GUI utility to share the same undercarriage
+and better allows parts to be reused from a WASM context. 
+- Created new Pittv3CliArgs that uses [clap](https://crates.io/crates/clap) to solicit options via the command line. A TryInto was added to converted this 
+structure to Pittv3Args, which in addition to being used by the GUI app is also used by a WASM client. The WASM client does 
+not sustain building the `clap` dependency.

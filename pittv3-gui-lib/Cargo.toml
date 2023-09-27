@@ -1,0 +1,70 @@
+[package]
+name = "pittv3_gui_lib"
+version = "0.1.4"
+description = """
+PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+of trust anchors, intermediate CA certificates and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pittv3_lib = {path = "../pittv3-lib", default-features = false}
+pkiprocmacros = { path = "../pkiprocmacros"}
+certval = { path = "../certval", default-features = false}
+
+cfg-if = "1.0.0"
+log = {version = "0.4.20"}
+log4rs = {version = "1.2.0", default-features = false}
+serde = { version = "1.0.188", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0.106", default-features = false, features = ["alloc"] }
+tokio = { version = "1.32.0", features = ["macros"], optional = true }
+
+# todo: running against crates.io version does not at present (fails to parse in HTML transit.rs and hits an unwrap)
+# use the commit that ebou (https://github.com/terhechte/Ebou) is pinned to
+#dioxus = {version = "0.3.2", optional = true}
+#dioxus-desktop = {version = "0.3.0", optional = true}
+dioxus = "0.4.0"
+dioxus-desktop = {version = "0.4.0", optional = true}
+#dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "388fb30" }
+#dioxus-desktop = { git = "https://github.com/DioxusLabs/dioxus", rev = "388fb30", optional = true }
+#dioxus = { path = "../../../third-party/dioxus/packages/dioxus", optional = true }
+#dioxus-desktop = { path = "../../../third-party/dioxus/packages/desktop", optional = true }
+
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+home = {version = "0.5.5", optional = true}
+anyhow = {version = "1.0.75", optional = true}
+rfd = {version = "0.11.4", optional = true}
+getrandom = { version = "0.2", features = ["js"] }
+
+# Similar to certval, there are seven feature gates (one more than certval):
+#   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support). This is mostly targeted at WASM builds.
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+# Default is set to be the least encompassing (i.e., for WASM).
+# There is no std-app for GUI utility builds as there is with pittv3-cli. If you need to test with no-std certval, use that.
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
+# gui_desktop adds a graphical user interface (in place of command line) in addition to default. The typical set is [gui_desktop, remote, webpki].
+[features]
+default = []
+revocation = ["certval/revocation", "pittv3_lib/revocation"]
+std = ["certval/revocation", "tokio", "log4rs/default", "tokio/rt-multi-thread", "certval/std", "revocation", "pittv3_lib/std", "anyhow", "rfd", "home"]
+remote = ["certval/remote", "revocation", "std", "pittv3_lib/remote"]
+pqc = ["certval/pqc", "pittv3_lib/pqc"]
+webpki = ["certval/webpki", "pittv3_lib/webpki"]
+gui_desktop = ["dioxus-desktop", "std"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

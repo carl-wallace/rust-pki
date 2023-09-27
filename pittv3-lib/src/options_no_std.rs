@@ -34,7 +34,11 @@
 //! ```
 #![cfg(any(not(feature = "std_app"), doc))]
 
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use ciborium::de::from_reader;
 
@@ -125,10 +129,10 @@ pub fn options_no_std(args: &Pittv3Args) {
                 }
 
                 match count_map.entry(status) {
-                    std::collections::btree_map::Entry::Occupied(mut e) => {
+                    alloc::collections::btree_map::Entry::Occupied(mut e) => {
                         e.insert(e.get() + 1);
                     }
-                    std::collections::btree_map::Entry::Vacant(e) => {
+                    alloc::collections::btree_map::Entry::Vacant(e) => {
                         e.insert(1);
                     }
                 }

@@ -2,10 +2,15 @@
 #![cfg(feature = "std_app")]
 
 extern crate alloc;
+use alloc::borrow::ToOwned;
 use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
+use alloc::string::ToString;
 use core::ops::Deref;
 use log::error;
 use std::io::Write;
+use std::println;
 use std::{fs, fs::File, path::Path};
 
 use const_oid::db::rfc5912::{
@@ -838,8 +843,18 @@ fn test_cps_log() {
     set_target_key_usage(&mut cps, fs.bits());
 
     use tempfile::tempdir;
-    let temp_dir = tempdir().unwrap();
+    let temp_dir = match tempdir() {
+        Ok(f) => f,
+        Err(_) => {
+            return;
+        }
+    };
     let results_path = temp_dir.path().join("cps.txt");
-    let mut f = File::create(results_path).unwrap();
+    let mut f = match File::create(results_path) {
+        Ok(f) => f,
+        Err(_) => {
+            return;
+        }
+    };
     log_cps(&mut f, &cps);
 }

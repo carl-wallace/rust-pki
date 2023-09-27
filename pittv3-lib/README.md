@@ -24,7 +24,7 @@ To generate a CBOR file for a given PKI:
 The `chase-aia-and-sia` can be included to download additional certificates. The downloaded
 artifacts may be directed to a location specified by the `download-folder` option for later
 review or to the `ca-folder` for inclusion in CBOR file.
-```
+```ignore
  pittv3 --cbor example.cbor --ca-folder path/to/ca_folder --ta-folder path/to/ta_folder --generate
 ```
 If intermediate CA certificates are not available but one or more end entity certificates are
@@ -33,13 +33,13 @@ available, the `validate-all` and `dynamic-build` options ca be used with the `t
 validation of the end entity certificate(s) using URIs read from AIA and SIA extensions. The
 `last-modified-map` and `blocklist` can be used to improve performance of AIA and SIA retrieval
 operations during generation or during dynamic certification path building.
-```
+```ignore
  pittv3 -t path/to/ta_folder -e path/to/ee/certificate -d path/to/download/folder -v -y
 ```
 Intermediate CA certificates for the web PKI can be parsed from the a [CSV file made available by
 Mozilla](https://ccadb-public.secure.force.com/mozilla/MozillaIntermediateCertsCSVReport) using
 the `mozilla-csv` option.
- ```
+ ```ignore
  pittv3 --mozilla-csv path/to/MozillaIntermediateCerts.csv --ca-folder path/to/ca_folder
  ```
 
@@ -52,7 +52,7 @@ To validate certificates using a CBOR file, use the cbor option in tandem with t
 and either the `end-entity-file` or `end-entity-folder` options. The `validate-all` option can be added
 to validate all available possible paths. Validation results can be saved by specifying a folder
 to receive the results using the `results-folder` option.
-```
+```ignore
  pittv3 -b example.cbor -t path/to/ta_folder -e path/to/ee/certificate.der
 ```
 The `dynamic-build` and `download-folder` options can be added to dynamically develop certification paths for validation by
@@ -72,7 +72,7 @@ leaf CA index. The `cbor` and `ta-folder` options are required for most diagnost
 with validation operations, the `time-of-interest` option can be used to vary the partial paths
 returned for a target by ignoring involid certificates.
 
- ```
+ ```ignore
  pittv3 -cbor example.cbor --list-partial-paths-for-target path/to/ee/certificate.der
  ```
 
@@ -136,7 +136,7 @@ dual licensed as above, without any additional terms or conditions.
 [//]: # (badges)
 
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.56+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.65+-blue.svg
 
 [//]: # (links)
 

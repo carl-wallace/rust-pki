@@ -2,7 +2,10 @@
 
 #![cfg(any(not(feature = "std"), doc))]
 
-use crate::{stats::PathValidationStats, Pittv3Args};
+use crate::{args::Pittv3Args, stats::PathValidationStats};
+use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
 use certval::*;
 use log::{error, info};
 
@@ -34,10 +37,6 @@ pub(crate) fn validate_cert(
     let mut paths: Vec<CertificationPath> = vec![];
     let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, 0, time_of_interest);
     if let Err(e) = r {
-        println!(
-            "Failed to find certification paths for target with error {:?}",
-            e
-        );
         error!(
             "Failed to find certification paths for target with error {:?}",
             e

@@ -1,4 +1,4 @@
-#![cfg(not(feature = "std"))]
+#![cfg(not(any(feature = "std", feature = "wasm_common")))]
 
 use assert_cmd::prelude::*;
 use std::process::Command;

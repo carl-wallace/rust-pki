@@ -41,14 +41,30 @@ use webpki_roots::TLS_SERVER_ROOTS;
 
 #[cfg(feature = "webpki")]
 use alloc::format;
+#[cfg(feature = "std")]
+use core::str::FromStr;
+#[cfg(feature = "std")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use subtle_encoding::hex;
 
 use const_oid::db::rfc5912::{ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_SUBJECT_KEY_IDENTIFIER};
+#[cfg(feature = "std")]
+use const_oid::ObjectIdentifier;
+#[cfg(feature = "std")]
+use der::asn1::{BitString, UtcTime};
 use sha2::{Digest, Sha256};
+#[cfg(feature = "std")]
+use spki::AlgorithmIdentifier;
 use spki::SubjectPublicKeyInfoOwned;
+#[cfg(feature = "std")]
+use x509_cert::certificate::TbsCertificateInner;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
+#[cfg(feature = "std")]
+use x509_cert::serial_number::SerialNumber;
+#[cfg(feature = "std")]
+use x509_cert::time::{Time, Validity};
 use x509_cert::{anchor::TrustAnchorChoice, Certificate};
 
 use crate::{
@@ -88,6 +104,71 @@ pub fn get_certificate_from_trust_anchor(ta: &TrustAnchorChoice) -> Option<&Cert
             if let Some(cp) = &tai.cert_path {
                 if let Some(cert) = &cp.certificate {
                     return Some(cert);
+                }
+            }
+        }
+        _ => return None,
+    }
+    None
+}
+
+#[cfg(feature = "std")]
+/// Prepare a fake certificate for inclusion in a TrustAnchorChoice given a TA from the webpki-roots crate
+pub fn fabricate_partial_certificate_from_trust_anchor(
+    ta: &TrustAnchorChoice,
+) -> Option<Certificate> {
+    match ta {
+        TrustAnchorChoice::Certificate(cert) => return Some(cert.clone()),
+        TrustAnchorChoice::TaInfo(tai) => {
+            if let Some(cp) = &tai.cert_path {
+                if let Some(cert) = &cp.certificate {
+                    return Some(cert.clone());
+                } else {
+                    let ten_years_duration = Duration::from_secs(365 * 24 * 60 * 60 * 10);
+                    let ten_years_time = SystemTime::now().checked_add(ten_years_duration).unwrap();
+
+                    let validity = Validity {
+                        not_before: Time::UtcTime(
+                            UtcTime::from_unix_duration(
+                                SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                        not_after: Time::UtcTime(
+                            UtcTime::from_unix_duration(
+                                ten_years_time.duration_since(UNIX_EPOCH).unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                    };
+
+                    let cp = match &tai.cert_path {
+                        Some(cp) => cp,
+                        None => return None,
+                    };
+
+                    return Some(Certificate {
+                        tbs_certificate: TbsCertificateInner {
+                            version: Default::default(),
+                            serial_number: SerialNumber::new(&[11u8]).unwrap(),
+                            signature: AlgorithmIdentifier {
+                                oid: ObjectIdentifier::from_str("1.2.3.4.5").unwrap(),
+                                parameters: None,
+                            },
+                            issuer: cp.ta_name.clone(),
+                            validity,
+                            subject: cp.ta_name.clone(),
+                            subject_public_key_info: tai.pub_key.clone(),
+                            issuer_unique_id: None,
+                            subject_unique_id: None,
+                            extensions: None,
+                        },
+                        signature_algorithm: AlgorithmIdentifier {
+                            oid: ObjectIdentifier::from_str("1.2.3.4.5").unwrap(),
+                            parameters: None,
+                        },
+                        signature: BitString::from_bytes(&[0u8]).unwrap(),
+                    });
                 }
             }
         }

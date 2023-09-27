@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use log::{debug, error};
 
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 use der::Decode;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
 use rsa::pkcs8::DecodePublicKey;
@@ -19,9 +19,9 @@ use crate::{
     util::pdv_utilities::get_hash_alg_from_sig_alg,
 };
 
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 use pqckeys::composite::*;
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 use pqckeys::pqc_oids::*;
 #[cfg(feature = "pqc")]
 use pqcrypto_falcon::{falcon1024, falcon512};
@@ -70,19 +70,19 @@ pub(crate) fn is_ecdsa(oid: &ObjectIdentifier) -> bool {
         || *oid == PKIXALG_ECDSA_WITH_SHA512
 }
 
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_diluthium2(oid: &ObjectIdentifier) -> bool {
     *oid == ENTU_DILITHIUM2 || *oid == OQ_DILITHIUM2
 }
 
-#[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium3(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM3 || *oid == OQ_DILITHIUM3
-}
-
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_diluthium5(oid: &ObjectIdentifier) -> bool {
     *oid == ENTU_DILITHIUM5 || *oid == OQ_DILITHIUM5
+}
+
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
+pub(crate) fn is_diluthium3(oid: &ObjectIdentifier) -> bool {
+    *oid == ENTU_DILITHIUM3 || *oid == OQ_DILITHIUM3
 }
 
 #[cfg(feature = "pqc")]
@@ -107,51 +107,51 @@ pub(crate) fn is_falcon512(oid: &ObjectIdentifier) -> bool {
 pub(crate) fn is_falcon1024(oid: &ObjectIdentifier) -> bool {
     *oid == ENTU_FALCON_1024 || *oid == OQ_FALCON_1024
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_128f_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_128F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_128F_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_128f_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_128F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_128F_SIMPLE
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_128s_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_128S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_128S_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_128s_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_128S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_128S_SIMPLE
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_192f_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_192F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_192F_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_192f_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_192F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_192F_SIMPLE
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_192s_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_192S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_192S_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_192s_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_192S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_192S_SIMPLE
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_256f_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_256F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_256F_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_256f_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_256F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_256F_SIMPLE
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_256s_robust(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_256S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_256S_ROBUST
 }
-#[cfg(feature = "pqc")]
+#[cfg(any(feature = "pqc", feature = "pqc_wasm"))]
 pub(crate) fn is_sphincsp_sha256_256s_simple(oid: &ObjectIdentifier) -> bool {
     *oid == OQ_SPHINCSP_SHA256_256S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_256S_SIMPLE
 }
@@ -430,6 +430,112 @@ macro_rules! pqverify {
             }
         };
     }};
+}
+
+#[cfg(feature = "pqc_wasm")]
+/// Write some stuff. TODO
+pub fn verify_signature_message_pqc_wasm(
+    _pe: &PkiEnvironment,
+    message_to_verify: &[u8],                 // buffer to verify
+    signature: &[u8],                         // signature
+    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+    spki: &SubjectPublicKeyInfoOwned,         // public key
+) -> Result<()> {
+    let spki_val = spki.subject_public_key.raw_bytes();
+    if is_diluthium2(&signature_alg.oid) {
+        use pqc_dilithium::mode2::api::*;
+        match verify(signature, message_to_verify, &spki_val) {
+            Ok(_) => return Ok(()),
+            Err(_e) => {
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ))
+            }
+        };
+    } else if is_diluthium3(&signature_alg.oid) {
+        use pqc_dilithium::mode3::api::*;
+        match verify(signature, message_to_verify, &spki_val) {
+            Ok(_) => return Ok(()),
+            Err(_e) => {
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ))
+            }
+        };
+    } else if is_diluthium5(&signature_alg.oid) {
+        use pqc_dilithium::mode5::api::*;
+        match verify(signature, message_to_verify, &spki_val) {
+            Ok(_) => return Ok(()),
+            Err(_e) => {
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ))
+            }
+        };
+    } /*
+      else if is_sphincsp_sha256_128f_robust(&signature_alg.oid) {
+          use pqc_sphincsplus::*;
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_128f_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_128s_robust(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_128s_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_192f_robust(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_192f_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_192s_robust(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_192s_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_256f_robust(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_256f_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_256s_robust(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      } else if is_sphincsp_sha256_256s_simple(&signature_alg.oid) {
+          match verify(signature, message_to_verify, &spki_val) {
+              Ok(_) => return Ok(()),
+              Err(_e) => return Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure))
+          };
+      }*/
+    Err(Error::Unrecognized)
 }
 
 #[cfg(feature = "pqc")]

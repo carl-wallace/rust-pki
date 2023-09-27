@@ -585,6 +585,8 @@ pub fn populate_5280_pki_environment(pe: &mut PkiEnvironment) {
     if pe.oid_lookups.is_empty() {
         pe.add_oid_lookup(oid_lookup);
     }
+    #[cfg(feature = "pqc_wasm")]
+    pe.add_verify_signature_message_callback(verify_signature_message_pqc_wasm);
 
     #[cfg(feature = "pqc")]
     pe.add_verify_signature_message_callback(verify_signature_message_pqcrypto);

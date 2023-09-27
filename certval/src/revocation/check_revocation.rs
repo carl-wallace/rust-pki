@@ -19,6 +19,9 @@ use alloc::vec;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use log::{error, info};
 
+#[cfg(feature = "std")]
+use crate::fabricate_partial_certificate_from_trust_anchor;
+
 use crate::{
     add_crl, add_failed_crl, get_check_crls, get_check_revocation_status,
     get_crl_grace_periods_as_last_resort,
@@ -100,6 +103,10 @@ pub async fn check_revocation(
 
     let mut issuer_cert =
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
+            cert.clone()
+        } else if let Some(cert) =
+            fabricate_partial_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta)
+        {
             cert.clone()
         } else {
             error!("Failed to retrieve certificate from trust anchor object");

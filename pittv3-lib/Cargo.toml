@@ -1,0 +1,61 @@
+[package]
+name = "pittv3_lib"
+version = "0.1.4"
+description = """
+PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+of trust anchors, intermediate CA certificates and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+const-oid = { version = "0.9.5", default-features = false, features = ["db"] }
+der = { version="0.7.8", features = ["alloc", "derive", "flagset", "oid"] }
+pem-rfc7468 = { version="0.7.0", features = ["alloc"]}
+x509-cert = { version="0.2.4", default-features = false, features = ["pem"] }
+
+certval = { path = "../certval", default-features = false}
+
+async-recursion = "1.0.4"
+ciborium = {version = "0.2.1", default-features = false }
+csv = {version = "1.2.2", optional = true, default-features = false}
+log = {version = "0.4.20"}
+reqwest = { version = "0.11.20", optional = true, default-features = false}
+serde = { version = "1.0.188", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0.106", default-features = false, features = ["alloc"] }
+sha2 = {version = "0.10.7", default-features = false, features = ["oid"] }
+tokio = { version = "1.32.0", features = ["macros"], optional = true }
+walkdir = { version = "2.4.0", optional = true}
+
+[dev-dependencies]
+tempfile = "3.8.0"
+
+# Similar to certval, there are six feature gates (one more than certval):
+#   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+#   - std-app provides the Pittv3 app with std support while building certval with no-default-features
+# Default is set to be the most all encompassing (i.e., remote,webpki).
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
+[features]
+default = ["remote", "webpki"]
+revocation = ["certval/revocation"]
+std_app = ["certval/revocation", "tokio", "walkdir", "csv", "tokio/rt-multi-thread"]
+std = ["std_app", "certval/std", "revocation"]
+remote = ["certval/remote", "revocation", "std"]
+pqc = ["certval/pqc"]
+webpki = ["certval/webpki"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,9 +1,15 @@
 //! Types related to collection of certification path processing statistics
 
 use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
+
 use certval::CertificationPathResults;
 
 /// `PathValidationStats` enables collection of some basic statistics related to path validation.
+#[allow(missing_docs)]
 pub struct PathValidationStats {
     pub files_processed: i32,
     pub paths_per_target: usize,
@@ -35,6 +41,7 @@ impl PathValidationStats {
 
 /// `PVStats` is used to initialize stats collection for a given target certificate.
 pub trait PVStats {
+    /// Initializes PVStats instance for given target
     fn init_for_target(&mut self, cert_filename: &str);
 }
 

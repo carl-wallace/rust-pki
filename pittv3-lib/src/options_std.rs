@@ -492,7 +492,8 @@ pub async fn options_std(args: &Pittv3Args) {
                     .from_reader(data.as_slice());
                 for (i, result) in rdr.records().enumerate() {
                     if let Ok(record) = result {
-                        if let Some(s) = record.get(4) {
+                        if let Some(s) = record.get(23) {
+                            let s = s.replace('\'', "");
                             match pem::decode_vec(s.as_bytes()) {
                                 Ok((label, der_bytes)) => {
                                     if label == "CERTIFICATE" {
@@ -511,7 +512,9 @@ pub async fn options_std(args: &Pittv3Args) {
                                         }
                                     }
                                 }
-                                Err(_e) => {}
+                                Err(e) => {
+                                    error!("Encountered error processing row {} from {}: {}. Base64: {s}", i, mozilla_csv, e);
+                                }
                             }
                         }
                     }

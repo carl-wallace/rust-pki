@@ -3,7 +3,10 @@
 members = [
     "certval",
     "pkiprocmacros",
-    "pittv3"
+    "pittv3-lib",
+    "pittv3-cli",
+    "pittv3-gui",
+    "pittv3-gui-lib"
 ]
 
 [profile.bench]

@@ -1,0 +1,14 @@
+label {
+    font-weight: bold;
+}
+form {
+    width: 800px
+}
+
+fieldset {
+    margin: 5px 0;
+}
+
+table {
+    border: none;
+}

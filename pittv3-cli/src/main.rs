@@ -2,51 +2,36 @@
 #![forbid(unsafe_code)] // removed due to issue with Clap derive, clippy::unwrap_used)]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
-extern crate alloc;
-mod args;
-mod options_std;
-mod pitt_log;
-mod stats;
-mod std_utils;
+use pittv3_lib::args;
 
-mod no_std_utils;
-mod options_no_std;
-mod options_std_app;
+mod cliargs;
 
-mod gui;
-
-#[cfg(not(feature = "gui"))]
+#[cfg(feature = "std_app")]
 use clap::Parser;
 
-#[cfg(not(feature = "gui"))]
 use log::debug;
 
+#[cfg(not(feature = "std_app"))]
+use log::error;
+
 use crate::args::*;
+use crate::cliargs::Pittv3CliArgs;
 
 #[macro_use]
 extern crate cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "std")] {
-        use options_std::*;
-    } else if #[cfg(feature = "std_app")] {
-        use options_std_app::*;
+        use pittv3_lib::options_std::*;
+    } else if #[cfg(all(feature = "std_app", not(feature = "std")))] {
+        use pittv3_lib::options_std_app::*;
     } else if #[cfg(not(feature = "std_app"))] {
-        use options_no_std::*;
+        use pittv3_lib::options_no_std::*;
     }
 }
 
 cfg_if! {
-    if #[cfg(feature = "gui")] {
-        use crate::gui::*;
-        use dioxus_desktop::Config;
-        use dioxus_desktop::WindowBuilder;
-        fn main() {
-            dioxus_desktop::launch_cfg(App, Config::new().with_window(WindowBuilder::new().with_resizable(true).with_title("PITTv3")
-            .with_inner_size(dioxus_desktop::LogicalSize::new(775.0, 800.0)),),);
-        }
-    }
-    else if #[cfg(feature = "std_app")] {
+    if #[cfg(feature = "std_app")] {
         use log::LevelFilter;
         use log4rs::append::console::ConsoleAppender;
         use log4rs::config::{Appender, Config, Root};
@@ -55,7 +40,14 @@ cfg_if! {
         /// Point of entry for PITTv3 application.
         #[tokio::main]
         async fn main() {
-            let args = Pittv3Args::parse();
+            let cargs = Pittv3CliArgs::parse();
+            let args : Pittv3Args = match cargs.try_into() {
+                Ok(a) => a,
+                Err(e) => {
+                    println!("ERROR: failed to convert command line arguments with: {e:?}. Aborting operation.");
+                    return;
+                }
+            };
 
             let mut logging_configured = false;
 
@@ -107,7 +99,14 @@ cfg_if! {
     else if #[cfg(not(feature = "std_app"))] {
         /// Point of entry for PITTv3 application.
         fn main() {
-            let args = Pittv3Args::parse();
+            let cargs = Pittv3CliArgs::default();
+            let args : Pittv3Args = match cargs.try_into() {
+                Ok(a) => a,
+                Err(e) => {
+                    error!("ERROR: failed to convert command line arguments with: {e:?}. Aborting operation.");
+                    return;
+                }
+            };
 
             debug!("PITTv3 start");
 

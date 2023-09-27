@@ -1,8 +1,0 @@
-{
-  "psCheckRevocationStatus": {
-    "Bool": false
-  },
-  "psRetrieveFromAiaSiaHttp": {
-    "Bool": false
-  }
-}

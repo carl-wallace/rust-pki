@@ -1,117 +1,30 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
-#![cfg(feature = "gui")]
 #![allow(non_snake_case)]
 
-use core::fmt::{Debug, Formatter};
 use dioxus::prelude::*;
 
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
-use log4rs::append::Append;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 
-#[cfg(feature = "std")]
-use crate::options_std;
-
-#[cfg(not(feature = "std"))]
-use crate::options_std_app;
+use pittv3_lib::options_std::options_std;
 
 use crate::args::Pittv3Args;
-use crate::get_now_as_unix_epoch;
-use certval::{Error, Result};
+use dioxus_desktop::use_window;
 use home::home_dir;
-use log::{debug, error};
+use pittv3_gui_lib::gui_settings::*;
+use pittv3_gui_lib::gui_utils::*;
+use pittv3_lib::args::get_now_as_unix_epoch;
+
+use log::debug;
+
 use rfd::FileDialog;
-use std::fs;
-use std::fs::{create_dir_all, File};
 
-fn read_saved_args() -> Result<Pittv3Args> {
-    if let Some(hd) = home_dir() {
-        let app_home = hd.join(".pittv3");
-        if !app_home.exists() {
-            let _ = create_dir_all(app_home);
-        }
-        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
-        if let Ok(f) = File::open(&app_cfg) {
-            if let Ok(a) = serde_json::from_reader(&f) {
-                return Ok(a);
-            } else {
-                return Err(Error::Unrecognized);
-            }
-        }
-    }
-    return Err(Error::Unrecognized);
-}
-fn save_args(args: &Pittv3Args) -> Result<()> {
-    if let Some(hd) = home_dir() {
-        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
-        if let Ok(json_args) = serde_json::to_string(&args) {
-            if let Err(e) = fs::write(&app_cfg, json_args) {
-                error!("Unable to write args to file: {e}");
-                return Err(Error::Unrecognized);
-            } else {
-                return Ok(());
-            }
-        }
-    }
-    Err(Error::Unrecognized)
-}
+//todo - gate arg access based on feature presence
 
-fn string_or_none(ev: &Event<FormData>, key: &str) -> Option<String> {
-    if let Some(v) = ev.values.get(key) {
-        if v[0].is_empty() {
-            None
-        } else {
-            Some(v[0].clone())
-        }
-    } else {
-        None
-    }
-}
-
-fn usize_or_none(ev: &Event<FormData>, key: &str) -> Option<usize> {
-    match string_or_none(ev, key) {
-        Some(v) => match v.parse::<usize>() {
-            Ok(u) => Some(u),
-            Err(_) => None,
-        },
-        None => None,
-    }
-}
-
-fn true_or_false(ev: &Event<FormData>, key: &str) -> bool {
-    if let Some(v) = ev.values.get(key) {
-        if "0" == v[0] {
-            false
-        } else {
-            true
-        }
-    } else {
-        false
-    }
-}
-
-use log::Record;
-
-struct SimpleLogger;
-
-impl Debug for SimpleLogger {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
-        Ok(())
-    }
-}
-
-impl Append for SimpleLogger {
-    fn append(&self, _record: &Record<'_>) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn flush(&self) {}
-}
-
-pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
+pub(crate) fn App(cx: Scope<'_, SettingsProps>) -> Element<'_> {
     // --webpki-tas -d pittv3/tests/examples/downloads_webpki/ -s pittv3/tests/examples/disable_revocation_checking.json -y -e pittv3/tests/examples/amazon_2023.der
     let sa = match read_saved_args() {
         Ok(sa) => sa,
@@ -123,6 +36,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     let webpki_tas = sa.webpki_tas;
     let cbor = sa.cbor.unwrap_or_default();
     let s_cbor = use_state(cx, || cbor);
+
     let time_of_interest = get_now_as_unix_epoch().to_string();
     let logging_config = sa.logging_config.unwrap_or_default();
     let s_logging_config = use_state(cx, || logging_config);
@@ -145,6 +59,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     let results_folder = sa.results_folder.unwrap_or_default();
     let s_results_folder = use_state(cx, || results_folder);
     let settings = sa.settings.unwrap_or_default();
+    let s_settings = use_state(cx, || settings);
     let crl_folder = sa.crl_folder.unwrap_or_default();
     let s_crl_folder = use_state(cx, || crl_folder);
     let cleanup = sa.cleanup;
@@ -169,8 +84,12 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
     };
     let mozilla_csv = sa.mozilla_csv.unwrap_or_default();
     let s_mozilla_csv = use_state(cx, || mozilla_csv);
+    let s_settings_edit_disabled = use_state(cx, || s_settings.get().is_empty());
+
+    let window = use_window(cx);
 
     cx.render(rsx! {
+        style { include_str!("../assets/pittv3.css") }
         div {
             form {
                 onsubmit: move |ev| {
@@ -230,12 +149,21 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             match log4rs::config::load_config_file(logging_config, Default::default()) {
                                 Ok(_c) => {
                                     logging_configured = true;
-                                    let c = Config::builder().appender(Appender::builder().build("SimpleLogger", Box::new(SimpleLogger))).build(Root::builder().appender("SimpleLogger").build(LevelFilter::Info)).unwrap();
-                                    if let Err(e) = log4rs::init_config(c) {
-                                        println!(
-                                            "ERROR: failed to configure logging using {} with {:?}. Continuing without logging.",
-                                            logging_config, e
-                                        );
+                                    match Config::builder().appender(Appender::builder().build("SimpleLogger", Box::new(SimpleLogger))).build(Root::builder().appender("SimpleLogger").build(LevelFilter::Info)) {
+                                        Ok(c) => {
+                                            if let Err(e) = log4rs::init_config(c) {
+                                                println!(
+                                                    "ERROR: failed to configure logging using {} with {:?}. Continuing without logging.",
+                                                    logging_config, e
+                                                );
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!(
+                                                "ERROR: failed to load logging configuration builder from {} with {:?}. Continuing without logging.",
+                                                logging_config, e
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -272,15 +200,10 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
 
                         debug!("PITTv3 start");
 
-                        #[cfg(feature = "std")]
                         options_std(&args).await;
-
-                        #[cfg(not(feature = "std"))]
-                        options_std_app(&args);
 
                         debug!("PITTv3 end");
                     }
-                    // future.restart();
                 },
                 oninput: move |ev| println!("Input {:?}", ev.values),
                 fieldset {
@@ -298,7 +221,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -318,7 +241,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_file();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -342,7 +265,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_file();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -361,7 +284,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -380,7 +303,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -399,7 +322,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -449,7 +372,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_file();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -468,7 +391,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -487,7 +410,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -496,7 +419,37 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                             }
                             tr{
                                 td{label {r#for: "settings", "Settings: "}}
-                                td{input { r#type: "text", name: "settings", value: "{settings}", style: "width: 500px;"}}
+                                td{input { r#type: "text", name: "settings", value: "{s_settings}", style: "width: 500px;"}}
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| {
+                                        let setter = s_settings.setter();
+                                        let disable_setter = s_settings_edit_disabled.setter();
+                                        async move {
+                                            let file = FileDialog::new()
+                                                .add_filter("PITTv3 Settings", &["json"])
+                                                .set_directory(home_dir().unwrap_or("/".into()))
+                                                .pick_file();
+                                            if let Some(file) = file {
+                                                disable_setter(false);
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
+                                            }
+                                            else {
+                                                disable_setter(true);
+                                            }
+                                        }
+                                    },
+                                    "..."
+                                }
+                                button {
+                                    r#type: "button",
+                                    disabled: "{s_settings_edit_disabled}",
+                                    onclick: move |_| {
+                                        let dom = VirtualDom::new_with_props(edit_settings, SettingsProps{x: s_settings.get().clone()});
+                                        window.new_window(dom, Default::default());
+                                    },
+                                    "Edit"
+                                }
                             }
                             tr{
                                 td{label {r#for: "crl-folder", "CRL Folder: "}}
@@ -510,7 +463,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -606,7 +559,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_folder();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -636,7 +589,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                                                 .set_directory(home_dir().unwrap_or("/".into()))
                                                 .pick_file();
                                             if let Some(file) = file {
-                                                setter(file.into_os_string().into_string().unwrap());
+                                                setter(file.into_os_string().into_string().unwrap_or_default());
                                             }
                                         }
                                     },
@@ -650,7 +603,7 @@ pub(crate) fn App(cx: Scope<'_>) -> Element<'_> {
                     style: "text-align:center",
                     button { r#type: "submit", value: "Submit", "Run Command(s)" }
                 }
-            }
-        }
-    })
+            } //end form
+        } //end div
+    }) //end render
 }

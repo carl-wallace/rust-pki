@@ -65,7 +65,12 @@ use crate::args::Pittv3Args;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use log::{error, info};
+use std::println;
 
 /// `get_file_as_byte_vec` provides support for reading artifacts from file when PITTv3 is built using
 /// the `std_app` feature.

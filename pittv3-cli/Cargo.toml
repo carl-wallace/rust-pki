@@ -1,0 +1,56 @@
+[package]
+name = "pittv3"
+version = "0.1.4"
+description = """
+PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+of trust anchors, intermediate CA certificates and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "no-std"]
+keywords = ["crypto", "x509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pittv3_lib = {path = "../pittv3-lib", default-features = false}
+
+cfg-if = "1.0.0"
+clap = {version = "4.4.3", features=["std", "derive"]}
+log = {version = "0.4.20"}
+log4rs = {version = "1.2.0"}
+serde = { version = "1.0.177", default-features = false, features = ["derive", "alloc"] }
+tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread"], optional = true }
+
+[dev-dependencies]
+assert_cmd = "2.0.12"
+predicates = "3.0.3"
+hex-literal = "0.4.1"
+tempfile = "3.8.0"
+lazy_static = "1.4.*"
+
+# Similar to certval, there are seven feature gates (two more than certval):
+#   - no-default-features (i.e., no-std) provides full path validation without file system support, network or thread safety (and no revocation support)
+#   - revocation adds support for verifying CRLs and OCSP responses presented to library (presumably obtained via stapling at higher protocol level)
+#   - std adds file-based utilities (including graph building) and support for multi-threading (but with no revocation support)
+#   - revocation,std adds revocation support alongside file-based utilities and support for multi-threading
+#   - remote adds support for dynamic path building, CRL fetching and OCSP
+#   - std-app provides the Pittv3 app with std support while building certval with no-default-features
+# Default is set to be the most all encompassing (i.e., remote,webpki).
+# webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
+[features]
+default = ["remote", "webpki"]
+revocation = ["pittv3_lib/revocation"]
+std_app = ["tokio", "pittv3_lib/std_app"]
+std = ["std_app", "revocation", "pittv3_lib/std"]
+remote = ["revocation", "std", "pittv3_lib/remote"]
+pqc = ["pittv3_lib/pqc"]
+webpki = ["pittv3_lib/webpki"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
