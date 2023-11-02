@@ -520,7 +520,7 @@ fn index_crls_internal(
                         }
                     }
                 } else {
-                    let file_exts = vec!["crl"];
+                    let file_exts = ["crl"];
                     if let Some(ext) = e.path().extension().and_then(OsStr::to_str) {
                         if !file_exts.contains(&ext) {
                             continue;

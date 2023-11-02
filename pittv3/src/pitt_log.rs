@@ -3,7 +3,6 @@
 
 extern crate alloc;
 use alloc::collections::BTreeMap;
-use core::ops::Deref;
 use log::error;
 use std::io::Write;
 use std::{fs, fs::File, path::Path};
@@ -750,7 +749,7 @@ pub fn log_path(
         for (i, c) in path.intermediates.iter().enumerate() {
             f.write_all(format!("\t+ Certificate #{}\n", i + 1).as_bytes())
                 .expect("Unable to write manifest file");
-            log_cert_details(pe, &mut f, c.deref());
+            log_cert_details(pe, &mut f, c);
         }
 
         f.write_all("\t+ Target Certificate\n".as_bytes())

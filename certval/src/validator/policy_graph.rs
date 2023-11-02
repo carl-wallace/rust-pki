@@ -4,7 +4,6 @@ use crate::alloc::borrow::ToOwned;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::{vec, vec::Vec};
 use core::cell::RefCell;
-use core::ops::Deref;
 
 use crate::{
     environment::pki_environment::*, path_results::*, path_settings::*, pdv_extension::*,
@@ -101,8 +100,7 @@ pub fn check_certificate_policies_graph(
 
     // Iterate over the list of intermediate CA certificates (target cert will be processed below loop)
     //for (pos, ca_cert) in cp.intermediates.iter_mut().enumerate() {
-    for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let ca_cert = ca_cert_ref.deref();
+    for (pos, ca_cert) in v.iter().enumerate() {
         // save pos in variable named i starting from 1 (to account for root node not being in this loop)
         // to make reading spec language easier
         let i = pos + 1;
@@ -325,7 +323,7 @@ pub fn check_certificate_policies_graph(
                     } else {
                         mappings
                             .entry(mapping.issuer_domain_policy)
-                            .or_insert_with(BTreeSet::new)
+                            .or_default()
                             .insert(mapping.subject_domain_policy);
                     }
                 }
