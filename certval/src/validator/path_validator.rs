@@ -3,7 +3,6 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::vec;
-use core::ops::Deref;
 
 use flagset::FlagSet;
 
@@ -275,9 +274,7 @@ pub fn check_names(
     let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?.clone();
 
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
-    for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let ca_cert = ca_cert_ref.deref();
-
+    for (pos, ca_cert) in v.iter().enumerate() {
         if !compare_names(
             &ca_cert.decoded_cert.tbs_certificate.issuer,
             &working_issuer_name,
@@ -295,8 +292,7 @@ pub fn check_names(
     }
 
     // Iterate over the list of intermediate CA certificates plus target to check name constraints
-    for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let ca_cert = ca_cert_ref.deref();
+    for (pos, ca_cert) in v.iter().enumerate() {
         let self_issued = is_self_issued(&ca_cert.decoded_cert);
 
         if (pos + 1) == certs_in_cert_path || !self_issued {
@@ -470,8 +466,7 @@ pub fn check_extended_key_usage(
 
         let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
-        for ca_cert_ref in intermediates_and_target {
-            let ca_cert = ca_cert_ref.deref();
+        for ca_cert in intermediates_and_target {
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
             if let Some(PDVExtension::ExtendedKeyUsage(eku_from_ca)) = pdv_ext {
                 let any_in_path = ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE);
@@ -757,9 +752,7 @@ pub fn verify_signatures(
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
 
-    for cur_cert_ref in intermediates_and_target {
-        let cur_cert = cur_cert_ref.deref();
-
+    for cur_cert in intermediates_and_target {
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
         let defer_cert = match defer_cert {
             Ok(c) => c,

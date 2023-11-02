@@ -27,10 +27,9 @@ use pqckeys::pqc_oids::*;
 use pqcrypto_falcon::{falcon1024, falcon512};
 #[cfg(feature = "pqc")]
 use pqcrypto_sphincsplus::{
-    sphincssha256128frobust, sphincssha256128fsimple, sphincssha256128srobust,
-    sphincssha256128ssimple, sphincssha256192frobust, sphincssha256192fsimple,
-    sphincssha256192srobust, sphincssha256192ssimple, sphincssha256256frobust,
-    sphincssha256256fsimple, sphincssha256256srobust, sphincssha256256ssimple,
+    sphincssha2128fsimple, sphincssha2128ssimple, sphincssha2192fsimple, sphincssha2192ssimple,
+    sphincssha2256fsimple, sphincssha2256ssimple, sphincsshake128fsimple, sphincsshake128ssimple,
+    sphincsshake192fsimple, sphincsshake192ssimple, sphincsshake256fsimple, sphincsshake256ssimple,
 };
 #[cfg(feature = "pqc")]
 use pqcrypto_traits::sign::{DetachedSignature, PublicKey as OtherPublicKey};
@@ -71,89 +70,76 @@ pub(crate) fn is_ecdsa(oid: &ObjectIdentifier) -> bool {
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium2(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM2 || *oid == OQ_DILITHIUM2
+pub(crate) fn is_ml_dsa_44_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_44_IPD
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium3(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM3 || *oid == OQ_DILITHIUM3
+pub(crate) fn is_ml_dsa_65_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_65_IPD
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium5(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM5 || *oid == OQ_DILITHIUM5
+pub(crate) fn is_ml_dsa_87_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_87_IPD
 }
 
-#[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium2aes(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM_AES2 || *oid == OQ_DILITHIUM_AES2
-}
-
-#[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium3aes(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM_AES3 || *oid == OQ_DILITHIUM_AES3
-}
-
-#[cfg(feature = "pqc")]
-pub(crate) fn is_diluthium5aes(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_DILITHIUM_AES5 || *oid == OQ_DILITHIUM_AES5
-}
 #[cfg(feature = "pqc")]
 pub(crate) fn is_falcon512(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_FALCON_512 || *oid == OQ_FALCON_512
+    *oid == OQ_FALCON_512
 }
 #[cfg(feature = "pqc")]
 pub(crate) fn is_falcon1024(oid: &ObjectIdentifier) -> bool {
-    *oid == ENTU_FALCON_1024 || *oid == OQ_FALCON_1024
+    *oid == OQ_FALCON_1024
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_128f_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_128F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_128F_ROBUST
+pub(crate) fn is_slh_dsa_sha2_128f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_128F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_128f_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_128F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_128F_SIMPLE
+pub(crate) fn is_slh_dsa_sha2_128s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_128S_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_128s_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_128S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_128S_ROBUST
+pub(crate) fn is_slh_dsa_sha2_192f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_192F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_128s_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_128S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_128S_SIMPLE
+pub(crate) fn is_slh_dsa_sha2_192s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_192S_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_192f_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_192F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_192F_ROBUST
+pub(crate) fn is_slh_dsa_sha2_256f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_256F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_192f_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_192F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_192F_SIMPLE
+pub(crate) fn is_slh_dsa_sha2_256s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_256S_IPD
+}
+
+#[cfg(feature = "pqc")]
+pub(crate) fn is_slh_dsa_shake_128f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_128F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_192s_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_192S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_192S_ROBUST
+pub(crate) fn is_slh_dsa_shake_128s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_128S_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_192s_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_192S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_192S_SIMPLE
+pub(crate) fn is_slh_dsa_shake_192f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_192F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_256f_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_256F_ROBUST || *oid == ENTU_SPHINCSP_SHA256_256F_ROBUST
+pub(crate) fn is_slh_dsa_shake_192s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_192S_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_256f_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_256F_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_256F_SIMPLE
+pub(crate) fn is_slh_dsa_shake_256f_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_256F_IPD
 }
 #[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_256s_robust(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_256S_ROBUST || *oid == ENTU_SPHINCSP_SHA256_256S_ROBUST
-}
-#[cfg(feature = "pqc")]
-pub(crate) fn is_sphincsp_sha256_256s_simple(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_SPHINCSP_SHA256_256S_SIMPLE || *oid == ENTU_SPHINCSP_SHA256_256S_SIMPLE
+pub(crate) fn is_slh_dsa_shake_256s_ipd(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_256S_IPD
 }
 
 /// calculate_hash_rust_crypto implements the [`CalculateHash`](../certval/pki_environment_traits/type.CalculateHash.html) interface for [`PkiEnvironment`] using
@@ -448,7 +434,7 @@ pub fn verify_signature_message_pqcrypto(
     //     Err(_e) => return Err(Error::Unrecognized),
     // };
     let spki_val = spki.subject_public_key.raw_bytes();
-    if is_diluthium2(&signature_alg.oid) {
+    if is_ml_dsa_44_ipd(&signature_alg.oid) {
         pqverify!(
             pqcrypto_dilithium::dilithium2::PublicKey,
             pqcrypto_dilithium::dilithium2::DetachedSignature,
@@ -457,7 +443,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_diluthium3(&signature_alg.oid) {
+    } else if is_ml_dsa_65_ipd(&signature_alg.oid) {
         pqverify!(
             pqcrypto_dilithium::dilithium3::PublicKey,
             pqcrypto_dilithium::dilithium3::DetachedSignature,
@@ -466,38 +452,11 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_diluthium5(&signature_alg.oid) {
+    } else if is_ml_dsa_87_ipd(&signature_alg.oid) {
         pqverify!(
             pqcrypto_dilithium::dilithium5::PublicKey,
             pqcrypto_dilithium::dilithium5::DetachedSignature,
             pqcrypto_dilithium::dilithium5::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_diluthium2aes(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium2aes::PublicKey,
-            pqcrypto_dilithium::dilithium2aes::DetachedSignature,
-            pqcrypto_dilithium::dilithium2aes::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_diluthium3aes(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium3aes::PublicKey,
-            pqcrypto_dilithium::dilithium3aes::DetachedSignature,
-            pqcrypto_dilithium::dilithium3aes::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_diluthium5aes(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium5aes::PublicKey,
-            pqcrypto_dilithium::dilithium5aes::DetachedSignature,
-            pqcrypto_dilithium::dilithium5aes::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
@@ -520,110 +479,110 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_128f_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_128f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256128frobust::PublicKey,
-            sphincssha256128frobust::DetachedSignature,
-            sphincssha256128frobust::verify_detached_signature,
+            sphincssha2128fsimple::PublicKey,
+            sphincssha2128fsimple::DetachedSignature,
+            sphincssha2128fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_128f_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_128s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256128fsimple::PublicKey,
-            sphincssha256128fsimple::DetachedSignature,
-            sphincssha256128fsimple::verify_detached_signature,
+            sphincssha2128ssimple::PublicKey,
+            sphincssha2128ssimple::DetachedSignature,
+            sphincssha2128ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_128s_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_192f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256128srobust::PublicKey,
-            sphincssha256128srobust::DetachedSignature,
-            sphincssha256128srobust::verify_detached_signature,
+            sphincssha2192fsimple::PublicKey,
+            sphincssha2192fsimple::DetachedSignature,
+            sphincssha2192fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_128s_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_192s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256128ssimple::PublicKey,
-            sphincssha256128ssimple::DetachedSignature,
-            sphincssha256128ssimple::verify_detached_signature,
+            sphincssha2192ssimple::PublicKey,
+            sphincssha2192ssimple::DetachedSignature,
+            sphincssha2192ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_192f_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_256f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256192frobust::PublicKey,
-            sphincssha256192frobust::DetachedSignature,
-            sphincssha256192frobust::verify_detached_signature,
+            sphincssha2256fsimple::PublicKey,
+            sphincssha2256fsimple::DetachedSignature,
+            sphincssha2256fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_192f_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_256s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256192fsimple::PublicKey,
-            sphincssha256192fsimple::DetachedSignature,
-            sphincssha256192fsimple::verify_detached_signature,
+            sphincssha2256ssimple::PublicKey,
+            sphincssha2256ssimple::DetachedSignature,
+            sphincssha2256ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_192s_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_128f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256192srobust::PublicKey,
-            sphincssha256192srobust::DetachedSignature,
-            sphincssha256192srobust::verify_detached_signature,
+            sphincsshake128fsimple::PublicKey,
+            sphincsshake128fsimple::DetachedSignature,
+            sphincsshake128fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_192s_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_128s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256192ssimple::PublicKey,
-            sphincssha256192ssimple::DetachedSignature,
-            sphincssha256192ssimple::verify_detached_signature,
+            sphincsshake128ssimple::PublicKey,
+            sphincsshake128ssimple::DetachedSignature,
+            sphincsshake128ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_256f_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_192f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256256frobust::PublicKey,
-            sphincssha256256frobust::DetachedSignature,
-            sphincssha256256frobust::verify_detached_signature,
+            sphincsshake192fsimple::PublicKey,
+            sphincsshake192fsimple::DetachedSignature,
+            sphincsshake192fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_256f_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_192s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256256fsimple::PublicKey,
-            sphincssha256256fsimple::DetachedSignature,
-            sphincssha256256fsimple::verify_detached_signature,
+            sphincsshake192ssimple::PublicKey,
+            sphincsshake192ssimple::DetachedSignature,
+            sphincsshake192ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_256s_robust(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_256f_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256256srobust::PublicKey,
-            sphincssha256256srobust::DetachedSignature,
-            sphincssha256256srobust::verify_detached_signature,
+            sphincsshake256fsimple::PublicKey,
+            sphincsshake256fsimple::DetachedSignature,
+            sphincsshake256fsimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
         )
-    } else if is_sphincsp_sha256_256s_simple(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_256s_ipd(&signature_alg.oid) {
         pqverify!(
-            sphincssha256256ssimple::PublicKey,
-            sphincssha256256ssimple::DetachedSignature,
-            sphincssha256256ssimple::verify_detached_signature,
+            sphincsshake256ssimple::PublicKey,
+            sphincsshake256ssimple::DetachedSignature,
+            sphincsshake256ssimple::verify_detached_signature,
             message_to_verify,
             spki_val,
             signature
