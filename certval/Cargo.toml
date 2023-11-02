@@ -24,8 +24,7 @@ der = { version="0.7.7", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
-#pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
-pqckeys = { path = "../../../carl-wallace/pqckeys", optional=true }
+pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
 pem-rfc7468 = { version="0.7.0", features = ["alloc"]}
 
 pkiprocmacros = { path = "../pkiprocmacros"}
