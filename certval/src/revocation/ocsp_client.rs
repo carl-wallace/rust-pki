@@ -24,7 +24,7 @@ use crate::{
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use der::asn1::{Ia5String, OctetStringRef};
+use der::asn1::{Ia5String, OctetString};
 
 #[cfg(feature = "remote")]
 use reqwest::header::CONTENT_TYPE;
@@ -75,8 +75,8 @@ fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
 
 /// unsupported_critical_extensions_present_single_response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse<'_>) -> bool {
-    match &sr.single_request_extensions {
+fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) -> bool {
+    match &sr.single_extensions {
         Some(exts) => {
             for e in exts {
                 if e.critical {
@@ -91,7 +91,7 @@ fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse<'
 
 /// unsupported_critical_extensions_present__response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_response(rd: &ResponseData<'_>) -> bool {
+fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
     match &rd.response_extensions {
         Some(exts) => {
             for e in exts {
@@ -108,7 +108,7 @@ fn unsupported_critical_extensions_present_response(rd: &ResponseData<'_>) -> bo
 /// cert_id_match returns true if the serial number, issuer name hash and issuer key hash in the cert_id object
 /// match the values passed as parameters. Else it returns false.
 fn cert_id_match(
-    cert_id: &CertId<'_>,
+    cert_id: &CertId,
     serial_number: &SerialNumber,
     name_hash: &[u8],
     key_hash: &[u8],
@@ -126,7 +126,7 @@ fn cert_id_match(
     true
 }
 
-fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse<'_>) -> bool {
+fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
     let time_of_interest = get_time_of_interest(cps);
     if 0 == time_of_interest {
         return true;
@@ -203,11 +203,11 @@ fn prepare_ocsp_request(
         oid: PKIXALG_SHA1,
         parameters: None,
     };
-    let issuer_name_hash = match OctetStringRef::new(name_hash) {
+    let issuer_name_hash = match OctetString::new(name_hash) {
         Ok(inh) => inh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
-    let issuer_key_hash = match OctetStringRef::new(key_hash) {
+    let issuer_key_hash = match OctetString::new(key_hash) {
         Ok(ikh) => ikh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -298,7 +298,7 @@ fn verify_response_signature(
     pe: &PkiEnvironment,
     signers_cert: &Certificate,
     enc_ocsp_resp: &[u8],
-    bor: &BasicOcspResponse<'_>,
+    bor: &BasicOcspResponse,
 ) -> Result<()> {
     let ddbor = match DeferDecodeBasicOcspResponse::from_der(enc_ocsp_resp) {
         Ok(bor) => bor,
