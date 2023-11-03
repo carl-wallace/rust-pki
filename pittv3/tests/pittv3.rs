@@ -1694,3 +1694,29 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
     fs::remove_dir_all(&results_path).unwrap();
     Ok(())
 }
+
+#[cfg(feature = "pqc")]
+#[test]
+fn pqc_hackathon_r3_ipd() -> Result<(), Box<dyn std::error::Error>> {
+    use std::ffi::OsStr;
+    let paths = fs::read_dir("tests/examples/artifacts_certs_r3").unwrap();
+
+    let file_exts = vec!["der", "pem"];
+    for path in paths {
+        let p = path?.path();
+        if let Some(ext) = p.extension().and_then(OsStr::to_str) {
+            if !file_exts.contains(&ext) {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        let mut cmd = Command::cargo_bin("pittv3")?;
+        cmd.arg("-e").arg(p.display().to_string());
+        cmd.arg("--validate-self-signed");
+        cmd.assert()
+            .stdout(predicate::str::contains("is self-signed"));
+    }
+
+    Ok(())
+}
