@@ -17,11 +17,11 @@ rust-version = "1.65"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version="0.2.4", default-features = false, features = ["pem"] }
+x509-cert = { version="0.2.5", default-features = false, features = ["pem"] }
 const-oid = { version = "0.9.5", default-features = false, features = ["db"] }
-cms = "0.2.2"
-der = { version="0.7.7", features = ["alloc", "derive", "flagset", "oid"] }
-x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
+cms = "0.2.3"
+der = { version="0.7.8", features = ["alloc", "derive", "flagset", "oid"] }
+x509-ocsp = "0.2.1"
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
 pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
