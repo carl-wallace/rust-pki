@@ -17,24 +17,24 @@ rust-version = "1.65"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version="0.2.4", default-features = false, features = ["pem"] }
-const-oid = { version = "0.9.5", default-features = false, features = ["db"] }
-cms = "0.2.2"
-der = { version="0.7.7", features = ["alloc", "derive", "flagset", "oid"] }
+x509-cert = { git = "https://github.com/RustCrypto/formats", default-features = false, features = ["pem"] }
+const-oid = { version = "0.10.0-pre.2", default-features = false, features = ["db"] }
+cms = "0.3.0-pre"
+der = { version="0.8.0-pre.0", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
-spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
+spki = { version = "0.8.0-pre.0", default-features = false, features = ["alloc"] }
 pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
-pem-rfc7468 = { version="0.7.0", features = ["alloc"]}
+pem-rfc7468 = { version="1.0.0-pre.0", features = ["alloc"]}
 
 pkiprocmacros = { path = "../pkiprocmacros"}
 
-ecdsa = {version = "0.16.8", default-features = false, features = ["der"]}
-p256 = {version = "0.13.2", default-features = false, features = ["ecdsa", "ecdsa-core"]}
-p384 = {version = "0.13.0", default-features = false, features = ["ecdsa"]}
-rsa = {version = "0.9.3", default-features = false}
-sha-1 = {version = "0.10.1", default-features = false}
-sha2 = {version = "0.10.8", default-features = false, features = ["oid"] }
+ecdsa = {version = "0.17.0-pre", default-features = false, features = ["der"]}
+p256 = {version = "0.14.0-pre.0", default-features = false, features = ["ecdsa", "ecdsa-core"]}
+p384 = {version = "0.14.0-pre", default-features = false, features = ["ecdsa"]}
+rsa = {version = "0.10.0-pre.1", default-features = false}
+sha1 = {version = "0.11.0-pre.3", default-features = false}
+sha2 = {version = "0.11.0-pre.3", default-features = false, features = ["oid"] }
 
 cfg-if = "1.0.0"
 # serde feature is added to std, revocation,std and remote

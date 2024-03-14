@@ -203,9 +203,9 @@ pub fn check_validity(
 
     let mut is_valid = |time_check_res: Result<u64>| -> Result<()> {
         match time_check_res {
-            Err(e @ Error::PathValidation(pvs)) => {
+            Err(Error::PathValidation(pvs)) => {
                 set_validation_status(cpr, pvs);
-                Err(e)
+                Err(Error::PathValidation(pvs))
             }
             Err(e) => Err(e),
             Ok(_) => Ok(()),

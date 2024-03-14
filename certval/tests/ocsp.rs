@@ -101,7 +101,7 @@ fn decode_ocsp_resp_ca_signed() {
 
     assert_eq!(
         bor.tbs_response_data
-            .produced_at
+            .produced_at.0
             .to_unix_duration()
             .as_secs(),
         1643775145
@@ -144,10 +144,10 @@ fn decode_ocsp_resp_ca_signed() {
         }
     }
 
-    assert_eq!(sr.this_update.to_unix_duration().as_secs(), 1643774221);
+    assert_eq!(sr.this_update.0.to_unix_duration().as_secs(), 1643774221);
     assert!(sr.next_update.is_some());
     assert_eq!(
-        sr.next_update.unwrap().to_unix_duration().as_secs(),
+        sr.next_update.unwrap().0.to_unix_duration().as_secs(),
         1644376321
     );
 
@@ -248,7 +248,7 @@ fn decode_ocsp_resp_delegated() {
 
     assert_eq!(
         bor.tbs_response_data
-            .produced_at
+            .produced_at.0
             .to_unix_duration()
             .as_secs(),
         1643900556
@@ -281,17 +281,17 @@ fn decode_ocsp_resp_delegated() {
         CertStatus::Revoked(ri) => {
             assert!(ri.revocation_reason.is_some());
             assert_eq!(ri.revocation_reason.unwrap(), CrlReason::AffiliationChanged,);
-            assert_eq!(ri.revocation_time.to_unix_duration().as_secs(), 1632934667,);
+            assert_eq!(ri.revocation_time.0.to_unix_duration().as_secs(), 1632934667,);
         }
         _ => {
             panic!("Expected Good and got something other")
         }
     }
 
-    assert_eq!(sr.this_update.to_unix_duration().as_secs(), 1643848200);
+    assert_eq!(sr.this_update.0.to_unix_duration().as_secs(), 1643848200);
     assert!(sr.next_update.is_some());
     assert_eq!(
-        sr.next_update.unwrap().to_unix_duration().as_secs(),
+        sr.next_update.unwrap().0.to_unix_duration().as_secs(),
         1644456600
     );
 
