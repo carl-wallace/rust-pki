@@ -110,7 +110,7 @@ pub(crate) async fn validate_cert_file(
             Some(&cpr),
             Some(cps),
         );
-        stats.results.push(cpr.clone());
+        stats.results.push(cpr);
         match r {
             Ok(_) => {
                 stats.valid_paths_per_target += 1;
