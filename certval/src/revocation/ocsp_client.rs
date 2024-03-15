@@ -134,14 +134,14 @@ fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> 
 
     // TODO support grace periods?
 
-    let tu = sr.this_update.to_unix_duration().as_secs();
+    let tu = sr.this_update.0.to_unix_duration().as_secs();
     if tu > time_of_interest {
         //future request
         return false;
     }
 
     if let Some(next_update) = sr.next_update {
-        let nu = next_update.to_unix_duration().as_secs();
+        let nu = next_update.0.to_unix_duration().as_secs();
         if nu < time_of_interest {
             //stale
             return false;
@@ -261,6 +261,7 @@ impl ::der::FixedTag for DeferDecodeBasicOcspResponse {
 }
 
 impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
+    type Error = der::Error;
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
@@ -629,7 +630,7 @@ fn process_ocsp_response_internal(
                     if let Some(nu) = sr.next_update {
                         pe.add_status(
                             target_cert,
-                            nu.to_unix_duration().as_secs(),
+                            nu.0.to_unix_duration().as_secs(),
                             PathValidationStatus::Valid,
                         );
                     }
@@ -640,7 +641,7 @@ fn process_ocsp_response_internal(
                 if let Some(nu) = sr.next_update {
                     pe.add_status(
                         target_cert,
-                        nu.to_unix_duration().as_secs(),
+                        nu.0.to_unix_duration().as_secs(),
                         PathValidationStatus::CertificateRevoked,
                     );
                 }

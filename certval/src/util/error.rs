@@ -88,7 +88,7 @@ pub enum PathValidationStatus {
 }
 
 /// Error type
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
     /// PathValidationError encountered
