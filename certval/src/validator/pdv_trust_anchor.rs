@@ -211,7 +211,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
                         return Ok(Some(&$pe[oid]));
                     }
                     Err(e) => {
-                        return Err(Error::Asn1Error(e));
+                        return Err(Error::from(e));
                     }
                 }
             };

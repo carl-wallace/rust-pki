@@ -88,7 +88,7 @@ pub enum PathValidationStatus {
 }
 
 /// Error type
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
     /// PathValidationError encountered
@@ -118,7 +118,7 @@ pub enum Error {
     /// An error occurred processing an OCSP response
     OcspResponseError,
     /// Asn1Error is used to propagate error information from the x509 crate.
-    Asn1Error(der::Error),
+    Asn1Error,
     /// A URI was rejected due to presence on blocklist
     UriOnBlocklist,
     /// A resource was not retrieved due to no change since saved last modified time
@@ -130,7 +130,8 @@ pub enum Error {
 
 impl From<der::Error> for Error {
     fn from(err: der::Error) -> Error {
-        Error::Asn1Error(err)
+        log::error!("der::Error: {err:?}");
+        Error::Asn1Error
     }
 }
 
@@ -200,7 +201,7 @@ impl fmt::Display for Error {
             Error::UnsupportedCrlEntryExtension => write!(f, "UnsupportedCrlEntryExtension"),
             Error::NetworkError => write!(f, "NetworkError"),
             Error::OcspResponseError => write!(f, "OcspResponseError"),
-            Error::Asn1Error(err) => write!(f, "Asn1Error: {}", err),
+            Error::Asn1Error => write!(f, "Asn1Error"),
             Error::UriOnBlocklist => write!(f, "UriOnBlocklist"),
             Error::ResourceUnchanged => write!(f, "ResourceUnchanged"),
             #[cfg(feature = "std")]

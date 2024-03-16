@@ -1,7 +1,7 @@
 //! Structures and functions related to results from certification path processing operations
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use pkiprocmacros::*;
 
@@ -12,6 +12,7 @@ use crate::Result;
 
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
+#[derive(Clone)]
 pub enum CertificationPathResultsTypes {
     /// Represents ObjectIdentifierSet values
     ObjectIdentifierSet(ObjectIdentifierSet),

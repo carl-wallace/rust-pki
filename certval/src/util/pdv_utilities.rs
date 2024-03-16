@@ -666,9 +666,9 @@ pub fn encode_dn_from_string(string: &str) -> Result<Vec<u8>> {
     match RdnSequence::from_str(string) {
         Ok(rdn) => match rdn.to_der() {
             Ok(v) => Ok(v),
-            Err(e) => Err(Error::Asn1Error(e)),
+            Err(e) => Err(Error::from(e)),
         },
-        Err(e) => Err(Error::Asn1Error(e)),
+        Err(e) => Err(Error::from(e)),
     }
 }
 
@@ -768,7 +768,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
                 }
             }
             Err(e) => {
-                return Err(Error::Asn1Error(e));
+                return Err(Error::from(e));
             }
         }
     }

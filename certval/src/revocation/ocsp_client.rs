@@ -67,7 +67,7 @@ fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
 fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
     let enc_subject = match cert.tbs_certificate.subject.to_der() {
         Ok(enc_spki) => enc_spki,
-        Err(e) => return Err(Error::Asn1Error(e)),
+        Err(e) => return Err(Error::from(e)),
     };
 
     Ok(Sha1::digest(enc_subject.as_slice()).to_vec())
@@ -205,11 +205,11 @@ fn prepare_ocsp_request(
     };
     let issuer_name_hash = match OctetString::new(name_hash) {
         Ok(inh) => inh,
-        Err(e) => return Err(Error::Asn1Error(e)),
+        Err(e) => return Err(Error::from(e)),
     };
     let issuer_key_hash = match OctetString::new(key_hash) {
         Ok(ikh) => ikh,
-        Err(e) => return Err(Error::Asn1Error(e)),
+        Err(e) => return Err(Error::from(e)),
     };
 
     let req_cert = CertId {
@@ -235,7 +235,7 @@ fn prepare_ocsp_request(
     };
     let enc_ocsp_req = match ocsp_req.to_der() {
         Ok(eor) => eor,
-        Err(e) => return Err(Error::Asn1Error(e)),
+        Err(e) => return Err(Error::from(e)),
     };
     Ok(enc_ocsp_req)
 }
@@ -303,7 +303,7 @@ fn verify_response_signature(
 ) -> Result<()> {
     let ddbor = match DeferDecodeBasicOcspResponse::from_der(enc_ocsp_resp) {
         Ok(bor) => bor,
-        Err(e) => return Err(Error::Asn1Error(e)),
+        Err(e) => return Err(Error::from(e)),
     };
 
     let signature = if let Some(s) = bor.signature.as_bytes() {
@@ -463,7 +463,7 @@ fn process_ocsp_response_internal(
         Err(e) => {
             error!("Failed to parse OcspResponse from {}", uri_to_check);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
-            return Err(Error::Asn1Error(e));
+            return Err(Error::from(e));
         }
     };
 
@@ -502,7 +502,7 @@ fn process_ocsp_response_internal(
         Err(e) => {
             error!("OcspResponse from {} contained BasicOcspResponse that could not be parsed with: {}", uri_to_check, e);
             add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
-            return Err(Error::Asn1Error(e));
+            return Err(Error::from(e));
         }
     };
 

@@ -522,7 +522,7 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
                     let idp = match IssuingDistributionPoint::from_der(ext.extn_value.as_bytes()) {
                         Ok(idp) => idp,
                         Err(e) => {
-                            return Err(Error::Asn1Error(e));
+                            return Err(Error::from(e));
                         }
                     };
 
@@ -660,7 +660,7 @@ fn validate_crl_issuer_name(
                 }
             }
             Err(e) => {
-                return Err(Error::Asn1Error(e));
+                return Err(Error::from(e));
             }
         },
     };
@@ -687,7 +687,7 @@ fn validate_crl_issuer_name(
                 Err(Error::CrlIncompatible)
             }
         }
-        Err(e) => Err(Error::Asn1Error(e)),
+        Err(e) => Err(Error::from(e)),
     }
 }
 
@@ -795,7 +795,7 @@ fn validate_distribution_point(
     if let Some(idp_blob) = &crl_info.idp_blob {
         let idp = match IssuingDistributionPoint::from_der(idp_blob) {
             Ok(idp) => idp,
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         };
 
         if idp.only_contains_attribute_certs {
@@ -1000,7 +1000,7 @@ pub(crate) fn process_crl(
                 error!("Failed to parse CRL from with {}", e);
             }
             add_failed_crl(cpr, crl_buf, result_index);
-            return Err(Error::Asn1Error(e));
+            return Err(Error::from(e));
         }
     };
     let crl_info = get_crl_info(&crl)?;

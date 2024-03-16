@@ -631,12 +631,12 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             Ok(b) => {
                                 rfcbufs.push(b);
                             }
-                            Err(e) => return Err(Error::Asn1Error(e)),
+                            Err(e) => return Err(Error::from(e)),
                         }
                     }
-                    Err(e) => return Err(Error::Asn1Error(e)),
+                    Err(e) => return Err(Error::from(e)),
                 },
-                Err(e) => return Err(Error::Asn1Error(e)),
+                Err(e) => return Err(Error::from(e)),
             }
         }
     }
@@ -658,12 +658,12 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             Ok(b) => {
                                 dnsbufs.push(b);
                             }
-                            Err(e) => return Err(Error::Asn1Error(e)),
+                            Err(e) => return Err(Error::from(e)),
                         }
                     }
-                    Err(e) => return Err(Error::Asn1Error(e)),
+                    Err(e) => return Err(Error::from(e)),
                 },
-                Err(e) => return Err(Error::Asn1Error(e)),
+                Err(e) => return Err(Error::from(e)),
             }
         }
     }
@@ -685,10 +685,10 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                         Ok(b) => {
                             dnbufs.push(b);
                         }
-                        Err(e) => return Err(Error::Asn1Error(e)),
+                        Err(e) => return Err(Error::from(e)),
                     }
                 }
-                Err(e) => return Err(Error::Asn1Error(e)),
+                Err(e) => return Err(Error::from(e)),
             }
         }
     }
@@ -710,12 +710,12 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                             Ok(b) => {
                                 uribufs.push(b);
                             }
-                            Err(e) => return Err(Error::Asn1Error(e)),
+                            Err(e) => return Err(Error::from(e)),
                         }
                     }
-                    Err(e) => return Err(Error::Asn1Error(e)),
+                    Err(e) => return Err(Error::from(e)),
                 },
-                Err(e) => return Err(Error::Asn1Error(e)),
+                Err(e) => return Err(Error::from(e)),
             }
         }
     }
@@ -740,10 +740,10 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
                         Ok(b) => {
                             upnbufs.push(b);
                         }
-                        Err(e) => return Err(Error::Asn1Error(e)),
+                        Err(e) => return Err(Error::from(e)),
                     }
                 }
-                Err(e) => return Err(Error::Asn1Error(e)),
+                Err(e) => return Err(Error::from(e)),
             }
         }
     }
@@ -753,14 +753,14 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
     for b in &bufs["rfc822"] {
         match GeneralSubtree::from_der(b.as_slice()) {
             Ok(v) => vrfc.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         }
     }
     let mut vdns = vec![];
     for b in &bufs["dns"] {
         match GeneralSubtree::from_der(b.as_slice()) {
             Ok(v) => vdns.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         }
     }
 
@@ -768,7 +768,7 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
     for b in &bufs["dn"] {
         match GeneralSubtree::from_der(b.as_slice()) {
             Ok(v) => vdn.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         }
     }
 
@@ -776,14 +776,14 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
     for b in &bufs["uri"] {
         match GeneralSubtree::from_der(b.as_slice()) {
             Ok(v) => vuri.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         }
     }
     let mut vupn = vec![];
     for b in &bufs["upn"] {
         match GeneralSubtree::from_der(b.as_slice()) {
             Ok(v) => vupn.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
+            Err(e) => return Err(Error::from(e)),
         }
     }
 

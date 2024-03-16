@@ -128,7 +128,7 @@ impl ExtensionProcessing for PDVCertificate {
                         return Ok(Some(&$pe[oid]));
                     }
                     Err(e) => {
-                        return Err(Error::Asn1Error(e));
+                        return Err(Error::from(e));
                     }
                 }
             };
@@ -291,7 +291,7 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
         }
         Err(e) => {
             error!("Failed to parse certificate from {}: {}", filename, e);
-            Err(Error::Asn1Error(e))
+            Err(Error::from(e))
         }
     }
 }
