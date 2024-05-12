@@ -9,8 +9,10 @@ use alloc::{
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
-use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
-use x509_cert::Certificate;
+use x509_cert::{
+    certificate::{CertificateInner, Raw},
+    ext::{pkix::crl::CrlDistributionPoints, pkix::*},
+};
 
 use crate::asn1::piv_naci_indicator::PIV_NACI_INDICATOR;
 use const_oid::db::rfc5912::{
@@ -59,7 +61,7 @@ pub struct PDVCertificate {
     /// Binary, encoded Certificate object
     pub encoded_cert: Vec<u8>,
     /// Decoded Certificate object
-    pub decoded_cert: Certificate,
+    pub decoded_cert: CertificateInner<Raw>,
     /// Optional metadata about the trust anchor
     pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
@@ -70,7 +72,7 @@ impl TryFrom<&[u8]> for PDVCertificate {
     type Error = der::Error;
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
-        let cert = Certificate::from_der(enc_cert)?;
+        let cert = CertificateInner::from_der(enc_cert)?;
         let mut pdv_cert = PDVCertificate {
             encoded_cert: enc_cert.to_vec(),
             decoded_cert: cert,
@@ -82,10 +84,10 @@ impl TryFrom<&[u8]> for PDVCertificate {
     }
 }
 
-impl TryFrom<Certificate> for PDVCertificate {
+impl TryFrom<CertificateInner<Raw>> for PDVCertificate {
     type Error = der::Error;
 
-    fn try_from(cert: Certificate) -> der::Result<Self> {
+    fn try_from(cert: CertificateInner<Raw>) -> der::Result<Self> {
         let enc_cert = cert.to_der()?;
         let mut pdv_cert = PDVCertificate {
             encoded_cert: enc_cert,
@@ -272,7 +274,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
 /// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
 /// parsed certificate if parsing was successful.
 pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
-    let r = Certificate::from_der(buffer);
+    let r = CertificateInner::from_der(buffer);
     match r {
         Ok(cert) => {
             let mut md = Asn1Metadata::new();

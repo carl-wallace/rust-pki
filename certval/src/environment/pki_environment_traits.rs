@@ -6,8 +6,7 @@ use alloc::{string::String, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
-use x509_cert::crl::CertificateList;
-use x509_cert::name::Name;
+use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 
 use crate::util::error::*;
 use crate::{
@@ -152,7 +151,7 @@ pub trait CrlSource {
     /// Retrieves CRLs for given certificate from store
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>>;
     /// Adds a CRL to the store
-    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()>;
+    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()>;
 }
 
 /// The [`CheckRemoteResource`] trait defines an interface for checking last modified and blocklist values when downloading remote item

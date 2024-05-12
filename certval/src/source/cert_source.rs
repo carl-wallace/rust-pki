@@ -46,9 +46,9 @@ use const_oid::db::rfc5912::{
 };
 use der::Decode;
 use spki::SubjectPublicKeyInfoOwned;
+use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
-use x509_cert::Certificate;
 
 use crate::{
     compare_names,
@@ -1009,7 +1009,7 @@ impl CertSource {
         let time_of_interest = get_time_of_interest(cps);
         for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
             if let Ok(cert) =
-                Certificate::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
+                CertificateInner::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
             {
                 let valid = if let 0 = time_of_interest {
                     true

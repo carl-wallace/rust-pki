@@ -21,8 +21,7 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_ISSUING_DISTRIBUTION_POINT,
 };
 use der::{Decode, Encode};
-use x509_cert::crl::CertificateList;
-use x509_cert::ext::pkix::IssuingDistributionPoint;
+use x509_cert::{certificate::Raw, crl::CertificateList, ext::pkix::IssuingDistributionPoint};
 
 use crate::pdv_extension::ExtensionProcessing;
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
@@ -292,7 +291,7 @@ impl CheckRemoteResource for RemoteStatus {
 }
 
 impl CrlSource for CrlSourceFolders {
-    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()> {
+    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut cur_crl_info = get_crl_info(crl)?;
         let digest = Sha256::digest(uri).to_vec();
         let hex = buffer_to_hex(digest.as_slice());
@@ -424,7 +423,7 @@ fn get_dps_from_cert(cert: &PDVCertificate) -> Option<Vec<Vec<u8>>> {
     None
 }
 
-fn get_dp_from_crl(crl: &CertificateList) -> Option<Vec<u8>> {
+fn get_dp_from_crl(crl: &CertificateList<Raw>) -> Option<Vec<u8>> {
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_ISSUING_DISTRIBUTION_POINT {
@@ -446,7 +445,7 @@ fn add_crl_info(
     issuer_map: &mut BTreeMap<String, Vec<usize>>,
     idp_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
     skid_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
-    crl: &CertificateList,
+    crl: &CertificateList<Raw>,
     cur_crl_info: CrlInfo,
 ) {
     if !crl_info.contains(&cur_crl_info) {
