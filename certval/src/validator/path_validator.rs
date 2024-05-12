@@ -613,7 +613,11 @@ pub fn enforce_trust_anchor_constraints(
     //max_path_length state variable equal to the pathLenConstraint
     //value from the basic constraints extension.
     let pl = get_path_length_constraint_from_trust_anchor(&ta.decoded_ta)?;
-    set_initial_path_length_constraint(&mut mod_cps, pl);
+
+    let old_val = get_initial_path_length_constraint(&mod_cps);
+    if old_val > pl {
+        set_initial_path_length_constraint(&mut mod_cps, pl);
+    }
 
     //o  If name constraints are associated with the trust anchor, set the
     //initial-permitted-subtrees variable equal to the intersection of

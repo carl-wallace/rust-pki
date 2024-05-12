@@ -969,6 +969,7 @@ fn test_no_default_sets_cps() {
             user_principal_name: Some(vec!["1234567890@mil".to_string()]),
             dns_name: Some(vec!["j.example.com".to_string()]),
             uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+            not_supported: None
         },
     );
     let perm = get_initial_permitted_subtrees(&cps).unwrap();
@@ -1024,6 +1025,7 @@ fn test_no_default_sets_cps() {
             user_principal_name: Some(vec!["0987654321@mil".to_string()]),
             dns_name: Some(vec!["s.example.com".to_string()]),
             uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+            not_supported: None
         },
     );
     let excl = get_initial_excluded_subtrees(&cps).unwrap();

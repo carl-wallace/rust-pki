@@ -797,6 +797,7 @@ fn test_cps_log() {
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+        not_supported: None
     };
     set_initial_permitted_subtrees(&mut cps, perm);
     let excl = NameConstraintsSettings {
@@ -805,6 +806,7 @@ fn test_cps_log() {
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+        not_supported: None
     };
     set_initial_excluded_subtrees(&mut cps, excl);
     let toi = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
