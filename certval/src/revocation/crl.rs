@@ -35,9 +35,9 @@ use x509_cert::{
 use crate::crl::CrlReasons::AllReasons;
 use crate::Error::CrlIncompatible;
 use crate::{
-    add_crl_entry, compare_names, get_time_of_interest, log_error_for_subject, name_to_string,
-    set_validation_status, CertificationPathResults, CertificationPathSettings, DeferDecodeSigned,
-    Error, ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
+    add_crl_entry, compare_names, log_error_for_subject, name_to_string, set_validation_status,
+    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error,
+    ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
     Result,
 };
 
@@ -57,7 +57,7 @@ use der::asn1::Ia5String;
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use crate::{add_crl, get_crl_timeout};
+use crate::add_crl;
 
 // Certificates are classified based on the values found in the CRLDistributionPoints and BasicConstraints
 // extensions, if present, without regard for criticality.  Certificates with BasicConstraints present and
@@ -1059,7 +1059,7 @@ pub(crate) fn process_crl(
         return Err(Error::CrlIncompatible);
     }
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
     check_crl_validity(toi, &crl)?;
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
@@ -1146,7 +1146,7 @@ pub(crate) async fn check_revocation_crl_remote(
             name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
         );
     } else {
-        let timeout = get_crl_timeout(cps);
+        let timeout = cps.get_crl_timeout();
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 

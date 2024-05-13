@@ -74,7 +74,7 @@ pub fn validate_path_rfc5280(
 ) -> Result<()> {
     //enforce_alg_and_key_size_constraints(pe, cps, cp, cpr)?;
     check_validity(pe, cps, cp, cpr)?;
-    if get_require_ta_store(cps) {
+    if cps.get_require_ta_store() {
         if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
             return Ok(());
         }
@@ -88,7 +88,7 @@ pub fn validate_path_rfc5280(
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
     //check_country_codes(pe, cps, cp, cpr)?;
-    if get_use_policy_graph(cps) {
+    if cps.get_use_policy_graph() {
         check_certificate_policies_graph(pe, cps, cp, cpr)?;
     } else {
         check_certificate_policies(pe, cps, cp, cpr)?;
@@ -120,7 +120,7 @@ pub fn check_basic_constraints(
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_BASIC_CONSTRAINTS);
-    let mut path_len_constraint = get_initial_path_length_constraint(cps);
+    let mut path_len_constraint = cps.get_initial_path_length_constraint();
 
     for ca_cert in cp.intermediates.iter() {
         // (l)  If the certificate was not self-issued, verify that
@@ -197,7 +197,7 @@ pub fn check_validity(
 ) -> Result<()> {
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
     // get_time_of_interest_or_now will return now or a caller specified time of interest.
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
     if 0 == toi {
         info!("check_validity invoked with no time of interest; validity check disabled",);
         return Ok(());
@@ -223,7 +223,7 @@ pub fn check_validity(
         is_valid(ca_ttl)?;
     }
 
-    if get_enforce_trust_anchor_validity(cps) {
+    if cps.get_enforce_trust_anchor_validity() {
         // Check TA validity if feature is on (it's on by default) but if the TA does not feature a
         // validity, i.e., if it's a TA Info without a certificate, just carry on.
 
@@ -255,11 +255,11 @@ pub fn check_names(
     // Read input variables from path settings
     let mut pbufs = BTreeMap::new();
     let mut ebufs = BTreeMap::new();
-    let initial_perm = match get_initial_permitted_subtrees_as_set(cps, &mut pbufs) {
+    let initial_perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
         Ok(ip) => ip,
         Err(e) => return Err(e),
     };
-    let initial_excl = match get_initial_excluded_subtrees_as_set(cps, &mut ebufs) {
+    let initial_excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
         Ok(ie) => ie,
         Err(e) => return Err(e),
     };
@@ -406,7 +406,7 @@ pub fn check_key_usage(
 
     let target_ku = cp.target.get_extension(&ID_CE_KEY_USAGE)?;
     if let Some(PDVExtension::KeyUsage(target_ku_bits)) = target_ku {
-        if let Some(ku) = get_target_key_usage(cps) {
+        if let Some(ku) = cps.get_target_key_usage() {
             let nku = match FlagSet::<KeyUsages>::new(ku) {
                 Ok(ku) => ku,
                 _ => {
@@ -440,8 +440,8 @@ pub fn check_extended_key_usage(
 ) -> Result<()> {
     add_processed_extension(cpr, ID_CE_EXT_KEY_USAGE);
 
-    let target_ekus: Option<ObjectIdentifierSet> = get_extended_key_usage_as_oid_set(cps);
-    let process_ekus_across_path = get_extended_key_usage_path(cps);
+    let target_ekus: Option<ObjectIdentifierSet> = cps.get_extended_key_usage_as_oid_set();
+    let process_ekus_across_path = cps.get_extended_key_usage_path();
 
     // if we are neither checking across path nor vetting target values, just return
     if !process_ekus_across_path && target_ekus.is_none() {
@@ -595,7 +595,7 @@ pub fn enforce_trust_anchor_constraints(
     cps: &CertificationPathSettings,
     ta: &PDVTrustAnchorChoice,
 ) -> Result<CertificationPathSettings> {
-    if !get_enforce_trust_anchor_constraints(cps) {
+    if !cps.get_enforce_trust_anchor_constraints() {
         return Ok(cps.clone());
     }
 
@@ -616,9 +616,9 @@ pub fn enforce_trust_anchor_constraints(
     //value from the basic constraints extension.
     let pl = get_path_length_constraint_from_trust_anchor(&ta.decoded_ta)?;
 
-    let old_val = get_initial_path_length_constraint(&mod_cps);
+    let old_val = mod_cps.get_initial_path_length_constraint();
     if old_val > pl {
-        set_initial_path_length_constraint(&mut mod_cps, pl);
+        mod_cps.set_initial_path_length_constraint(pl);
     }
 
     //o  If name constraints are associated with the trust anchor, set the
@@ -635,15 +635,14 @@ pub fn enforce_trust_anchor_constraints(
             if let Some(nc) = pdv_ext {
                 if let PDVExtension::NameConstraints(nc) = nc {
                     if let Some(permitted) = &nc.permitted_subtrees {
-                        let mut initial_perm =
-                            match get_initial_permitted_subtrees_with_default_as_set(
-                                cps, &mut pbufs,
-                            ) {
-                                Ok(ip) => ip,
-                                Err(e) => return Err(e),
-                            };
+                        let mut initial_perm = match cps
+                            .get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)
+                        {
+                            Ok(ip) => ip,
+                            Err(e) => return Err(e),
+                        };
                         initial_perm.calculate_union(permitted);
-                        set_initial_permitted_subtrees_from_set(&mut mod_cps, &initial_perm);
+                        mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm);
                     }
                 }
                 name_constraints = pdv_ext;
@@ -653,12 +652,12 @@ pub fn enforce_trust_anchor_constraints(
         if let Some(PDVExtension::NameConstraints(nc)) = name_constraints {
             if let Some(excluded) = &nc.excluded_subtrees {
                 let mut initial_excl =
-                    match get_initial_excluded_subtrees_with_default_as_set(cps, &mut ebufs) {
+                    match cps.get_initial_excluded_subtrees_with_default_as_set(&mut ebufs) {
                         Ok(ie) => ie,
                         Err(e) => return Err(e),
                     };
                 initial_excl.calculate_union(excluded);
-                set_initial_excluded_subtrees_from_set(&mut mod_cps, &initial_excl);
+                mod_cps.set_initial_excluded_subtrees_from_set(&initial_excl);
             }
         }
     }
@@ -672,7 +671,7 @@ pub fn enforce_trust_anchor_constraints(
     //the value that is available.  If neither is provided, the
     //user-initial-policy-set variable is set to any-policy.
      */
-    let user_policy_set: ObjectIdentifierSet = get_initial_policy_set_as_oid_set(cps);
+    let user_policy_set: ObjectIdentifierSet = cps.get_initial_policy_set_as_oid_set();
     let mut ta_policy_set = ObjectIdentifierSet::new();
     let mut ta_accepts_any_policy = false;
     let pdv_ext = ta.get_extension(&ID_CE_CERTIFICATE_POLICIES)?;
@@ -703,33 +702,33 @@ pub fn enforce_trust_anchor_constraints(
                 }
             }
         }
-        set_initial_policy_set_from_oid_set(&mut mod_cps, new_policy_set);
+        mod_cps.set_initial_policy_set_from_oid_set(new_policy_set);
     } else if !ta_policy_set.is_empty() && user_policy_set.is_empty() {
         // use policies from TA
-        set_initial_policy_set_from_oid_set(&mut mod_cps, ta_policy_set);
+        mod_cps.set_initial_policy_set_from_oid_set(ta_policy_set);
     } else {
         //use user policy set (empty or not)
-        set_initial_policy_set_from_oid_set(&mut mod_cps, user_policy_set);
+        mod_cps.set_initial_policy_set_from_oid_set(user_policy_set);
     }
 
     //o  If an inhibit any policy value of true is associated with the
     //trust anchor (either in a CertPathControls or in an
     //inhibitAnyPolicy extension) and the initial-any-policy-inhibit
     //value is false, set the initial-any-policy-inhibit value to true.
-    let initial_inhibit_any_policy = get_initial_inhibit_any_policy_indicator(cps);
+    let initial_inhibit_any_policy = cps.get_initial_inhibit_any_policy_indicator();
     let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(&ta.decoded_ta)?;
     if ta_inhibit_any_policy && !initial_inhibit_any_policy {
-        set_initial_inhibit_any_policy_indicator(&mut mod_cps, ta_inhibit_any_policy);
+        mod_cps.set_initial_inhibit_any_policy_indicator(ta_inhibit_any_policy);
     }
 
     //o  If a require explicit policy value of true is associated with the
     //trust anchor (either in a CertPathControls or in a
     //PolicyConstraints extension) and the initial-explicit-policy value
     //is false, set the initial-explicit-policy value to true.
-    let initial_require_explicit_policy = get_initial_explicit_policy_indicator(cps);
+    let initial_require_explicit_policy = cps.get_initial_explicit_policy_indicator();
     let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(&ta.decoded_ta)?;
     if ta_require_explicit_policy && !initial_require_explicit_policy {
-        set_initial_explicit_policy_indicator(&mut mod_cps, ta_require_explicit_policy);
+        mod_cps.set_initial_explicit_policy_indicator(ta_require_explicit_policy);
     }
 
     //o  If an inhibit policy mapping value of true is associated with the
@@ -737,10 +736,10 @@ pub fn enforce_trust_anchor_constraints(
     //PolicyConstraints extension) and the initial-policy-mapping-
     //inhibit value is false, set the initial-policy-mapping-inhibit
     //value to true.
-    let initial_inhibit_policy_mapping = get_initial_policy_mapping_inhibit_indicator(cps);
+    let initial_inhibit_policy_mapping = cps.get_initial_policy_mapping_inhibit_indicator();
     let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(&ta.decoded_ta)?;
     if ta_inhibit_policy_mapping && !initial_inhibit_policy_mapping {
-        set_initial_policy_mapping_inhibit_indicator(&mut mod_cps, ta_inhibit_policy_mapping);
+        mod_cps.set_initial_policy_mapping_inhibit_indicator(ta_inhibit_policy_mapping);
     }
 
     let pdv_ext = ta.get_extension(&ID_CE_KEY_USAGE)?;

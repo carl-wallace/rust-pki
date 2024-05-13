@@ -15,9 +15,9 @@ use log::error;
 use log::{debug, info};
 
 use crate::{
-    add_failed_ocsp_response, add_ocsp_response, get_time_of_interest, valid_at_time,
-    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate,
-    PathValidationStatus, PkiEnvironment, Result,
+    add_failed_ocsp_response, add_ocsp_response, valid_at_time, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate, PathValidationStatus,
+    PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
@@ -50,8 +50,8 @@ use x509_ocsp::Version::V1;
 
 #[cfg(feature = "remote")]
 use crate::{
-    add_failed_ocsp_request, add_ocsp_request, get_ocsp_aia_nonce_setting, name_to_string,
-    pdv_extension::ExtensionProcessing, OcspNonceSetting, PDVExtension, PKIXALG_SHA1,
+    add_failed_ocsp_request, add_ocsp_request, name_to_string, pdv_extension::ExtensionProcessing,
+    OcspNonceSetting, PDVExtension, PKIXALG_SHA1,
 };
 
 fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
@@ -127,7 +127,7 @@ fn cert_id_match(
 }
 
 fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
-    let time_of_interest = get_time_of_interest(cps);
+    let time_of_interest = cps.get_time_of_interest();
     if 0 == time_of_interest {
         return true;
     }
@@ -348,7 +348,7 @@ pub async fn send_ocsp_request(
         return Err(Error::InvalidUriScheme);
     }
 
-    let nonce_setting = get_ocsp_aia_nonce_setting(cps);
+    let nonce_setting = cps.get_ocsp_aia_nonce_setting();
 
     let nonce = if nonce_setting != OcspNonceSetting::DoNotSendNonce {
         //TODO implement me
@@ -543,7 +543,7 @@ fn process_ocsp_response_internal(
                                 continue;
                             }
 
-                            let time_of_interest = get_time_of_interest(cps);
+                            let time_of_interest = cps.get_time_of_interest();
                             if 0 != time_of_interest {
                                 let target_ttl =
                                     valid_at_time(&cert.tbs_certificate, time_of_interest, false);

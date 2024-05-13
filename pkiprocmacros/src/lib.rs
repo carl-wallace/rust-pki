@@ -90,10 +90,11 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     );
 
     let tokens = quote! {
+        impl CertificationPathSettings {
             #[doc = #getter_comment]
-            pub fn #getter(cps: &CertificationPathSettings)->Option<#return_t>{
-                if cps.contains_key(#flag) {
-                    return match &cps[#flag] {
+            pub fn #getter(&self)->Option<#return_t>{
+                if self.0.contains_key(#flag) {
+                    return match &self.0[#flag] {
                         CertificationPathProcessingTypes::#cps_type(v) => Some(v.clone()),
                         _ => None,
                     };
@@ -101,12 +102,13 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                 None
             }
             #[doc = #setter_comment]
-            pub fn #setter(cps: &mut CertificationPathSettings, v: #return_t){
-                cps.insert(
+            pub fn #setter(&mut self, v: #return_t){
+                self.0.insert(
                     #flag.to_string(),
                     CertificationPathProcessingTypes::#cps_type(v),
                 );
             }
+        }
     };
     tokens.into()
 }
@@ -240,10 +242,11 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     );
 
     let tokens = quote! {
+        impl CertificationPathSettings {
             #[doc = #getter_comment]
-            pub fn #getter(cps: &CertificationPathSettings)->#return_t{
-                if cps.contains_key(#flag) {
-                    return match &cps[#flag] {
+            pub fn #getter(&self)->#return_t{
+                if self.0.contains_key(#flag) {
+                    return match self.0[#flag] {
                         CertificationPathProcessingTypes::#cps_type(v) => v.clone(),
                         _ => #default_value,
                     };
@@ -251,12 +254,13 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
                 #default_value
             }
             #[doc = #setter_comment]
-            pub fn #setter(cps: &mut CertificationPathSettings, v: #return_t){
-                cps.insert(
+            pub fn #setter(&mut self, v: #return_t){
+                self.0.insert(
                     #flag.to_string(),
                     CertificationPathProcessingTypes::#cps_type(v),
                 );
             }
+        }
     };
     tokens.into()
 }

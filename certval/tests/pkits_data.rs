@@ -116,7 +116,7 @@ lazy_static! {
     pub static ref G_DEFAULT_SETTINGS: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
+        cs.set_time_of_interest( t);
         cs
     };
     pub static ref G_DEFAULT_SETTINGS_TA: String = {
@@ -127,8 +127,8 @@ lazy_static! {
     pub static ref G_DEFAULT_SETTINGS_5914: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_enforce_trust_anchor_constraints(&mut cs, true);
+        cs.set_time_of_interest(t);
+        cs.set_enforce_trust_anchor_constraints( true);
         cs
     };
 
@@ -136,8 +136,8 @@ lazy_static! {
     pub static ref G_SETTINGS1: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_explicit_policy_indicator(&mut cs, true);
+        cs.set_time_of_interest( t);
+        cs.set_initial_explicit_policy_indicator(true);
         cs
     };
     pub static ref G_SETTINGS1_TA: String = {
@@ -147,11 +147,11 @@ lazy_static! {
     pub static ref G_SETTINGS2: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_explicit_policy_indicator(&mut cs, true);
+        cs.set_time_of_interest( t);
+        cs.set_initial_explicit_policy_indicator( true);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_1);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS2_TA: String = {
@@ -161,11 +161,11 @@ lazy_static! {
     pub static ref G_SETTINGS3: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_explicit_policy_indicator(&mut cs, true);
+        cs.set_time_of_interest(t);
+        cs.set_initial_explicit_policy_indicator(true);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_2);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set(oids);
         cs
     };
     pub static ref G_SETTINGS3_TA: String = {
@@ -175,12 +175,12 @@ lazy_static! {
     pub static ref G_SETTINGS4: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_explicit_policy_indicator(&mut cs, true);
+        cs.set_time_of_interest(t);
+        cs.set_initial_explicit_policy_indicator( true);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_1);
         oids.insert(PKITS_TEST_POLICY_2);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS4_TA: String = {
@@ -191,10 +191,10 @@ lazy_static! {
     pub static ref G_SETTINGS5: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
+        cs.set_time_of_interest(t);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_1);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS5_TA: String = {
@@ -204,10 +204,10 @@ lazy_static! {
     pub static ref G_SETTINGS6: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
+        cs.set_time_of_interest(t);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_2);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS6_TA: String = {
@@ -217,10 +217,10 @@ lazy_static! {
     pub static ref G_SETTINGS7: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
+        cs.set_time_of_interest( t);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_3);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS7_TA: String = {
@@ -231,8 +231,8 @@ lazy_static! {
     pub static ref G_SETTINGS8: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_policy_mapping_inhibit_indicator(&mut cs, true);
+        cs.set_time_of_interest( t);
+        cs.set_initial_policy_mapping_inhibit_indicator( true);
         cs
     };
     pub static ref G_SETTINGS8_TA: String = {
@@ -243,10 +243,10 @@ lazy_static! {
     pub static ref G_SETTINGS9: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
+        cs.set_time_of_interest( t);
         let mut oids = ObjectIdentifierSet::new();
         oids.insert(PKITS_TEST_POLICY_6);
-        set_initial_policy_set_from_oid_set(&mut cs, oids);
+        cs.set_initial_policy_set_from_oid_set( oids);
         cs
     };
     pub static ref G_SETTINGS9_TA: String = {
@@ -257,8 +257,8 @@ lazy_static! {
     pub static ref G_SETTINGS10: CertificationPathSettings = {
         let mut cs = CertificationPathSettings::new();
         let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        set_time_of_interest(&mut cs, t);
-        set_initial_inhibit_any_policy_indicator(&mut cs, true);
+        cs.set_time_of_interest(t);
+        cs.set_initial_inhibit_any_policy_indicator(true);
         cs
     };
     pub static ref G_SETTINGS10_TA: String = {
