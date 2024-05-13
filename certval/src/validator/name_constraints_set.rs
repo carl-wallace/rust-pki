@@ -354,7 +354,6 @@ impl NameConstraintsSet {
                                 }
                             }
                         }
-                        return false;
                     }
                     #[allow(unused_variables)]
                     GeneralName::Rfc822Name(rfc822_san) => {
@@ -374,7 +373,6 @@ impl NameConstraintsSet {
                                 }
                             }
                         }
-                        return false;
                     }
                     #[allow(unused_variables)]
                     GeneralName::DnsName(dns_san) => {
@@ -394,7 +392,6 @@ impl NameConstraintsSet {
                                 }
                             }
                         }
-                        return false;
                     }
 
                     #[allow(unused_variables)]
@@ -425,7 +422,6 @@ impl NameConstraintsSet {
                                 }
                             }
                         }
-                        return false;
                     }
                     GeneralName::IpAddress(_) => {
                         for ns in &self.not_supported {
@@ -624,10 +620,12 @@ pub struct NameConstraintsSettings {
     pub directory_name: Option<Vec<String>>, //t = 5
     /// uniform_resource_identifier governs use of URIs in SANs
     pub uniform_resource_identifier: Option<Vec<String>>, //t = 7
+    /// ASCII hex encoding of unsupported GeneralSubtree
     pub not_supported: Option<Vec<String>> //ASCII hex encodings of unsupported name forms
 }
 
-pub(crate) fn name_constraints_settings_to_name_constraints_set(
+/// Converts a NameConstraintsSettings object to a NameConstraintsSet object
+pub fn name_constraints_settings_to_name_constraints_set(
     settings: &NameConstraintsSettings,
     bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
 ) -> Result<NameConstraintsSet> {
@@ -919,7 +917,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
                 Ok(gs) => {
                     tmp.push(buffer_to_hex(&gs));
                 },
-                Err(e) => {
+                Err(_e) => {
                     // todo handle error?
                 }
             }

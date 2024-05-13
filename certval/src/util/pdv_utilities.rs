@@ -341,7 +341,7 @@ pub(crate) const EMAIL_PATTERN: &str =
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
-pub(crate) fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
+pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.to_string();
 
     let mut filter = regex::escape(base.as_str());

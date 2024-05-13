@@ -18,6 +18,8 @@ use crate::{
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Decode};
+use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::ext::Extensions;
 use x509_cert::ext::pkix::KeyUsages;
 
 use crate::validator::policy_graph::check_certificate_policies_graph;
@@ -741,7 +743,40 @@ pub fn enforce_trust_anchor_constraints(
         set_initial_policy_mapping_inhibit_indicator(&mut mod_cps, ta_inhibit_policy_mapping);
     }
 
+    let pdv_ext = ta.get_extension(&ID_CE_KEY_USAGE)?;
+    if let Some(PDVExtension::KeyUsage(ku)) = pdv_ext {
+        if !ku.key_cert_sign() {
+            return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
+        }
+    }
+
+    match &ta.decoded_ta {
+        TrustAnchorChoice::Certificate(c) => {
+            check_critical_extensions_from_ta(&c.tbs_certificate.extensions)?;
+        },
+        TrustAnchorChoice::TaInfo(tai) => {
+            check_critical_extensions_from_ta(&tai.extensions)?;
+        }
+        TrustAnchorChoice::TbsCertificate(tbs) => {
+            check_critical_extensions_from_ta(&tbs.extensions)?;
+        }
+    }
+
     Ok(mod_cps)
+}
+
+fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
+    let recognized_oids = [ID_CE_BASIC_CONSTRAINTS, ID_CE_NAME_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES, ID_CE_POLICY_CONSTRAINTS, ID_CE_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY];
+    if let Some(exts) = exts {
+        for ext in exts {
+            if ext.critical {
+                if !recognized_oids.contains(&ext.extn_id) {
+                    return Err(Error::Unrecognized);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `verify_signatures` verifies the certificate signatures of certificates found in a certification path.
