@@ -10,7 +10,7 @@ cfg_if! {
         use alloc::string::ToString;
         use der::{asn1::OctetString, Length};
         use spki::SubjectPublicKeyInfoOwned;
-        use x509_cert::{certificate::Raw,anchor::{CertPathControls, TrustAnchorInfo}};
+        use x509_cert::{anchor::{CertPathControls, TrustAnchorInfo}};
     }
 }
 
@@ -25,6 +25,7 @@ use const_oid::db::rfc5912::{
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::certificate::Raw;
 use x509_cert::ext::pkix::NameConstraints;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::name::Name;

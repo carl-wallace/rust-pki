@@ -51,7 +51,7 @@ pub(crate) async fn validate_cert_file(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) -> Result<()> {
-    let time_of_interest = get_time_of_interest(cps);
+    let time_of_interest = cps.get_time_of_interest();
     let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
 
     let target_cert = parse_cert(target_bytes.as_slice(), cert_filename)?;
@@ -98,7 +98,7 @@ pub(crate) async fn validate_cert_file(
         let mut r = pe.validate_path(pe, cps, path, &mut cpr);
 
         #[cfg(feature = "remote")]
-        if r.is_ok() && get_check_revocation_status(cps) {
+        if r.is_ok() && cps.get_check_revocation_status() {
             r = check_revocation(pe, cps, path, &mut cpr).await;
         }
 
@@ -256,15 +256,15 @@ pub async fn generate(
     }
 
     if let Some(ca_folder) = &args.ca_folder {
-        set_certification_authority_folder(cps, ca_folder.to_string());
+        cps.set_certification_authority_folder(ca_folder.to_string());
     }
 
     #[cfg(feature = "remote")]
     if let Some(download_folder) = &args.download_folder {
-        set_download_folder(cps, download_folder.to_string());
+        cps.set_download_folder(download_folder.to_string());
     }
 
-    set_cbor_ta_store(cps, args.cbor_ta_store);
+    cps.set_cbor_ta_store(args.cbor_ta_store);
 
     let graph = build_graph(pe, cps).await;
     if let Ok(graph) = graph {

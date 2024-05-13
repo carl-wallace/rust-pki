@@ -49,7 +49,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial explicit policy: {}\n",
-            get_initial_explicit_policy_indicator(cps)
+            cps.get_initial_explicit_policy_indicator()
         )
         .as_bytes(),
     )
@@ -57,7 +57,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial policy mapping inhibit: {}\n",
-            get_initial_policy_mapping_inhibit_indicator(cps)
+            cps.get_initial_policy_mapping_inhibit_indicator()
         )
         .as_bytes(),
     )
@@ -65,14 +65,14 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial inhibit any policy: {}\n",
-            get_initial_inhibit_any_policy_indicator(cps)
+            cps.get_initial_inhibit_any_policy_indicator()
         )
         .as_bytes(),
     )
     .expect("Unable to write manifest file");
     f.write_all("Initial policy set: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let policy_set = get_initial_policy_set(cps);
+    let policy_set = cps.get_initial_policy_set();
     for policy in policy_set {
         f.write_all(format!("\t* {}\n", policy).as_bytes())
             .expect("Unable to write manifest file");
@@ -82,7 +82,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
 
-    let perm = match get_initial_permitted_subtrees_as_set(cps, &mut pbufs) {
+    let perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
         Ok(ip) => ip,
         Err(_e) => None,
     };
@@ -97,7 +97,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in perm.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(&dn)).as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -125,7 +125,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     } // end if let Some(perm) = perm
     f.write_all("Initial excluded names: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let excl = match get_initial_excluded_subtrees_as_set(cps, &mut ebufs) {
+    let excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
         Ok(ie) => ie,
         Err(_e) => None,
     };
@@ -140,7 +140,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in excl.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(&dn)).as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -169,7 +169,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Enforce trust anchor constraints: {}\n",
-            get_enforce_trust_anchor_constraints(cps)
+            cps.get_enforce_trust_anchor_constraints()
         )
         .as_bytes(),
     )
@@ -177,12 +177,12 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Enforce algorithm and key size constraints: {}\n",
-            get_enforce_alg_and_key_size_constraints(cps)
+            cps.get_enforce_alg_and_key_size_constraints()
         )
         .as_bytes(),
     )
     .expect("Unable to write manifest file");
-    f.write_all(format!("Check revocation: {}\n", get_check_revocation_status(cps)).as_bytes())
+    f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())
         .expect("Unable to write manifest file");
 }
 
@@ -786,57 +786,57 @@ fn test_cps_log() {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut cps = CertificationPathSettings::new();
-    set_initial_explicit_policy_indicator(&mut cps, true);
-    set_initial_policy_mapping_inhibit_indicator(&mut cps, true);
-    set_initial_inhibit_any_policy_indicator(&mut cps, true);
+    cps.set_initial_explicit_policy_indicator(true);
+    cps.set_initial_policy_mapping_inhibit_indicator(true);
+    cps.set_initial_inhibit_any_policy_indicator(true);
     let policies = vec![ANY_POLICY.to_string()];
-    set_initial_policy_set(&mut cps, policies);
+    cps.set_initial_policy_set(policies);
     let perm = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
-    set_initial_permitted_subtrees(&mut cps, perm);
+    cps.set_initial_permitted_subtrees(perm);
     let excl = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
-    set_initial_excluded_subtrees(&mut cps, excl);
+    cps.set_initial_excluded_subtrees(excl);
     let toi = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
         n.as_secs()
     } else {
         0
     };
-    set_time_of_interest(&mut cps, toi);
+    cps.set_time_of_interest(toi);
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
-    set_extended_key_usage(&mut cps, ekus);
-    set_extended_key_usage_path(&mut cps, false);
-    set_enforce_alg_and_key_size_constraints(&mut cps, false);
-    set_check_revocation_status(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_retrieve_from_aia_sia_http(&mut cps, false);
-    set_retrieve_from_aia_sia_ldap(&mut cps, false);
-    set_check_crls(&mut cps, false);
-    set_check_crldp_http(&mut cps, false);
-    set_check_crldp_ldap(&mut cps, false);
-    set_crl_grace_periods_as_last_resort(&mut cps, false);
-    set_ignore_expired(&mut cps, false);
-    set_ocsp_aia_nonce_setting(&mut cps, OcspNonceSetting::DoNotSendNonce);
-    set_require_country_code_indicator(&mut cps, false);
+    cps.set_extended_key_usage(ekus);
+    cps.set_extended_key_usage_path(false);
+    cps.set_enforce_alg_and_key_size_constraints(false);
+    cps.set_check_revocation_status(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_retrieve_from_aia_sia_http(false);
+    cps.set_retrieve_from_aia_sia_ldap(false);
+    cps.set_check_crls(false);
+    cps.set_check_crldp_http(false);
+    cps.set_check_crldp_ldap(false);
+    cps.set_crl_grace_periods_as_last_resort(false);
+    cps.set_ignore_expired(false);
+    cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
+    cps.set_require_country_code_indicator(false);
     let permcountries = vec!["AA".to_string()];
-    set_perm_countries(&mut cps, permcountries);
+    cps.set_perm_countries(permcountries);
     let exclcountries = vec!["BB".to_string()];
-    set_perm_countries(&mut cps, exclcountries);
+    cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
-    set_target_key_usage(&mut cps, fs.bits());
+    cps.set_target_key_usage(fs.bits());
 
     use tempfile::tempdir;
     let temp_dir = tempdir().unwrap();

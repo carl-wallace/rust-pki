@@ -611,7 +611,7 @@ pub fn pkits_guts_sync(
                 }
 
                 let mut tmp_settings = case.settings.clone();
-                set_use_policy_graph(&mut tmp_settings, policy_graph);
+                tmp_settings.set_use_policy_graph(policy_graph);
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
@@ -897,7 +897,7 @@ pub async fn pkits_guts(
                 }
 
                 let mut tmp_settings = case.settings.clone();
-                set_use_policy_graph(&mut tmp_settings, policy_graph);
+                tmp_settings.set_use_policy_graph(policy_graph);
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]

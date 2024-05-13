@@ -19,14 +19,11 @@ use alloc::vec;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use log::{error, info};
 
+use crate::{add_crl, add_failed_crl};
 use crate::{
-    add_crl, add_failed_crl, get_check_crls, get_check_revocation_status,
-    get_crl_grace_periods_as_last_resort,
-};
-use crate::{
-    get_certificate_from_trust_anchor, get_time_of_interest, set_validation_status,
-    CertificationPath, CertificationPathResults, CertificationPathSettings, Error,
-    ExtensionProcessing, PDVExtension, PathValidationStatus::*, PkiEnvironment, Result,
+    get_certificate_from_trust_anchor, set_validation_status, CertificationPath,
+    CertificationPathResults, CertificationPathSettings, Error, ExtensionProcessing, PDVExtension,
+    PathValidationStatus::*, PkiEnvironment, Result,
 };
 use crate::{name_to_string, prepare_revocation_results};
 
@@ -38,12 +35,6 @@ use crate::revocation::crl::check_revocation_crl_remote;
 
 #[cfg(feature = "remote")]
 use crate::revocation::ocsp_client::check_revocation_ocsp;
-
-#[cfg(feature = "remote")]
-use crate::get_check_crldp_http;
-
-#[cfg(feature = "remote")]
-use crate::get_check_ocsp_from_aia;
 
 #[cfg(not(feature = "std"))]
 use core::ops::Deref;
@@ -71,7 +62,7 @@ pub async fn check_revocation(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let check_rev = get_check_revocation_status(cps);
+    let check_rev = cps.get_check_revocation_status();
     if !check_rev {
         // nothing to do
         info!("Revocation checking disabled");
@@ -84,13 +75,13 @@ pub async fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = get_crl_grace_periods_as_last_resort(cps);
-    let check_crls = get_check_crls(cps);
+    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
+    let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
-    let check_crldp_http = get_check_crldp_http(cps);
+    let check_crldp_http = cps.get_check_crldp_http();
     #[cfg(feature = "remote")]
-    let check_ocsp_from_aia = get_check_ocsp_from_aia(cps);
+    let check_ocsp_from_aia = cps.get_check_ocsp_from_aia();
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
@@ -108,7 +99,7 @@ pub async fn check_revocation(
 
     let max_index = v.len() - 1;
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
 
     // save up the statuses and return Ok only if none are RevocationStatusNotDetermined
     let mut statuses = vec![];

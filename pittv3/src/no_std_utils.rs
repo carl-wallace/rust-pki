@@ -22,7 +22,7 @@ pub(crate) fn validate_cert(
     stats: &mut PathValidationStats,
     args: &Pittv3Args,
 ) -> Result<()> {
-    let time_of_interest = get_time_of_interest(cps);
+    let time_of_interest = cps.get_time_of_interest();
     let target_cert = parse_cert(target, cert_filename)?;
     info!(
         "Start building and validating path(s) for {}",

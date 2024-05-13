@@ -25,7 +25,7 @@ use x509_cert::ext::pkix::{
 };
 use x509_cert::name::Name;
 
-use crate::{util::pdv_utilities::*, Error, Result, buffer_to_hex};
+use crate::{buffer_to_hex, util::pdv_utilities::*, Error, Result};
 
 /// Microsoft User Principal Name OID (see <https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wcce/ea9ef420-4cbf-44bc-b093-c4175139f90f>)
 pub const MSFT_USER_PRINCIPAL_NAME: ObjectIdentifier =
@@ -624,7 +624,7 @@ pub struct NameConstraintsSettings {
     pub directory_name: Option<Vec<String>>, //t = 5
     /// uniform_resource_identifier governs use of URIs in SANs
     pub uniform_resource_identifier: Option<Vec<String>>, //t = 7
-    pub not_supported: Option<Vec<String>> //ASCII hex encodings of unsupported name forms
+    pub not_supported: Option<Vec<String>>, //ASCII hex encodings of unsupported name forms
 }
 
 pub(crate) fn name_constraints_settings_to_name_constraints_set(
@@ -739,11 +739,11 @@ pub(crate) fn name_constraints_settings_to_name_constraints_set(
 
     let mut nsbufs: Vec<Vec<u8>> = vec![];
     if let Some(not_supported) = &settings.not_supported {
-       for n in not_supported {
-           if let Ok(buf) = hex::decode_upper(&n) {
-               nsbufs.push(buf);
-           }
-       }
+        for n in not_supported {
+            if let Ok(buf) = hex::decode_upper(&n) {
+                nsbufs.push(buf);
+            }
+        }
     }
     bufs.insert("not_supported".to_string(), nsbufs);
 
@@ -918,7 +918,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
             match gs.to_der() {
                 Ok(gs) => {
                     tmp.push(buffer_to_hex(&gs));
-                },
+                }
                 Err(e) => {
                     // todo handle error?
                 }
@@ -933,7 +933,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         directory_name: vdn,
         uniform_resource_identifier: vuri,
         user_principal_name: vupn,
-        not_supported: vns
+        not_supported: vns,
     }
 }
 
@@ -946,7 +946,7 @@ fn intersection_tests() {
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
     let perm_copy = crate::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
@@ -954,7 +954,7 @@ fn intersection_tests() {
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
     let perm2 = crate::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
@@ -962,7 +962,7 @@ fn intersection_tests() {
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
     let perm3 = crate::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Abe,OU=Org Unit,O=Org,C=US".to_string()]),
@@ -970,42 +970,48 @@ fn intersection_tests() {
         user_principal_name: Some(vec!["1236547890@mil".to_string()]),
         dns_name: Some(vec!["t.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://t.example.com".to_string()]),
-        not_supported: None
+        not_supported: None,
     };
 
     let mut cps = CertificationPathSettings::default();
-    set_initial_permitted_subtrees(&mut cps, perm);
+    cps.set_initial_permitted_subtrees(perm);
     let mut cps2 = CertificationPathSettings::default();
-    set_initial_permitted_subtrees(&mut cps2, perm2);
+    cps2.set_initial_permitted_subtrees(perm2);
     let mut cps3 = CertificationPathSettings::default();
-    set_initial_permitted_subtrees(&mut cps3, perm3);
+    cps3.set_initial_permitted_subtrees(perm3);
 
     let mut bufs1 = BTreeMap::new();
-    let mut perm_set = get_initial_permitted_subtrees_as_set(&cps, &mut bufs1)
+    let mut perm_set = cps
+        .get_initial_permitted_subtrees_as_set(&mut bufs1)
         .unwrap()
         .unwrap();
     let mut bufs1_b = BTreeMap::new();
-    let perm_set_b =
-        get_initial_permitted_subtrees_with_default_as_set(&cps, &mut bufs1_b).unwrap();
+    let perm_set_b = cps
+        .get_initial_permitted_subtrees_with_default_as_set(&mut bufs1_b)
+        .unwrap();
     assert_eq!(perm_set, perm_set_b);
-    let perm_ncs = get_initial_permitted_subtrees_with_default(&cps);
+    let perm_ncs = cps.get_initial_permitted_subtrees_with_default();
     assert_eq!(perm_ncs, perm_copy);
 
     let mut bufs2 = BTreeMap::new();
-    let perm_set2 = get_initial_permitted_subtrees_as_set(&cps2, &mut bufs2)
+    let perm_set2 = cps2
+        .get_initial_permitted_subtrees_as_set(&mut bufs2)
         .unwrap()
         .unwrap();
     let mut bufs2_b = BTreeMap::new();
-    let perm_set2_b =
-        get_initial_permitted_subtrees_with_default_as_set(&cps2, &mut bufs2_b).unwrap();
+    let perm_set2_b = cps2
+        .get_initial_permitted_subtrees_with_default_as_set(&mut bufs2_b)
+        .unwrap();
     assert_eq!(perm_set2, perm_set2_b);
     let mut bufs3 = BTreeMap::new();
-    let perm_set3 = get_initial_permitted_subtrees_as_set(&cps3, &mut bufs3)
+    let perm_set3 = cps3
+        .get_initial_permitted_subtrees_as_set(&mut bufs3)
         .unwrap()
         .unwrap();
     let mut bufs3_b = BTreeMap::new();
-    let perm_set3_b =
-        get_initial_permitted_subtrees_with_default_as_set(&cps3, &mut bufs3_b).unwrap();
+    let perm_set3_b = cps3
+        .get_initial_permitted_subtrees_with_default_as_set(&mut bufs3_b)
+        .unwrap();
     assert_eq!(perm_set3, perm_set3_b);
 
     let perm_roundtrip = name_constraints_set_to_name_constraints_settings(&perm_set);
@@ -1055,9 +1061,10 @@ fn intersection_tests() {
     }
 
     let mut cps_set = CertificationPathSettings::default();
-    set_initial_permitted_subtrees_from_set(&mut cps_set, &perm_set3);
+    cps_set.set_initial_permitted_subtrees_from_set(&perm_set3);
     let mut bufs3_c = BTreeMap::new();
-    let perm_set3_copy = get_initial_permitted_subtrees_as_set(&cps_set, &mut bufs3_c)
+    let perm_set3_copy = cps_set
+        .get_initial_permitted_subtrees_as_set(&mut bufs3_c)
         .unwrap()
         .unwrap();
     assert_eq!(perm_set3, perm_set3_copy);

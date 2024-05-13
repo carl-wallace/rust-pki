@@ -53,11 +53,11 @@ pub fn check_certificate_policies_graph(
     let pm = &mut pool.borrow_mut();
 
     // Harvest the relevant settings from the path settings object ( RFC5280 6.1.1 c, e, f and g)
-    let initial_policy_set: ObjectIdentifierSet = get_initial_policy_set_as_oid_set(cps);
+    let initial_policy_set: ObjectIdentifierSet = cps.get_initial_policy_set_as_oid_set();
     let initial_policy_mapping_inhibit_indicator: bool =
-        get_initial_policy_mapping_inhibit_indicator(cps);
-    let initial_explicit_policy_indicator: bool = get_initial_explicit_policy_indicator(cps);
-    let initial_inhibit_any_policy_indicator: bool = get_initial_inhibit_any_policy_indicator(cps);
+        cps.get_initial_policy_mapping_inhibit_indicator();
+    let initial_explicit_policy_indicator: bool = cps.get_initial_explicit_policy_indicator();
+    let initial_inhibit_any_policy_indicator: bool = cps.get_initial_inhibit_any_policy_indicator();
 
     // Initialize state variables (RFC 6.1.2 a, d, e, and f)
     let mut valid_policy_graph = Vec::<PolicyTreeRow>::new();
