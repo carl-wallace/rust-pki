@@ -27,7 +27,7 @@ use std::fs;
 /// The time of interest is used to ignore certificates that are expired at the indicated time (when
 /// time of interest value is zero, the validity check is not performed).
 pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -> Result<Vec<u8>> {
-    let ca_folder = if let Some(ca_folder) = get_certification_authority_folder(cps) {
+    let ca_folder = if let Some(ca_folder) = cps.get_certification_authority_folder() {
         ca_folder
     } else {
         error!("ca_folder argument must be provided when generate is specified",);
@@ -35,16 +35,16 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     };
 
     #[cfg(feature = "remote")]
-    let download_folder = if let Some(download_folder) = get_download_folder(cps) {
+    let download_folder = if let Some(download_folder) = cps.get_download_folder() {
         download_folder
     } else {
         ca_folder.clone()
     };
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
 
     let mut cert_store = CertSource::new();
-    let r = if get_cbor_ta_store(cps) {
+    let r = if cps.get_cbor_ta_store() {
         ta_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
     } else {
         cert_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
@@ -57,7 +57,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     }
 
     #[cfg(feature = "remote")]
-    if get_retrieve_from_aia_sia_http(cps) && !get_cbor_ta_store(cps) {
+    if cps.get_retrieve_from_aia_sia_http() && !cps.get_cbor_ta_store() {
         let mut uris = Vec::new();
         let mut certs_count = 0;
         let mut uris_count = 0;
@@ -145,7 +145,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         return Err(Error::NotFound);
     }
 
-    if !get_cbor_ta_store(cps) {
+    if !cps.get_cbor_ta_store() {
         cert_store.find_all_partial_paths(pe, cps);
     }
 
@@ -219,14 +219,14 @@ async fn non_existent_dir() {
     let r = r.err();
     assert_eq!(Some(Error::NotFound), r);
 
-    set_certification_authority_folder(&mut cps, nonexistent.clone());
+    cps.set_certification_authority_folder(nonexistent.clone());
     let r = build_graph(&pe, &cps).await;
     assert!(r.is_err());
     let r = r.err();
     assert_eq!(Some(Error::NotFound), r);
 
-    set_retrieve_from_aia_sia_http(&mut cps, false);
-    set_certification_authority_folder(&mut cps, ca_store_folder.clone());
+    cps.set_retrieve_from_aia_sia_http(false);
+    cps.set_certification_authority_folder(ca_store_folder.clone());
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
@@ -239,8 +239,8 @@ async fn non_existent_dir() {
     assert_eq!(3, cert_source.len());
 
     // serialize as TA store (so no partial paths)
-    set_cbor_ta_store(&mut cps, true);
-    set_certification_authority_folder(&mut cps, ca_store_folder.clone());
+    cps.set_cbor_ta_store(true);
+    cps.set_certification_authority_folder(ca_store_folder.clone());
     let cbor = build_graph(&pe, &cps).await;
     assert!(cbor.is_ok());
     let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {

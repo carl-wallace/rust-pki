@@ -13,3 +13,27 @@ debug = true
 [profile.release]
 debug = true
 
+[patch.crates-io]
+cms        = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+const-oid  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+der        = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+der_derive = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+pkcs1      = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+pkcs8      = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+sec1       = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+spki       = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+x509-ocsp  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+x509-cert  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+
+
+rsa = { git = "https://github.com/RustCrypto/RSA.git" }
+p256 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+p384 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+
+ecdsa = { git = "https://github.com/RustCrypto/signatures.git" }
+
+sha1 = { git = "https://github.com/RustCrypto/hashes.git" }
+sha2 = { git = "https://github.com/RustCrypto/hashes.git" }
+
+[patch.'https://github.com/carl-wallace/pqckeys']
+pqckeys = { git = "https://github.com/baloo/pqckeys.git", branch = "baloo/pre-releases" }

@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 
 use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
+use x509_cert::certificate::{CertificateInner, Raw};
 use x509_cert::ext::Extensions;
-use x509_cert::Certificate;
 use x509_ocsp::*;
 
 use log::error;
@@ -15,9 +15,9 @@ use log::error;
 use log::{debug, info};
 
 use crate::{
-    add_failed_ocsp_response, add_ocsp_response, get_time_of_interest, valid_at_time,
-    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate,
-    PathValidationStatus, PkiEnvironment, Result,
+    add_failed_ocsp_response, add_ocsp_response, valid_at_time, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate, PathValidationStatus,
+    PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
@@ -50,11 +50,11 @@ use x509_ocsp::Version::V1;
 
 #[cfg(feature = "remote")]
 use crate::{
-    add_failed_ocsp_request, add_ocsp_request, get_ocsp_aia_nonce_setting, name_to_string,
-    pdv_extension::ExtensionProcessing, OcspNonceSetting, PDVExtension, PKIXALG_SHA1,
+    add_failed_ocsp_request, add_ocsp_request, name_to_string, pdv_extension::ExtensionProcessing,
+    OcspNonceSetting, PDVExtension, PKIXALG_SHA1,
 };
 
-fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
+fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
     Ok(Sha1::digest(
         cert.tbs_certificate
             .subject_public_key_info
@@ -64,7 +64,7 @@ fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
     .to_vec())
 }
 
-fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
+fn get_subject_name_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
     let enc_subject = match cert.tbs_certificate.subject.to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
@@ -109,7 +109,7 @@ fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
 /// match the values passed as parameters. Else it returns false.
 fn cert_id_match(
     cert_id: &CertId,
-    serial_number: &SerialNumber,
+    serial_number: &SerialNumber<Raw>,
     name_hash: &[u8],
     key_hash: &[u8],
 ) -> bool {
@@ -127,21 +127,21 @@ fn cert_id_match(
 }
 
 fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
-    let time_of_interest = get_time_of_interest(cps);
+    let time_of_interest = cps.get_time_of_interest();
     if 0 == time_of_interest {
         return true;
     }
 
     // TODO support grace periods?
 
-    let tu = sr.this_update.to_unix_duration().as_secs();
+    let tu = sr.this_update.0.to_unix_duration().as_secs();
     if tu > time_of_interest {
         //future request
         return false;
     }
 
     if let Some(next_update) = sr.next_update {
-        let nu = next_update.to_unix_duration().as_secs();
+        let nu = next_update.0.to_unix_duration().as_secs();
         if nu < time_of_interest {
             //stale
             return false;
@@ -190,7 +190,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
 
 #[cfg(feature = "remote")]
 fn prepare_ocsp_request(
-    target_cert: &Certificate,
+    target_cert: &CertificateInner<Raw>,
     name_hash: &[u8],
     key_hash: &[u8],
     _nonce: Option<&[u8]>,
@@ -261,6 +261,7 @@ impl ::der::FixedTag for DeferDecodeBasicOcspResponse {
 }
 
 impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
+    type Error = der::Error;
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
@@ -296,7 +297,7 @@ fn no_check_present(exts: &Option<Extensions>) -> bool {
 
 fn verify_response_signature(
     pe: &PkiEnvironment,
-    signers_cert: &Certificate,
+    signers_cert: &CertificateInner<Raw>,
     enc_ocsp_resp: &[u8],
     bor: &BasicOcspResponse,
 ) -> Result<()> {
@@ -338,7 +339,7 @@ pub async fn send_ocsp_request(
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner<Raw>,
     cpr: &mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
@@ -347,7 +348,7 @@ pub async fn send_ocsp_request(
         return Err(Error::InvalidUriScheme);
     }
 
-    let nonce_setting = get_ocsp_aia_nonce_setting(cps);
+    let nonce_setting = cps.get_ocsp_aia_nonce_setting();
 
     let nonce = if nonce_setting != OcspNonceSetting::DoNotSendNonce {
         //TODO implement me
@@ -423,7 +424,7 @@ pub fn process_ocsp_response(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner<Raw>,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -450,7 +451,7 @@ fn process_ocsp_response_internal(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner<Raw>,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -535,14 +536,14 @@ fn process_ocsp_response_internal(
                         &defer_cert.signature_algorithm,
                         &issuers_cert.tbs_certificate.subject_public_key_info,
                     ) {
-                        if let Ok(cert) = Certificate::from_der(certbuf.as_slice()) {
+                        if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
                             if cert.tbs_certificate.signature != defer_cert.signature_algorithm {
                                 error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
                                 add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
                                 continue;
                             }
 
-                            let time_of_interest = get_time_of_interest(cps);
+                            let time_of_interest = cps.get_time_of_interest();
                             if 0 != time_of_interest {
                                 let target_ttl =
                                     valid_at_time(&cert.tbs_certificate, time_of_interest, false);
@@ -629,7 +630,7 @@ fn process_ocsp_response_internal(
                     if let Some(nu) = sr.next_update {
                         pe.add_status(
                             target_cert,
-                            nu.to_unix_duration().as_secs(),
+                            nu.0.to_unix_duration().as_secs(),
                             PathValidationStatus::Valid,
                         );
                     }
@@ -640,7 +641,7 @@ fn process_ocsp_response_internal(
                 if let Some(nu) = sr.next_update {
                     pe.add_status(
                         target_cert,
-                        nu.to_unix_duration().as_secs(),
+                        nu.0.to_unix_duration().as_secs(),
                         PathValidationStatus::CertificateRevoked,
                     );
                 }
@@ -686,7 +687,7 @@ pub(crate) async fn check_revocation_ocsp(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner<Raw>,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;

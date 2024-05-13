@@ -46,15 +46,14 @@ use const_oid::db::rfc5912::{
 };
 use der::Decode;
 use spki::SubjectPublicKeyInfoOwned;
+use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
-use x509_cert::Certificate;
 
 use crate::{
     compare_names,
     environment::pki_environment_traits::*,
     general_subtree_to_string, get_leaf_rdn,
-    path_settings::get_time_of_interest,
     pdv_certificate::*,
     pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name,
@@ -1006,10 +1005,10 @@ impl CertSource {
     /// [`CertSource`] instance. It takes a [`BuffersAndPaths`] instance that includes the buffers that
     /// will be parsed to populate the vector.
     fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
-        let time_of_interest = get_time_of_interest(cps);
+        let time_of_interest = cps.get_time_of_interest();
         for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
             if let Ok(cert) =
-                Certificate::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
+                CertificateInner::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
             {
                 let valid = if let 0 = time_of_interest {
                     true
@@ -1148,7 +1147,7 @@ impl CertSource {
         path: &[usize],
         cps: &CertificationPathSettings,
     ) -> bool {
-        let time_of_interest = get_time_of_interest(cps);
+        let time_of_interest = cps.get_time_of_interest();
         if 0 == time_of_interest {
             return true;
         }

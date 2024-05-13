@@ -236,12 +236,12 @@ async fn stapled_crl_async() {
     cert_path.crls[1] = Some(der_encoded_ee_crl.to_vec());
 
     let mut cps = CertificationPathSettings::new();
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_require_ta_store(&mut cps, false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_require_ta_store(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1646567209);
+        cps.set_time_of_interest(1646567209);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -253,7 +253,7 @@ async fn stapled_crl_async() {
     }
     #[cfg(feature = "remote")]
     {
-        set_time_of_interest(&mut cps, 1646567209);
+        cps.set_time_of_interest(1646567209);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -265,7 +265,7 @@ async fn stapled_crl_async() {
     }
     #[cfg(not(feature = "remote"))]
     {
-        set_time_of_interest(&mut cps, 1649245609);
+        cps.set_time_of_interest(1649245609);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -318,14 +318,14 @@ async fn stapled_mix_async() {
     cert_path.crls[1] = Some(der_encoded_ee_crl.to_vec());
 
     let mut cps = CertificationPathSettings::new();
-    set_require_ta_store(&mut cps, false);
+    cps.set_require_ta_store(false);
 
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_check_crldp_http(&mut cps, false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_crldp_http(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1646567209);
+        cps.set_time_of_interest(1646567209);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -337,7 +337,7 @@ async fn stapled_mix_async() {
     }
     #[cfg(feature = "remote")]
     {
-        set_time_of_interest(&mut cps, 1646567209);
+        cps.set_time_of_interest(1646567209);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -349,7 +349,7 @@ async fn stapled_mix_async() {
     }
     #[cfg(not(feature = "remote"))]
     {
-        set_time_of_interest(&mut cps, 1649245609);
+        cps.set_time_of_interest(1649245609);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -409,13 +409,13 @@ async fn cached_crl_async() {
     let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
-    set_require_ta_store(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_check_crldp_http(&mut cps, false);
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_crldp_http(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -431,7 +431,7 @@ async fn cached_crl_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -485,13 +485,13 @@ async fn cached_crl_revoked_async() {
     let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
-    set_require_ta_store(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_check_crldp_http(&mut cps, false);
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_crldp_http(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -510,7 +510,7 @@ async fn cached_crl_revoked_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -567,12 +567,12 @@ async fn cached_crl_revoked_remote_async() {
     let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
-    set_require_ta_store(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -592,7 +592,7 @@ async fn cached_crl_revoked_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -649,12 +649,12 @@ async fn cached_crl_remote_async() {
     let mut cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
-    set_require_ta_store(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -670,7 +670,7 @@ async fn cached_crl_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        set_time_of_interest(&mut cps, 1647011592);
+        cps.set_time_of_interest(1647011592);
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");

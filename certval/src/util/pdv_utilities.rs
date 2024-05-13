@@ -33,7 +33,7 @@ use x509_cert::name::Name;
 use x509_cert::name::RdnSequence;
 use x509_cert::{
     anchor::{CertPolicies, TrustAnchorChoice},
-    Certificate, TbsCertificate,
+    certificate::{CertificateInner, Raw, TbsCertificateInner},
 };
 
 use crate::{
@@ -51,7 +51,7 @@ use crate::{
 /// used to verify the TBSCertificate field as parsed from the encoded certificate object.
 pub fn is_self_signed_with_buffer(
     pe: &PkiEnvironment,
-    cert: &Certificate,
+    cert: &CertificateInner<Raw>,
     enc_cert: &[u8],
 ) -> bool {
     match DeferDecodeSigned::from_der(enc_cert) {
@@ -85,7 +85,7 @@ pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
-pub fn is_self_issued(cert: &Certificate) -> bool {
+pub fn is_self_issued(cert: &CertificateInner<Raw>) -> bool {
     compare_names(&cert.tbs_certificate.issuer, &cert.tbs_certificate.subject)
 }
 
@@ -128,7 +128,7 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<Strin
 /// evaluated first.
 ///
 /// To stifle logging output upon error, pass true for the stifle_log parameter.
-pub fn valid_at_time(target: &TbsCertificate, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn valid_at_time(target: &TbsCertificateInner<Raw>, toi: u64, stifle_log: bool) -> Result<u64> {
     if 0 == toi {
         // zero is used to disable validity check
         return Ok(0);
@@ -179,7 +179,9 @@ pub(crate) fn add_processed_extension(cpr: &mut CertificationPathResults, oid: O
 ///
 /// True is returned if inhibit any policy is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
+pub(crate) fn get_inhibit_any_policy_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
@@ -216,7 +218,7 @@ pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -
 /// True is returned if a policy constraints extension in is present in a certificate CHOICE or the value
 /// is set in CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
 pub(crate) fn get_require_explicit_policy_from_trust_anchor(
-    ta: &TrustAnchorChoice,
+    ta: &TrustAnchorChoice<Raw>,
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
@@ -255,7 +257,9 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor(
 ///
 /// True is returned if inhibit policy mapping is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
+pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
@@ -291,7 +295,9 @@ pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoic
 /// `get_path_length_constraint_from_trust_anchor` returns the value from basic constraints extension in
 /// TA certificate for certificate CHOICE, the value from CertPathControls for TrustAnchorInfo CHOICE or
 /// [`PS_MAX_PATH_LENGTH_CONSTRAINT`] is no constraint is asserted.
-pub(crate) fn get_path_length_constraint_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<u8> {
+pub(crate) fn get_path_length_constraint_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<u8> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
@@ -335,7 +341,7 @@ pub(crate) const EMAIL_PATTERN: &str =
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
-pub(crate) fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
+pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.to_string();
 
     let mut filter = regex::escape(base.as_str());
@@ -601,7 +607,7 @@ pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
 }
 
 /// log a message with subject name of the certificate appended
-pub fn log_error_for_subject(ca: &Certificate, msg: &str) {
+pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
     log_error_for_name(&ca.tbs_certificate.subject, msg);
 }
 
@@ -862,7 +868,7 @@ pub fn get_leaf_rdn(name: &Name) -> String {
 }
 
 /// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
-pub fn ta_valid_at_time(ta: &TrustAnchorChoice, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn ta_valid_at_time(ta: &TrustAnchorChoice<Raw>, toi: u64, stifle_log: bool) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
             return valid_at_time(&c.tbs_certificate, toi, stifle_log);
@@ -902,7 +908,7 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 fn bad_input_self_signed() {
     use crate::populate_5280_pki_environment;
     let der_encoded_ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
-    let ta_cert = Certificate::from_der(der_encoded_ta).unwrap();
+    let ta_cert = CertificateInner::from_der(der_encoded_ta).unwrap();
     let junk = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
     let mut pe = PkiEnvironment::default();
     populate_5280_pki_environment(&mut pe);

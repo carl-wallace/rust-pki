@@ -27,17 +27,17 @@ use x509_cert::ext::pkix::{
 };
 use x509_cert::name::Name;
 use x509_cert::{
+    certificate::{CertificateInner, Raw},
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
-    Certificate,
 };
 
 use crate::crl::CrlReasons::AllReasons;
 use crate::Error::CrlIncompatible;
 use crate::{
-    add_crl_entry, compare_names, get_time_of_interest, log_error_for_subject, name_to_string,
-    set_validation_status, CertificationPathResults, CertificationPathSettings, DeferDecodeSigned,
-    Error, ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
+    add_crl_entry, compare_names, log_error_for_subject, name_to_string, set_validation_status,
+    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error,
+    ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
     Result,
 };
 
@@ -57,7 +57,7 @@ use der::asn1::Ia5String;
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use crate::{add_crl, get_crl_timeout};
+use crate::add_crl;
 
 // Certificates are classified based on the values found in the CRLDistributionPoints and BasicConstraints
 // extensions, if present, without regard for criticality.  Certificates with BasicConstraints present and
@@ -485,7 +485,7 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
+pub(crate) fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
@@ -856,7 +856,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner<Raw>,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
@@ -888,7 +888,7 @@ fn verify_crl(
 /// informational, so presence is fine. hold instruction is simply ignored with corresponding certificate
 /// treated as revoked. Presence of any other critical extension is cause to discard the CRL. The
 /// certificate issuer extension is assumed to have been checked already via  certificate_issuer_extension_present.
-fn check_entry_extensions(rc: &RevokedCert) -> Result<()> {
+fn check_entry_extensions(rc: &RevokedCert<Raw>) -> Result<()> {
     let exts_to_ignore = [
         ID_CE_INVALIDITY_DATE,
         ID_CE_CRL_REASONS,
@@ -922,7 +922,7 @@ fn check_crl_extensions(exts: &Extensions) -> Result<()> {
 
 /// certificate_issuer_extension_present returns true if a certificate issuer extension is found
 /// in the presented RevokedCert instance and false otherwise.
-fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
+fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
     if let Some(exts) = &rc.crl_entry_extensions {
         for e in exts {
             if e.extn_id == ID_CE_CERTIFICATE_ISSUER {
@@ -933,7 +933,7 @@ fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> {
+pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<Raw>) -> Result<()> {
     if 0 != toi {
         let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
         if tu > toi {
@@ -950,7 +950,7 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> 
     Ok(())
 }
 
-fn check_crl_sign(cert: &Certificate) -> Result<()> {
+fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
     if let Some(exts) = &cert.tbs_certificate.extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_KEY_USAGE {
@@ -982,7 +982,7 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner<Raw>,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
@@ -991,7 +991,7 @@ pub(crate) fn process_crl(
     verify_crl(pe, crl_buf, issuer_cert, cpr)?;
     check_crl_sign(issuer_cert)?;
 
-    let crl = match CertificateList::from_der(crl_buf) {
+    let crl = match CertificateList::<Raw>::from_der(crl_buf) {
         Ok(crl) => crl,
         Err(e) => {
             if let Some(uri) = uri {
@@ -1059,7 +1059,7 @@ pub(crate) fn process_crl(
         return Err(Error::CrlIncompatible);
     }
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
     check_crl_validity(toi, &crl)?;
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
@@ -1134,7 +1134,7 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner<Raw>,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
@@ -1146,7 +1146,7 @@ pub(crate) async fn check_revocation_crl_remote(
             name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
         );
     } else {
-        let timeout = get_crl_timeout(cps);
+        let timeout = cps.get_crl_timeout();
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 

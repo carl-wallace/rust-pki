@@ -10,7 +10,7 @@ cfg_if! {
         use alloc::string::ToString;
         use der::{asn1::OctetString, Length};
         use spki::SubjectPublicKeyInfoOwned;
-        use x509_cert::anchor::{CertPathControls, TrustAnchorInfo};
+        use x509_cert::{anchor::{CertPathControls, TrustAnchorInfo}};
     }
 }
 
@@ -25,6 +25,7 @@ use const_oid::db::rfc5912::{
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::certificate::Raw;
 use x509_cert::ext::pkix::NameConstraints;
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_cert::name::Name;
@@ -43,7 +44,7 @@ pub struct PDVTrustAnchorChoice {
     /// Binary, encoded TrustAnchorChoice object
     pub encoded_ta: Vec<u8>,
     /// Decoded TrustAnchorChoice object
-    pub decoded_ta: TrustAnchorChoice,
+    pub decoded_ta: TrustAnchorChoice<Raw>,
     /// Optional metadata about the trust anchor
     pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the TrustAnchorChoice
@@ -66,10 +67,10 @@ impl TryFrom<&[u8]> for PDVTrustAnchorChoice {
     }
 }
 
-impl TryFrom<TrustAnchorChoice> for PDVTrustAnchorChoice {
+impl TryFrom<TrustAnchorChoice<Raw>> for PDVTrustAnchorChoice {
     type Error = der::Error;
 
-    fn try_from(ta: TrustAnchorChoice) -> der::Result<Self> {
+    fn try_from(ta: TrustAnchorChoice<Raw>) -> der::Result<Self> {
         let enc_ta = ta.to_der()?;
         let mut pdv_ta = PDVTrustAnchorChoice {
             encoded_ta: enc_ta.to_vec(),
@@ -351,7 +352,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
 /// The TBSCertificate option is not supported and the Certificate field within TrustAnchorInfo is
 /// not consulted, i.e., if one wished to use TrustAnchorInfo then the Name must be populated within
 /// CertPathControls.
-pub fn get_trust_anchor_name(ta: &TrustAnchorChoice) -> Result<&Name> {
+pub fn get_trust_anchor_name(ta: &TrustAnchorChoice<Raw>) -> Result<&Name> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             return Ok(&cert.tbs_certificate.subject);

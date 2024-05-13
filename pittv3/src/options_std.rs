@@ -276,7 +276,7 @@ pub async fn options_std(args: &Pittv3Args) {
         };
 
         let mut cps = CertificationPathSettings::new();
-        set_time_of_interest(&mut cps, args.time_of_interest);
+        cps.set_time_of_interest(args.time_of_interest);
 
         let mut pe = PkiEnvironment::default();
 
@@ -305,7 +305,7 @@ pub async fn options_std(args: &Pittv3Args) {
         #[cfg(feature = "webpki")]
         if args.webpki_tas {
             // the TAs read from webpki-roots do not assert a validity do turn off this check
-            set_enforce_trust_anchor_validity(&mut cps, false);
+            cps.set_enforce_trust_anchor_validity(false);
 
             match TaSource::new_from_webpki() {
                 Ok(ta_store) => {
@@ -611,13 +611,13 @@ async fn generate_and_validate(args: &Pittv3Args) {
         }
     };
 
-    if !cps.contains_key(PS_TIME_OF_INTEREST) {
-        set_time_of_interest(&mut cps, args.time_of_interest);
+    if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
+        cps.set_time_of_interest(args.time_of_interest);
     }
 
     #[cfg(feature = "remote")]
     if !args.dynamic_build {
-        set_retrieve_from_aia_sia_http(&mut cps, false);
+        cps.set_retrieve_from_aia_sia_http(false);
     }
 
     let mut pe = PkiEnvironment::default();
@@ -627,7 +627,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     #[cfg(feature = "webpki")]
     if args.webpki_tas {
         // the TAs read from webpki-roots do not assert a validity do turn off this check
-        set_enforce_trust_anchor_validity(&mut cps, false);
+        cps.set_enforce_trust_anchor_validity(false);
 
         match TaSource::new_from_webpki() {
             Ok(ta_store) => {
@@ -712,7 +712,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     let crl_source = match &args.crl_folder {
         Some(crl_folder) => {
             let crl_source = CrlSourceFolders::new(crl_folder);
-            match crl_source.index_crls(get_time_of_interest(&cps)) {
+            match crl_source.index_crls(cps.get_time_of_interest()) {
                 Ok(_) => Some(crl_source),
                 Err(e) => {
                     error!("Failed to index CRL source with {}", e);

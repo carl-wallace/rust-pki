@@ -49,7 +49,10 @@ use sha2::{Digest, Sha256};
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
-use x509_cert::{anchor::TrustAnchorChoice, Certificate};
+use x509_cert::{
+    anchor::TrustAnchorChoice,
+    certificate::{CertificateInner, Raw},
+};
 
 use crate::{
     environment::pki_environment_traits::TrustAnchorSource,
@@ -70,7 +73,7 @@ use crate::{
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
 pub fn get_subject_public_key_info_from_trust_anchor(
-    ta: &TrustAnchorChoice,
+    ta: &TrustAnchorChoice<Raw>,
 ) -> &SubjectPublicKeyInfoOwned {
     match ta {
         TrustAnchorChoice::Certificate(cert) => &cert.tbs_certificate.subject_public_key_info,
@@ -81,7 +84,9 @@ pub fn get_subject_public_key_info_from_trust_anchor(
 
 /// get_certificate_from_trust_anchor returns the certificate from the TrustAnchorChoice. This will
 /// be either the Certificate choice itself or the TrustAnchorInfo.cert_path.certificate field.
-pub fn get_certificate_from_trust_anchor(ta: &TrustAnchorChoice) -> Option<&Certificate> {
+pub fn get_certificate_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Option<&CertificateInner<Raw>> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => return Some(cert),
         TrustAnchorChoice::TaInfo(tai) => {

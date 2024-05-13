@@ -40,7 +40,7 @@ use alloc::{vec, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
-use x509_cert::crl::CertificateList;
+use x509_cert::{certificate::Raw, crl::CertificateList};
 
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{
@@ -420,7 +420,7 @@ impl PkiEnvironment {
     }
 
     /// Adds a CRL to the store
-    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()> {
+    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut at_least_one_success = false;
         for f in &self.crl_sources {
             if f.add_crl(crl_buf, crl, uri).is_ok() {
