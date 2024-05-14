@@ -3,6 +3,8 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::{vec, vec::Vec};
 
+use der::asn1::ObjectIdentifier;
+
 use pkiprocmacros::*;
 
 use crate::path_settings::*;
@@ -291,6 +293,16 @@ impl CertificationPathResults {
         self.set_crl(vec![vec![]; num_certs]);
         self.set_crl_entry(vec![vec![]; num_certs]);
         Ok(())
+    }
+
+    /// `add_processed_extension` takes a [`CertificationPathResults`] and retrieves (or adds then retrieves)
+    /// an entry for [`PR_PROCESSED_EXTENSIONS`] to which the oid is added if not already present.
+    pub(crate) fn add_processed_extension(&mut self, oid: ObjectIdentifier) {
+        let mut oids = self.get_processed_extensions();
+        if !oids.contains(&oid) {
+            oids.insert(oid);
+            self.set_processed_extensions(oids);
+        }
     }
 }
 

@@ -119,7 +119,7 @@ pub fn check_basic_constraints(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_BASIC_CONSTRAINTS);
+    cpr.add_processed_extension(ID_CE_BASIC_CONSTRAINTS);
     let mut path_len_constraint = cps.get_initial_path_length_constraint();
 
     for ca_cert in cp.intermediates.iter() {
@@ -250,7 +250,7 @@ pub fn check_names(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
+    cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
 
     // Read input variables from path settings
     let mut pbufs = BTreeMap::new();
@@ -326,7 +326,7 @@ pub fn check_names(
 
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_SUBJECT_ALT_NAME)?;
             let san = if let Some(PDVExtension::SubjectAltName(san)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_SUBJECT_ALT_NAME);
+                cpr.add_processed_extension(ID_CE_SUBJECT_ALT_NAME);
                 Some(san)
             } else {
                 None
@@ -352,7 +352,7 @@ pub fn check_names(
         if pos + 1 != certs_in_cert_path {
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_NAME_CONSTRAINTS)?;
             if let Some(PDVExtension::NameConstraints(nc)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
+                cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
 
                 if let Some(excl) = &nc.excluded_subtrees {
                     excluded_subtrees.calculate_union(excl);
@@ -384,7 +384,7 @@ pub fn check_key_usage(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_KEY_USAGE);
+    cpr.add_processed_extension(ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
         let ku = match pdv_ext {
@@ -438,7 +438,7 @@ pub fn check_extended_key_usage(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_EXT_KEY_USAGE);
+    cpr.add_processed_extension(ID_CE_EXT_KEY_USAGE);
 
     let target_ekus: Option<ObjectIdentifierSet> = cps.get_extended_key_usage_as_oid_set();
     let process_ekus_across_path = cps.get_extended_key_usage_path();
