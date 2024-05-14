@@ -33,7 +33,15 @@ pub enum CertificationPathResultsTypes {
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map. At present, it is the same as CertificationPathSettings (and so macros to generate
 /// getters and setters are reused).
-pub type CertificationPathResults = BTreeMap<&'static str, CertificationPathResultsTypes>;
+#[derive(Clone, Default)]
+pub struct CertificationPathResults(pub BTreeMap<&'static str, CertificationPathResultsTypes>);
+
+impl CertificationPathResults {
+    /// Creates a new [`CertificationPathResults`]
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+}
 
 /// `PR_PROCESS_EXTENSIONS` is used to retrieve an ObjectIdentifierSet value, i.e., BTreeSet of ObjectIdentifier,
 /// from a [`CertificationPathResults`] object. This list is populated as extensions are processed then used
@@ -93,206 +101,226 @@ cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_TREE, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_GRAPH, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_VALIDATION_STATUS, PathValidationStatus);
 cpr_gets_and_sets!(PR_FAILED_OCSP_REQUESTS, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_failed_ocsp_request(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_failed_ocsp_requests(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(req);
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_failed_ocsp_request(&mut self, req: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_failed_ocsp_requests() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(req);
+        }
+        self.set_failed_ocsp_requests(v);
     }
-    set_failed_ocsp_requests(cpr, v);
 }
 cpr_gets_and_sets!(PR_FAILED_OCSP_RESPONSES, ListOfBuffers);
-/// Add a failed OCSP response to list maintained by CertificationPathResults
-pub fn add_failed_ocsp_response(cpr: &mut CertificationPathResults, resp: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_failed_ocsp_responses(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(resp);
+impl CertificationPathResults {
+    /// Add a failed OCSP response to list maintained by CertificationPathResults
+    pub fn add_failed_ocsp_response(&mut self, resp: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_failed_ocsp_responses() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(resp);
+        }
+        self.set_failed_ocsp_responses(v);
     }
-    set_failed_ocsp_responses(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_FAILED_CRLS, ListOfBuffers);
-/// Add a failed OCSP response to list maintained by CertificationPathResults
-pub fn add_failed_crl(cpr: &mut CertificationPathResults, crl: &[u8], pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_failed_crls(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(crl.to_vec());
+impl CertificationPathResults {
+    /// Add a failed OCSP response to list maintained by CertificationPathResults
+    pub fn add_failed_crl(&mut self, crl: &[u8], pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_failed_crls() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(crl.to_vec());
+        }
+        self.set_failed_crls(v);
     }
-    set_failed_crls(cpr, v);
 }
+
 //TODO use Vec<CrlInfo> instead?
 cpr_gets_and_sets!(PR_CRL, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_crl(cpr: &mut CertificationPathResults, crl: &[u8], pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_crl(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(crl.to_vec());
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_crl(&mut self, crl: &[u8], pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_crl() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(crl.to_vec());
+        }
+        self.set_crl(v);
     }
-    set_crl(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_CRL_ENTRY, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_crl_entry(cpr: &mut CertificationPathResults, crl_entry: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_crl_entry(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(crl_entry);
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_crl_entry(&mut self, crl_entry: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_crl_entry() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(crl_entry);
+        }
+        self.set_crl_entry(v);
     }
-    set_crl_entry(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_OCSP_REQUESTS, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_request(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_ocsp_requests(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(req);
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_ocsp_request(&mut self, req: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_ocsp_requests() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(req);
+        }
+        self.set_ocsp_requests(v);
     }
-    set_ocsp_requests(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_OCSP_RESPONSES, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_response(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_ocsp_responses(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(req);
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_ocsp_response(&mut self, req: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_ocsp_responses() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(req);
+        }
+        self.set_ocsp_responses(v);
     }
-    set_ocsp_responses(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_OCSP_ENTRY, ListOfBuffers);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn add_ocsp_entry(cpr: &mut CertificationPathResults, req: Vec<u8>, pos: usize) {
-    let mut v: ListOfBuffers = if let Some(v) = get_ocsp_entry(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos].push(req);
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn add_ocsp_entry(&mut self, req: Vec<u8>, pos: usize) {
+        let mut v: ListOfBuffers = if let Some(v) = self.get_ocsp_entry() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos].push(req);
+        }
+        self.set_ocsp_entry(v);
     }
-    set_ocsp_entry(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_BLOCKLIST_USAGE, Bools);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_blocklist_usage_for_item(cpr: &mut CertificationPathResults, pos: usize) {
-    let mut v: Vec<bool> = if let Some(v) = get_blocklist_usage(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos] = true;
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn set_blocklist_usage_for_item(&mut self, pos: usize) {
+        let mut v: Vec<bool> = if let Some(v) = self.get_blocklist_usage() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos] = true;
+        }
+        self.set_blocklist_usage(v);
     }
-    set_blocklist_usage(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_ALLOWLIST_USAGE, Bools);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_allowlist_usage_for_item(cpr: &mut CertificationPathResults, pos: usize) {
-    let mut v: Vec<bool> = if let Some(v) = get_allowlist_usage(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos] = true;
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn set_allowlist_usage_for_item(&mut self, pos: usize) {
+        let mut v: Vec<bool> = if let Some(v) = self.get_allowlist_usage() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos] = true;
+        }
+        self.set_allowlist_usage(v);
     }
-    set_allowlist_usage(cpr, v);
 }
 
 cpr_gets_and_sets!(PR_NOCHECK_USAGE, Bools);
-/// Add a failed OCSP request to list maintained by CertificationPathResults
-pub fn set_nocheck_for_item(cpr: &mut CertificationPathResults, pos: usize) {
-    let mut v: Vec<bool> = if let Some(v) = get_nocheck_usage(cpr) {
-        v
-    } else {
-        return;
-    };
-    if v.len() > pos {
-        v[pos] = true;
+impl CertificationPathResults {
+    /// Add a failed OCSP request to list maintained by CertificationPathResults
+    pub fn set_nocheck_for_item(&mut self, pos: usize) {
+        let mut v: Vec<bool> = if let Some(v) = self.get_nocheck_usage() {
+            v
+        } else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos] = true;
+        }
+        self.set_nocheck_usage(v);
     }
-    set_nocheck_usage(cpr, v);
-}
 
-/// prepare_revocation_results takes a CertificationPathResults and the number of certificates in a certification
-/// path (not counting the trust anchor). It prepares results variables set to appropriate capacity to receive
-/// revocation-related results.
-pub fn prepare_revocation_results(
-    cpr: &mut CertificationPathResults,
-    num_certs: usize,
-) -> Result<()> {
-    set_nocheck_usage(cpr, vec![false; num_certs]);
-    set_blocklist_usage(cpr, vec![false; num_certs]);
-    set_allowlist_usage(cpr, vec![false; num_certs]);
-    set_ocsp_requests(cpr, vec![vec![]; num_certs]);
-    set_ocsp_responses(cpr, vec![vec![]; num_certs]);
-    set_failed_ocsp_requests(cpr, vec![vec![]; num_certs]);
-    set_failed_ocsp_responses(cpr, vec![vec![]; num_certs]);
-    set_failed_crls(cpr, vec![vec![]; num_certs]);
-    set_ocsp_entry(cpr, vec![vec![]; num_certs]);
-    set_crl(cpr, vec![vec![]; num_certs]);
-    set_crl_entry(cpr, vec![vec![]; num_certs]);
-    Ok(())
+    /// prepare_revocation_results takes a CertificationPathResults and the number of certificates in a certification
+    /// path (not counting the trust anchor). It prepares results variables set to appropriate capacity to receive
+    /// revocation-related results.
+    pub fn prepare_revocation_results(&mut self, num_certs: usize) -> Result<()> {
+        self.set_nocheck_usage(vec![false; num_certs]);
+        self.set_blocklist_usage(vec![false; num_certs]);
+        self.set_allowlist_usage(vec![false; num_certs]);
+        self.set_ocsp_requests(vec![vec![]; num_certs]);
+        self.set_ocsp_responses(vec![vec![]; num_certs]);
+        self.set_failed_ocsp_requests(vec![vec![]; num_certs]);
+        self.set_failed_ocsp_responses(vec![vec![]; num_certs]);
+        self.set_failed_crls(vec![vec![]; num_certs]);
+        self.set_ocsp_entry(vec![vec![]; num_certs]);
+        self.set_crl(vec![vec![]; num_certs]);
+        self.set_crl_entry(vec![vec![]; num_certs]);
+        Ok(())
+    }
 }
 
 #[test]
 fn check_prepared_results() {
     let mut cpr = CertificationPathResults::default();
-    assert!(prepare_revocation_results(&mut cpr, 4).is_ok());
-    assert_eq!(4, get_nocheck_usage(&cpr).unwrap().len());
-    assert_eq!(4, get_blocklist_usage(&cpr).unwrap().len());
-    assert_eq!(4, get_allowlist_usage(&cpr).unwrap().len());
-    assert_eq!(4, get_ocsp_requests(&cpr).unwrap().len());
-    assert_eq!(4, get_ocsp_responses(&cpr).unwrap().len());
-    assert_eq!(4, get_failed_ocsp_requests(&cpr).unwrap().len());
-    assert_eq!(4, get_failed_ocsp_responses(&cpr).unwrap().len());
-    assert_eq!(4, get_failed_crls(&cpr).unwrap().len());
-    assert_eq!(4, get_ocsp_entry(&cpr).unwrap().len());
-    assert_eq!(4, get_crl(&cpr).unwrap().len());
-    assert_eq!(4, get_crl_entry(&cpr).unwrap().len());
+    assert!(cpr.prepare_revocation_results(4).is_ok());
+    assert_eq!(4, cpr.get_nocheck_usage().unwrap().len());
+    assert_eq!(4, cpr.get_blocklist_usage().unwrap().len());
+    assert_eq!(4, cpr.get_allowlist_usage().unwrap().len());
+    assert_eq!(4, cpr.get_ocsp_requests().unwrap().len());
+    assert_eq!(4, cpr.get_ocsp_responses().unwrap().len());
+    assert_eq!(4, cpr.get_failed_ocsp_requests().unwrap().len());
+    assert_eq!(4, cpr.get_failed_ocsp_responses().unwrap().len());
+    assert_eq!(4, cpr.get_failed_crls().unwrap().len());
+    assert_eq!(4, cpr.get_ocsp_entry().unwrap().len());
+    assert_eq!(4, cpr.get_crl().unwrap().len());
+    assert_eq!(4, cpr.get_crl_entry().unwrap().len());
 
     let mut cpr = CertificationPathResults::default();
-    assert!(prepare_revocation_results(&mut cpr, 0).is_ok());
-    assert_eq!(0, get_nocheck_usage(&cpr).unwrap().len());
-    assert_eq!(0, get_blocklist_usage(&cpr).unwrap().len());
-    assert_eq!(0, get_allowlist_usage(&cpr).unwrap().len());
-    assert_eq!(0, get_ocsp_requests(&cpr).unwrap().len());
-    assert_eq!(0, get_ocsp_responses(&cpr).unwrap().len());
-    assert_eq!(0, get_failed_ocsp_requests(&cpr).unwrap().len());
-    assert_eq!(0, get_failed_ocsp_responses(&cpr).unwrap().len());
-    assert_eq!(0, get_failed_crls(&cpr).unwrap().len());
-    assert_eq!(0, get_ocsp_entry(&cpr).unwrap().len());
-    assert_eq!(0, get_crl(&cpr).unwrap().len());
-    assert_eq!(0, get_crl_entry(&cpr).unwrap().len());
+    assert!(cpr.prepare_revocation_results(0).is_ok());
+    assert_eq!(0, cpr.get_nocheck_usage().unwrap().len());
+    assert_eq!(0, cpr.get_blocklist_usage().unwrap().len());
+    assert_eq!(0, cpr.get_allowlist_usage().unwrap().len());
+    assert_eq!(0, cpr.get_ocsp_requests().unwrap().len());
+    assert_eq!(0, cpr.get_ocsp_responses().unwrap().len());
+    assert_eq!(0, cpr.get_failed_ocsp_requests().unwrap().len());
+    assert_eq!(0, cpr.get_failed_ocsp_responses().unwrap().len());
+    assert_eq!(0, cpr.get_failed_crls().unwrap().len());
+    assert_eq!(0, cpr.get_ocsp_entry().unwrap().len());
+    assert_eq!(0, cpr.get_crl().unwrap().len());
+    assert_eq!(0, cpr.get_crl_entry().unwrap().len());
 }

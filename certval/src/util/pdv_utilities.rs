@@ -37,14 +37,9 @@ use x509_cert::{
 };
 
 use crate::{
-    environment::pki_environment::PkiEnvironment,
-    name_constraints_set::UID,
-    path_results::{get_processed_extensions, set_processed_extensions, CertificationPathResults},
-    path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT,
-    pdv_certificate::*,
-    pdv_extension::*,
-    util::error::*,
-    util::pdv_alg_oids::*,
+    environment::pki_environment::PkiEnvironment, name_constraints_set::UID,
+    path_results::CertificationPathResults, path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT,
+    pdv_certificate::*, pdv_extension::*, util::error::*, util::pdv_alg_oids::*,
 };
 
 /// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
@@ -167,10 +162,10 @@ pub fn valid_at_time(target: &TbsCertificateInner<Raw>, toi: u64, stifle_log: bo
 /// `add_processed_extension` takes a [`CertificationPathResults`] and retrieves (or adds then retrieves)
 /// an entry for [`PR_PROCESSED_EXTENSIONS`] to which the oid is added if not already present.
 pub(crate) fn add_processed_extension(cpr: &mut CertificationPathResults, oid: ObjectIdentifier) {
-    let mut oids = get_processed_extensions(cpr);
+    let mut oids = cpr.get_processed_extensions();
     if !oids.contains(&oid) {
         oids.insert(oid);
-        set_processed_extensions(cpr, oids);
+        cpr.set_processed_extensions(oids);
     }
 }
 

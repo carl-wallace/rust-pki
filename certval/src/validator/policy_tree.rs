@@ -283,7 +283,7 @@ pub fn check_certificate_policies(
                 ca_cert,
                 "NULL policy set while processing intermediate CA certificate",
             );
-            set_validation_status(cpr, PathValidationStatus::NullPolicySet);
+            cpr.set_validation_status(PathValidationStatus::NullPolicySet);
             return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
         }
 
@@ -556,7 +556,7 @@ pub fn check_certificate_policies(
                     ca_cert,
                     "NULL policy set while processing intermediate CA certificate",
                 );
-                set_validation_status(cpr, PathValidationStatus::NullPolicySet);
+                cpr.set_validation_status(PathValidationStatus::NullPolicySet);
                 return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
             }
         }
@@ -576,7 +576,7 @@ pub fn check_certificate_policies(
         }
         final_valid_policy_tree.push(new_row);
     }
-    set_final_valid_policy_tree(cpr, final_valid_policy_tree);
+    cpr.set_final_valid_policy_tree(final_valid_policy_tree);
 
     Ok(())
 }

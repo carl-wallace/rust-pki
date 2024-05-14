@@ -35,14 +35,10 @@ use x509_cert::{
 use crate::crl::CrlReasons::AllReasons;
 use crate::Error::CrlIncompatible;
 use crate::{
-    add_crl_entry, compare_names, log_error_for_subject, name_to_string, set_validation_status,
-    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error,
-    ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
-    Result,
+    compare_names, log_error_for_subject, name_to_string, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
+    PDVExtension, PathValidationStatus, PkiEnvironment, Result,
 };
-
-#[cfg(feature = "revocation")]
-use crate::add_failed_crl;
 
 #[cfg(feature = "remote")]
 use std::time::Duration;
@@ -55,9 +51,6 @@ use der::asn1::Ia5String;
 
 #[cfg(feature = "remote")]
 use alloc::vec;
-
-#[cfg(feature = "remote")]
-use crate::add_crl;
 
 // Certificates are classified based on the values found in the CRLDistributionPoints and BasicConstraints
 // extensions, if present, without regard for criticality.  Certificates with BasicConstraints present and
@@ -876,7 +869,7 @@ fn verify_crl(
             issuer_cert,
             format!("CRL signature verification error: {:?}", e).as_str(),
         );
-        set_validation_status(cpr, PathValidationStatus::SignatureVerificationFailure);
+        cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
             PathValidationStatus::SignatureVerificationFailure,
         ));
@@ -999,7 +992,7 @@ pub(crate) fn process_crl(
             } else {
                 error!("Failed to parse CRL from with {}", e);
             }
-            add_failed_crl(cpr, crl_buf, result_index);
+            cpr.add_failed_crl(crl_buf, result_index);
             return Err(Error::Asn1Error(e));
         }
     };
@@ -1095,7 +1088,7 @@ pub(crate) fn process_crl(
 
                 match rc.to_der() {
                     Ok(enc_entry) => {
-                        add_crl_entry(cpr, enc_entry, result_index);
+                        cpr.add_crl_entry(enc_entry, result_index);
                     }
                     Err(e) => {
                         error!(
@@ -1168,19 +1161,19 @@ pub(crate) async fn check_revocation_crl_remote(
             ) {
                 Ok(_ok) => {
                     target_status = {
-                        add_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_crl(crl.as_slice(), pos);
                         info!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject);
                         PathValidationStatus::Valid
                     }
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
-                        add_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_crl(crl.as_slice(), pos);
                         info!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject);
                         return PathValidationStatus::CertificateRevoked;
                     } else {
                         info!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e);
-                        add_failed_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_failed_crl(crl.as_slice(), pos);
                     }
                 }
             };

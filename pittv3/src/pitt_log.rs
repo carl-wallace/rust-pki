@@ -533,13 +533,13 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
 /// `log_cpr` contributes to the manifest file related to
 /// [`CertificationPathResults`](../certval/path_settings/type.CertificationPathResults.html) contents.
 pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &CertificationPathResults) {
-    let status = get_validation_status(cpr);
+    let status = cpr.get_validation_status();
     if let Some(status) = status {
         f.write_all(format!("Status: {:?}\n\n", status).as_bytes())
             .expect("Unable to write manifest file");
     }
 
-    let vpt = get_final_valid_policy_tree(cpr);
+    let vpt = cpr.get_final_valid_policy_tree();
     if let Some(vpt) = vpt {
         f.write_all("Valid certificate policies\n".as_bytes())
             .expect("Unable to write manifest file");
@@ -557,7 +557,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
 
     // i + i in the below loops because TAs are not considered here (and the indexes for artifcacts uses
     // TAs in slot 0).
-    if let Some(ocsp_reqs) = get_ocsp_requests(cpr) {
+    if let Some(ocsp_reqs) = cpr.get_ocsp_requests() {
         for (i, or) in ocsp_reqs.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -570,7 +570,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_resp) = get_ocsp_responses(cpr) {
+    if let Some(ocsp_resp) = cpr.get_ocsp_responses() {
         for (i, or) in ocsp_resp.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -583,7 +583,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_reqs) = get_failed_ocsp_requests(cpr) {
+    if let Some(ocsp_reqs) = cpr.get_failed_ocsp_requests() {
         for (i, or) in ocsp_reqs.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -596,7 +596,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_resp) = get_failed_ocsp_responses(cpr) {
+    if let Some(ocsp_resp) = cpr.get_failed_ocsp_responses() {
         for (i, or) in ocsp_resp.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -609,7 +609,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(crls) = get_crl(cpr) {
+    if let Some(crls) = cpr.get_crl() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -622,7 +622,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(crls) = get_failed_crls(cpr) {
+    if let Some(crls) = cpr.get_failed_crls() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
