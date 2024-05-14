@@ -114,7 +114,7 @@ pub fn options_std_app(args: &Pittv3Args) {
     }
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     pe.add_certificate_source(Box::new(cert_source.clone()));
 

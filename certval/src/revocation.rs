@@ -15,7 +15,6 @@
 //! use certval::environment::PkiEnvironment;
 //! use certval::source::{ta_source::TaSource, cert_source::CertSource, crl_source::CrlSourceFolders};
 //! use certval::{CertificationPathSettings, CertificationPath, CertificationPathResults, check_revocation, get_time_of_interest, parse_cert};
-//! use certval::populate_5280_pki_environment;
 //!
 //! let ta_source = TaSource::default();
 //! // populate TA source
@@ -27,7 +26,7 @@
 //!
 //! // Create and populate a PkiEnvironment object
 //! let mut pe = PkiEnvironment::default();
-//! populate_5280_pki_environment(&mut pe);
+//! pe.populate_5280_pki_environment();
 //! pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 //! pe.add_certificate_source(Box::new(cert_source.clone()));
 //! pe.add_crl_source(Box::new(crl_source.clone()));

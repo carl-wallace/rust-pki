@@ -916,12 +916,11 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 
 #[test]
 fn bad_input_self_signed() {
-    use crate::populate_5280_pki_environment;
     let der_encoded_ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
     let ta_cert = CertificateInner::from_der(der_encoded_ta).unwrap();
     let junk = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     assert!(!is_self_signed_with_buffer(&pe, &ta_cert, junk));
 }
 

@@ -202,7 +202,7 @@ async fn non_existent_dir() {
     );
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
 
     let mut ta_store = TaSource::new();
     ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();

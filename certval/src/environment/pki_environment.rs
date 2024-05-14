@@ -12,7 +12,7 @@
 //! let mut pe = PkiEnvironment::default();
 //!
 //! // add basic hashing, signature verification and path validation capabilities
-//! populate_5280_pki_environment(&mut pe);
+//! pe.populate_5280_pki_environment();
 //!
 //! let mut ta_source = TaSource::default();
 //! // populate the ta_store.buffers and ta_store.tas fields then index the trust anchors. see the
@@ -563,31 +563,31 @@ impl PkiEnvironment {
             f.add_to_blocklist(uri);
         }
     }
-}
 
-/// `populate_5280_pki_environment` populates a default [`PkiEnvironment`] instance with a default set of callback
-/// functions specified.
-///
-/// The following callbacks are added:
-/// - [`validate_path_rfc5280`]
-/// - [`calculate_hash_rust_crypto`]
-/// - [`verify_signature_digest_rust_crypto`]
-/// - [`verify_signature_message_rust_crypto`]
-///
-/// This function assumes that [`oid_lookup`] is either present due to [`PkiEnvironment::default`] creation
-/// or that it has been deliberately removed or replaced by the caller but will add oid_lookup if
-/// OID lookup support is absent.
-pub fn populate_5280_pki_environment(pe: &mut PkiEnvironment) {
-    pe.add_validate_path_callback(validate_path_rfc5280);
-    pe.add_calculate_hash_callback(calculate_hash_rust_crypto);
-    pe.add_verify_signature_digest_callback(verify_signature_digest_rust_crypto);
-    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto);
-    if pe.oid_lookups.is_empty() {
-        pe.add_oid_lookup(oid_lookup);
+    /// `populate_5280_pki_environment` populates a default [`PkiEnvironment`] instance with a default set of callback
+    /// functions specified.
+    ///
+    /// The following callbacks are added:
+    /// - [`validate_path_rfc5280`]
+    /// - [`calculate_hash_rust_crypto`]
+    /// - [`verify_signature_digest_rust_crypto`]
+    /// - [`verify_signature_message_rust_crypto`]
+    ///
+    /// This function assumes that [`oid_lookup`] is either present due to [`PkiEnvironment::default`] creation
+    /// or that it has been deliberately removed or replaced by the caller but will add oid_lookup if
+    /// OID lookup support is absent.
+    pub fn populate_5280_pki_environment(&mut self) {
+        self.add_validate_path_callback(validate_path_rfc5280);
+        self.add_calculate_hash_callback(calculate_hash_rust_crypto);
+        self.add_verify_signature_digest_callback(verify_signature_digest_rust_crypto);
+        self.add_verify_signature_message_callback(verify_signature_message_rust_crypto);
+        if self.oid_lookups.is_empty() {
+            self.add_oid_lookup(oid_lookup);
+        }
+
+        #[cfg(feature = "pqc")]
+        self.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
+        #[cfg(feature = "pqc")]
+        self.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
     }
-
-    #[cfg(feature = "pqc")]
-    pe.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
-    #[cfg(feature = "pqc")]
-    pe.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
 }

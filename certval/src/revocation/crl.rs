@@ -1196,12 +1196,11 @@ pub(crate) async fn check_revocation_crl_remote(
 #[cfg(feature = "remote")]
 #[tokio::test]
 async fn fetch_crl_test() {
-    use crate::populate_5280_pki_environment;
     use crate::{CrlSourceFolders, RemoteStatus, RevocationCache};
     use std::path::PathBuf;
     let mut pe = PkiEnvironment::default();
     pe.clear_all_callbacks();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
 
     let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let f = d.join("tests/examples/fetch_crl_test");

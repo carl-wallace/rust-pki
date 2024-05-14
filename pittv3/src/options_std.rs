@@ -191,14 +191,14 @@ pub async fn options_std(args: &Pittv3Args) {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         cleanup(&pe, args);
     }
 
     if args.ta_cleanup {
         // TA cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         ta_cleanup(&pe, args);
     }
 
@@ -300,7 +300,7 @@ pub async fn options_std(args: &Pittv3Args) {
             error!("Failed to populate cert vector with: {:?}", e);
         }
 
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
 
         #[cfg(feature = "webpki")]
         if args.webpki_tas {
@@ -527,7 +527,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
                 if let Ok(target_cert) = parsed_cert {
                     let mut pe = PkiEnvironment::default();
-                    populate_5280_pki_environment(&mut pe);
+                    pe.populate_5280_pki_environment();
                     if is_self_signed(&pe, &target_cert) {
                         println!("{} is self-signed", eff);
                     } else {
@@ -539,7 +539,7 @@ pub async fn options_std(args: &Pittv3Args) {
                         let parsed_cert = parse_cert(&encoded.1, eff.as_str());
                         if let Ok(target_cert) = parsed_cert {
                             let mut pe = PkiEnvironment::default();
-                            populate_5280_pki_environment(&mut pe);
+                            pe.populate_5280_pki_environment();
                             if is_self_signed(&pe, &target_cert) {
                                 println!("{} is self-signed", eff);
                             } else {
@@ -621,7 +621,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     }
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
 
     let mut ta_store_added = false;
     #[cfg(feature = "webpki")]

@@ -31,10 +31,9 @@ use x509_cert::{
 
 use certval::{
     enforce_trust_anchor_constraints, get_validation_status,
-    name_constraints_settings_to_name_constraints_set, populate_5280_pki_environment, CertFile,
-    CertSource, CertVector, CertificationPath, CertificationPathResults, CertificationPathSettings,
-    ExtensionProcessing, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
-    TaSource,
+    name_constraints_settings_to_name_constraints_set, CertFile, CertSource, CertVector,
+    CertificationPath, CertificationPathResults, CertificationPathSettings, ExtensionProcessing,
+    NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment, TaSource,
 };
 
 type Certificate = CertificateInner<Raw>;
@@ -379,7 +378,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     cps.set_time_of_interest(time_of_interest);
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
 
     // Prepare a TA store using TAs from the testcase
     let mut ta_store = TaSource::new();
