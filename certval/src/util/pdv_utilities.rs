@@ -560,6 +560,16 @@ pub(crate) fn has_uri(subtrees: &GeneralSubtrees) -> bool {
     false
 }
 
+/// `has_ip` returns true if the given GeneralSubtrees contains at least one IP address and false otherwise
+pub(crate) fn has_ip(subtrees: &GeneralSubtrees) -> bool {
+    for subtree in subtrees {
+        if let GeneralName::IpAddress(_uri) = &subtree.base {
+            return true;
+        }
+    }
+    false
+}
+
 /// get_hash_alg_from_sig_alg takes an ObjectIdentifier that notionally contains a signature algorithm,
 /// i.e., PKIXALG_SHA256_WITH_RSA_ENCRYPTION or PKIXALG_ECDSA_WITH_SHA256, and returns the indicated hash
 /// algorithm.

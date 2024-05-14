@@ -12,7 +12,7 @@ categories = ["cryptography", "pki", "no-std"]
 keywords = ["crypto", "x.509", "OCSP"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.75"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -44,7 +44,9 @@ readonly = "0.2.11"
 serde = {version = "1.0.190", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
 
+bitvec = { version = "1.0.1", optional = true }
 ciborium = {version = "0.2.1", default-features = false }
+cidr = { version = "0.2.2", optional = true }
 log = {version = "0.4.20", default-features = false}
 ndarray = {version = "0.15.6", optional = true, default-features = false}
 reqwest = { version = "0.11.22", features = ["blocking"], optional = true}
@@ -82,7 +84,7 @@ tokio-test = "0.4.2"
 [features]
 default = ["remote", "webpki"]
 revocation = ["ndarray"]
-std = ["ndarray", "tokio", "base64ct", "walkdir", "url", "serde_json", "serde/rc",  "flagset/serde", "regex", "lazy_static/spin"]
+std = ["ndarray", "tokio", "base64ct", "walkdir", "url", "serde_json", "serde/rc",  "flagset/serde", "regex", "lazy_static/spin", "bitvec", "cidr"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
 webpki = ["webpki-roots"]

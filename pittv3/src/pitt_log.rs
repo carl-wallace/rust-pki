@@ -97,7 +97,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in perm.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(&dn)).as_bytes())
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -140,7 +140,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in excl.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(&dn)).as_bytes())
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -797,6 +797,7 @@ fn test_cps_log() {
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+        ip_address: None,
         not_supported: None,
     };
     cps.set_initial_permitted_subtrees(perm);
@@ -806,6 +807,7 @@ fn test_cps_log() {
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+        ip_address: None,
         not_supported: None,
     };
     cps.set_initial_excluded_subtrees(excl);

@@ -19,8 +19,8 @@ use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::anchor::TrustAnchorChoice;
-use x509_cert::ext::Extensions;
 use x509_cert::ext::pkix::KeyUsages;
+use x509_cert::ext::Extensions;
 
 use crate::validator::policy_graph::check_certificate_policies_graph;
 
@@ -642,7 +642,7 @@ pub fn enforce_trust_anchor_constraints(
                             Err(e) => return Err(e),
                         };
                         initial_perm.calculate_union(permitted);
-                        mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm);
+                        mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm)?;
                     }
                 }
                 name_constraints = pdv_ext;
@@ -657,7 +657,7 @@ pub fn enforce_trust_anchor_constraints(
                         Err(e) => return Err(e),
                     };
                 initial_excl.calculate_union(excluded);
-                mod_cps.set_initial_excluded_subtrees_from_set(&initial_excl);
+                mod_cps.set_initial_excluded_subtrees_from_set(&initial_excl)?;
             }
         }
     }
@@ -752,7 +752,7 @@ pub fn enforce_trust_anchor_constraints(
     match &ta.decoded_ta {
         TrustAnchorChoice::Certificate(c) => {
             check_critical_extensions_from_ta(&c.tbs_certificate.extensions)?;
-        },
+        }
         TrustAnchorChoice::TaInfo(tai) => {
             check_critical_extensions_from_ta(&tai.extensions)?;
         }
@@ -765,13 +765,18 @@ pub fn enforce_trust_anchor_constraints(
 }
 
 fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
-    let recognized_oids = [ID_CE_BASIC_CONSTRAINTS, ID_CE_NAME_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES, ID_CE_POLICY_CONSTRAINTS, ID_CE_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY];
+    let recognized_oids = [
+        ID_CE_BASIC_CONSTRAINTS,
+        ID_CE_NAME_CONSTRAINTS,
+        ID_CE_CERTIFICATE_POLICIES,
+        ID_CE_POLICY_CONSTRAINTS,
+        ID_CE_KEY_USAGE,
+        ID_CE_INHIBIT_ANY_POLICY,
+    ];
     if let Some(exts) = exts {
         for ext in exts {
-            if ext.critical {
-                if !recognized_oids.contains(&ext.extn_id) {
-                    return Err(Error::Unrecognized);
-                }
+            if ext.critical && !recognized_oids.contains(&ext.extn_id) {
+                return Err(Error::Unrecognized);
             }
         }
     }
