@@ -36,9 +36,6 @@ use crate::revocation::crl::check_revocation_crl_remote;
 #[cfg(feature = "remote")]
 use crate::revocation::ocsp_client::check_revocation_ocsp;
 
-#[cfg(not(feature = "std"))]
-use core::ops::Deref;
-
 /// check_revocation is top level revocation checking function supports a variety of revocation status
 /// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses. Assuming all options
 /// are enabled, the order of priority is:
@@ -261,7 +258,7 @@ pub fn check_revocation(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let check_rev = get_check_revocation_status(cps);
+    let check_rev = cps.get_check_revocation_status();
     if !check_rev {
         // nothing to do
         info!("Revocation checking disabled");
@@ -274,13 +271,13 @@ pub fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = get_crl_grace_periods_as_last_resort(cps);
-    let check_crls = get_check_crls(cps);
+    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
+    let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
-    let check_crldp_http = get_check_crldp_http(cps);
+    let check_crldp_http = cps.get_check_crldp_http();
     #[cfg(feature = "remote")]
-    let check_ocsp_from_aia = get_check_ocsp_from_aia(cps);
+    let check_ocsp_from_aia = cps.get_check_ocsp_from_aia();
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
@@ -298,12 +295,12 @@ pub fn check_revocation(
 
     let max_index = v.len() - 1;
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
 
     // save up the statuses and return Ok only if none are RevocationStatusNotDetermined
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let cur_cert = ca_cert_ref.deref();
+        let cur_cert = ca_cert_ref;
         let cur_cert_subject = name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate.subject);
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
