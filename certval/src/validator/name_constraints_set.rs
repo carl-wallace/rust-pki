@@ -797,6 +797,7 @@ impl NameConstraintsSet {
             + self.dns_name.len()
             + self.directory_name.len()
             + self.uniform_resource_identifier.len()
+            + self.ip_address.len()
             + self.not_supported.len()
     }
 }
