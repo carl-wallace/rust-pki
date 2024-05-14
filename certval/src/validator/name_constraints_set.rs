@@ -6,6 +6,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+#[cfg(feature = "std")]
 use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 #[cfg(feature = "std")]
 use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
 
-use der::asn1::{OctetString, PrintableString, Utf8StringRef};
+#[cfg(feature = "std")]
+use der::asn1::OctetString;
+
+use der::asn1::{PrintableString, Utf8StringRef};
 use der::{
     asn1::{Any, Ia5String, ObjectIdentifier},
     Decode, Encode, Tag, Tagged,
@@ -227,6 +231,7 @@ impl NameConstraintsSet {
         for gn_san in san {
             for subtree_san in gn_san.0.iter() {
                 match subtree_san {
+                    #[allow(unused_mut)]
                     GeneralName::DirectoryName(dn_san) => {
                         if self.directory_name_null {
                             return false;
@@ -254,8 +259,7 @@ impl NameConstraintsSet {
                             return false;
                         }
                     } // end GeneralName::DirectoryName
-
-                    #[allow(unused_variables)]
+                    #[allow(unused_variables, unused_mut)]
                     GeneralName::Rfc822Name(rfc822_san) => {
                         if self.rfc822_name_null {
                             return false;
@@ -281,7 +285,7 @@ impl NameConstraintsSet {
                         }
                     } // end GeneralName::Rfc822Name
 
-                    #[allow(unused_variables)]
+                    #[allow(unused_variables, unused_mut)]
                     GeneralName::DnsName(dns_san) => {
                         if self.dns_name_null {
                             return false;
@@ -307,7 +311,7 @@ impl NameConstraintsSet {
                         }
                     } // end GeneralName::DnsName
 
-                    #[allow(unused_variables)]
+                    #[allow(unused_variables, unused_mut)]
                     GeneralName::UniformResourceIdentifier(uri_san) => {
                         if self.uniform_resource_identifier_null {
                             return false;
@@ -342,6 +346,7 @@ impl NameConstraintsSet {
                             return false;
                         }
                     } // end GeneralName::UniformResourceIdentifier
+                    #[allow(unused_variables, unused_mut)]
                     GeneralName::IpAddress(ip_san) => {
                         if self.ip_address_null {
                             return false;
@@ -801,6 +806,7 @@ pub struct NameConstraintsSettings {
     pub directory_name: Option<Vec<String>>, //t = 4
     /// uniform_resource_identifier governs use of URIs in SANs
     pub uniform_resource_identifier: Option<Vec<String>>, //t = 6
+    #[cfg(feature = "std")]
     /// ip_address governs use of URIs in SANs
     pub ip_address: Option<Vec<String>>, //t = 7
     /// ASCII hex encoding of unsupported GeneralSubtree
@@ -958,7 +964,9 @@ pub fn name_constraints_settings_to_name_constraints_set(
     }
     bufs.insert("uri".to_string(), uribufs);
 
+    #[allow(unused_mut)]
     let mut ipbufs: Vec<Vec<u8>> = vec![];
+    #[cfg(feature = "std")]
     if let Some(ips) = &settings.ip_address {
         for ip in ips {
             let parts: Vec<&str> = ip.split('/').collect();
@@ -1258,7 +1266,8 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         vns = Some(tmp);
     }
 
-    Ok(NameConstraintsSettings {
+    #[cfg(feature = "std")]
+    return Ok(NameConstraintsSettings {
         rfc822_name: vrfc,
         dns_name: vdns,
         directory_name: vdn,
@@ -1266,7 +1275,17 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         user_principal_name: vupn,
         ip_address: vips,
         not_supported: vns,
-    })
+    });
+
+    #[cfg(not(feature = "std"))]
+    return Ok(NameConstraintsSettings {
+        rfc822_name: vrfc,
+        dns_name: vdns,
+        directory_name: vdn,
+        uniform_resource_identifier: vuri,
+        user_principal_name: vupn,
+        not_supported: vns,
+    });
 }
 
 #[test]
