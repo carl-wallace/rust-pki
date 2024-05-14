@@ -505,13 +505,17 @@ impl CertificationPathSettings {
 
     /// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
     /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-    pub fn set_initial_permitted_subtrees_from_set(&mut self, ncs: &NameConstraintsSet) {
+    pub fn set_initial_permitted_subtrees_from_set(
+        &mut self,
+        ncs: &NameConstraintsSet,
+    ) -> Result<()> {
         self.0.insert(
             PS_INITIAL_PERMITTED_SUBTREES.to_string(),
             CertificationPathProcessingTypes::NameConstraintsSettings(
-                name_constraints_set_to_name_constraints_settings(ncs),
+                name_constraints_set_to_name_constraints_settings(ncs)?,
             ),
         );
+        Ok(())
     }
 
     /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
@@ -591,13 +595,17 @@ impl CertificationPathSettings {
 
     /// `set_initial_excluded_subtrees_from_set` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
     /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-    pub fn set_initial_excluded_subtrees_from_set(&mut self, ncs: &NameConstraintsSet) {
+    pub fn set_initial_excluded_subtrees_from_set(
+        &mut self,
+        ncs: &NameConstraintsSet,
+    ) -> Result<()> {
         self.0.insert(
             PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
             CertificationPathProcessingTypes::NameConstraintsSettings(
-                name_constraints_set_to_name_constraints_settings(ncs),
+                name_constraints_set_to_name_constraints_settings(ncs)?,
             ),
         );
+        Ok(())
     }
 }
 
@@ -961,6 +969,7 @@ fn test_no_default_sets_cps() {
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+        ip_address: None,
         not_supported: None,
     });
     let perm = cps.get_initial_permitted_subtrees().unwrap();
@@ -1017,6 +1026,7 @@ fn test_no_default_sets_cps() {
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+        ip_address: None,
         not_supported: None,
     });
     let excl = cps.get_initial_excluded_subtrees().unwrap();

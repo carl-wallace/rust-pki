@@ -208,8 +208,7 @@ pub fn verify_signature_digest_rust_crypto(
 
 fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<ObjectIdentifier> {
     if let Some(params) = &alg_id.parameters {
-        //todo unwrap
-        let ar: AnyRef<'_> = params.try_into().unwrap();
+        let ar: AnyRef<'_> = params.into();
         if let Ok(oid) = ObjectIdentifier::try_from(ar) {
             return Ok(oid);
         }

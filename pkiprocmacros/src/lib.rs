@@ -68,7 +68,7 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let getter_str = format!("get_{}", flag_str);
     let setter_str = format!("set_{}", flag_str);
     let cps_type_str = format!("{}", return_t);
-    let mut upper_cps_type_str = if let true = is_string_numeric(&cps_type_str[1..]) {
+    let mut upper_cps_type_str = if is_string_numeric(&cps_type_str[1..]) {
         cps_type_str.to_uppercase()
     } else {
         cps_type_str
@@ -123,7 +123,7 @@ pub fn cpr_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let getter_str = format!("get_{}", flag_str);
     let setter_str = format!("set_{}", flag_str);
     let cpr_type_str = format!("{}", return_t);
-    let mut upper_cpr_type_str = if let true = is_string_numeric(&cpr_type_str[1..]) {
+    let mut upper_cpr_type_str = if is_string_numeric(&cpr_type_str[1..]) {
         cpr_type_str.to_uppercase()
     } else {
         cpr_type_str
@@ -220,7 +220,7 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let getter_str = format!("get_{}", flag_str);
     let setter_str = format!("set_{}", flag_str);
     let cps_type_str = format!("{}", return_t);
-    let mut upper_cps_type_str = if let true = is_string_numeric(&cps_type_str[1..]) {
+    let mut upper_cps_type_str = if is_string_numeric(&cps_type_str[1..]) {
         cps_type_str.to_uppercase()
     } else {
         cps_type_str
@@ -276,7 +276,7 @@ pub fn cpr_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let getter_str = format!("get_{}", flag_str);
     let setter_str = format!("set_{}", flag_str);
     let cpr_type_str = format!("{}", return_t);
-    let mut upper_cpr_type_str = if let true = is_string_numeric(&cpr_type_str[1..]) {
+    let mut upper_cpr_type_str = if is_string_numeric(&cpr_type_str[1..]) {
         cpr_type_str.to_uppercase()
     } else {
         cpr_type_str

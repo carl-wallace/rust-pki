@@ -61,17 +61,17 @@ pub fn check_certificate_policies_graph(
 
     // Initialize state variables (RFC 6.1.2 a, d, e, and f)
     let mut valid_policy_graph = Vec::<PolicyTreeRow>::new();
-    let mut explicit_policy: u32 = if let true = initial_explicit_policy_indicator {
+    let mut explicit_policy: u32 = if initial_explicit_policy_indicator {
         0
     } else {
         certs_in_cert_path + 1
     };
-    let mut inhibit_any_policy: u32 = if let true = initial_inhibit_any_policy_indicator {
+    let mut inhibit_any_policy: u32 = if initial_inhibit_any_policy_indicator {
         0
     } else {
         certs_in_cert_path + 1
     };
-    let mut policy_mapping: u32 = if let true = initial_policy_mapping_inhibit_indicator {
+    let mut policy_mapping: u32 = if initial_policy_mapping_inhibit_indicator {
         0
     } else {
         certs_in_cert_path + 1
