@@ -23,7 +23,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: cargo hack build
+      - run: cargo hack build --each-feature
 
   test:
     runs-on: ubuntu-latest
@@ -38,7 +38,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: cargo hack test
+      - run: cargo hack test --each-feature
 
   x509-limbo:
     runs-on: ubuntu-latest
