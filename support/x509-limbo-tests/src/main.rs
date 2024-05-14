@@ -3,6 +3,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
 #[cfg(debug_assertions)]
 use std::{fs, path::Path};
 
@@ -19,13 +21,12 @@ use x509_cert::{
     der::{
         flagset::FlagSet,
         oid::db::rfc5280::{
-            ANY_EXTENDED_KEY_USAGE, ID_CE_NAME_CONSTRAINTS, ID_CE_SUBJECT_ALT_NAME,
-            ID_KP_CLIENT_AUTH, ID_KP_CODE_SIGNING, ID_KP_EMAIL_PROTECTION, ID_KP_OCSP_SIGNING,
-            ID_KP_SERVER_AUTH, ID_KP_TIME_STAMPING,
+            ANY_EXTENDED_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME, ID_KP_CLIENT_AUTH, ID_KP_CODE_SIGNING,
+            ID_KP_EMAIL_PROTECTION, ID_KP_OCSP_SIGNING, ID_KP_SERVER_AUTH, ID_KP_TIME_STAMPING,
         },
-        Decode, DecodePem, Encode,
+        DecodePem, Encode,
     },
-    ext::pkix::{name::GeneralName, KeyUsages, NameConstraints, SubjectAltName},
+    ext::pkix::KeyUsages,
 };
 
 use certval::{
@@ -126,7 +127,7 @@ fn main() {
             // Filter out computationally intensive test cases
             // TODO(baloo): Those should be rejected by certval itself.
             if PATHOLOGICAL_CHECKS.contains(&id) {
-                return TestcaseResult::skip(tc, "computatinally intensive test case");
+                return TestcaseResult::skip(tc, "computationally intensive test case");
             }
 
             let start = Instant::now();
@@ -152,7 +153,7 @@ fn main() {
         match result.actual_result {
             ActualResult::Success => {
                 successful += 1;
-                if tc.expected_result != ExpectedResult::Success && !expected_failure(&tc) {
+                if tc.expected_result != ExpectedResult::Success && !expected_failure(tc) {
                     eprintln!(
                         "Did not get expected result for test case # {ii} - {:?}",
                         tc.id
@@ -185,19 +186,27 @@ fn main() {
     eprintln!("Ran {} test cases.", results.len());
     eprintln!("- {successful} succeeded as expected.");
     eprintln!("- {failed} failed as expected.");
-    eprintln!("- {skipped} were skipped due to missing support.");
-    eprintln!("- {} were skipped as linter checks.", LINTER_TESTS.len());
     eprintln!(
-        "- {} were skipped until weak key detection is added.",
+        "- {skipped} were skipped due computationally intensive test case that needs attention."
+    );
+    eprintln!(
+        "- {} featured results that were ignored as linter checks.",
+        LINTER_TESTS.len()
+    );
+    eprintln!(
+        "- {} featured results that are ignored until weak key detection is added.",
         WEAK_KEY_CHECKS.len()
     );
-    eprintln!("- {} were skipped as a bug to be fixed.", BUG.len());
+    eprintln!(
+        "- {} featured results that are ignored as a bug to be fixed.",
+        BUG.len()
+    );
     eprintln!(
         "- {} were skipped as pathological cases that need attention.",
         PATHOLOGICAL_CHECKS.len()
     );
     eprintln!(
-        "- {} were skipped as unsupported application-level checks.",
+        "- {} featured results that were ignored as unsupported application-level checks.",
         UNSUPPORTED_APPLICATION_CHECK.len()
     );
     eprintln!(
@@ -218,44 +227,30 @@ fn main() {
     serde_json::to_writer_pretty(std::io::stdout(), &result).unwrap();
 }
 
-fn has_unsupported_san(san: &SubjectAltName) -> bool {
-    for gn in &san.0 {
-        if let GeneralName::IpAddress(_) = gn {
-            return true;
-        }
+// As part of the approximated application name checking, turn off name forms that are not
+// specified for the peer (since the check is using name constraints stuff to do the checks)
+fn deny_unspecified(ncs: &mut NameConstraintsSettings) {
+    if ncs.ip_address.is_none() {
+        let pn = PeerName {
+            kind: PeerKind::Ip,
+            value: "0.0.0.0".to_string(),
+        };
+        add_peer_name_to_ncs(&pn, ncs);
     }
-    false
-}
-
-fn has_unsupported_name_constraint(cert: &Certificate) -> bool {
-    if let Some(exts) = &cert.tbs_certificate.extensions {
-        for ext in exts {
-            if ext.extn_id == ID_CE_NAME_CONSTRAINTS {
-                let nc = NameConstraints::from_der(ext.extn_value.as_bytes()).unwrap();
-                if let Some(perm) = &nc.permitted_subtrees {
-                    for gs in perm {
-                        match gs.base {
-                            GeneralName::IpAddress(_) => return true,
-                            GeneralName::OtherName(_) => return true,
-                            GeneralName::EdiPartyName(_) => return true,
-                            _ => {}
-                        }
-                    }
-                }
-                if let Some(excl) = &nc.excluded_subtrees {
-                    for gs in excl {
-                        match gs.base {
-                            GeneralName::IpAddress(_) => return true,
-                            GeneralName::OtherName(_) => return true,
-                            GeneralName::EdiPartyName(_) => return true,
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
+    if ncs.rfc822_name.is_none() {
+        let pn = PeerName {
+            kind: PeerKind::Rfc822,
+            value: "placeholder@redhoundsoftware.com".to_string(),
+        };
+        add_peer_name_to_ncs(&pn, ncs);
     }
-    false
+    if ncs.dns_name.is_none() {
+        let pn = PeerName {
+            kind: PeerKind::Dns,
+            value: "placeholder.redhoundsoftware.com".to_string(),
+        };
+        add_peer_name_to_ncs(&pn, ncs);
+    }
 }
 
 fn add_peer_name_to_ncs(pn: &PeerName, ncs: &mut NameConstraintsSettings) {
@@ -274,9 +269,25 @@ fn add_peer_name_to_ncs(pn: &PeerName, ncs: &mut NameConstraintsSettings) {
                 ncs.dns_name = Some(vec![pn.value.clone()]);
             }
         }
-        PeerKind::Ip => {}
+        PeerKind::Ip => {
+            let cidr = if let Ok(v4) = Ipv4Addr::from_str(&pn.value) {
+                format!("{}/32", v4)
+            } else if let Ok(v6) = Ipv6Addr::from_str(&pn.value) {
+                format!("{}/128", v6)
+            } else {
+                return;
+            };
+            if ncs.ip_address.is_some() {
+                ncs.ip_address.as_mut().unwrap().push(cidr);
+            } else {
+                ncs.ip_address = Some(vec![cidr]);
+            }
+        }
     }
 }
+
+// The test suite requires name checking that certval does not do. Approximate these checks in the
+// harness using initial permitted name constraints-style checks (after successful validation).
 fn convert_peer_names_to_name_constraints_settings(
     tc: &Testcase,
 ) -> Option<NameConstraintsSettings> {
@@ -290,6 +301,7 @@ fn convert_peer_names_to_name_constraints_settings(
         dns_name: None,
         directory_name: None,
         uniform_resource_identifier: None,
+        ip_address: None,
         not_supported: None,
     };
 
@@ -300,6 +312,8 @@ fn convert_peer_names_to_name_constraints_settings(
     for pn in &tc.expected_peer_names {
         add_peer_name_to_ncs(pn, &mut ncs);
     }
+
+    deny_unspecified(&mut ncs);
 
     Some(ncs)
 }
@@ -335,7 +349,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
         cps.set_target_key_usage(target_ku.bits());
     }
 
-    if tc.extended_key_usage.len() > 0 {
+    if !tc.extended_key_usage.is_empty() {
         let mut ekus = vec![];
         for eku in &tc.extended_key_usage {
             match eku {
@@ -367,21 +381,6 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     let mut pe = PkiEnvironment::new();
     populate_5280_pki_environment(&mut pe);
 
-    // flag to indicate a TA or CA used by this test case features an unsupported name constraint
-    let mut has_an_ip_constraint = false;
-
-    // treat unsupported peer names as an unsupported constraint (this may cause a few success cases to be skipped)
-    for pn in &tc.expected_peer_names {
-        if pn.kind == PeerKind::Ip {
-            has_an_ip_constraint = true;
-        }
-    }
-    if let Some(pn) = &tc.expected_peer_name {
-        if pn.kind == PeerKind::Ip {
-            has_an_ip_constraint = true;
-        }
-    }
-
     // Prepare a TA store using TAs from the testcase
     let mut ta_store = TaSource::new();
     #[allow(unused_variables)]
@@ -394,10 +393,6 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
             let _ = fs::write(f, &cert_ta.to_der().unwrap());
         }
 
-        if has_unsupported_name_constraint(&cert_ta) {
-            has_an_ip_constraint = true;
-            //return TestcaseResult::skip(tc, "unsupported name constraint");
-        }
         ta_store.push(CertFile {
             bytes: cert_ta.to_der().expect("serialize as der"),
             filename: String::new(),
@@ -419,10 +414,6 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
             let _ = fs::write(f, &cert_ca.to_der().unwrap());
         }
 
-        if has_unsupported_name_constraint(&cert_ca) {
-            has_an_ip_constraint = true;
-            //return TestcaseResult::skip(tc, "unsupported name constraint");
-        }
         cert_store.push(CertFile {
             bytes: cert_ca.to_der().expect("serialize as der"),
             filename: String::new(),
@@ -445,7 +436,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     #[cfg(debug_assertions)]
     {
         let p = Path::new("./target");
-        let f = p.join(Path::new(&format!("target.der")));
+        let f = p.join(Path::new("target.der"));
         let _ = fs::write(f, &leaf.encoded_cert);
     }
 
@@ -460,14 +451,10 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     // loop over paths looking for one that validates
     for path in &mut paths {
         // TA constraints are a modification of user supplied constraints per RFC 5937
-        let mod_cps = match enforce_trust_anchor_constraints(&mut cps, &path.trust_anchor) {
+        let mod_cps = match enforce_trust_anchor_constraints(&cps, &path.trust_anchor) {
             Ok(mod_cps) => mod_cps,
             Err(_e) => {
-                if tc.expected_result == ExpectedResult::Failure && has_an_ip_constraint {
-                    return TestcaseResult::skip(tc, "unsupported name constraint");
-                } else {
-                    return TestcaseResult::fail(tc, "TA constraint processing failed");
-                }
+                return TestcaseResult::fail(tc, "TA constraint processing failed");
             }
         };
 
@@ -478,7 +465,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                     if certval::PathValidationStatus::Valid == status {
                         if tc.expected_result == ExpectedResult::Failure
                             && (tc.expected_peer_name.is_some()
-                                || !tc.expected_peer_names.is_empty())
+                            || !tc.expected_peer_names.is_empty())
                         {
                             // Some test cases should fail due to name checking that would normally be performed by an application.
                             // Approximate that here.
@@ -491,7 +478,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                     let ncs = name_constraints_settings_to_name_constraints_set(
                                         &init_perm, &mut bufs,
                                     )
-                                    .unwrap();
+                                        .unwrap();
                                     if let Ok(Some(PDVExtension::SubjectAltName(san))) =
                                         path.target.get_extension(&ID_CE_SUBJECT_ALT_NAME)
                                     {
@@ -499,12 +486,6 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                             return TestcaseResult::fail(
                                                 tc,
                                                 "peer name check failed",
-                                            );
-                                        }
-                                        if has_unsupported_san(san) {
-                                            return TestcaseResult::skip(
-                                                tc,
-                                                "unsupported SubjectAltName in leaf",
                                             );
                                         }
                                     } else {
@@ -517,20 +498,8 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                             }
                         }
 
-                        // Some tests should fail due to IP address constraint processing. Since IP
-                        // address constraints are not supported, return skip for those.
-                        if tc.expected_result == ExpectedResult::Failure && has_an_ip_constraint {
-                            return TestcaseResult::skip(tc, "unsupported name constraint");
-                        }
-
                         return TestcaseResult::success(tc);
                     } else {
-                        // Some tests should succeed due to IP address constraint processing. Since IP
-                        // address constraints are not supported, return skip for those.
-                        if tc.expected_result == ExpectedResult::Success && has_an_ip_constraint {
-                            return TestcaseResult::skip(tc, "unsupported name constraint");
-                        }
-
                         observed_status_values.push(status);
                     }
                 }
@@ -539,10 +508,6 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                 }
             },
             Err(e) => {
-                if tc.expected_result == ExpectedResult::Success && has_an_ip_constraint {
-                    return TestcaseResult::skip(tc, "unsupported name constraint");
-                }
-
                 observed_errors.push(format!("validate_path failed with {e:?}"));
             }
         };
