@@ -790,6 +790,15 @@ impl NameConstraintsSet {
         }
     }
     // TODO support UPN name constraints
+
+    pub(crate) fn len(&self) -> usize {
+        self.user_principal_name.len()
+            + self.rfc822_name.len()
+            + self.dns_name.len()
+            + self.directory_name.len()
+            + self.uniform_resource_identifier.len()
+            + self.not_supported.len()
+    }
 }
 
 /// NameConstraintsSettings is a serializable equivalent of NameConstraintsSet. The getters and setters
