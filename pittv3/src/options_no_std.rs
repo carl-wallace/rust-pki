@@ -82,7 +82,7 @@ pub fn options_no_std(args: &Pittv3Args) {
     };
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     pe.add_certificate_source(Box::new(cert_source.clone()));
 
@@ -115,7 +115,7 @@ pub fn options_no_std(args: &Pittv3Args) {
         let mut index_map: BTreeMap<PathValidationStatus, Vec<usize>> = BTreeMap::new();
         let mut count_map: BTreeMap<PathValidationStatus, i32> = BTreeMap::new();
         for (i, cpr) in stats.results.iter().enumerate() {
-            if let Some(status) = get_validation_status(cpr) {
+            if let Some(status) = cpr.get_validation_status() {
                 if index_map.contains_key(&status) {
                     let mut v = index_map[&status].clone();
                     v.push(i);

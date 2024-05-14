@@ -41,10 +41,10 @@ pub fn check_certificate_policies(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_CERTIFICATE_POLICIES);
-    add_processed_extension(cpr, ID_CE_INHIBIT_ANY_POLICY);
-    add_processed_extension(cpr, ID_CE_POLICY_CONSTRAINTS);
-    add_processed_extension(cpr, ID_CE_POLICY_MAPPINGS);
+    cpr.add_processed_extension(ID_CE_CERTIFICATE_POLICIES);
+    cpr.add_processed_extension(ID_CE_INHIBIT_ANY_POLICY);
+    cpr.add_processed_extension(ID_CE_POLICY_CONSTRAINTS);
+    cpr.add_processed_extension(ID_CE_POLICY_MAPPINGS);
 
     let certs_in_cert_path: u32 = (cp.intermediates.len() + 1) as u32;
 
@@ -283,7 +283,7 @@ pub fn check_certificate_policies(
                 ca_cert,
                 "NULL policy set while processing intermediate CA certificate",
             );
-            set_validation_status(cpr, PathValidationStatus::NullPolicySet);
+            cpr.set_validation_status(PathValidationStatus::NullPolicySet);
             return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
         }
 
@@ -291,7 +291,7 @@ pub fn check_certificate_policies(
             //prepare for next certificate (always occurs in this loop given target is processed later)
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_POLICY_MAPPINGS)?;
             if let Some(PDVExtension::PolicyMappings(policy_mappings)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_POLICY_MAPPINGS);
+                cpr.add_processed_extension(ID_CE_POLICY_MAPPINGS);
 
                 // collect everything that maps to a given issuer domain policy for convenience while
                 // looking for anyPolicy in the extension
@@ -413,7 +413,7 @@ pub fn check_certificate_policies(
             let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_POLICY_CONSTRAINTS)?;
             if let Some(PDVExtension::PolicyConstraints(pc)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_POLICY_CONSTRAINTS);
+                cpr.add_processed_extension(ID_CE_POLICY_CONSTRAINTS);
                 if let Some(rep) = pc.require_explicit_policy {
                     explicit_policy = explicit_policy.min(rep)
                 }
@@ -424,7 +424,7 @@ pub fn check_certificate_policies(
             let pdv_ext: Option<&PDVExtension> =
                 ca_cert.get_extension(&ID_CE_INHIBIT_ANY_POLICY)?;
             if let Some(PDVExtension::InhibitAnyPolicy(iap)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_INHIBIT_ANY_POLICY);
+                cpr.add_processed_extension(ID_CE_INHIBIT_ANY_POLICY);
                 inhibit_any_policy = inhibit_any_policy.min(iap.0);
             }
         }
@@ -441,7 +441,7 @@ pub fn check_certificate_policies(
                 // (b)  If a policy constraints extension is included in the
                 //      certificate and requireExplicitPolicy is present and has a
                 //      value of 0, set the explicit_policy state variable to 0.
-                add_processed_extension(cpr, ID_CE_POLICY_CONSTRAINTS);
+                cpr.add_processed_extension(ID_CE_POLICY_CONSTRAINTS);
                 if let Some(rep) = pc.require_explicit_policy {
                     explicit_policy = explicit_policy.min(rep)
                 }
@@ -556,7 +556,7 @@ pub fn check_certificate_policies(
                     ca_cert,
                     "NULL policy set while processing intermediate CA certificate",
                 );
-                set_validation_status(cpr, PathValidationStatus::NullPolicySet);
+                cpr.set_validation_status(PathValidationStatus::NullPolicySet);
                 return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
             }
         }
@@ -576,7 +576,7 @@ pub fn check_certificate_policies(
         }
         final_valid_policy_tree.push(new_row);
     }
-    set_final_valid_policy_tree(cpr, final_valid_policy_tree);
+    cpr.set_final_valid_policy_tree(final_valid_policy_tree);
 
     Ok(())
 }

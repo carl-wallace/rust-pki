@@ -595,7 +595,7 @@ fn populate_parsed_ta_vector(
 #[cfg(feature = "std")]
 #[test]
 fn get_trust_anchor_test() {
-    use crate::{populate_5280_pki_environment, ta_folder_to_vec, PkiEnvironment};
+    use crate::{ta_folder_to_vec, PkiEnvironment};
     use hex_literal::hex;
     let mut ta_store = TaSource::new();
     let ta_store_folder = format!(
@@ -605,7 +605,7 @@ fn get_trust_anchor_test() {
     );
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
     ta_store.initialize().unwrap();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));

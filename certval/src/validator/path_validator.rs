@@ -97,7 +97,7 @@ pub fn validate_path_rfc5280(
     check_extended_key_usage(pe, cps, cp, cpr)?;
     check_critical_extensions(pe, cps, cp, cpr)?;
     verify_signatures(pe, cps, cp, cpr)?;
-    set_validation_status(cpr, PathValidationStatus::Valid);
+    cpr.set_validation_status(PathValidationStatus::Valid);
     info!(
         "Successfully completed basic path validation checks for certificate issued to {}",
         name_to_string(&cp.target.decoded_cert.tbs_certificate.subject)
@@ -119,7 +119,7 @@ pub fn check_basic_constraints(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_BASIC_CONSTRAINTS);
+    cpr.add_processed_extension(ID_CE_BASIC_CONSTRAINTS);
     let mut path_len_constraint = cps.get_initial_path_length_constraint();
 
     for ca_cert in cp.intermediates.iter() {
@@ -129,7 +129,7 @@ pub fn check_basic_constraints(
         if !is_self_issued(&ca_cert.decoded_cert) {
             if path_len_constraint == 0 {
                 log_error_for_ca(ca_cert, "path length constraint violation");
-                set_validation_status(cpr, PathValidationStatus::InvalidPathLength);
+                cpr.set_validation_status(PathValidationStatus::InvalidPathLength);
                 return Err(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
                 ));
@@ -142,7 +142,7 @@ pub fn check_basic_constraints(
         // unsupported_ee_cert_version tests in tests/path_validator.rs fail this should be uncommented.
         // if ca_cert.decoded_cert.tbs_certificate.version != Version::V3 {
         //     log_error_for_ca(ca_cert, "unsupported x509 version");
-        //     set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
+        //     cpr.set_validation_status( PathValidationStatus::InvalidBasicConstraints);
         //     return Err(Error::PathValidation(
         //         PathValidationStatus::InvalidBasicConstraints,
         //     ));
@@ -153,7 +153,7 @@ pub fn check_basic_constraints(
             Some(PDVExtension::BasicConstraints(bc)) => bc,
             _ => {
                 log_error_for_ca(ca_cert, "missing basic constraints");
-                set_validation_status(cpr, PathValidationStatus::MissingBasicConstraints);
+                cpr.set_validation_status(PathValidationStatus::MissingBasicConstraints);
                 return Err(Error::PathValidation(
                     PathValidationStatus::MissingBasicConstraints,
                 ));
@@ -170,7 +170,7 @@ pub fn check_basic_constraints(
         //       certificates.)
         if !bc.ca {
             log_error_for_ca(ca_cert, "invalid basic constraints");
-            set_validation_status(cpr, PathValidationStatus::InvalidBasicConstraints);
+            cpr.set_validation_status(PathValidationStatus::InvalidBasicConstraints);
             return Err(Error::PathValidation(
                 PathValidationStatus::InvalidBasicConstraints,
             ));
@@ -206,7 +206,7 @@ pub fn check_validity(
     let mut is_valid = |time_check_res: Result<u64>| -> Result<()> {
         match time_check_res {
             Err(Error::PathValidation(pvs)) => {
-                set_validation_status(cpr, pvs);
+                cpr.set_validation_status(pvs);
                 Err(Error::PathValidation(pvs))
             }
             Err(e) => Err(e),
@@ -250,7 +250,7 @@ pub fn check_names(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
+    cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
 
     // Read input variables from path settings
     let mut pbufs = BTreeMap::new();
@@ -283,7 +283,7 @@ pub fn check_names(
             &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
-            set_validation_status(cpr, PathValidationStatus::NameChainingFailure);
+            cpr.set_validation_status(PathValidationStatus::NameChainingFailure);
             return Err(Error::PathValidation(
                 PathValidationStatus::NameChainingFailure,
             ));
@@ -306,7 +306,7 @@ pub fn check_names(
                     ca_cert,
                     "permitted name constraints violation for subject name",
                 );
-                set_validation_status(cpr, PathValidationStatus::NameConstraintsViolation);
+                cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -319,7 +319,7 @@ pub fn check_names(
                     ca_cert,
                     "excluded name constraints violation for subject name",
                 );
-                set_validation_status(cpr, PathValidationStatus::NameConstraintsViolation);
+                cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -327,7 +327,7 @@ pub fn check_names(
 
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_SUBJECT_ALT_NAME)?;
             let san = if let Some(PDVExtension::SubjectAltName(san)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_SUBJECT_ALT_NAME);
+                cpr.add_processed_extension(ID_CE_SUBJECT_ALT_NAME);
                 Some(san)
             } else {
                 None
@@ -344,7 +344,7 @@ pub fn check_names(
 
             if !permitted_subtrees.san_within_permitted_subtrees(&san) {
                 log_error_for_ca(ca_cert, "permitted name constraints violation for SAN");
-                set_validation_status(cpr, PathValidationStatus::NameConstraintsViolation);
+                cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -352,7 +352,7 @@ pub fn check_names(
 
             if excluded_subtrees.san_within_excluded_subtrees(&san) {
                 log_error_for_ca(ca_cert, "excluded name constraints violation for SAN");
-                set_validation_status(cpr, PathValidationStatus::NameConstraintsViolation);
+                cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -362,7 +362,7 @@ pub fn check_names(
         if pos + 1 != certs_in_cert_path {
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_NAME_CONSTRAINTS)?;
             if let Some(PDVExtension::NameConstraints(nc)) = pdv_ext {
-                add_processed_extension(cpr, ID_CE_NAME_CONSTRAINTS);
+                cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
 
                 if let Some(excl) = &nc.excluded_subtrees {
                     excluded_subtrees.calculate_union(excl);
@@ -394,14 +394,14 @@ pub fn check_key_usage(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_KEY_USAGE);
+    cpr.add_processed_extension(ID_CE_KEY_USAGE);
     for ca_cert in cp.intermediates.iter() {
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
         let ku = match pdv_ext {
             Some(PDVExtension::KeyUsage(ku)) => ku,
             _ => {
                 log_error_for_ca(ca_cert, "key usage extension is missing");
-                set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+                cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
                 return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
             }
         };
@@ -409,7 +409,7 @@ pub fn check_key_usage(
         //      keyCertSign bit is set.
         if !ku.0.contains(KeyUsages::KeyCertSign) {
             log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
-            set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+            cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
             return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
         }
     }
@@ -428,7 +428,7 @@ pub fn check_key_usage(
             for i in nku {
                 if !target_ku_bits.0.contains(i) {
                     log_error_for_ca(&cp.target, "key usage violation for target certificate");
-                    set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+                    cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
             }
@@ -448,7 +448,7 @@ pub fn check_extended_key_usage(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    add_processed_extension(cpr, ID_CE_EXT_KEY_USAGE);
+    cpr.add_processed_extension(ID_CE_EXT_KEY_USAGE);
 
     let target_ekus: Option<ObjectIdentifierSet> = cps.get_extended_key_usage_as_oid_set();
     let process_ekus_across_path = cps.get_extended_key_usage_path();
@@ -501,7 +501,7 @@ pub fn check_extended_key_usage(
 
                 if ekus_from_path.is_empty() {
                     log_error_for_ca(ca_cert, "Extended key usage violation");
-                    set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+                    cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
             }
@@ -513,7 +513,7 @@ pub fn check_extended_key_usage(
             //         ca_cert,
             //         "Extended key usage violation when processing intermediate CA certificate",
             //     );
-            //     set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+            //     cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
             //     return Err(Error::InvalidKeyUsage);
             // }
         }
@@ -548,7 +548,7 @@ pub fn check_extended_key_usage(
         &cp.target,
         "extended key usage violation when processing target certificate",
     );
-    set_validation_status(cpr, PathValidationStatus::InvalidKeyUsage);
+    cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
     Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
@@ -565,7 +565,7 @@ pub fn check_critical_extensions(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let processed_exts: ObjectIdentifierSet = get_processed_extensions(cpr);
+    let processed_exts: ObjectIdentifierSet = cpr.get_processed_extensions();
 
     let mut ensure_criticals_processed = |cert: &PDVCertificate,
                                           err_str: &'static str|
@@ -574,7 +574,7 @@ pub fn check_critical_extensions(
             for ext in exts {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
                     log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
-                    set_validation_status(cpr, PathValidationStatus::UnprocessedCriticalExtension);
+                    cpr.set_validation_status(PathValidationStatus::UnprocessedCriticalExtension);
                     return Err(Error::PathValidation(
                         PathValidationStatus::UnprocessedCriticalExtension,
                     ));
@@ -814,7 +814,7 @@ pub fn verify_signatures(
                     cur_cert,
                     format!("signature verification error: {:?}", e).as_str(),
                 );
-                set_validation_status(cpr, PathValidationStatus::EncodingError);
+                cpr.set_validation_status(PathValidationStatus::EncodingError);
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             }
         };
@@ -831,7 +831,7 @@ pub fn verify_signatures(
                 )
                 .as_str(),
             );
-            set_validation_status(cpr, PathValidationStatus::EncodingError);
+            cpr.set_validation_status(PathValidationStatus::EncodingError);
             return Err(Error::PathValidation(PathValidationStatus::EncodingError));
         }
 
@@ -847,7 +847,7 @@ pub fn verify_signatures(
                 cur_cert,
                 format!("signature verification error: {:?}", e).as_str(),
             );
-            set_validation_status(cpr, PathValidationStatus::SignatureVerificationFailure);
+            cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
             return Err(Error::PathValidation(
                 PathValidationStatus::SignatureVerificationFailure,
             ));
