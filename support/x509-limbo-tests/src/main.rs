@@ -56,10 +56,6 @@ const PATHOLOGICAL_CHECKS: &[&str] = &[
 
 const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &["webpki::san::mismatch-apex-subdomain-san"];
 
-const BUSTED_TEST_CASES: &[&str] = &[
-    "rfc5280::ee-empty-issuer", // the issuer name in the EE is not actually empty and chains to the TA just fine
-];
-
 const LINTER_TESTS: &[&str] = &[
     "rfc5280::aki::critical-aki",
     "rfc5280::aki::leaf-missing-aki",
@@ -105,7 +101,6 @@ const LINTER_TESTS: &[&str] = &[
 fn expected_failure(tc: &Testcase) -> bool {
     let id = tc.id.as_str();
     if LINTER_TESTS.contains(&id)
-        || BUSTED_TEST_CASES.contains(&id)
         || UNSUPPORTED_APPLICATION_CHECK.contains(&id)
         || WEAK_KEY_CHECKS.contains(&id)
         || PATHOLOGICAL_CHECKS.contains(&id)
@@ -208,10 +203,6 @@ fn main() {
     eprintln!(
         "- {} featured results that were ignored as unsupported application-level checks.",
         UNSUPPORTED_APPLICATION_CHECK.len()
-    );
-    eprintln!(
-        "- {} were skipped as a broken test case (need to pull the fix).",
-        BUSTED_TEST_CASES.len()
     );
 
     for k in skipped_rationales.keys() {
@@ -465,7 +456,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                     if certval::PathValidationStatus::Valid == status {
                         if tc.expected_result == ExpectedResult::Failure
                             && (tc.expected_peer_name.is_some()
-                            || !tc.expected_peer_names.is_empty())
+                                || !tc.expected_peer_names.is_empty())
                         {
                             // Some test cases should fail due to name checking that would normally be performed by an application.
                             // Approximate that here.
@@ -478,7 +469,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                     let ncs = name_constraints_settings_to_name_constraints_set(
                                         &init_perm, &mut bufs,
                                     )
-                                        .unwrap();
+                                    .unwrap();
                                     if let Ok(Some(PDVExtension::SubjectAltName(san))) =
                                         path.target.get_extension(&ID_CE_SUBJECT_ALT_NAME)
                                     {

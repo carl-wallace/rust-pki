@@ -429,8 +429,8 @@
     },
     {
       "id": "rfc5280::ee-empty-issuer",
-      "actual_result": "SUCCESS",
-      "context": null
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameChainingFailure)\"]"
     },
     {
       "id": "rfc5280::ca-empty-subject",
