@@ -1,0 +1,57 @@
+name: certval
+
+on:
+  pull_request:
+  push:
+    branches: main
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - 1.75.0 # MSRV
+          - stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: RustCrypto/actions/cargo-hack-install@master
+      - run: cargo hack build
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - 1.75.0 # MSRV
+          - stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: RustCrypto/actions/cargo-hack-install@master
+      - run: cargo hack test
+
+  x509-limbo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable 
+      - run: make -C support/x509-limbo-tests
+      # You are expected to checkin the result in the repository
+      - run: git diff --exit-code support/x509-limbo-tests/rust-certval.json
