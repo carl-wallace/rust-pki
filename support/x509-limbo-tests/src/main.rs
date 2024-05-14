@@ -124,11 +124,6 @@ fn main() {
         .par_iter()
         .map(|tc| {
             let id = tc.id.as_str();
-            // Filter out computationally intensive test cases
-            // TODO(baloo): Those should be rejected by certval itself.
-            if PATHOLOGICAL_CHECKS.contains(&id) {
-                return TestcaseResult::skip(tc, "computationally intensive test case");
-            }
 
             let start = Instant::now();
             let out = evaluate_testcase(tc);
@@ -200,10 +195,6 @@ fn main() {
     eprintln!(
         "- {} featured results that are ignored as a bug to be fixed.",
         BUG.len()
-    );
-    eprintln!(
-        "- {} were skipped as pathological cases that need attention.",
-        PATHOLOGICAL_CHECKS.len()
     );
     eprintln!(
         "- {} featured results that were ignored as unsupported application-level checks.",
@@ -465,7 +456,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                     if certval::PathValidationStatus::Valid == status {
                         if tc.expected_result == ExpectedResult::Failure
                             && (tc.expected_peer_name.is_some()
-                            || !tc.expected_peer_names.is_empty())
+                                || !tc.expected_peer_names.is_empty())
                         {
                             // Some test cases should fail due to name checking that would normally be performed by an application.
                             // Approximate that here.
@@ -478,7 +469,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                     let ncs = name_constraints_settings_to_name_constraints_set(
                                         &init_perm, &mut bufs,
                                     )
-                                        .unwrap();
+                                    .unwrap();
                                     if let Ok(Some(PDVExtension::SubjectAltName(san))) =
                                         path.target.get_extension(&ID_CE_SUBJECT_ALT_NAME)
                                     {

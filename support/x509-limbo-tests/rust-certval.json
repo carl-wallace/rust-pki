@@ -94,18 +94,18 @@
     },
     {
       "id": "pathological::nc-dos-1",
-      "actual_result": "SKIPPED",
-      "context": "computationally intensive test case"
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
     },
     {
       "id": "pathological::nc-dos-2",
-      "actual_result": "SKIPPED",
-      "context": "computationally intensive test case"
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
     },
     {
       "id": "pathological::nc-dos-3",
-      "actual_result": "SKIPPED",
-      "context": "computationally intensive test case"
+      "actual_result": "FAILURE",
+      "context": "peer name check failed because SAN was absent"
     },
     {
       "id": "rfc5280::aki::critical-aki",
