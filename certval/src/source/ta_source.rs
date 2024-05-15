@@ -51,7 +51,7 @@ use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
 use x509_cert::{
     anchor::TrustAnchorChoice,
-    certificate::{CertificateInner, Raw},
+    certificate::CertificateInner,
 };
 
 use crate::{
@@ -73,7 +73,7 @@ use crate::{
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
 pub fn get_subject_public_key_info_from_trust_anchor(
-    ta: &TrustAnchorChoice<Raw>,
+    ta: &TrustAnchorChoice,
 ) -> &SubjectPublicKeyInfoOwned {
     match ta {
         TrustAnchorChoice::Certificate(cert) => &cert.tbs_certificate.subject_public_key_info,
@@ -85,8 +85,8 @@ pub fn get_subject_public_key_info_from_trust_anchor(
 /// get_certificate_from_trust_anchor returns the certificate from the TrustAnchorChoice. This will
 /// be either the Certificate choice itself or the TrustAnchorInfo.cert_path.certificate field.
 pub fn get_certificate_from_trust_anchor(
-    ta: &TrustAnchorChoice<Raw>,
-) -> Option<&CertificateInner<Raw>> {
+    ta: &TrustAnchorChoice,
+) -> Option<&CertificateInner> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => return Some(cert),
         TrustAnchorChoice::TaInfo(tai) => {

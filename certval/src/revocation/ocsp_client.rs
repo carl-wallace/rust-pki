@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
-use x509_cert::certificate::{CertificateInner, Raw};
+use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::Extensions;
 use x509_ocsp::*;
 
@@ -23,7 +23,7 @@ use crate::{
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use der::asn1::{Ia5String, OctetString};
+use der::asn1::{Ia5String, OctetStringRef};
 
 #[cfg(feature = "remote")]
 use reqwest::header::CONTENT_TYPE;
@@ -53,7 +53,7 @@ use crate::{
     PKIXALG_SHA1,
 };
 
-fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
+fn get_key_hash(cert: &CertificateInner) -> Result<Vec<u8>> {
     Ok(Sha1::digest(
         cert.tbs_certificate
             .subject_public_key_info
@@ -63,7 +63,7 @@ fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
     .to_vec())
 }
 
-fn get_subject_name_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
+fn get_subject_name_hash(cert: &CertificateInner) -> Result<Vec<u8>> {
     let enc_subject = match cert.tbs_certificate.subject.to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
@@ -74,8 +74,8 @@ fn get_subject_name_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
 
 /// unsupported_critical_extensions_present_single_response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) -> bool {
-    match &sr.single_extensions {
+fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse<'_>) -> bool {
+    match &sr.single_request_extensions {
         Some(exts) => {
             for e in exts {
                 if e.critical {
@@ -90,7 +90,7 @@ fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) 
 
 /// unsupported_critical_extensions_present__response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
+fn unsupported_critical_extensions_present_response(rd: &ResponseData<'_>) -> bool {
     match &rd.response_extensions {
         Some(exts) => {
             for e in exts {
@@ -107,8 +107,8 @@ fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
 /// cert_id_match returns true if the serial number, issuer name hash and issuer key hash in the cert_id object
 /// match the values passed as parameters. Else it returns false.
 fn cert_id_match(
-    cert_id: &CertId,
-    serial_number: &SerialNumber<Raw>,
+    cert_id: &CertId<'_>,
+    serial_number: &SerialNumber,
     name_hash: &[u8],
     key_hash: &[u8],
 ) -> bool {
@@ -125,7 +125,7 @@ fn cert_id_match(
     true
 }
 
-fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
+fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse<'_>) -> bool {
     let time_of_interest = cps.get_time_of_interest();
     if 0 == time_of_interest {
         return true;
@@ -133,14 +133,14 @@ fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> 
 
     // TODO support grace periods?
 
-    let tu = sr.this_update.0.to_unix_duration().as_secs();
+    let tu = sr.this_update.to_unix_duration().as_secs();
     if tu > time_of_interest {
         //future request
         return false;
     }
 
     if let Some(next_update) = sr.next_update {
-        let nu = next_update.0.to_unix_duration().as_secs();
+        let nu = next_update.to_unix_duration().as_secs();
         if nu < time_of_interest {
             //stale
             return false;
@@ -189,7 +189,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
 
 #[cfg(feature = "remote")]
 fn prepare_ocsp_request(
-    target_cert: &CertificateInner<Raw>,
+    target_cert: &CertificateInner,
     name_hash: &[u8],
     key_hash: &[u8],
     _nonce: Option<&[u8]>,
@@ -202,11 +202,11 @@ fn prepare_ocsp_request(
         oid: PKIXALG_SHA1,
         parameters: None,
     };
-    let issuer_name_hash = match OctetString::new(name_hash) {
+    let issuer_name_hash = match OctetStringRef::new(name_hash) {
         Ok(inh) => inh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
-    let issuer_key_hash = match OctetString::new(key_hash) {
+    let issuer_key_hash = match OctetStringRef::new(key_hash) {
         Ok(ikh) => ikh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -260,7 +260,6 @@ impl ::der::FixedTag for DeferDecodeBasicOcspResponse {
 }
 
 impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
-    type Error = der::Error;
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
@@ -296,9 +295,9 @@ fn no_check_present(exts: &Option<Extensions>) -> bool {
 
 fn verify_response_signature(
     pe: &PkiEnvironment,
-    signers_cert: &CertificateInner<Raw>,
+    signers_cert: &CertificateInner,
     enc_ocsp_resp: &[u8],
-    bor: &BasicOcspResponse,
+    bor: &BasicOcspResponse<'_>,
 ) -> Result<()> {
     let ddbor = match DeferDecodeBasicOcspResponse::from_der(enc_ocsp_resp) {
         Ok(bor) => bor,
@@ -338,7 +337,7 @@ pub async fn send_ocsp_request(
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
-    issuers_cert: &CertificateInner<Raw>,
+    issuers_cert: &CertificateInner,
     cpr: &mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
@@ -423,7 +422,7 @@ pub fn process_ocsp_response(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &CertificateInner<Raw>,
+    issuers_cert: &CertificateInner,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -450,7 +449,7 @@ fn process_ocsp_response_internal(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &CertificateInner<Raw>,
+    issuers_cert: &CertificateInner,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -535,7 +534,7 @@ fn process_ocsp_response_internal(
                         &defer_cert.signature_algorithm,
                         &issuers_cert.tbs_certificate.subject_public_key_info,
                     ) {
-                        if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
+                        if let Ok(cert) = CertificateInner::from_der(certbuf.as_slice()) {
                             if cert.tbs_certificate.signature != defer_cert.signature_algorithm {
                                 error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
                                 cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
@@ -628,7 +627,7 @@ fn process_ocsp_response_internal(
                     if let Some(nu) = sr.next_update {
                         pe.add_status(
                             target_cert,
-                            nu.0.to_unix_duration().as_secs(),
+                            nu.to_unix_duration().as_secs(),
                             PathValidationStatus::Valid,
                         );
                     }
@@ -639,7 +638,7 @@ fn process_ocsp_response_internal(
                 if let Some(nu) = sr.next_update {
                     pe.add_status(
                         target_cert,
-                        nu.0.to_unix_duration().as_secs(),
+                        nu.to_unix_duration().as_secs(),
                         PathValidationStatus::CertificateRevoked,
                     );
                 }
@@ -685,7 +684,7 @@ pub(crate) async fn check_revocation_ocsp(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer_cert: &CertificateInner,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;

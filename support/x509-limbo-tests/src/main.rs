@@ -17,7 +17,7 @@ use limbo_harness_support::{
 };
 use rayon::prelude::*;
 use x509_cert::{
-    certificate::{CertificateInner, Raw},
+    certificate::{Certificate},
     der::{
         flagset::FlagSet,
         oid::db::rfc5280::{
@@ -30,13 +30,14 @@ use x509_cert::{
 };
 
 use certval::{
-    enforce_trust_anchor_constraints, name_constraints_settings_to_name_constraints_set, CertFile,
+    enforce_trust_anchor_constraints,
+    name_constraints_settings_to_name_constraints_set, CertFile,
     CertSource, CertVector, CertificationPath, CertificationPathResults, CertificationPathSettings,
     ExtensionProcessing, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
     TaSource,
 };
 
-type Certificate = CertificateInner<Raw>;
+// type Certificate = CertificateInner<Raw>;
 
 const WEAK_KEY_CHECKS: &[&str] = &[
     "webpki::forbidden-weak-rsa-key-in-root",
@@ -54,6 +55,10 @@ const PATHOLOGICAL_CHECKS: &[&str] = &[
 ];
 
 const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &["webpki::san::mismatch-apex-subdomain-san"];
+
+const BUSTED_TEST_CASES: &[&str] = &[
+    "rfc5280::ee-empty-issuer", // the issuer name in the EE is not actually empty and chains to the TA just fine
+];
 
 const LINTER_TESTS: &[&str] = &[
     "rfc5280::aki::critical-aki",
@@ -100,6 +105,7 @@ const LINTER_TESTS: &[&str] = &[
 fn expected_failure(tc: &Testcase) -> bool {
     let id = tc.id.as_str();
     if LINTER_TESTS.contains(&id)
+        || BUSTED_TEST_CASES.contains(&id)
         || UNSUPPORTED_APPLICATION_CHECK.contains(&id)
         || WEAK_KEY_CHECKS.contains(&id)
         || PATHOLOGICAL_CHECKS.contains(&id)
@@ -118,6 +124,11 @@ fn main() {
         .par_iter()
         .map(|tc| {
             let id = tc.id.as_str();
+            // Filter out computationally intensive test cases
+            // TODO(baloo): Those should be rejected by certval itself.
+            if PATHOLOGICAL_CHECKS.contains(&id) {
+                return TestcaseResult::skip(tc, "computationally intensive test case");
+            }
 
             let start = Instant::now();
             let out = evaluate_testcase(tc);
@@ -191,8 +202,16 @@ fn main() {
         BUG.len()
     );
     eprintln!(
+        "- {} were skipped as pathological cases that need attention.",
+        PATHOLOGICAL_CHECKS.len()
+    );
+    eprintln!(
         "- {} featured results that were ignored as unsupported application-level checks.",
         UNSUPPORTED_APPLICATION_CHECK.len()
+    );
+    eprintln!(
+        "- {} were skipped as a broken test case (need to pull the fix).",
+        BUSTED_TEST_CASES.len()
     );
 
     for k in skipped_rationales.keys() {
@@ -446,7 +465,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                     if certval::PathValidationStatus::Valid == status {
                         if tc.expected_result == ExpectedResult::Failure
                             && (tc.expected_peer_name.is_some()
-                                || !tc.expected_peer_names.is_empty())
+                            || !tc.expected_peer_names.is_empty())
                         {
                             // Some test cases should fail due to name checking that would normally be performed by an application.
                             // Approximate that here.
@@ -459,7 +478,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                     let ncs = name_constraints_settings_to_name_constraints_set(
                                         &init_perm, &mut bufs,
                                     )
-                                    .unwrap();
+                                        .unwrap();
                                     if let Ok(Some(PDVExtension::SubjectAltName(san))) =
                                         path.target.get_extension(&ID_CE_SUBJECT_ALT_NAME)
                                     {

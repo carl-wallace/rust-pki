@@ -27,7 +27,7 @@ use x509_cert::ext::pkix::{
 };
 use x509_cert::name::Name;
 use x509_cert::{
-    certificate::{CertificateInner, Raw},
+    certificate::CertificateInner,
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
 };
@@ -478,7 +478,7 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
+pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
@@ -849,7 +849,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
-    issuer_cert: &CertificateInner<Raw>,
+    issuer_cert: &CertificateInner,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
@@ -881,7 +881,7 @@ fn verify_crl(
 /// informational, so presence is fine. hold instruction is simply ignored with corresponding certificate
 /// treated as revoked. Presence of any other critical extension is cause to discard the CRL. The
 /// certificate issuer extension is assumed to have been checked already via  certificate_issuer_extension_present.
-fn check_entry_extensions(rc: &RevokedCert<Raw>) -> Result<()> {
+fn check_entry_extensions(rc: &RevokedCert) -> Result<()> {
     let exts_to_ignore = [
         ID_CE_INVALIDITY_DATE,
         ID_CE_CRL_REASONS,
@@ -915,7 +915,7 @@ fn check_crl_extensions(exts: &Extensions) -> Result<()> {
 
 /// certificate_issuer_extension_present returns true if a certificate issuer extension is found
 /// in the presented RevokedCert instance and false otherwise.
-fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
+fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
     if let Some(exts) = &rc.crl_entry_extensions {
         for e in exts {
             if e.extn_id == ID_CE_CERTIFICATE_ISSUER {
@@ -926,7 +926,7 @@ fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<Raw>) -> Result<()> {
+pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> {
     if 0 != toi {
         let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
         if tu > toi {
@@ -943,7 +943,7 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<Raw>) -> Result
     Ok(())
 }
 
-fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
+fn check_crl_sign(cert: &CertificateInner) -> Result<()> {
     if let Some(exts) = &cert.tbs_certificate.extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_KEY_USAGE {
@@ -975,7 +975,7 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer_cert: &CertificateInner,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
@@ -984,7 +984,7 @@ pub(crate) fn process_crl(
     verify_crl(pe, crl_buf, issuer_cert, cpr)?;
     check_crl_sign(issuer_cert)?;
 
-    let crl = match CertificateList::<Raw>::from_der(crl_buf) {
+    let crl = match CertificateList::from_der(crl_buf) {
         Ok(crl) => crl,
         Err(e) => {
             if let Some(uri) = uri {
@@ -1127,7 +1127,7 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer_cert: &CertificateInner,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;

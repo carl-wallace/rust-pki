@@ -23,7 +23,7 @@ cfg_if! {
         use crate::util::pdv_utilities::{is_self_signed_with_buffer, valid_at_time};
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
-        use x509_cert::certificate::{CertificateInner,Raw};
+        use x509_cert::certificate::Certificate;
         use std::fs::File;
         use std::io::Write;
         use std::path::{PathBuf, Path};
@@ -112,7 +112,7 @@ fn save_cert(
         return false;
     };
 
-    let r = CertificateInner::from_der(bytes);
+    let r = Certificate::from_der(bytes);
     match r {
         Ok(cert) => {
             if let Err(_e) = valid_at_time(&cert.tbs_certificate, time_of_interest, true) {
@@ -283,7 +283,7 @@ pub async fn fetch_to_buffer(
                             time_of_interest,
                         );
                     } else {
-                        let r = CertificateInner::<Raw>::from_der(bytes.as_ref());
+                        let r = Certificate::from_der(bytes.as_ref());
                         match r {
                             Ok(_) => {
                                 save_cert(
