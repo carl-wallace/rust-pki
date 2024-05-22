@@ -14,16 +14,16 @@ debug = true
 debug = true
 
 [patch.crates-io]
-cms        = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-const-oid  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-der        = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-der_derive = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-pkcs1      = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-pkcs8      = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-sec1       = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-spki       = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-x509-ocsp  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
-x509-cert  = { git = "https://github.com/baloo/formats.git", branch = "baloo/certval" }
+cms        = { git = "https://github.com/RustCrypto/formats.git" }
+const-oid  = { git = "https://github.com/RustCrypto/formats.git" }
+der        = { git = "https://github.com/RustCrypto/formats.git" }
+der_derive = { git = "https://github.com/RustCrypto/formats.git" }
+pkcs1      = { git = "https://github.com/RustCrypto/formats.git" }
+pkcs8      = { git = "https://github.com/RustCrypto/formats.git" }
+sec1       = { git = "https://github.com/RustCrypto/formats.git" }
+spki       = { git = "https://github.com/RustCrypto/formats.git" }
+x509-ocsp  = { git = "https://github.com/RustCrypto/formats.git" }
+x509-cert  = { git = "https://github.com/RustCrypto/formats.git" }
 
 
 rsa = { git = "https://github.com/RustCrypto/RSA.git" }
