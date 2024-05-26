@@ -33,7 +33,6 @@ use alloc::{
     string::{String, ToString},
 };
 use alloc::{format, vec, vec::Vec};
-use core::cell::RefCell;
 
 use log::{debug, error, info};
 
@@ -63,18 +62,11 @@ use crate::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
     CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
-    NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, EXTS_OF_INTEREST,
+    NameConstraintsSet, PDVCertificate, PkiEnvironment, EXTS_OF_INTEREST,
     PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
-#[cfg(feature = "std")]
-use core::ops::Deref;
-
-#[cfg(feature = "std")]
-use alloc::sync::Arc;
 use ciborium::from_reader;
-#[cfg(feature = "std")]
-use std::sync::Mutex;
 
 /// The CertFile struct associates a string, notionally containing a filename or URI, with a vector
 /// of bytes. The vector of bytes is assumed to contain a binary DER encoded certificate.
@@ -321,12 +313,7 @@ pub struct BuffersAndPaths {
     pub buffers: Vec<CertFile>,
 
     /// Maps skid of leaf CA (i.e., last index in each vector) to a vector of indices into buffers
-    #[cfg(feature = "std")]
-    pub partial_paths: Arc<Mutex<RefCell<PartialPaths>>>,
-
-    /// Maps skid of leaf CA (i.e., last index in each vector) to a vector of indices into buffers
-    #[cfg(not(feature = "std"))]
-    pub partial_paths: RefCell<PartialPaths>,
+    pub partial_paths: PartialPaths,
 }
 
 /// Type used to represent partial certification paths in [`BuffersAndPaths`] struct
@@ -346,10 +333,7 @@ impl BuffersAndPaths {
     pub fn new() -> BuffersAndPaths {
         BuffersAndPaths {
             buffers: Vec::new(),
-            #[cfg(feature = "std")]
-            partial_paths: Arc::new(Mutex::new(RefCell::new(Vec::new()))),
-            #[cfg(not(feature = "std"))]
-            partial_paths: RefCell::new(Vec::new()),
+            partial_paths: Vec::new(),
         }
     }
 }
@@ -480,13 +464,8 @@ impl CertSource {
 
     /// Clear list of partial paths
     #[cfg(feature = "std")]
-    pub fn clear_paths(&self) {
-        let partial_paths = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        partial_paths.deref().borrow_mut().clear();
+    pub fn clear_paths(&mut self) {
+        self.buffers_and_paths.partial_paths.clear();
     }
 
     /// Create new instance from CBOR
@@ -595,17 +574,7 @@ impl CertSource {
 
     /// Log partial path details to PkiEnvironment's logging mechanism at debug level.
     pub fn log_partial_paths(&self) {
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             info!("No partial paths available");
@@ -671,17 +640,7 @@ impl CertSource {
             return;
         }
 
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
@@ -818,17 +777,7 @@ impl CertSource {
 
     /// Logs info about partial paths and corresponding buffers for a given target
     pub fn log_paths_for_leaf_ca(&self, target: &PDVCertificate) {
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
@@ -925,17 +874,7 @@ impl CertSource {
 
         let mut ppcounter = 0;
 
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         for outer in partial_paths.iter() {
             for key in outer.keys() {
@@ -948,12 +887,6 @@ impl CertSource {
             self.buffers_and_paths.buffers.len(),
             ppcounter
         );
-
-        // drop mutex so serde can claim it
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths);
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths_guard);
 
         let mut buffer = Vec::new();
         let r = into_writer(&self.buffers_and_paths, &mut buffer);
@@ -971,27 +904,16 @@ impl CertSource {
 
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
-        let mut ta_vec = vec![];
-        if let Ok(tav) = pe.get_trust_anchors() {
-            ta_vec = tav;
-        }
-
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut partial_paths = partial_paths_guard.deref().borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut partial_paths = self.buffers_and_paths.partial_paths.borrow_mut();
+    pub fn find_all_partial_paths(
+        &mut self,
+        pe: &'_ PkiEnvironment,
+        cps: &CertificationPathSettings,
+    ) {
+        let partial_paths = &mut self.buffers_and_paths.partial_paths;
 
         partial_paths.clear();
 
-        self.find_all_partial_paths_internal(pe, ta_vec, cps, 0, &mut partial_paths);
+        self.find_all_partial_paths_internal(pe, cps, 0);
     }
 
     /// Return list of buffers
@@ -1287,13 +1209,10 @@ impl CertSource {
     /// resulting set of partial paths will proceed from shortest available path to longest.
     ///
     fn find_all_partial_paths_internal(
-        &self,
+        &mut self,
         pe: &'_ PkiEnvironment,
-        //todo remove param
-        _ta_vec: Vec<&PDVTrustAnchorChoice>,
         cps: &CertificationPathSettings,
         pass: u8,
-        partial_paths: &mut Vec<BTreeMap<String, Vec<Vec<usize>>>>,
     ) {
         // Instantiate a map that will aggregate paths built relative to the 0th or pass-1 row in
         // self.buffers_and_paths.partial_paths, if any.
@@ -1350,7 +1269,7 @@ impl CertSource {
                     let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
                     if let Ok(defer_cert) = defer_cert {
                         // look for matches in map from previous row of partial_paths
-                        let last_row = &partial_paths[(pass - 1) as usize];
+                        let last_row = &self.buffers_and_paths.partial_paths[(pass - 1) as usize];
 
                         // get list of SKIDs for possible issuers (based on AKID and name lookups)
                         let prospective_issuers = self.find_prospective_issuers(cur_cert);
@@ -1424,10 +1343,10 @@ impl CertSource {
         }
         if !new_additions.is_empty() {
             // error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
-            partial_paths.push(new_additions);
+            self.buffers_and_paths.partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
-                self.find_all_partial_paths_internal(pe, _ta_vec, cps, pass + 1, partial_paths);
+                self.find_all_partial_paths_internal(pe, cps, pass + 1);
             }
         }
     }
@@ -1480,17 +1399,7 @@ impl CertificateSource for CertSource {
         while ii < 2 {
             ii += 1;
             if !akid_hex.is_empty() {
-                #[cfg(feature = "std")]
-                let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock()
-                {
-                    g
-                } else {
-                    return Err(Error::Unrecognized);
-                };
-                #[cfg(feature = "std")]
-                let partial_paths = partial_paths_guard.deref().borrow();
-                #[cfg(not(feature = "std"))]
-                let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+                let partial_paths = &self.buffers_and_paths.partial_paths;
 
                 for p in partial_paths.iter() {
                     if p.contains_key(&akid_hex) {
