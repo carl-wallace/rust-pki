@@ -29,12 +29,7 @@ use alloc::{vec, vec::Vec};
 use core::str;
 use log::{error, info, warn};
 
-#[cfg(feature = "std")]
-use alloc::sync::Arc;
 use ciborium::from_reader;
-use core::cell::RefCell;
-#[cfg(feature = "std")]
-use std::sync::Mutex;
 
 #[cfg(feature = "webpki")]
 use webpki_roots::TLS_SERVER_ROOTS;
@@ -198,21 +193,11 @@ pub struct TaSource {
     /// Contains list of buffers referenced by tas field
     buffers: Vec<CertFile>,
 
-    #[cfg(feature = "std")]
     /// Maps TA SKIDs to keys in the tas map
-    skid_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
+    skid_map: BTreeMap<String, usize>,
 
-    #[cfg(feature = "std")]
     /// Maps TA Names to keys in the tas map
-    name_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
-
-    #[cfg(not(feature = "std"))]
-    /// Maps TA SKIDs to keys in the tas map
-    skid_map: RefCell<BTreeMap<String, usize>>,
-
-    #[cfg(not(feature = "std"))]
-    /// Maps TA Names to keys in the tas map
-    name_map: RefCell<BTreeMap<String, usize>>,
+    name_map: BTreeMap<String, usize>,
 }
 
 impl Default for TaSource {
@@ -244,14 +229,8 @@ impl TaSource {
         TaSource {
             tas: Vec::new(),
             buffers: Vec::new(),
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         }
     }
 
@@ -268,14 +247,8 @@ impl TaSource {
         Ok(Self {
             tas: Vec::new(),
             buffers: bap.buffers,
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         })
     }
 
@@ -302,14 +275,8 @@ impl TaSource {
         let mut tas = Self {
             tas: Vec::new(),
             buffers,
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         };
         tas.initialize()?;
         Ok(tas)
@@ -329,38 +296,14 @@ impl TaSource {
 
     /// index_tas builds internally used maps based on key identifiers and names. It must be called
     /// after populating the `tas` and `buffers` fields and before use.
-    pub fn index_tas(&self) {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut skid_map = self.skid_map.borrow_mut();
-
-        #[cfg(feature = "std")]
-        let name_map_guard = if let Ok(g) = self.name_map.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut name_map = name_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut name_map = self.name_map.borrow_mut();
-
+    pub fn index_tas(&mut self) {
         for (i, ta) in self.tas.iter().enumerate() {
             let hex_skid = hex_skid_from_ta(ta);
-            skid_map.insert(hex_skid, i);
+            self.skid_map.insert(hex_skid, i);
 
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let name_str = name_to_string(name);
-                name_map.insert(name_str, i);
+                self.name_map.insert(name_str, i);
             };
         }
     }
@@ -422,64 +365,24 @@ impl TrustAnchorSource for TaSource {
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_skid(&'_ self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
-
+    fn get_trust_anchor_by_skid(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
         let hex_skid = buffer_to_hex(skid);
-        if skid_map.contains_key(hex_skid.as_str()) {
-            return Ok(&self.tas[skid_map[&hex_skid]]);
-        }
-
-        Err(Error::Unrecognized)
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
     }
 
-    fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
-        if skid_map.contains_key(hex_skid) {
-            return Ok(&self.tas[skid_map[hex_skid]]);
-        }
-
-        Err(Error::Unrecognized)
+    fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
+        self.skid_map
+            .get(hex_skid)
+            .ok_or(Error::Unrecognized)
+            .map(|idx| &self.tas[*idx])
     }
 
     fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let name_map_guard = if let Ok(g) = self.name_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let name_map = name_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let name_map = &self.name_map.borrow_mut();
         let name_str = name_to_string(name);
-        if name_map.contains_key(&name_str) {
-            return Ok(&self.tas[name_map[&name_str]]);
-        }
-
-        Err(Error::Unrecognized)
+        self.name_map
+            .get(&name_str)
+            .ok_or(Error::Unrecognized)
+            .map(|idx| &self.tas[*idx])
     }
 
     fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice>> {
@@ -493,61 +396,21 @@ impl TrustAnchorSource for TaSource {
 
     /// is_cert_a_trust_anchor returns true if presented certificate object is a trust anchor
     fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = hex_skid_from_cert(ta);
-        match skid_map.contains_key(hex_skid.as_str()) {
-            true => Ok(()),
-            false => Err(Error::NotFound),
-        }
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|_| ())
     }
 
     fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice) -> Result<()> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = hex_skid_from_ta(ta);
-        match skid_map.contains_key(hex_skid.as_str()) {
-            true => Ok(()),
-            false => Err(Error::NotFound),
-        }
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|_| ())
     }
 
     fn get_encoded_trust_anchor(&self, skid: &[u8]) -> Result<Vec<u8>> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = buffer_to_hex(skid);
-        if skid_map.contains_key(hex_skid.as_str()) {
-            return Ok(self.tas[skid_map[&hex_skid]].encoded_ta.to_owned().to_vec());
-        }
-
-        Err(Error::Unrecognized)
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|ta| ta.encoded_ta.to_owned().to_vec())
     }
 
     fn get_encoded_trust_anchors(&self) -> Result<Vec<Vec<u8>>> {
