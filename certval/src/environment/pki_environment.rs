@@ -324,7 +324,7 @@ impl PkiEnvironment {
     }
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
-    pub fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
+    pub fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_hex_skid(hex_skid);
             if let Ok(r) = r {
@@ -337,8 +337,8 @@ impl PkiEnvironment {
     /// get_trust_anchor_for_target takes a target certificate and returns a trust anchor that may
     /// be useful in verifying the certificate.
     pub fn get_trust_anchor_for_target(
-        &'_ self,
-        target: &'_ PDVCertificate,
+        &self,
+        target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_for_target(target);
@@ -350,7 +350,7 @@ impl PkiEnvironment {
     }
 
     /// is_cert_a_trust_anchor takes a target certificate indication if cert is a trust anchor.
-    pub fn is_cert_a_trust_anchor(&'_ self, target: &'_ PDVCertificate) -> Result<()> {
+    pub fn is_cert_a_trust_anchor(&self, target: &PDVCertificate) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_cert_a_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -360,7 +360,7 @@ impl PkiEnvironment {
     }
 
     /// is_trust_anchor takes a [`PDVTrustAnchorChoice`] indication if cert is a trust anchor.
-    pub fn is_trust_anchor(&'_ self, target: &'_ PDVTrustAnchorChoice) -> Result<()> {
+    pub fn is_trust_anchor(&self, target: &PDVTrustAnchorChoice) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_trust_anchor(target).is_ok() {
                 return Ok(());

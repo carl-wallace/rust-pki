@@ -85,12 +85,12 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
     Err(Error::Unrecognized)
 }
 
-pub fn get_pkits_crl_bytes(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_crl_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}", G_CRLS_FOLDER.as_str(), fname);
     get_file_as_byte_vec(Path::new(&f))
 }
 
-pub fn get_pkits_crl_ca_bytes(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_crl_ca_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}{}", G_CRLS_FOLDER.as_str(), fname, "CACRL.crl");
     let p = Path::new(f.as_str());
     if p.exists() {
@@ -102,22 +102,22 @@ pub fn get_pkits_crl_ca_bytes(fname: &'_ str) -> Result<Vec<u8>> {
     }
 }
 
-pub fn get_pkits_cert_bytes(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_cert_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}", G_CERTS_FOLDER.as_str(), fname);
     get_file_as_byte_vec(Path::new(&f))
 }
-pub fn get_pkits_ca_cert_bytes(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_ca_cert_bytes(fname: &str) -> Result<Vec<u8>> {
     let mut f = format!("{}{}{}", G_CERTS_FOLDER.as_str(), fname, "CACert.crt");
     if !Path::new(f.as_str()).exists() {
         f = format!("{}{}{}", G_CERTS_FOLDER.as_str(), fname, "Cert.crt");
     }
     get_file_as_byte_vec(Path::new(&f))
 }
-pub fn get_pkits_cert_bytes_p256(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_cert_bytes_p256(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}", G_CERTS_FOLDER_P256.as_str(), fname);
     get_file_as_byte_vec(Path::new(&f))
 }
-pub fn get_pkits_ca_cert_bytes_p256(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_ca_cert_bytes_p256(fname: &str) -> Result<Vec<u8>> {
     let mut f = format!("{}{}{}", G_CERTS_FOLDER_P256.as_str(), fname, "CACert.crt");
     if !Path::new(f.as_str()).exists() {
         f = format!("{}{}{}", G_CERTS_FOLDER_P256.as_str(), fname, "Cert.crt");
@@ -125,29 +125,29 @@ pub fn get_pkits_ca_cert_bytes_p256(fname: &'_ str) -> Result<Vec<u8>> {
     get_file_as_byte_vec(Path::new(&f))
 }
 
-// pub fn get_pkits_cert_bytes_p384(fname: &'_ str) -> Result<Vec<u8>> {
+// pub fn get_pkits_cert_bytes_p384(fname: &str) -> Result<Vec<u8>> {
 //     let f = format!("{}{}", G_CERTS_FOLDER_P384.as_str(), fname);
 //     get_file_as_byte_vec(Path::new(&f))
 // }
-// pub fn get_pkits_ca_cert_bytes_p384(fname: &'_ str) -> Result<Vec<u8>> {
+// pub fn get_pkits_ca_cert_bytes_p384(fname: &str) -> Result<Vec<u8>> {
 //     let mut f = format!("{}{}{}", G_CERTS_FOLDER_P384.as_str(), fname, "CACert.crt");
 //     if !Path::new(f.as_str()).exists() {
 //         f = format!("{}{}{}", G_CERTS_FOLDER_P384.as_str(), fname, "Cert.crt");
 //     }
 //     get_file_as_byte_vec(Path::new(&f))
 // }
-// pub fn get_pkits_cert_bytes_4096(fname: &'_ str) -> Result<Vec<u8>> {
+// pub fn get_pkits_cert_bytes_4096(fname: &str) -> Result<Vec<u8>> {
 //     let f = format!("{}{}", G_CERTS_FOLDER_4096.as_str(), fname);
 //     get_file_as_byte_vec(Path::new(&f))
 // }
-// pub fn get_pkits_ca_cert_bytes_4096(fname: &'_ str) -> Result<Vec<u8>> {
+// pub fn get_pkits_ca_cert_bytes_4096(fname: &str) -> Result<Vec<u8>> {
 //     let mut f = format!("{}{}{}", G_CERTS_FOLDER_4096.as_str(), fname, "CACert.crt");
 //     if !Path::new(f.as_str()).exists() {
 //         f = format!("{}{}{}", G_CERTS_FOLDER_4096.as_str(), fname, "Cert.crt");
 //     }
 //     get_file_as_byte_vec(Path::new(&f))
 // }
-pub fn get_pkits_ta5914_2048_bytes(fname: &'_ str) -> Result<Vec<u8>> {
+pub fn get_pkits_ta5914_2048_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}", G_TA5914_2048_FOLDER.as_str(), fname);
     get_file_as_byte_vec(Path::new(&f))
 }

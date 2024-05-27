@@ -62,22 +62,20 @@ pub type OidLookup = fn(&ObjectIdentifier) -> Result<String>;
 /// some means, i.e., hard-coded, file-based, system store accessed via FFI, etc.
 pub trait TrustAnchorSource {
     /// get_trust_anchors returns a vector with references to available trust anchors.
-    fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice>>;
+    fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>>;
 
     /// get_trust_anchor returns a reference to a trust anchor corresponding to the presented SKID.
     fn get_trust_anchor_by_skid(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice>;
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
-    fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice>;
+    fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice>;
 
     /// get_trust_anchor_for_name returns a reference to a trust anchor corresponding to present name.
-    fn get_trust_anchor_by_name(&'_ self, target: &'_ Name) -> Result<&PDVTrustAnchorChoice>;
+    fn get_trust_anchor_by_name(&self, target: &Name) -> Result<&PDVTrustAnchorChoice>;
 
     /// get_trust_anchor_for_target returns a reference to a trust anchor corresponding to AKID or name from presented target.
-    fn get_trust_anchor_for_target(
-        &'_ self,
-        target: &'_ PDVCertificate,
-    ) -> Result<&PDVTrustAnchorChoice>;
+    fn get_trust_anchor_for_target(&self, target: &PDVCertificate)
+        -> Result<&PDVTrustAnchorChoice>;
 
     /// get_encoded_trust_anchor returns a copy of the encoded buffer for the trust anchor corresponding
     /// to the given SKID.
@@ -109,7 +107,7 @@ pub trait CertVector {
 /// some means, i.e., hard-coded, file-based, system store accessed via FFI, etc.
 pub trait CertificateSource {
     /// get_certificates returns a vector with references to available certificates.
-    fn get_certificates(&'_ self) -> Result<Vec<&PDVCertificate>>;
+    fn get_certificates(&self) -> Result<Vec<&PDVCertificate>>;
 
     /// get_certificates_for_skid returns a vector of references to certificates corresponding to the presented SKID.
     fn get_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>>;
