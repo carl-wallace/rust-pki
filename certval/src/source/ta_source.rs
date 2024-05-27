@@ -331,8 +331,8 @@ impl TaSource {
 
 impl TrustAnchorSource for TaSource {
     fn get_trust_anchor_for_target(
-        &'_ self,
-        target: &'_ PDVCertificate,
+        &self,
+        target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         let mut akid_hex = "".to_string();
         let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
@@ -377,7 +377,7 @@ impl TrustAnchorSource for TaSource {
             .map(|idx| &self.tas[*idx])
     }
 
-    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice> {
+    fn get_trust_anchor_by_name(&self, name: &Name) -> Result<&PDVTrustAnchorChoice> {
         let name_str = name_to_string(name);
         self.name_map
             .get(&name_str)
@@ -385,7 +385,7 @@ impl TrustAnchorSource for TaSource {
             .map(|idx| &self.tas[*idx])
     }
 
-    fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice>> {
+    fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>> {
         let mut v = vec![];
         for ta in &self.tas {
             v.push(ta);

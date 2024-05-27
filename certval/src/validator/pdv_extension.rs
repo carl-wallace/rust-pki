@@ -20,15 +20,15 @@ use crate::util::error::*;
 pub trait ExtensionProcessing {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>>;
+    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>>;
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies an extension type and returns
     /// a `PDVExtension` containing the a decoded extension if the extension was present.
-    fn parse_extension(&'_ mut self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>>;
+    fn parse_extension(&mut self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>>;
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a `PDVExtension` containing the a decoded extension if the extension was present.
-    fn parse_extensions(&'_ mut self, oids: &[ObjectIdentifier]);
+    fn parse_extensions(&mut self, oids: &[ObjectIdentifier]);
 }
 
 /// [`ParsedExtensions`] is a typedef of a BTreeMap map that associates [`PDVExtension`] objects with object

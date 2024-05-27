@@ -103,7 +103,7 @@ impl TryFrom<CertificateInner<Raw>> for PDVCertificate {
 impl ExtensionProcessing for PDVCertificate {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
+    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -114,7 +114,7 @@ impl ExtensionProcessing for PDVCertificate {
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
-    fn parse_extensions(&'_ mut self, oids: &[ObjectIdentifier]) {
+    fn parse_extensions(&mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);
         }

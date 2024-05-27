@@ -904,11 +904,7 @@ impl CertSource {
 
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(
-        &mut self,
-        pe: &'_ PkiEnvironment,
-        cps: &CertificationPathSettings,
-    ) {
+    pub fn find_all_partial_paths(&mut self, pe: &PkiEnvironment, cps: &CertificationPathSettings) {
         let partial_paths = &mut self.buffers_and_paths.partial_paths;
 
         partial_paths.clear();
@@ -1154,7 +1150,7 @@ impl CertSource {
         true
     }
 
-    fn find_prospective_issuers(&self, target: &'_ PDVCertificate) -> Vec<String> {
+    fn find_prospective_issuers(&self, target: &PDVCertificate) -> Vec<String> {
         let mut retval: Vec<String> = vec![];
 
         let mut akid_hex = "".to_string();
@@ -1210,7 +1206,7 @@ impl CertSource {
     ///
     fn find_all_partial_paths_internal(
         &mut self,
-        pe: &'_ PkiEnvironment,
+        pe: &PkiEnvironment,
         cps: &CertificationPathSettings,
         pass: u8,
     ) {
@@ -1532,7 +1528,7 @@ impl CertificateSource for CertSource {
         Ok(())
     }
 
-    fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
         let hex_skid = buffer_to_hex(skid);
         let mut retval = vec![];
         if self.skid_map.contains_key(hex_skid.as_str()) {
@@ -1550,7 +1546,7 @@ impl CertificateSource for CertSource {
         }
     }
 
-    fn get_certificates_for_name(&'_ self, name: &Name) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates_for_name(&self, name: &Name) -> Result<Vec<&PDVCertificate>> {
         let name_str = name_to_string(name);
         let mut retval = vec![];
         if self.name_map.contains_key(name_str.as_str()) {
@@ -1568,7 +1564,7 @@ impl CertificateSource for CertSource {
         }
     }
 
-    fn get_certificates(&'_ self) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates(&self) -> Result<Vec<&PDVCertificate>> {
         let mut v = vec![];
         for ta in self.certs.iter().flatten() {
             v.push(ta);

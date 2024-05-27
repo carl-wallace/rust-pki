@@ -266,7 +266,7 @@ lazy_static! {
     };
 }
 
-pub fn load_pkits(pkits_data_map: &'_ mut PkitsDataMap) {
+pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //-----------------------------------------------------------------------------
     //Section 4.1 - signature verification - 6 tests
     //-----------------------------------------------------------------------------
