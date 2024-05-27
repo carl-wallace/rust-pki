@@ -49,10 +49,10 @@ pub struct CrlSourceFolders {
     #[readonly]
     pub crls_folder: String,
 
-    crl_info: Arc<Mutex<RefCell<Vec<CrlInfo>>>>,
-    issuer_map: Arc<Mutex<RefCell<IssuerMap>>>,
-    skid_map: Arc<Mutex<RefCell<SkidMap>>>,
-    dp_map: Arc<Mutex<RefCell<DpMap>>>,
+    crl_info: Vec<CrlInfo>,
+    issuer_map: IssuerMap,
+    skid_map: SkidMap,
+    dp_map: DpMap,
     // cache_map: Arc<Mutex<RefCell<CacheMap>>>,
     // blocklist: Arc<Mutex<RefCell<Blocklist>>>,
     // last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
@@ -92,57 +92,27 @@ impl CrlSourceFolders {
     pub fn new(crls_folder: &str) -> Self {
         CrlSourceFolders {
             crls_folder: crls_folder.to_string(),
-            crl_info: Arc::new(Mutex::new(RefCell::new(vec![]))),
-            issuer_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            dp_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            crl_info: vec![],
+            issuer_map: BTreeMap::new(),
+            dp_map: BTreeMap::new(),
+            skid_map: BTreeMap::new(),
         }
     }
 
     /// index_crls populates the internal name and IDP maps used to retrieve CRLs.
-    pub fn index_crls(&self, toi: u64) -> Result<usize> {
-        let idp_guard = if let Ok(g) = self.dp_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let skid_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let mut idp_map = idp_guard.deref().borrow_mut();
-        let mut skid_map = skid_guard.deref().borrow_mut();
-        let mut issuer_map = issuer_map_guard.deref().borrow_mut();
-        let mut crl_info = crl_info_guard.deref().borrow_mut();
+    pub fn index_crls(&mut self, toi: u64) -> Result<usize> {
         index_crls_internal(
             self.crls_folder.as_str(),
-            &mut crl_info,
-            &mut issuer_map,
-            &mut idp_map,
-            &mut skid_map,
+            &mut self.crl_info,
+            &mut self.issuer_map,
+            &mut self.dp_map,
+            &mut self.skid_map,
             toi,
         )
     }
 
     fn read_crl_at_index(&self, index: usize) -> Option<Vec<u8>> {
-        let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-            g
-        } else {
-            return None;
-        };
-        let crl_info = crl_info_guard.deref().borrow_mut();
-        let ci = &crl_info[index];
+        let ci = &self.crl_info[index];
         if let Some(filename) = &ci.filename {
             if let Ok(crl_buf) = get_file_as_byte_vec_pem(Path::new(filename.as_str())) {
                 return Some(crl_buf);
@@ -291,7 +261,7 @@ impl CheckRemoteResource for RemoteStatus {
 }
 
 impl CrlSource for CrlSourceFolders {
-    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
+    fn add_crl(&mut self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut cur_crl_info = get_crl_info(crl)?;
         let digest = Sha256::digest(uri).to_vec();
         let hex = buffer_to_hex(digest.as_slice());
@@ -303,35 +273,11 @@ impl CrlSource for CrlSourceFolders {
             }
             cur_crl_info.filename = path.to_str().map(|s| s.to_string());
 
-            let idp_guard = if let Ok(g) = self.dp_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let skid_guard = if let Ok(g) = self.skid_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let mut idp_map = idp_guard.deref().borrow_mut();
-            let mut skid_map = skid_guard.deref().borrow_mut();
-            let mut issuer_map = issuer_map_guard.deref().borrow_mut();
-            let mut crl_info = crl_info_guard.deref().borrow_mut();
             add_crl_info(
-                &mut crl_info,
-                &mut issuer_map,
-                &mut idp_map,
-                &mut skid_map,
+                &mut self.crl_info,
+                &mut self.issuer_map,
+                &mut self.dp_map,
+                &mut self.skid_map,
                 crl,
                 cur_crl_info,
             );
@@ -341,15 +287,9 @@ impl CrlSource for CrlSourceFolders {
 
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         if let Some(dps) = get_dps_from_cert(cert) {
-            let idp_guard = if let Ok(g) = self.dp_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let idp_map = idp_guard.deref().borrow_mut();
             for dp in dps {
-                if idp_map.contains_key(&dp) {
-                    let indices = &idp_map[&dp];
+                if self.dp_map.contains_key(&dp) {
+                    let indices = &self.dp_map[&dp];
                     let mut retval = vec![];
                     for index in indices {
                         if let Some(crl_buf) = self.read_crl_at_index(*index) {
@@ -365,14 +305,8 @@ impl CrlSource for CrlSourceFolders {
             cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER)
         {
             if let Some(kid) = &akid.key_identifier {
-                let skid_guard = if let Ok(g) = self.skid_map.lock() {
-                    g
-                } else {
-                    return Err(Error::Unrecognized);
-                };
-                let skid_map = skid_guard.deref().borrow_mut();
-                if skid_map.contains_key(&kid.as_bytes().to_vec()) {
-                    let indices = &skid_map[&kid.as_bytes().to_vec()];
+                if self.skid_map.contains_key(&kid.as_bytes().to_vec()) {
+                    let indices = &self.skid_map[&kid.as_bytes().to_vec()];
                     let mut retval = vec![];
                     for index in indices {
                         if let Some(crl_buf) = self.read_crl_at_index(*index) {
@@ -384,15 +318,9 @@ impl CrlSource for CrlSourceFolders {
             }
         }
 
-        let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let issuer_map = issuer_map_guard.deref().borrow_mut();
         let issuer_name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
-        if issuer_map.contains_key(&issuer_name) {
-            let indices = &issuer_map[&issuer_name];
+        if self.issuer_map.contains_key(&issuer_name) {
+            let indices = &self.issuer_map[&issuer_name];
             let mut retval = vec![];
             for index in indices {
                 if let Some(crl_buf) = self.read_crl_at_index(*index) {

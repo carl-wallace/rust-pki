@@ -420,9 +420,9 @@ impl PkiEnvironment {
     }
 
     /// Adds a CRL to the store
-    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
+    pub fn add_crl(&mut self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut at_least_one_success = false;
-        for f in &self.crl_sources {
+        for f in self.crl_sources.iter_mut() {
             if f.add_crl(crl_buf, crl, uri).is_ok() {
                 at_least_one_success = true;
             }

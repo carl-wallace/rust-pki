@@ -711,7 +711,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     #[cfg(all(feature = "std", feature = "revocation"))]
     let crl_source = match &args.crl_folder {
         Some(crl_folder) => {
-            let crl_source = CrlSourceFolders::new(crl_folder);
+            let mut crl_source = CrlSourceFolders::new(crl_folder);
             match crl_source.index_crls(cps.get_time_of_interest()) {
                 Ok(_) => Some(crl_source),
                 Err(e) => {
@@ -905,7 +905,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                 {
                     // validate when validating all or we don't have a definitive answer yet
                     let _ = validate_cert_file(
-                        &pe,
+                        &mut pe,
                         &cps,
                         filename.as_str(),
                         stats_for_file,
@@ -920,7 +920,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
 
         if let Some(folder) = &args.end_entity_folder {
             validate_cert_folder(
-                &pe,
+                &mut pe,
                 &cps,
                 folder.as_str(),
                 &mut stats,

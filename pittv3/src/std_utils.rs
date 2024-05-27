@@ -43,7 +43,7 @@ use certval::check_revocation;
 /// The `stats` parameter is used to aggregate basic path processing statistics.
 #[cfg(feature = "std")]
 pub(crate) async fn validate_cert_file(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     cert_filename: &str,
     stats: &mut PathValidationStats,
@@ -165,7 +165,7 @@ pub(crate) async fn validate_cert_file(
 #[async_recursion::async_recursion]
 #[cfg(feature = "std")]
 pub async fn validate_cert_folder(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     certs_folder: &str,
     stats: &mut PathValidationStatsGroup,

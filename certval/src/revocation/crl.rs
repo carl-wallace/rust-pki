@@ -971,7 +971,7 @@ fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
 /// certificate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_crl(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
@@ -1123,7 +1123,7 @@ pub(crate) fn process_crl(
 
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_crl_remote(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,

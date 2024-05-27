@@ -53,7 +53,7 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
 #[cfg(feature = "std")]
 pub async fn check_revocation(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -252,7 +252,7 @@ pub async fn check_revocation(
 /// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
 #[cfg(not(feature = "std"))]
 pub fn check_revocation(
-    pe: &PkiEnvironment,
+    pe: &mut PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
