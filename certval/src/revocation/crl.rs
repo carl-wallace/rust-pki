@@ -374,7 +374,7 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
-async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
+async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
@@ -385,10 +385,7 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Resu
         return Err(Error::UriOnBlocklist);
     }
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_in_secs))
-        .build()
-    {
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(c) => c,
         Err(e) => {
             debug!("Failed to prepare HTTP client to retrieve CRL: {}", e);
@@ -1205,11 +1202,11 @@ async fn fetch_crl_test() {
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
     pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
 
-    let r = fetch_crl(&pe, "ldap://ldap.scheme/", 60).await;
+    let r = fetch_crl(&pe, "ldap://ldap.scheme/", Duration::from_secs(60)).await;
     assert!(r.is_err());
     assert_eq!(Some(Error::InvalidUriScheme), r.err());
     pe.add_to_blocklist("http://blocklist.test");
-    let r = fetch_crl(&pe, "http://blocklist.test", 60).await;
+    let r = fetch_crl(&pe, "http://blocklist.test", Duration::from_secs(60)).await;
     assert!(r.is_err());
     assert_eq!(Some(Error::UriOnBlocklist), r.err());
 
@@ -1221,14 +1218,14 @@ async fn fetch_crl_test() {
     let r = fetch_crl(
         &pe,
         "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
-        60,
+        Duration::from_secs(60),
     )
     .await;
     assert!(r.is_ok());
     let r = fetch_crl(
         &pe,
         "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
-        60,
+        Duration::from_secs(60),
     )
     .await;
     assert!(r.is_err());

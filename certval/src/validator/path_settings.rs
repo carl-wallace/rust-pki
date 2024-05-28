@@ -4,6 +4,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::{vec, vec::Vec};
 use core::str::FromStr;
+use core::time::Duration;
 
 use flagset::FlagSet;
 use serde::{Deserialize, Serialize};
@@ -112,8 +113,8 @@ pub type KeyUsageSettings = FlagSet<KeyUsages>;
 //-----------------------------------------------------------------------------------------------
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
-#[cfg(feature = "std")]
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),
@@ -141,40 +142,10 @@ pub enum CertificationPathProcessingTypes {
     KeyUsageValue(KeyUsageSettings),
     /// Represents instruction for nonce handling in OCSP client
     OcspNonceSetting(OcspNonceSetting),
+    /// Represents duration or a timeout
+    Duration(Duration),
 }
 
-/// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
-/// performing certification path discovery and validation.
-#[cfg(not(feature = "std"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CertificationPathProcessingTypes {
-    /// Represents bool values
-    Bool(bool),
-    /// Represents u8 values
-    U8(u8),
-    /// Represents u16 values
-    U16(u16),
-    /// Represents u64 values
-    U64(u64),
-    /// Represents NameConstraintsSet values
-    NameConstraintsSettings(NameConstraintsSettings),
-    /// Represents String values
-    String(String),
-    /// Represents vectors of u8 values
-    Buffer(Vec<u8>),
-    /// Represents vectors of Strings
-    Strings(Strings),
-    /// Represents vectors of bools
-    Bools(Vec<bool>),
-    /// Represents vectors of buffers
-    Buffers(Vec<Vec<u8>>),
-    /// Represents vectors of vectors of buffers
-    ListOfBuffers(Vec<Vec<Vec<u8>>>),
-    /// Represents KeyUsageValues values
-    KeyUsageValue(KeyUsageSettings),
-    /// Represents instruction for nonce handling in OCSP client
-    OcspNonceSetting(OcspNonceSetting),
-}
 //-----------------------------------------------------------------------------------------------
 // Types of path settings
 //-----------------------------------------------------------------------------------------------
@@ -262,7 +233,7 @@ pub static PS_INITIAL_PATH_LENGTH_CONSTRAINT: &str = "psInitialPathLengthConstra
 pub static PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
 
 /// `PS_CRL_TIMEOUT_DEFAULT` sets the maximum amount of time to spend downloading a CRL expressed in seconds.
-pub static PS_CRL_TIMEOUT_DEFAULT: u64 = 60;
+pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
 
 /// `PS_CRL_TIMEOUT` is used to a u64 that expresses the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT: &str = "psCrlTimeout";
@@ -680,7 +651,7 @@ cps_gets_and_sets_with_default!(
     u8,
     PS_MAX_PATH_LENGTH_CONSTRAINT
 );
-cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, u64, PS_CRL_TIMEOUT_DEFAULT);
+cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, Duration, PS_CRL_TIMEOUT_DEFAULT);
 
 cps_gets_and_sets_with_default!(PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_USE_VALIDATOR_FILTER_WHEN_BUILDING, bool, true);
@@ -781,7 +752,7 @@ fn test_default_gets_cps() {
     assert!(!cps.get_enforce_trust_anchor_constraints());
     assert!(cps.get_enforce_trust_anchor_validity());
     assert!(!cps.get_extended_key_usage_path());
-    assert_eq!(60, cps.get_crl_timeout());
+    assert_eq!(Duration::from_secs(60), cps.get_crl_timeout());
     assert!(!cps.get_enforce_alg_and_key_size_constraints());
 
     assert!(cps.get_use_validator_filter_when_building());
@@ -883,8 +854,8 @@ fn test_default_sets_cps() {
     assert!(!cps.get_enforce_trust_anchor_validity());
     cps.set_extended_key_usage_path(true);
     assert!(cps.get_extended_key_usage_path());
-    cps.set_crl_timeout(120);
-    assert_eq!(120, cps.get_crl_timeout());
+    cps.set_crl_timeout(Duration::from_secs(120));
+    assert_eq!(Duration::from_secs(120), cps.get_crl_timeout());
     cps.set_enforce_alg_and_key_size_constraints(true);
     assert!(cps.get_enforce_alg_and_key_size_constraints());
 
