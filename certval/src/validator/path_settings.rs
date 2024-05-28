@@ -112,8 +112,8 @@ pub type KeyUsageSettings = FlagSet<KeyUsages>;
 //-----------------------------------------------------------------------------------------------
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
-#[cfg(feature = "std")]
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),
@@ -143,38 +143,6 @@ pub enum CertificationPathProcessingTypes {
     OcspNonceSetting(OcspNonceSetting),
 }
 
-/// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
-/// performing certification path discovery and validation.
-#[cfg(not(feature = "std"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CertificationPathProcessingTypes {
-    /// Represents bool values
-    Bool(bool),
-    /// Represents u8 values
-    U8(u8),
-    /// Represents u16 values
-    U16(u16),
-    /// Represents u64 values
-    U64(u64),
-    /// Represents NameConstraintsSet values
-    NameConstraintsSettings(NameConstraintsSettings),
-    /// Represents String values
-    String(String),
-    /// Represents vectors of u8 values
-    Buffer(Vec<u8>),
-    /// Represents vectors of Strings
-    Strings(Strings),
-    /// Represents vectors of bools
-    Bools(Vec<bool>),
-    /// Represents vectors of buffers
-    Buffers(Vec<Vec<u8>>),
-    /// Represents vectors of vectors of buffers
-    ListOfBuffers(Vec<Vec<Vec<u8>>>),
-    /// Represents KeyUsageValues values
-    KeyUsageValue(KeyUsageSettings),
-    /// Represents instruction for nonce handling in OCSP client
-    OcspNonceSetting(OcspNonceSetting),
-}
 //-----------------------------------------------------------------------------------------------
 // Types of path settings
 //-----------------------------------------------------------------------------------------------
