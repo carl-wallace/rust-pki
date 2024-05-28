@@ -334,12 +334,10 @@ pub fn check_names(
             };
 
             let san_len = san.map(|s| s.0.len()).unwrap_or(0);
-            if san_len > 0 {
-                if constraint_count > 1048576 / san_len {
-                    return Err(Error::PathValidation(
-                        PathValidationStatus::NameConstraintsViolation,
-                    ));
-                }
+            if san_len > 0 && constraint_count > 1048576 / san_len {
+                return Err(Error::PathValidation(
+                    PathValidationStatus::NameConstraintsViolation,
+                ));
             }
 
             if !permitted_subtrees.san_within_permitted_subtrees(&san) {
