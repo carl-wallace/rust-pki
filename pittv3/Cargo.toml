@@ -21,7 +21,7 @@ x509-cert = { version="0.2.4", default-features = false, features = ["pem"] }
 const-oid = { version = "0.9.5", default-features = false, features = ["db"] }
 cms = "0.2.2"
 der = { version="0.7.8", features = ["alloc", "derive", "flagset", "oid"] }
-x509-ocsp = { git = "https://github.com/RustCrypto/formats" }
+x509-ocsp = { git = "https://github.com/RustCrypto/formats", rev = "839a963fec13112e76e73677ded6a6d8e6552ae7" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.7.2", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="0.7.0", features = ["alloc"]}
