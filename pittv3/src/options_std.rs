@@ -730,12 +730,12 @@ async fn generate_and_validate(args: &Pittv3Args) {
         .map(|crl_folder| RemoteStatus::new(crl_folder));
 
     #[cfg(all(feature = "std", feature = "revocation"))]
-    if let Some(crl_source) = &crl_source {
-        pe.add_crl_source(Box::new(crl_source.clone()));
+    if let Some(crl_source) = crl_source {
+        pe.add_crl_source(Box::new(crl_source));
     }
     #[cfg(all(feature = "std", feature = "revocation"))]
-    if let Some(remote_status) = &remote_status {
-        pe.add_check_remote(Box::new(remote_status.clone()));
+    if let Some(remote_status) = remote_status {
+        pe.add_check_remote(Box::new(remote_status));
     }
     #[cfg(all(feature = "std", feature = "revocation"))]
     pe.add_revocation_cache(Box::new(RevocationCache::new()));

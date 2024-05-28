@@ -1,15 +1,12 @@
 //! Provides a place to store CRLs for retrieval at a later time
 
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
 use alloc::{vec, vec::Vec};
-use core::cell::RefCell;
-use core::cell::RefMut;
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{RwLock, RwLockWriteGuard};
 
 use log::{debug, error, info};
 
@@ -39,35 +36,39 @@ struct StatusAndTime {
     time: u64,
 }
 
+/// This is the inner structure in [`CrlSourceFolders`].
+/// it is held under a read-write lock and various maps should be kept consistent with the content
+/// of the `crl_info`.
+struct CrlSourceFoldersInner {
+    crl_info: Vec<CrlInfo>,
+    issuer_map: IssuerMap,
+    skid_map: SkidMap,
+    dp_map: DpMap,
+}
+
 //TODO hygiene
 /// CrlSourceFolders provides a simple CRL store that supports storing CRL retrieved from remote
 /// resources for subsequent use.
-#[derive(Clone)]
 #[readonly::make]
 pub struct CrlSourceFolders {
     /// Folder where CRLs are stored
     #[readonly]
     pub crls_folder: String,
 
-    crl_info: Arc<Mutex<RefCell<Vec<CrlInfo>>>>,
-    issuer_map: Arc<Mutex<RefCell<IssuerMap>>>,
-    skid_map: Arc<Mutex<RefCell<SkidMap>>>,
-    dp_map: Arc<Mutex<RefCell<DpMap>>>,
+    inner: RwLock<CrlSourceFoldersInner>,
     // cache_map: Arc<Mutex<RefCell<CacheMap>>>,
     // blocklist: Arc<Mutex<RefCell<Blocklist>>>,
     // last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
 }
 
 /// Provided in-memory revocation status cache
-#[derive(Clone)]
 #[readonly::make]
 pub struct RevocationCache {
-    cache_map: Arc<Mutex<RefCell<CacheMap>>>,
+    cache_map: RwLock<CacheMap>,
 }
 
 /// Provides file-based remote URI status information (relative to a file folder, typically the CRLs
 /// folder used by a CrlSourceFolders instance)
-#[derive(Clone)]
 #[readonly::make]
 pub struct RemoteStatus {
     /// Folder where remote status information is stored, i.e., last_modified_map.json. This is
@@ -75,8 +76,8 @@ pub struct RemoteStatus {
     #[readonly]
     pub lmm_folder: String,
 
-    blocklist: Arc<Mutex<RefCell<Blocklist>>>,
-    last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
+    blocklist: RwLock<Blocklist>,
+    last_modified_map: RwLock<LastModifiedMap>,
 }
 
 type IssuerMap = BTreeMap<String, Vec<usize>>;
@@ -92,57 +93,32 @@ impl CrlSourceFolders {
     pub fn new(crls_folder: &str) -> Self {
         CrlSourceFolders {
             crls_folder: crls_folder.to_string(),
-            crl_info: Arc::new(Mutex::new(RefCell::new(vec![]))),
-            issuer_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            dp_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
+            inner: RwLock::new(CrlSourceFoldersInner {
+                crl_info: vec![],
+                issuer_map: BTreeMap::new(),
+                dp_map: BTreeMap::new(),
+                skid_map: BTreeMap::new(),
+            }),
         }
     }
 
     /// index_crls populates the internal name and IDP maps used to retrieve CRLs.
     pub fn index_crls(&self, toi: u64) -> Result<usize> {
-        let idp_guard = if let Ok(g) = self.dp_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let skid_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let mut idp_map = idp_guard.deref().borrow_mut();
-        let mut skid_map = skid_guard.deref().borrow_mut();
-        let mut issuer_map = issuer_map_guard.deref().borrow_mut();
-        let mut crl_info = crl_info_guard.deref().borrow_mut();
+        let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
+        let inner = inner.deref_mut();
         index_crls_internal(
             self.crls_folder.as_str(),
-            &mut crl_info,
-            &mut issuer_map,
-            &mut idp_map,
-            &mut skid_map,
+            &mut inner.crl_info,
+            &mut inner.issuer_map,
+            &mut inner.dp_map,
+            &mut inner.skid_map,
             toi,
         )
     }
 
     fn read_crl_at_index(&self, index: usize) -> Option<Vec<u8>> {
-        let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-            g
-        } else {
-            return None;
-        };
-        let crl_info = crl_info_guard.deref().borrow_mut();
-        let ci = &crl_info[index];
+        let inner = self.inner.read().ok()?;
+        let ci = &inner.crl_info[index];
         if let Some(filename) = &ci.filename {
             if let Ok(crl_buf) = get_file_as_byte_vec_pem(Path::new(filename.as_str())) {
                 return Some(crl_buf);
@@ -156,7 +132,7 @@ impl RevocationCache {
     /// Create new RevocationCache instance
     pub fn new() -> Self {
         RevocationCache {
-            cache_map: Arc::new(Mutex::new(RefCell::new(Default::default()))),
+            cache_map: RwLock::new(Default::default()),
         }
     }
 }
@@ -173,11 +149,11 @@ impl RemoteStatus {
     pub fn new(folder: &str) -> Self {
         RemoteStatus {
             lmm_folder: folder.to_string(),
-            blocklist: Arc::new(Mutex::new(RefCell::new(vec![]))),
-            last_modified_map: Arc::new(Mutex::new(RefCell::new(Default::default()))),
+            blocklist: RwLock::new(vec![]),
+            last_modified_map: RwLock::new(Default::default()),
         }
     }
-    fn load_lmm(&self, last_modified_map: &mut RefMut<'_, LastModifiedMap>) {
+    fn load_lmm(&self, last_modified_map: &mut RwLockWriteGuard<'_, LastModifiedMap>) {
         let p = Path::new(&self.lmm_folder);
         let lmmp = p.join("last_modified_map.json");
         if let Some(lmmp) = lmmp.as_path().to_str() {
@@ -209,12 +185,7 @@ impl RemoteStatus {
 impl CheckRemoteResource for RemoteStatus {
     /// get_last_modified takes a URI and returns stored last modified value or None.
     fn get_last_modified(&self, uri: &str) -> Option<String> {
-        let last_modified_map_guard = if let Ok(g) = self.last_modified_map.lock() {
-            g
-        } else {
-            return None;
-        };
-        let mut last_modified_map = last_modified_map_guard.deref().borrow_mut();
+        let mut last_modified_map = self.last_modified_map.write().ok()?;
         if last_modified_map.is_empty() {
             self.load_lmm(&mut last_modified_map);
         }
@@ -226,12 +197,11 @@ impl CheckRemoteResource for RemoteStatus {
     }
     /// Save last modified value, if desired
     fn set_last_modified(&self, uri: &str, last_modified: &str) {
-        let last_modified_map_guard = if let Ok(g) = self.last_modified_map.lock() {
-            g
+        let mut last_modified_map = if let Ok(l) = self.last_modified_map.write() {
+            l
         } else {
             return;
         };
-        let mut last_modified_map = last_modified_map_guard.deref().borrow_mut();
         if last_modified_map.is_empty() {
             self.load_lmm(&mut last_modified_map);
         }
@@ -252,12 +222,11 @@ impl CheckRemoteResource for RemoteStatus {
     }
     /// Gets blocklist takes a URI and returns true if it is on blocklist and false otherwise
     fn check_blocklist(&self, uri: &str) -> bool {
-        let blocklist_guard = if let Ok(g) = self.blocklist.lock() {
-            g
+        let blocklist = if let Ok(blocklist) = self.blocklist.read() {
+            blocklist
         } else {
             return false;
         };
-        let blocklist = blocklist_guard.deref().borrow_mut();
         // if blocklist.is_empty() {
         //     self.load_blocklist(&mut blocklist);
         // }
@@ -265,12 +234,11 @@ impl CheckRemoteResource for RemoteStatus {
     }
     /// Save blocklist, if desired
     fn add_to_blocklist(&self, uri: &str) {
-        let blocklist_guard = if let Ok(g) = self.blocklist.lock() {
-            g
+        let mut blocklist = if let Ok(blocklist) = self.blocklist.write() {
+            blocklist
         } else {
             return;
         };
-        let mut blocklist = blocklist_guard.deref().borrow_mut();
         // if blocklist.is_empty() {
         //     self.load_blocklist(&mut blocklist);
         // }
@@ -303,35 +271,13 @@ impl CrlSource for CrlSourceFolders {
             }
             cur_crl_info.filename = path.to_str().map(|s| s.to_string());
 
-            let idp_guard = if let Ok(g) = self.dp_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let skid_guard = if let Ok(g) = self.skid_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let crl_info_guard = if let Ok(g) = self.crl_info.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let mut idp_map = idp_guard.deref().borrow_mut();
-            let mut skid_map = skid_guard.deref().borrow_mut();
-            let mut issuer_map = issuer_map_guard.deref().borrow_mut();
-            let mut crl_info = crl_info_guard.deref().borrow_mut();
+            let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
+            let inner = inner.deref_mut();
             add_crl_info(
-                &mut crl_info,
-                &mut issuer_map,
-                &mut idp_map,
-                &mut skid_map,
+                &mut inner.crl_info,
+                &mut inner.issuer_map,
+                &mut inner.dp_map,
+                &mut inner.skid_map,
                 crl,
                 cur_crl_info,
             );
@@ -340,16 +286,12 @@ impl CrlSource for CrlSourceFolders {
     }
 
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
+        let inner = self.inner.read().map_err(|_| Error::Unrecognized)?;
+
         if let Some(dps) = get_dps_from_cert(cert) {
-            let idp_guard = if let Ok(g) = self.dp_map.lock() {
-                g
-            } else {
-                return Err(Error::Unrecognized);
-            };
-            let idp_map = idp_guard.deref().borrow_mut();
             for dp in dps {
-                if idp_map.contains_key(&dp) {
-                    let indices = &idp_map[&dp];
+                if inner.dp_map.contains_key(&dp) {
+                    let indices = &inner.dp_map[&dp];
                     let mut retval = vec![];
                     for index in indices {
                         if let Some(crl_buf) = self.read_crl_at_index(*index) {
@@ -365,14 +307,8 @@ impl CrlSource for CrlSourceFolders {
             cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER)
         {
             if let Some(kid) = &akid.key_identifier {
-                let skid_guard = if let Ok(g) = self.skid_map.lock() {
-                    g
-                } else {
-                    return Err(Error::Unrecognized);
-                };
-                let skid_map = skid_guard.deref().borrow_mut();
-                if skid_map.contains_key(&kid.as_bytes().to_vec()) {
-                    let indices = &skid_map[&kid.as_bytes().to_vec()];
+                if inner.skid_map.contains_key(&kid.as_bytes().to_vec()) {
+                    let indices = &inner.skid_map[&kid.as_bytes().to_vec()];
                     let mut retval = vec![];
                     for index in indices {
                         if let Some(crl_buf) = self.read_crl_at_index(*index) {
@@ -384,15 +320,9 @@ impl CrlSource for CrlSourceFolders {
             }
         }
 
-        let issuer_map_guard = if let Ok(g) = self.issuer_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        let issuer_map = issuer_map_guard.deref().borrow_mut();
         let issuer_name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
-        if issuer_map.contains_key(&issuer_name) {
-            let indices = &issuer_map[&issuer_name];
+        if inner.issuer_map.contains_key(&issuer_name) {
+            let indices = &inner.issuer_map[&issuer_name];
             let mut retval = vec![];
             for index in indices {
                 if let Some(crl_buf) = self.read_crl_at_index(*index) {
@@ -578,12 +508,11 @@ impl RevocationStatusCache for RevocationCache {
         let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
 
-        let cache_map_guard = if let Ok(g) = self.cache_map.lock() {
-            g
+        let cache_map = if let Ok(c) = self.cache_map.read() {
+            c
         } else {
             return RevocationStatusNotDetermined;
         };
-        let cache_map = cache_map_guard.deref().borrow_mut();
         let key = (name, serial);
         if cache_map.contains_key(&key) {
             let status_and_time = &cache_map[&key];
@@ -606,12 +535,11 @@ impl RevocationStatusCache for RevocationCache {
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
         let key = (name, serial);
 
-        let cache_map_guard = if let Ok(g) = self.cache_map.lock() {
+        let mut cache_map = if let Ok(g) = self.cache_map.write() {
             g
         } else {
             return;
         };
-        let mut cache_map = cache_map_guard.deref().borrow_mut();
         let status_and_time = StatusAndTime {
             status,
             time: next_update,
