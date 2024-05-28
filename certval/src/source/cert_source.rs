@@ -62,7 +62,7 @@ use crate::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
     CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
-    NameConstraintsSet, PDVCertificate, PkiEnvironment, EXTS_OF_INTEREST,
+    NameConstraintsSet, PDVCertificate, PkiEnvironment, TimeOfInterest, EXTS_OF_INTEREST,
     PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
@@ -630,7 +630,7 @@ impl CertSource {
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: u64) {
+    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: TimeOfInterest) {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
             error!(
@@ -928,7 +928,7 @@ impl CertSource {
             if let Ok(cert) =
                 CertificateInner::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
             {
-                let valid = if let 0 = time_of_interest {
+                let valid = if time_of_interest.is_disabled() {
                     true
                 } else {
                     let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
@@ -1066,7 +1066,7 @@ impl CertSource {
         cps: &CertificationPathSettings,
     ) -> bool {
         let time_of_interest = cps.get_time_of_interest();
-        if 0 == time_of_interest {
+        if time_of_interest.is_disabled() {
             return true;
         }
         for i in path.iter() {
@@ -1357,7 +1357,7 @@ impl CertificateSource for CertSource {
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
-        time_of_interest: u64,
+        time_of_interest: TimeOfInterest,
     ) -> Result<()> {
         if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
         {
@@ -1673,7 +1673,7 @@ fn get_certificates_test() {
         &pe,
         "tests/examples/PKITS_data_2048/certs",
         &mut cert_store,
-        1647258133,
+        TimeOfInterest::from_unix_secs(1647258133).unwrap(),
     )
     .is_ok());
     let cps = CertificationPathSettings::default();

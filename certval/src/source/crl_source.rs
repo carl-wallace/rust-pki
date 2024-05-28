@@ -25,7 +25,7 @@ use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{buffer_to_hex, CheckRemoteResource, PathValidationStatus, RevocationStatusCache};
 use crate::{
     get_file_as_byte_vec_pem, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension,
-    Result,
+    Result, TimeOfInterest,
 };
 
 #[cfg(feature = "revocation")]
@@ -103,7 +103,7 @@ impl CrlSourceFolders {
     }
 
     /// index_crls populates the internal name and IDP maps used to retrieve CRLs.
-    pub fn index_crls(&self, toi: u64) -> Result<usize> {
+    pub fn index_crls(&self, toi: TimeOfInterest) -> Result<usize> {
         let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
         let inner = inner.deref_mut();
         index_crls_internal(
@@ -424,7 +424,7 @@ fn index_crls_internal(
     issuer_map: &mut BTreeMap<String, Vec<usize>>,
     idp_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
     skid_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
-    toi: u64,
+    toi: TimeOfInterest,
 ) -> Result<usize> {
     let initial_count = crl_info.len();
     for entry in WalkDir::new(crls_folder) {
@@ -504,7 +504,11 @@ fn index_crls_internal(
 }
 
 impl RevocationStatusCache for RevocationCache {
-    fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
+    fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus {
         let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
         let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
 
@@ -516,7 +520,7 @@ impl RevocationStatusCache for RevocationCache {
         let key = (name, serial);
         if cache_map.contains_key(&key) {
             let status_and_time = &cache_map[&key];
-            if status_and_time.time > time_of_interest {
+            if status_and_time.time > time_of_interest.as_unix_secs() {
                 info!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.1, key.0);
                 return status_and_time.status;
             }

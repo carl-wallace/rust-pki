@@ -39,7 +39,7 @@ use x509_cert::{
 use crate::{
     environment::pki_environment::PkiEnvironment, name_constraints_set::UID,
     path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT, pdv_certificate::*, pdv_extension::*,
-    util::error::*, util::pdv_alg_oids::*,
+    util::error::*, util::pdv_alg_oids::*, TimeOfInterest,
 };
 
 /// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
@@ -123,13 +123,17 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<Strin
 /// evaluated first.
 ///
 /// To stifle logging output upon error, pass true for the stifle_log parameter.
-pub fn valid_at_time(target: &TbsCertificateInner<Raw>, toi: u64, stifle_log: bool) -> Result<u64> {
-    if 0 == toi {
+pub fn valid_at_time(
+    target: &TbsCertificateInner<Raw>,
+    toi: TimeOfInterest,
+    stifle_log: bool,
+) -> Result<u64> {
+    if toi.is_disabled() {
         // zero is used to disable validity check
         return Ok(0);
     }
 
-    let nb = target.validity.not_before.to_unix_duration().as_secs();
+    let nb = target.validity.not_before;
     if nb > toi {
         if !stifle_log {
             log_error_for_name(&target.subject, "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
@@ -139,7 +143,7 @@ pub fn valid_at_time(target: &TbsCertificateInner<Raw>, toi: u64, stifle_log: bo
         ));
     }
 
-    let na = target.validity.not_after.to_unix_duration().as_secs();
+    let na = target.validity.not_after;
     if na < toi {
         if !stifle_log {
             log_error_for_name(
@@ -863,7 +867,11 @@ pub fn get_leaf_rdn(name: &Name) -> String {
 }
 
 /// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
-pub fn ta_valid_at_time(ta: &TrustAnchorChoice<Raw>, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn ta_valid_at_time(
+    ta: &TrustAnchorChoice<Raw>,
+    toi: TimeOfInterest,
+    stifle_log: bool,
+) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
             return valid_at_time(&c.tbs_certificate, toi, stifle_log);

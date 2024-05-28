@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -33,7 +33,7 @@ use certval::{
     enforce_trust_anchor_constraints, name_constraints_settings_to_name_constraints_set, CertFile,
     CertSource, CertVector, CertificationPath, CertificationPathResults, CertificationPathSettings,
     ExtensionProcessing, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
-    TaSource,
+    TaSource, TimeOfInterest,
 };
 
 type Certificate = CertificateInner<Raw>;
@@ -351,11 +351,8 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     cps.set_enforce_trust_anchor_constraints(true);
 
     let time_of_interest = match tc.validation_time {
-        Some(toi) => toi.timestamp() as u64,
-        None => SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
+        Some(toi) => TimeOfInterest::from_unix_secs(toi.timestamp() as u64).unwrap(),
+        None => TimeOfInterest::now(),
     };
     cps.set_time_of_interest(time_of_interest);
 

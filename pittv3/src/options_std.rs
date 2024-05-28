@@ -209,7 +209,12 @@ pub async fn options_std(args: &Pittv3Args) {
         // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
         if let Some(ta_folder) = &args.ta_folder {
             let mut ta_store = TaSource::new();
-            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
+            let r = ta_folder_to_vec(
+                &pe,
+                ta_folder,
+                &mut ta_store,
+                TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+            );
             if let Err(e) = r {
                 println!(
                     "Failed to load trust anchors from {} with error {:?}",
@@ -276,7 +281,7 @@ pub async fn options_std(args: &Pittv3Args) {
         };
 
         let mut cps = CertificationPathSettings::new();
-        cps.set_time_of_interest(args.time_of_interest);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
 
         let mut pe = PkiEnvironment::default();
 
@@ -323,7 +328,12 @@ pub async fn options_std(args: &Pittv3Args) {
         let mut ta_store = TaSource::new();
 
         if let Some(ta_folder) = &args.ta_folder {
-            let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
+            let r = ta_folder_to_vec(
+                &pe,
+                ta_folder,
+                &mut ta_store,
+                TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+            );
             if let Err(e) = r {
                 println!(
                     "Failed to load trust anchors from {} with error {:?}",
@@ -398,7 +408,7 @@ pub async fn options_std(args: &Pittv3Args) {
                         0,
                         &mut lmm,
                         &mut blocklist,
-                        args.time_of_interest,
+                        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                     )
                     .await;
                     if let Err(e) = r {
@@ -455,7 +465,10 @@ pub async fn options_std(args: &Pittv3Args) {
 
             let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
             if let Ok(target_cert) = parsed_cert {
-                cert_source.log_paths_for_target(&target_cert, args.time_of_interest);
+                cert_source.log_paths_for_target(
+                    &target_cert,
+                    TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                );
             }
         }
         if let Some(leaf_ca_index) = args.list_partial_paths_for_leaf_ca {
@@ -612,7 +625,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     };
 
     if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
-        cps.set_time_of_interest(args.time_of_interest);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
     }
 
     #[cfg(feature = "remote")]
@@ -646,7 +659,12 @@ async fn generate_and_validate(args: &Pittv3Args) {
     // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
     if let Some(ta_folder) = &args.ta_folder {
         let mut ta_store = TaSource::new();
-        let r = ta_folder_to_vec(&pe, ta_folder, &mut ta_store, args.time_of_interest);
+        let r = ta_folder_to_vec(
+            &pe,
+            ta_folder,
+            &mut ta_store,
+            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+        );
         if let Err(e) = r {
             println!(
                 "Failed to load trust anchors from {} with error {:?}",
@@ -800,7 +818,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                         &pe,
                         download_folder,
                         &mut cert_source,
-                        args.time_of_interest,
+                        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                     )
                     .is_err()
                     {
@@ -822,7 +840,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                     },
                     &mut lmm,
                     &mut blocklist,
-                    args.time_of_interest,
+                    TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                 )
                 .await;
 

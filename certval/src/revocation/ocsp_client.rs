@@ -127,20 +127,20 @@ fn cert_id_match(
 
 fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
     let time_of_interest = cps.get_time_of_interest();
-    if 0 == time_of_interest {
+    if time_of_interest.is_disabled() {
         return true;
     }
 
     // TODO support grace periods?
 
-    let tu = sr.this_update.0.to_unix_duration().as_secs();
+    let tu = sr.this_update.0;
     if tu > time_of_interest {
         //future request
         return false;
     }
 
     if let Some(next_update) = sr.next_update {
-        let nu = next_update.0.to_unix_duration().as_secs();
+        let nu = next_update.0;
         if nu < time_of_interest {
             //stale
             return false;
@@ -543,7 +543,7 @@ fn process_ocsp_response_internal(
                             }
 
                             let time_of_interest = cps.get_time_of_interest();
-                            if 0 != time_of_interest {
+                            if time_of_interest.is_disabled() {
                                 let target_ttl =
                                     valid_at_time(&cert.tbs_certificate, time_of_interest, false);
                                 if let Err(_e) = target_ttl {

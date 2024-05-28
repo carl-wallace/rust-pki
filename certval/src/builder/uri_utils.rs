@@ -46,7 +46,7 @@ fn save_certs_from_p7(
     bytes: &[u8],
     target: &str,
     buffers: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> bool {
     let mut at_least_one_saved = false;
     let filename = if let Some(fname) = filename.to_str() {
@@ -103,7 +103,7 @@ fn save_cert(
     bytes: &[u8],
     target: &str,
     buffers: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> bool {
     let mut saved = false;
     let filename = if let Some(fname) = filename.to_str() {
@@ -179,7 +179,7 @@ pub async fn fetch_to_buffer(
     start_index: usize,
     last_mod_map: &mut BTreeMap<String, String>,
     blocklist: &mut Vec<String>,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> Result<()> {
     // Downloaded artifacts are saved for future use, create a path object for that folder
     let path = Path::new(folder);
