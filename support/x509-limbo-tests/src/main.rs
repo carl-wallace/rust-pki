@@ -327,7 +327,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                 KeyUsage::DecipherOnly => target_ku |= KeyUsages::DecipherOnly,
             }
         }
-        cps.set_target_key_usage(target_ku.bits());
+        cps.set_target_key_usage(target_ku);
     }
 
     if !tc.extended_key_usage.is_empty() {

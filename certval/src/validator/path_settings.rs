@@ -709,10 +709,10 @@ cps_gets_and_sets_with_default!(PS_USE_POLICY_GRAPH, bool, false);
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
     /// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
-    pub fn get_target_key_usage(&self) -> Option<u16> {
+    pub fn get_target_key_usage(&self) -> Option<KeyUsageSettings> {
         if self.0.contains_key(PS_KEY_USAGE) {
             return match &self.0[PS_KEY_USAGE] {
-                CertificationPathProcessingTypes::U16(v) => Some(*v),
+                CertificationPathProcessingTypes::KeyUsageValue(v) => Some(*v),
                 _ => None,
             };
         }
@@ -720,10 +720,10 @@ impl CertificationPathSettings {
     }
 
     /// `set_target_key_usage` is used to set the [`PS_KEY_USAGE`] value in a [`CertificationPathSettings`] map.
-    pub fn set_target_key_usage(&mut self, v: u16) {
+    pub fn set_target_key_usage(&mut self, v: KeyUsageSettings) {
         self.0.insert(
             PS_KEY_USAGE.to_string(),
-            CertificationPathProcessingTypes::U16(v),
+            CertificationPathProcessingTypes::KeyUsageValue(v),
         );
     }
 }

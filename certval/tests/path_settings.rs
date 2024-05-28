@@ -71,7 +71,7 @@ fn settings_serialization_test() {
     let exclcountries = vec!["BB".to_string()];
     cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
-    cps.set_target_key_usage(fs.bits());
+    cps.set_target_key_usage(fs);
 
     let ser = serde_json::to_string(&cps).unwrap();
     let deser: CertificationPathSettings = serde_json::from_slice(ser.as_bytes()).unwrap();
