@@ -205,7 +205,13 @@ async fn non_existent_dir() {
     pe.populate_5280_pki_environment();
 
     let mut ta_store = TaSource::new();
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        TimeOfInterest::disabled(),
+    )
+    .unwrap();
     ta_store.initialize().unwrap();
 
     let mut cps = CertificationPathSettings::default();

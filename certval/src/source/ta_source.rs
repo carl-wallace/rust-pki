@@ -469,7 +469,13 @@ fn get_trust_anchor_test() {
 
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
     ta_store.initialize().unwrap();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let bad = hex!("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD");

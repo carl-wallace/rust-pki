@@ -783,8 +783,6 @@ fn test_cps_log() {
     use certval::validator::path_settings::*;
 
     #[cfg(feature = "std_app")]
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let mut cps = CertificationPathSettings::new();
     cps.set_initial_explicit_policy_indicator(true);
     cps.set_initial_policy_mapping_inhibit_indicator(true);
@@ -811,12 +809,7 @@ fn test_cps_log() {
         not_supported: None,
     };
     cps.set_initial_excluded_subtrees(excl);
-    let toi = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
-        n.as_secs()
-    } else {
-        0
-    };
-    cps.set_time_of_interest(toi);
+    cps.set_time_of_interest(TimeOfInterest::default());
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
     cps.set_extended_key_usage(ekus);
     cps.set_extended_key_usage_path(false);

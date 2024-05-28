@@ -41,7 +41,7 @@ pub fn ta_folder_to_vec(
     pe: &PkiEnvironment,
     tas_dir: &str,
     tas_vec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, tas_dir, tas_vec, time_of_interest, true)
 }
@@ -60,7 +60,7 @@ pub fn cert_folder_to_vec(
     pe: &PkiEnvironment,
     certs_dir: &str,
     certs_vec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, certs_dir, certs_vec, time_of_interest, false)
 }
@@ -71,7 +71,7 @@ fn cert_or_ta_folder_to_vec(
     pe: &PkiEnvironment,
     certsdir: &str,
     certsvec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
     collect_tas: bool,
 ) -> Result<usize> {
     if !Path::is_dir(Path::new(certsdir)) {
@@ -275,7 +275,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
 fn non_existent_dir() {
     let pe = PkiEnvironment::default();
     let mut certsvec = CertSource::default();
-    let toi = 0;
+    let toi = TimeOfInterest::disabled();
     let r = cert_or_ta_folder_to_vec(&pe, "tests/examples/nonexistent", &mut certsvec, toi, false);
     assert!(r.is_err());
     let r = r.err();
@@ -288,7 +288,7 @@ fn with_expired() {
 
     //disable validity check
     let mut certsvec = CertSource::default();
-    let toi = 0;
+    let toi = TimeOfInterest::disabled();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",
@@ -300,7 +300,7 @@ fn with_expired() {
     assert_eq!(5, r.unwrap());
 
     //enable validity check but vector is already full of what would otherwise be read
-    let toi = 1647443375;
+    let toi = TimeOfInterest::from_unix_secs(1647443375).unwrap();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",
@@ -313,7 +313,7 @@ fn with_expired() {
 
     // validity check with empty vector results in one fewer certificate being harvested
     let mut certsvec = CertSource::default();
-    let toi = 1647443375;
+    let toi = TimeOfInterest::from_unix_secs(1647443375).unwrap();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",

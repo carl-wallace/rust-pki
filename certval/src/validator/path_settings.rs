@@ -20,12 +20,12 @@ use crate::pdv_certificate::*;
 use crate::{
     name_constraints_set_to_name_constraints_settings,
     name_constraints_settings_to_name_constraints_set, NameConstraintsSet, NameConstraintsSettings,
-    Result,
+    Result, TimeOfInterest,
 };
 
 #[cfg(feature = "std")]
 use std::path::Path;
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "std")]
@@ -144,6 +144,8 @@ pub enum CertificationPathProcessingTypes {
     OcspNonceSetting(OcspNonceSetting),
     /// Represents duration or a timeout
     Duration(Duration),
+    /// Represents the time when the certificate path should be checked
+    TimeOfInterest(TimeOfInterest),
 }
 
 //-----------------------------------------------------------------------------------------------
@@ -580,14 +582,8 @@ impl CertificationPathSettings {
     }
 }
 
-cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, u64, {
-    #[cfg(feature = "std")]
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => 0,
-    }
-    #[cfg(not(feature = "std"))]
-    0
+cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, TimeOfInterest, {
+    TimeOfInterest::default()
 });
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_VALIDITY, bool, true);
@@ -742,11 +738,11 @@ fn test_default_gets_cps() {
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        assert!(cps.get_time_of_interest() > before.as_secs());
+        assert!(cps.get_time_of_interest().as_unix_secs() > before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        assert_eq!(cps.get_time_of_interest(), 0);
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), 0);
     }
 
     assert!(!cps.get_enforce_trust_anchor_constraints());
@@ -839,13 +835,13 @@ fn test_default_sets_cps() {
     #[cfg(feature = "std")]
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        cps.set_time_of_interest(before.as_secs());
-        assert_eq!(cps.get_time_of_interest(), before.as_secs());
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(before.as_secs()).unwrap());
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        cps.set_time_of_interest(1);
-        assert_eq!(cps.get_time_of_interest(), 1);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1).unwrap());
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), 1);
     }
 
     cps.set_enforce_trust_anchor_constraints(true);

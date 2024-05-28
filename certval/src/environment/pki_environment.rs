@@ -46,7 +46,7 @@ use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{
     environment::pki_environment_traits::*, path_settings::*, util::crypto::*, util::error::*,
     util::pdv_utilities::oid_lookup, validate_path_rfc5280, CertificationPath,
-    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice,
+    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice, TimeOfInterest,
 };
 
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
@@ -451,7 +451,11 @@ impl PkiEnvironment {
     }
 
     /// Retrieves cached revocation status determination for given certificate from store
-    pub fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
+    pub fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus {
         for f in &self.revocation_cache {
             let status = f.get_status(cert, time_of_interest);
             if RevocationStatusNotDetermined != status {
@@ -481,7 +485,7 @@ impl PkiEnvironment {
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
-        time_of_interest: u64,
+        time_of_interest: TimeOfInterest,
     ) -> Result<()> {
         for f in &self.certificate_sources {
             let r = f.get_paths_for_target(pe, target, paths, threshold, time_of_interest);

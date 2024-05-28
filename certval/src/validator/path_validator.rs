@@ -196,7 +196,7 @@ pub fn check_validity(
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
     // get_time_of_interest_or_now will return now or a caller specified time of interest.
     let toi = cps.get_time_of_interest();
-    if 0 == toi {
+    if toi.is_disabled() {
         info!("check_validity invoked with no time of interest; validity check disabled",);
         return Ok(());
     }

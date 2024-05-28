@@ -37,7 +37,7 @@ use crate::Error::CrlIncompatible;
 use crate::{
     compare_names, log_error_for_subject, name_to_string, CertificationPathResults,
     CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
-    PDVExtension, PathValidationStatus, PkiEnvironment, Result,
+    PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
 #[cfg(feature = "remote")]
@@ -923,15 +923,15 @@ fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList<Raw>) -> Result<()> {
-    if 0 != toi {
-        let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
+pub(crate) fn check_crl_validity(toi: TimeOfInterest, crl: &CertificateList<Raw>) -> Result<()> {
+    if !toi.is_disabled() {
+        let tu = crl.tbs_cert_list.this_update;
         if tu > toi {
             info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
             return Err(Error::CrlIncompatible);
         }
         if let Some(nu) = crl.tbs_cert_list.next_update {
-            if nu.to_unix_duration().as_secs() < toi {
+            if nu.to_unix_duration().as_secs() < toi.as_unix_secs() {
                 info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
                 return Err(Error::CrlIncompatible);
             }
@@ -1195,7 +1195,10 @@ async fn fetch_crl_test() {
     let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let f = d.join("tests/examples/fetch_crl_test");
     let crl_source = CrlSourceFolders::new(f.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
+    if crl_source
+        .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+        .is_err()
+    {
         panic!("Failed to index CRLs")
     }
     pe.add_crl_source(Box::new(crl_source));

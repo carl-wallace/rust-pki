@@ -11,7 +11,7 @@ use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 use crate::util::error::*;
 use crate::{
     CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings,
-    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
+    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, TimeOfInterest,
 };
 
 /// `ValidatePath` provides a function signature for implementations that perform certification path
@@ -132,7 +132,7 @@ pub trait CertificateSource {
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
-        time_of_interest: u64,
+        time_of_interest: TimeOfInterest,
     ) -> Result<()>;
 }
 
@@ -172,7 +172,11 @@ pub trait CheckRemoteResource {
 pub trait RevocationStatusCache {
     /// Returns Ok(Valid) is status is known to be good at time of interest, Ok(Revoked) if
     /// certificate is known to be revoked and Err(RevocationStatusDetermined) otherwise.
-    fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus;
+    fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus;
 
     /// Sets status for certificate to one of Valid or Revoked and a next update value.
     fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus);

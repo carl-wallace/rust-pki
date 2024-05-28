@@ -2,6 +2,7 @@
 
 use certval::path_settings::*;
 use certval::CertificationPathSettings;
+use certval::TimeOfInterest;
 use const_oid::db::rfc5280::ANY_POLICY;
 use x509_cert::ext::pkix::KeyUsages;
 
@@ -16,7 +17,6 @@ fn path_settings_serialize_deserialize() {
 #[test]
 fn settings_serialization_test() {
     use const_oid::db::rfc5280::ID_KP_SERVER_AUTH;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut cps = CertificationPathSettings::new();
     cps.set_initial_explicit_policy_indicator(true);
@@ -44,12 +44,7 @@ fn settings_serialization_test() {
         not_supported: None,
     };
     cps.set_initial_excluded_subtrees(excl);
-    let toi = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
-        n.as_secs()
-    } else {
-        0
-    };
-    cps.set_time_of_interest(toi);
+    cps.set_time_of_interest(TimeOfInterest::now());
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
     cps.set_extended_key_usage(ekus);
     cps.set_extended_key_usage_path(false);

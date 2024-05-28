@@ -294,7 +294,7 @@ pub fn cleanup_certs(
     certs_folder: &str,
     error_folder: &str,
     report_only: bool,
-    t: u64,
+    t: TimeOfInterest,
 ) {
     for entry in WalkDir::new(certs_folder) {
         match entry {
@@ -332,7 +332,7 @@ pub fn cleanup_certs(
                     let mut delete_file = false;
                     match parse_cert(target.as_slice(), filename) {
                         Ok(tc) => {
-                            if t > 0 {
+                            if !t.is_disabled() {
                                 let r = valid_at_time(&tc.decoded_cert.tbs_certificate, t, true);
                                 if let Err(_e) = r {
                                     delete_file = true;
@@ -392,7 +392,7 @@ pub fn cleanup_tas(
     tas_folder: &str,
     error_folder: &str,
     report_only: bool,
-    t: u64,
+    t: TimeOfInterest,
 ) {
     for entry in WalkDir::new(tas_folder) {
         match entry {
@@ -495,7 +495,7 @@ pub fn cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
         ca_folder,
         error_folder,
         args.report_only,
-        args.time_of_interest,
+        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
     );
 }
 
@@ -519,6 +519,6 @@ pub fn ta_cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
         ta_folder,
         error_folder,
         args.report_only,
-        args.time_of_interest,
+        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
     );
 }
