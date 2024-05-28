@@ -1201,7 +1201,7 @@ async fn fetch_crl_test() {
     if crl_source.index_crls(1647011592).is_err() {
         panic!("Failed to index CRLs")
     }
-    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source));
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
     pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
 
