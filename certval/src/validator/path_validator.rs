@@ -4,8 +4,6 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::vec;
 
-use flagset::FlagSet;
-
 use log::info;
 
 use crate::policy_tree::check_certificate_policies;
@@ -414,14 +412,7 @@ pub fn check_key_usage(
 
     let target_ku = cp.target.get_extension(&ID_CE_KEY_USAGE)?;
     if let Some(PDVExtension::KeyUsage(target_ku_bits)) = target_ku {
-        if let Some(ku) = cps.get_target_key_usage() {
-            let nku = match FlagSet::<KeyUsages>::new(ku) {
-                Ok(ku) => ku,
-                _ => {
-                    return Err(Error::Unrecognized);
-                }
-            };
-
+        if let Some(nku) = cps.get_target_key_usage() {
             // TODO TEST THIS
             for i in nku {
                 if !target_ku_bits.0.contains(i) {

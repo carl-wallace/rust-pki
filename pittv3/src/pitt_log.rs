@@ -838,7 +838,7 @@ fn test_cps_log() {
     let exclcountries = vec!["BB".to_string()];
     cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
-    cps.set_target_key_usage(fs.bits());
+    cps.set_target_key_usage(fs);
 
     use tempfile::tempdir;
     let temp_dir = tempdir().unwrap();
