@@ -420,7 +420,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
 
     // find all paths in the graph built above
     let mut paths: Vec<CertificationPath> = vec![];
-    pe.get_paths_for_target(&pe, &leaf, &mut paths, 0, time_of_interest)
+    pe.get_paths_for_target(&leaf, &mut paths, 0, time_of_interest)
         .unwrap();
 
     let mut observed_status_values = vec![];
