@@ -265,7 +265,7 @@ async fn stapled_crl_async() {
     }
     #[cfg(not(feature = "remote"))]
     {
-        cps.set_time_of_interest(1649245609);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1649245609).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
