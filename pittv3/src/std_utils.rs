@@ -64,7 +64,7 @@ pub(crate) async fn validate_cert_file(
     stats.files_processed += 1;
 
     let mut paths: Vec<CertificationPath> = vec![];
-    let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, threshold, time_of_interest);
+    let r = pe.get_paths_for_target(&target_cert, &mut paths, threshold, time_of_interest);
     if let Err(e) = r {
         println!(
             "Failed to find certification paths for target with error {:?}",
