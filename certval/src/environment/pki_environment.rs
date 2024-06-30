@@ -477,7 +477,6 @@ impl PkiEnvironment {
     /// a vector of [`CertificationPath`] objects.
     pub fn get_paths_for_target(
         &self,
-        pe: &PkiEnvironment,
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
@@ -485,14 +484,13 @@ impl PkiEnvironment {
     ) -> Result<()> {
         let mut some_valid = false;
         for f in &self.certificate_sources {
-            if f.get_paths_for_target(pe, target, paths, threshold, time_of_interest).is_ok() {
+            if f.get_paths_for_target(self, target, paths, threshold, time_of_interest).is_ok() {
                 some_valid = true;
             }
         }
         if some_valid {
             Ok(())
-        }
-        else {
+        } else {
             Err(Error::Unrecognized)
         }
     }
