@@ -12,6 +12,8 @@ mod std_utils;
 mod no_std_utils;
 mod options_no_std;
 mod options_std_app;
+#[cfg(feature = "sha1_sig")]
+mod sha1_sig;
 
 use clap::Parser;
 use log::debug;
