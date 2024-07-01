@@ -49,10 +49,7 @@ use sha2::{Digest, Sha256};
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
-use x509_cert::{
-    anchor::TrustAnchorChoice,
-    certificate::CertificateInner,
-};
+use x509_cert::{anchor::TrustAnchorChoice, certificate::CertificateInner};
 
 use crate::{
     environment::pki_environment_traits::TrustAnchorSource,
@@ -84,9 +81,7 @@ pub fn get_subject_public_key_info_from_trust_anchor(
 
 /// get_certificate_from_trust_anchor returns the certificate from the TrustAnchorChoice. This will
 /// be either the Certificate choice itself or the TrustAnchorInfo.cert_path.certificate field.
-pub fn get_certificate_from_trust_anchor(
-    ta: &TrustAnchorChoice,
-) -> Option<&CertificateInner> {
+pub fn get_certificate_from_trust_anchor(ta: &TrustAnchorChoice) -> Option<&CertificateInner> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => return Some(cert),
         TrustAnchorChoice::TaInfo(tai) => {

@@ -250,7 +250,6 @@ impl ::der::FixedTag for DeferDecodeSigned {
 }
 
 impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
-
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,

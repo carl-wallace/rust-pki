@@ -484,7 +484,9 @@ impl PkiEnvironment {
     ) -> Result<()> {
         let mut some_valid = false;
         for f in &self.certificate_sources {
-            if f.get_paths_for_target(self, target, paths, threshold, time_of_interest).is_ok() {
+            if f.get_paths_for_target(self, target, paths, threshold, time_of_interest)
+                .is_ok()
+            {
                 some_valid = true;
             }
         }

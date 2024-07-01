@@ -164,9 +164,7 @@ pub fn valid_at_time(target: &TbsCertificateInner, toi: u64, stifle_log: bool) -
 ///
 /// True is returned if inhibit any policy is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_any_policy_from_trust_anchor(
-    ta: &TrustAnchorChoice,
-) -> Result<bool> {
+pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
@@ -242,9 +240,7 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor(
 ///
 /// True is returned if inhibit policy mapping is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(
-    ta: &TrustAnchorChoice,
-) -> Result<bool> {
+pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {
@@ -280,9 +276,7 @@ pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(
 /// `get_path_length_constraint_from_trust_anchor` returns the value from basic constraints extension in
 /// TA certificate for certificate CHOICE, the value from CertPathControls for TrustAnchorInfo CHOICE or
 /// [`PS_MAX_PATH_LENGTH_CONSTRAINT`] is no constraint is asserted.
-pub(crate) fn get_path_length_constraint_from_trust_anchor(
-    ta: &TrustAnchorChoice,
-) -> Result<u8> {
+pub(crate) fn get_path_length_constraint_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<u8> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
             if let Some(extensions) = &cert.tbs_certificate.extensions {

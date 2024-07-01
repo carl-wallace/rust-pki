@@ -281,10 +281,7 @@ fn decode_ocsp_resp_delegated() {
         CertStatus::Revoked(ri) => {
             assert!(ri.revocation_reason.is_some());
             assert_eq!(ri.revocation_reason.unwrap(), CrlReason::AffiliationChanged,);
-            assert_eq!(
-                ri.revocation_time.to_unix_duration().as_secs(),
-                1632934667,
-            );
+            assert_eq!(ri.revocation_time.to_unix_duration().as_secs(), 1632934667,);
         }
         _ => {
             panic!("Expected Good and got something other")

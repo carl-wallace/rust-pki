@@ -185,6 +185,9 @@ use crate::args::Pittv3Args;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 
+#[cfg(feature = "sha1_sig")]
+use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
+
 /// The `options_std` function provides argument parsing and corresponding actions when `PITTv3` and
 /// `certval` are built with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
 pub async fn options_std(args: &Pittv3Args) {
@@ -301,6 +304,9 @@ pub async fn options_std(args: &Pittv3Args) {
         }
 
         pe.populate_5280_pki_environment();
+
+        #[cfg(feature = "sha1_sig")]
+        pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
         #[cfg(feature = "webpki")]
         if args.webpki_tas {
@@ -528,6 +534,12 @@ pub async fn options_std(args: &Pittv3Args) {
                 if let Ok(target_cert) = parsed_cert {
                     let mut pe = PkiEnvironment::default();
                     pe.populate_5280_pki_environment();
+
+                    #[cfg(feature = "sha1_sig")]
+                    pe.add_verify_signature_message_callback(
+                        verify_signature_message_rust_crypto_sha1,
+                    );
+
                     if is_self_signed(&pe, &target_cert) {
                         println!("{} is self-signed", eff);
                     } else {
@@ -540,6 +552,12 @@ pub async fn options_std(args: &Pittv3Args) {
                         if let Ok(target_cert) = parsed_cert {
                             let mut pe = PkiEnvironment::default();
                             pe.populate_5280_pki_environment();
+
+                            #[cfg(feature = "sha1_sig")]
+                            pe.add_verify_signature_message_callback(
+                                verify_signature_message_rust_crypto_sha1,
+                            );
+
                             if is_self_signed(&pe, &target_cert) {
                                 println!("{} is self-signed", eff);
                             } else {
@@ -622,6 +640,9 @@ async fn generate_and_validate(args: &Pittv3Args) {
 
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
+
+    #[cfg(feature = "sha1_sig")]
+    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut ta_store_added = false;
     #[cfg(feature = "webpki")]
