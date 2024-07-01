@@ -549,7 +549,9 @@ pub async fn options_std(args: &Pittv3Args) {
                     pe.populate_5280_pki_environment();
 
                     #[cfg(feature = "sha1_sig")]
-                    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
+                    pe.add_verify_signature_message_callback(
+                        verify_signature_message_rust_crypto_sha1,
+                    );
 
                     if is_self_signed(&pe, &target_cert) {
                         println!("{} is self-signed", eff);
@@ -565,7 +567,9 @@ pub async fn options_std(args: &Pittv3Args) {
                             pe.populate_5280_pki_environment();
 
                             #[cfg(feature = "sha1_sig")]
-                            pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
+                            pe.add_verify_signature_message_callback(
+                                verify_signature_message_rust_crypto_sha1,
+                            );
 
                             if is_self_signed(&pe, &target_cert) {
                                 println!("{} is self-signed", eff);

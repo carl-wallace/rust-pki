@@ -1,13 +1,13 @@
 #![cfg(feature = "sha1_sig")]
 
-use rsa::Pkcs1v15Sign;
-use rsa::RsaPublicKey;
 use certval::PathValidationStatus;
-use sha1::{Digest, Sha1};
+use certval::PkiEnvironment;
 use const_oid::db::rfc5912::SHA_1_WITH_RSA_ENCRYPTION;
 use der::Encode;
-use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned, DecodePublicKey};
-use certval::PkiEnvironment;
+use rsa::Pkcs1v15Sign;
+use rsa::RsaPublicKey;
+use sha1::{Digest, Sha1};
+use spki::{AlgorithmIdentifierOwned, DecodePublicKey, SubjectPublicKeyInfoOwned};
 
 /// Provides verify_signature_message implementation that targets RSA w/SHA1 only (in support of
 /// verifying certificates signed using RSA w/SHA1)
