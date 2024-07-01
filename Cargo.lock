@@ -472,7 +472,9 @@ version = "0.2.0-pre.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7aa2ec04f5120b830272a481e8d9d8ba4dda140d2cda59b0f1110d5eb93c38e"
 dependencies = [
+ "getrandom",
  "hybrid-array",
+ "rand_core",
 ]
 
 [[package]]
@@ -1399,6 +1401,7 @@ dependencies = [
  "pqcrypto-traits",
  "predicates",
  "reqwest",
+ "rsa",
  "serde",
  "serde_json",
  "sha1",
