@@ -22,7 +22,7 @@ pub(crate) fn validate_cert(
     stats: &mut PathValidationStats,
     args: &Pittv3Args,
 ) -> Result<()> {
-    let time_of_interest = get_time_of_interest(cps);
+    let time_of_interest = cps.get_time_of_interest();
     let target_cert = parse_cert(target, cert_filename)?;
     info!(
         "Start building and validating path(s) for {}",
@@ -32,7 +32,7 @@ pub(crate) fn validate_cert(
     stats.files_processed += 1;
 
     let mut paths: Vec<CertificationPath> = vec![];
-    let r = pe.get_paths_for_target(pe, &target_cert, &mut paths, 0, time_of_interest);
+    let r = pe.get_paths_for_target(&target_cert, &mut paths, 0, time_of_interest);
     if let Err(e) = r {
         println!(
             "Failed to find certification paths for target with error {:?}",
@@ -66,7 +66,7 @@ pub(crate) fn validate_cert(
 
         #[cfg(feature = "revocation")]
         if r.is_ok() {
-            if get_check_revocation_status(cps) {
+            if cps.get_check_revocation_status() {
                 r = check_revocation(pe, cps, path, &mut cpr);
             }
         }

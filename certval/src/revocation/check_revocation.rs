@@ -19,16 +19,12 @@ use alloc::vec;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use log::{error, info};
 
+use crate::name_to_string;
 use crate::{
-    add_crl, add_failed_crl, get_check_crls, get_check_revocation_status,
-    get_crl_grace_periods_as_last_resort,
+    get_certificate_from_trust_anchor, CertificationPath, CertificationPathResults,
+    CertificationPathSettings, Error, ExtensionProcessing, PDVExtension, PathValidationStatus::*,
+    PkiEnvironment, Result,
 };
-use crate::{
-    get_certificate_from_trust_anchor, get_time_of_interest, set_validation_status,
-    CertificationPath, CertificationPathResults, CertificationPathSettings, Error,
-    ExtensionProcessing, PDVExtension, PathValidationStatus::*, PkiEnvironment, Result,
-};
-use crate::{name_to_string, prepare_revocation_results};
 
 #[cfg(feature = "revocation")]
 use crate::{crl::process_crl, ocsp_client::process_ocsp_response};
@@ -38,15 +34,6 @@ use crate::revocation::crl::check_revocation_crl_remote;
 
 #[cfg(feature = "remote")]
 use crate::revocation::ocsp_client::check_revocation_ocsp;
-
-#[cfg(feature = "remote")]
-use crate::get_check_crldp_http;
-
-#[cfg(feature = "remote")]
-use crate::get_check_ocsp_from_aia;
-
-#[cfg(not(feature = "std"))]
-use core::ops::Deref;
 
 /// check_revocation is top level revocation checking function supports a variety of revocation status
 /// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses. Assuming all options
@@ -71,7 +58,7 @@ pub async fn check_revocation(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let check_rev = get_check_revocation_status(cps);
+    let check_rev = cps.get_check_revocation_status();
     if !check_rev {
         // nothing to do
         info!("Revocation checking disabled");
@@ -84,19 +71,19 @@ pub async fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = get_crl_grace_periods_as_last_resort(cps);
-    let check_crls = get_check_crls(cps);
+    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
+    let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
-    let check_crldp_http = get_check_crldp_http(cps);
+    let check_crldp_http = cps.get_check_crldp_http();
     #[cfg(feature = "remote")]
-    let check_ocsp_from_aia = get_check_ocsp_from_aia(cps);
+    let check_ocsp_from_aia = cps.get_check_ocsp_from_aia();
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
     v.push(cp.target.clone());
 
-    prepare_revocation_results(cpr, v.len())?;
+    cpr.prepare_revocation_results(v.len())?;
 
     let mut issuer_cert =
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
@@ -108,7 +95,7 @@ pub async fn check_revocation(
 
     let max_index = v.len() - 1;
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
 
     // save up the statuses and return Ok only if none are RevocationStatusNotDetermined
     let mut statuses = vec![];
@@ -125,7 +112,7 @@ pub async fn check_revocation(
         let mut cur_status = pe.get_status(cur_cert, toi);
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject);
-            set_validation_status(cpr, revoked_error);
+            cpr.set_validation_status(revoked_error);
             return Err(Error::PathValidation(revoked_error));
         }
 
@@ -156,7 +143,7 @@ pub async fn check_revocation(
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
-                            set_validation_status(cpr, revoked_error);
+                            cpr.set_validation_status(revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e);
@@ -167,14 +154,14 @@ pub async fn check_revocation(
                 match process_crl(pe, cps, cpr, cur_cert, &issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
-                        add_crl(cpr, crl, pos);
+                        cpr.add_crl(crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
-                        add_crl(cpr, crl, pos);
+                        cpr.add_crl(crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
-                            set_validation_status(cpr, revoked_error);
+                            cpr.set_validation_status(revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e);
@@ -198,19 +185,19 @@ pub async fn check_revocation(
                         None,
                     ) {
                         Ok(_ok) => {
-                            add_crl(cpr, crl.as_slice(), pos);
+                            cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
-                                add_crl(cpr, crl.as_slice(), pos);
+                                cpr.add_crl(crl.as_slice(), pos);
                                 info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
-                                set_validation_status(cpr, revoked_error);
+                                cpr.set_validation_status(revoked_error);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
-                                add_failed_crl(cpr, crl.as_slice(), pos);
+                                cpr.add_failed_crl(crl.as_slice(), pos);
                                 info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                             }
                         }
@@ -224,7 +211,7 @@ pub async fn check_revocation(
             // check_revocation_ocsp emits log message that includes which AIA was used to determine status
             cur_status = check_revocation_ocsp(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
-                set_validation_status(cpr, revoked_error);
+                cpr.set_validation_status(revoked_error);
                 return Err(Error::PathValidation(revoked_error));
             }
         }
@@ -234,7 +221,7 @@ pub async fn check_revocation(
             cur_status =
                 check_revocation_crl_remote(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
-                set_validation_status(cpr, revoked_error);
+                cpr.set_validation_status(revoked_error);
                 return Err(Error::PathValidation(revoked_error));
             }
         }
@@ -248,7 +235,7 @@ pub async fn check_revocation(
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {
-        set_validation_status(cpr, RevocationStatusNotDetermined);
+        cpr.set_validation_status(RevocationStatusNotDetermined);
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         Ok(())
@@ -270,7 +257,7 @@ pub fn check_revocation(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let check_rev = get_check_revocation_status(cps);
+    let check_rev = cps.get_check_revocation_status();
     if !check_rev {
         // nothing to do
         info!("Revocation checking disabled");
@@ -283,19 +270,19 @@ pub fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = get_crl_grace_periods_as_last_resort(cps);
-    let check_crls = get_check_crls(cps);
+    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
+    let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
-    let check_crldp_http = get_check_crldp_http(cps);
+    let check_crldp_http = cps.get_check_crldp_http();
     #[cfg(feature = "remote")]
-    let check_ocsp_from_aia = get_check_ocsp_from_aia(cps);
+    let check_ocsp_from_aia = cps.get_check_ocsp_from_aia();
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
     v.push(cp.target.clone());
 
-    prepare_revocation_results(cpr, v.len())?;
+    cpr.prepare_revocation_results(v.len())?;
 
     let mut issuer_cert =
         if let Some(cert) = get_certificate_from_trust_anchor(&cp.trust_anchor.decoded_ta) {
@@ -307,12 +294,12 @@ pub fn check_revocation(
 
     let max_index = v.len() - 1;
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
 
     // save up the statuses and return Ok only if none are RevocationStatusNotDetermined
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
-        let cur_cert = ca_cert_ref.deref();
+        let cur_cert = ca_cert_ref;
         let cur_cert_subject = name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate.subject);
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
@@ -350,7 +337,7 @@ pub fn check_revocation(
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
-                            set_validation_status(cpr, revoked_error);
+                            cpr.set_validation_status(revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e);
@@ -361,14 +348,14 @@ pub fn check_revocation(
                 match process_crl(pe, cps, cpr, cur_cert, &issuer_cert, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
-                        add_crl(cpr, crl, pos);
+                        cpr.add_crl(crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
-                        add_crl(cpr, crl, pos);
+                        cpr.add_crl(crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
-                            set_validation_status(cpr, revoked_error);
+                            cpr.set_validation_status(revoked_error);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e);
@@ -392,19 +379,19 @@ pub fn check_revocation(
                         None,
                     ) {
                         Ok(_ok) => {
-                            add_crl(cpr, crl.as_slice(), pos);
+                            cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
-                                add_crl(cpr, crl.as_slice(), pos);
+                                cpr.add_crl(crl.as_slice(), pos);
                                 info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
-                                set_validation_status(cpr, revoked_error);
+                                cpr.set_validation_status(revoked_error);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
-                                add_failed_crl(cpr, crl.as_slice(), pos);
+                                cpr.add_failed_crl(crl.as_slice(), pos);
                                 info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                             }
                         }
@@ -422,7 +409,7 @@ pub fn check_revocation(
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {
-        set_validation_status(cpr, RevocationStatusNotDetermined);
+        cpr.set_validation_status(RevocationStatusNotDetermined);
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         Ok(())

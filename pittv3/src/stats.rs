@@ -9,6 +9,7 @@ pub struct PathValidationStats {
     pub paths_per_target: usize,
     pub valid_paths_per_target: usize,
     pub invalid_paths_per_target: usize,
+    #[cfg(feature = "std")]
     pub target_is_revoked: bool,
     pub results: Vec<CertificationPathResults>,
 }
@@ -27,6 +28,7 @@ impl PathValidationStats {
             paths_per_target: 0,
             valid_paths_per_target: 0,
             invalid_paths_per_target: 0,
+            #[cfg(feature = "std")]
             target_is_revoked: false,
             results: vec![],
         }

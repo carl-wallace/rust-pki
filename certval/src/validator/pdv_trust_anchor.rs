@@ -10,7 +10,7 @@ cfg_if! {
         use alloc::string::ToString;
         use der::{asn1::OctetString, Length};
         use spki::SubjectPublicKeyInfoOwned;
-        use x509_cert::anchor::{CertPathControls, TrustAnchorInfo};
+        use x509_cert::{anchor::{CertPathControls, TrustAnchorInfo}};
     }
 }
 

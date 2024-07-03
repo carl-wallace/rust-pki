@@ -87,7 +87,7 @@ fn pkits_p256() {
     ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts_sync(
         &mut pool,
@@ -123,7 +123,7 @@ async fn pkits_p256() {
     ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts(
         &mut pool,
@@ -161,7 +161,7 @@ async fn pkits_2048() {
     #[cfg(feature = "revocation")]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
@@ -177,7 +177,7 @@ async fn pkits_2048() {
     #[cfg(not(feature = "revocation"))]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
@@ -217,7 +217,7 @@ fn pkits_2048() {
     #[cfg(feature = "revocation")]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
@@ -231,7 +231,7 @@ fn pkits_2048() {
     #[cfg(not(feature = "revocation"))]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
@@ -268,7 +268,7 @@ fn pkits_p256_graph() {
     ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts_sync(
         &mut pool,
@@ -304,7 +304,7 @@ async fn pkits_p256_graph() {
     ta_source2.initialize().unwrap();
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
     pkits_guts(
         &mut pool,
@@ -342,7 +342,7 @@ async fn pkits_2048_graph() {
     #[cfg(feature = "revocation")]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
@@ -358,7 +358,7 @@ async fn pkits_2048_graph() {
     #[cfg(not(feature = "revocation"))]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts(
             &mut pool,
@@ -398,7 +398,7 @@ fn pkits_2048_graph() {
     #[cfg(feature = "revocation")]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
@@ -412,7 +412,7 @@ fn pkits_2048_graph() {
     #[cfg(not(feature = "revocation"))]
     {
         let mut pe = PkiEnvironment::new();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
         pkits_guts_sync(
             &mut pool,
@@ -611,7 +611,7 @@ pub fn pkits_guts_sync(
                 }
 
                 let mut tmp_settings = case.settings.clone();
-                set_use_policy_graph(&mut tmp_settings, policy_graph);
+                tmp_settings.set_use_policy_graph(policy_graph);
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
@@ -897,7 +897,7 @@ pub async fn pkits_guts(
                 }
 
                 let mut tmp_settings = case.settings.clone();
-                set_use_policy_graph(&mut tmp_settings, policy_graph);
+                tmp_settings.set_use_policy_graph(policy_graph);
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]

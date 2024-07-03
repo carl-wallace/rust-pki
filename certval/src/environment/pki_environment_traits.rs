@@ -6,8 +6,7 @@ use alloc::{string::String, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
-use x509_cert::crl::CertificateList;
-use x509_cert::name::Name;
+use x509_cert::{crl::CertificateList, name::Name};
 
 use crate::util::error::*;
 use crate::{

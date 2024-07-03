@@ -33,25 +33,20 @@ use x509_cert::name::Name;
 use x509_cert::name::RdnSequence;
 use x509_cert::{
     anchor::{CertPolicies, TrustAnchorChoice},
-    Certificate, TbsCertificate,
+    certificate::{CertificateInner, TbsCertificateInner},
 };
 
 use crate::{
-    environment::pki_environment::PkiEnvironment,
-    name_constraints_set::UID,
-    path_results::{get_processed_extensions, set_processed_extensions, CertificationPathResults},
-    path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT,
-    pdv_certificate::*,
-    pdv_extension::*,
-    util::error::*,
-    util::pdv_alg_oids::*,
+    environment::pki_environment::PkiEnvironment, name_constraints_set::UID,
+    path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT, pdv_certificate::*, pdv_extension::*,
+    util::error::*, util::pdv_alg_oids::*,
 };
 
 /// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
 /// used to verify the TBSCertificate field as parsed from the encoded certificate object.
 pub fn is_self_signed_with_buffer(
     pe: &PkiEnvironment,
-    cert: &Certificate,
+    cert: &CertificateInner,
     enc_cert: &[u8],
 ) -> bool {
     match DeferDecodeSigned::from_der(enc_cert) {
@@ -85,7 +80,7 @@ pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
-pub fn is_self_issued(cert: &Certificate) -> bool {
+pub fn is_self_issued(cert: &CertificateInner) -> bool {
     compare_names(&cert.tbs_certificate.issuer, &cert.tbs_certificate.subject)
 }
 
@@ -128,7 +123,7 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<Strin
 /// evaluated first.
 ///
 /// To stifle logging output upon error, pass true for the stifle_log parameter.
-pub fn valid_at_time(target: &TbsCertificate, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn valid_at_time(target: &TbsCertificateInner, toi: u64, stifle_log: bool) -> Result<u64> {
     if 0 == toi {
         // zero is used to disable validity check
         return Ok(0);
@@ -161,16 +156,6 @@ pub fn valid_at_time(target: &TbsCertificate, toi: u64, stifle_log: bool) -> Res
         ))
     } else {
         Ok(na - toi)
-    }
-}
-
-/// `add_processed_extension` takes a [`CertificationPathResults`] and retrieves (or adds then retrieves)
-/// an entry for [`PR_PROCESSED_EXTENSIONS`] to which the oid is added if not already present.
-pub(crate) fn add_processed_extension(cpr: &mut CertificationPathResults, oid: ObjectIdentifier) {
-    let mut oids = get_processed_extensions(cpr);
-    if !oids.contains(&oid) {
-        oids.insert(oid);
-        set_processed_extensions(cpr, oids);
     }
 }
 
@@ -335,7 +320,7 @@ pub(crate) const EMAIL_PATTERN: &str =
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
-pub(crate) fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
+pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.to_string();
 
     let mut filter = regex::escape(base.as_str());
@@ -554,6 +539,16 @@ pub(crate) fn has_uri(subtrees: &GeneralSubtrees) -> bool {
     false
 }
 
+/// `has_ip` returns true if the given GeneralSubtrees contains at least one IP address and false otherwise
+pub(crate) fn has_ip(subtrees: &GeneralSubtrees) -> bool {
+    for subtree in subtrees {
+        if let GeneralName::IpAddress(_uri) = &subtree.base {
+            return true;
+        }
+    }
+    false
+}
+
 /// get_hash_alg_from_sig_alg takes an ObjectIdentifier that notionally contains a signature algorithm,
 /// i.e., PKIXALG_SHA256_WITH_RSA_ENCRYPTION or PKIXALG_ECDSA_WITH_SHA256, and returns the indicated hash
 /// algorithm.
@@ -601,7 +596,7 @@ pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
 }
 
 /// log a message with subject name of the certificate appended
-pub fn log_error_for_subject(ca: &Certificate, msg: &str) {
+pub fn log_error_for_subject(ca: &CertificateInner, msg: &str) {
     log_error_for_name(&ca.tbs_certificate.subject, msg);
 }
 
@@ -900,12 +895,11 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 
 #[test]
 fn bad_input_self_signed() {
-    use crate::populate_5280_pki_environment;
     let der_encoded_ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
-    let ta_cert = Certificate::from_der(der_encoded_ta).unwrap();
+    let ta_cert = CertificateInner::from_der(der_encoded_ta).unwrap();
     let junk = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     assert!(!is_self_signed_with_buffer(&pe, &ta_cert, junk));
 }
 

@@ -65,6 +65,9 @@ use crate::args::Pittv3Args;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
+#[cfg(feature = "sha1_sig")]
+use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
+
 use log::{error, info};
 
 /// `get_file_as_byte_vec` provides support for reading artifacts from file when PITTv3 is built using
@@ -114,9 +117,12 @@ pub fn options_std_app(args: &Pittv3Args) {
     }
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     pe.add_certificate_source(Box::new(cert_source.clone()));
+
+    #[cfg(feature = "sha1_sig")]
+    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut stats = PathValidationStatsGroup::new();
 
@@ -156,7 +162,7 @@ pub fn options_std_app(args: &Pittv3Args) {
         let mut index_map: BTreeMap<PathValidationStatus, Vec<usize>> = BTreeMap::new();
         let mut count_map: BTreeMap<PathValidationStatus, i32> = BTreeMap::new();
         for (i, cpr) in stats.results.iter().enumerate() {
-            if let Some(status) = get_validation_status(cpr) {
+            if let Some(status) = cpr.get_validation_status() {
                 if index_map.contains_key(&status) {
                     let mut v = index_map[&status].clone();
                     v.push(i);

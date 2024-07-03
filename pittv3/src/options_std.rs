@@ -185,20 +185,23 @@ use crate::args::Pittv3Args;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 
+#[cfg(feature = "sha1_sig")]
+use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
+
 /// The `options_std` function provides argument parsing and corresponding actions when `PITTv3` and
 /// `certval` are built with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
 pub async fn options_std(args: &Pittv3Args) {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         cleanup(&pe, args);
     }
 
     if args.ta_cleanup {
         // TA cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
         ta_cleanup(&pe, args);
     }
 
@@ -276,7 +279,7 @@ pub async fn options_std(args: &Pittv3Args) {
         };
 
         let mut cps = CertificationPathSettings::new();
-        set_time_of_interest(&mut cps, args.time_of_interest);
+        cps.set_time_of_interest(args.time_of_interest);
 
         let mut pe = PkiEnvironment::default();
 
@@ -300,12 +303,15 @@ pub async fn options_std(args: &Pittv3Args) {
             error!("Failed to populate cert vector with: {:?}", e);
         }
 
-        populate_5280_pki_environment(&mut pe);
+        pe.populate_5280_pki_environment();
+
+        #[cfg(feature = "sha1_sig")]
+        pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
         #[cfg(feature = "webpki")]
         if args.webpki_tas {
             // the TAs read from webpki-roots do not assert a validity do turn off this check
-            set_enforce_trust_anchor_validity(&mut cps, false);
+            cps.set_enforce_trust_anchor_validity(false);
 
             match TaSource::new_from_webpki() {
                 Ok(ta_store) => {
@@ -527,7 +533,13 @@ pub async fn options_std(args: &Pittv3Args) {
                 let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
                 if let Ok(target_cert) = parsed_cert {
                     let mut pe = PkiEnvironment::default();
-                    populate_5280_pki_environment(&mut pe);
+                    pe.populate_5280_pki_environment();
+
+                    #[cfg(feature = "sha1_sig")]
+                    pe.add_verify_signature_message_callback(
+                        verify_signature_message_rust_crypto_sha1,
+                    );
+
                     if is_self_signed(&pe, &target_cert) {
                         println!("{} is self-signed", eff);
                     } else {
@@ -539,7 +551,13 @@ pub async fn options_std(args: &Pittv3Args) {
                         let parsed_cert = parse_cert(&encoded.1, eff.as_str());
                         if let Ok(target_cert) = parsed_cert {
                             let mut pe = PkiEnvironment::default();
-                            populate_5280_pki_environment(&mut pe);
+                            pe.populate_5280_pki_environment();
+
+                            #[cfg(feature = "sha1_sig")]
+                            pe.add_verify_signature_message_callback(
+                                verify_signature_message_rust_crypto_sha1,
+                            );
+
                             if is_self_signed(&pe, &target_cert) {
                                 println!("{} is self-signed", eff);
                             } else {
@@ -611,23 +629,26 @@ async fn generate_and_validate(args: &Pittv3Args) {
         }
     };
 
-    if !cps.contains_key(PS_TIME_OF_INTEREST) {
-        set_time_of_interest(&mut cps, args.time_of_interest);
+    if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
+        cps.set_time_of_interest(args.time_of_interest);
     }
 
     #[cfg(feature = "remote")]
     if !args.dynamic_build {
-        set_retrieve_from_aia_sia_http(&mut cps, false);
+        cps.set_retrieve_from_aia_sia_http(false);
     }
 
     let mut pe = PkiEnvironment::default();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
+
+    #[cfg(feature = "sha1_sig")]
+    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut ta_store_added = false;
     #[cfg(feature = "webpki")]
     if args.webpki_tas {
         // the TAs read from webpki-roots do not assert a validity do turn off this check
-        set_enforce_trust_anchor_validity(&mut cps, false);
+        cps.set_enforce_trust_anchor_validity(false);
 
         match TaSource::new_from_webpki() {
             Ok(ta_store) => {
@@ -712,7 +733,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     let crl_source = match &args.crl_folder {
         Some(crl_folder) => {
             let crl_source = CrlSourceFolders::new(crl_folder);
-            match crl_source.index_crls(get_time_of_interest(&cps)) {
+            match crl_source.index_crls(cps.get_time_of_interest()) {
                 Ok(_) => Some(crl_source),
                 Err(e) => {
                     error!("Failed to index CRL source with {}", e);
@@ -972,7 +993,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
         let mut index_map: BTreeMap<PathValidationStatus, Vec<usize>> = BTreeMap::new();
         let mut count_map: BTreeMap<PathValidationStatus, i32> = BTreeMap::new();
         for (i, cpr) in stats.results.iter().enumerate() {
-            if let Some(status) = get_validation_status(cpr) {
+            if let Some(status) = cpr.get_validation_status() {
                 if index_map.contains_key(&status) {
                     let mut v = index_map[&status].clone();
                     v.push(i);

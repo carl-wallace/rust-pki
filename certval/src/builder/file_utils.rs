@@ -8,7 +8,7 @@ use log::{error, info};
 
 use der::Decode;
 use x509_cert::anchor::TrustAnchorChoice;
-use x509_cert::Certificate;
+use x509_cert::certificate::CertificateInner;
 
 use crate::source::cert_source::CertFile;
 use crate::util::pdv_utilities::*;
@@ -133,7 +133,7 @@ fn cert_or_ta_folder_to_vec(
                             continue;
                         }
                     } else {
-                        let r = Certificate::from_der(buffer.as_slice());
+                        let r = CertificateInner::from_der(buffer.as_slice());
                         if let Ok(cert) = r {
                             let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
                             if let Err(_e) = r {

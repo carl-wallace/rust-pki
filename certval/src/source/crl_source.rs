@@ -21,8 +21,7 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_ISSUING_DISTRIBUTION_POINT,
 };
 use der::{Decode, Encode};
-use x509_cert::crl::CertificateList;
-use x509_cert::ext::pkix::IssuingDistributionPoint;
+use x509_cert::{crl::CertificateList, ext::pkix::IssuingDistributionPoint};
 
 use crate::pdv_extension::ExtensionProcessing;
 use crate::PathValidationStatus::RevocationStatusNotDetermined;

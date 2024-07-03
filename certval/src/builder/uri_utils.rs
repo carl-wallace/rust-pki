@@ -23,7 +23,7 @@ cfg_if! {
         use crate::util::pdv_utilities::{is_self_signed_with_buffer, valid_at_time};
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
-        use x509_cert::Certificate;
+        use x509_cert::certificate::Certificate;
         use std::fs::File;
         use std::io::Write;
         use std::path::{PathBuf, Path};

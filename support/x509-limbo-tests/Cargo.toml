@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "rust-certval-harness"
+version = "0.1.1"
+edition = "2021"
+
+[dependencies]
+limbo-harness-support = { path = "../x509-limbo/harness-support/rust" }
+chrono = "0.4.38"
+pem = "3.0.4"
+serde_json = "1.0.116"
+certval = { path = "../../certval" }
+x509-cert = { version = "0.2.5", features = ["hazmat"] }
+rayon = "1.10.0"
+cidr = "0.2.2"
+
+

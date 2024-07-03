@@ -9,8 +9,10 @@ use alloc::{
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
-use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
-use x509_cert::Certificate;
+use x509_cert::{
+    certificate::Certificate,
+    ext::{pkix::crl::CrlDistributionPoints, pkix::*},
+};
 
 use crate::asn1::piv_naci_indicator::PIV_NACI_INDICATOR;
 use const_oid::db::rfc5912::{

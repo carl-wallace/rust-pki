@@ -56,7 +56,16 @@ pub type Bools = Vec<bool>;
 
 /// `CertificationPathSettings` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map.
-pub type CertificationPathSettings = BTreeMap<String, CertificationPathProcessingTypes>;
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+pub struct CertificationPathSettings(pub BTreeMap<String, CertificationPathProcessingTypes>);
+
+impl CertificationPathSettings {
+    /// Creates a new empty [`CertificationPathSettings`]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// `CertificateChain` is a typedef for a vector of `PDVCertificate`.
 pub type CertificateChain = Vec<PDVCertificate>;
@@ -366,251 +375,238 @@ cps_gets_and_sets_with_default!(PS_INITIAL_INHIBIT_ANY_POLICY_INDICATOR, bool, f
 //     bts.insert(ANY_POLICY.to_string());
 //     bts
 // });
-///`get_initial_policy_set` is used to retrieve `PS_INITIAL_POLICY_SET` items from a [`CertificationPathSettings`] instance
-pub fn get_initial_policy_set(cps: &CertificationPathSettings) -> Strings {
-    if cps.contains_key(PS_INITIAL_POLICY_SET) {
-        return match &cps[PS_INITIAL_POLICY_SET] {
-            CertificationPathProcessingTypes::Strings(v) => v.clone(),
-            _ => {
-                vec![ANY_POLICY.to_string()]
-            }
-        };
-    }
-    {
-        vec![ANY_POLICY.to_string()]
-    }
-}
-///`set_initial_policy_set` is used to set `PS_INITIAL_POLICY_SET` items in a [`CertificationPathSettings`] instance
-pub fn set_initial_policy_set(cps: &mut CertificationPathSettings, v: Strings) {
-    cps.insert(
-        PS_INITIAL_POLICY_SET.to_string(),
-        CertificationPathProcessingTypes::Strings(v),
-    );
-}
-
-/// `set_initial_policy_set_from_oid_set` is used to set `PS_INITIAL_POLICY_SET` items in a [`CertificationPathSettings`] instance
-/// given an ObjectIdentifierSet object instead of a Strings object.
-pub fn set_initial_policy_set_from_oid_set(
-    cps: &mut CertificationPathSettings,
-    v: ObjectIdentifierSet,
-) {
-    let mut s = Strings::new();
-    for o in v {
-        s.push(o.to_string());
-    }
-
-    cps.insert(
-        PS_INITIAL_POLICY_SET.to_string(),
-        CertificationPathProcessingTypes::Strings(s),
-    );
-}
-
-///`get_initial_policy_set_as_oid_set` is used to retrieve `PS_INITIAL_POLICY_SET` items from a [`CertificationPathSettings`] instance
-/// as an ObjectIdentifierSet object instead of a Strings object.
-pub fn get_initial_policy_set_as_oid_set(cps: &CertificationPathSettings) -> ObjectIdentifierSet {
-    let strs = get_initial_policy_set(cps);
-    let mut bts = BTreeSet::new();
-    for s in strs {
-        if let Ok(oid) = ObjectIdentifier::from_str(s.as_str()) {
-            bts.insert(oid);
+impl CertificationPathSettings {
+    ///`get_initial_policy_set` is used to retrieve `PS_INITIAL_POLICY_SET` items from a [`CertificationPathSettings`] instance
+    pub fn get_initial_policy_set(&self) -> Strings {
+        if self.0.contains_key(PS_INITIAL_POLICY_SET) {
+            return match &self.0[PS_INITIAL_POLICY_SET] {
+                CertificationPathProcessingTypes::Strings(v) => v.clone(),
+                _ => {
+                    vec![ANY_POLICY.to_string()]
+                }
+            };
+        }
+        {
+            vec![ANY_POLICY.to_string()]
         }
     }
-    bts
-}
-
-// PS_INITIAL_EXCLUDED_SUBTREES (will need lifetime aware macro)
-
-/// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else None is returned.
-pub fn get_initial_permitted_subtrees(
-    cps: &CertificationPathSettings,
-) -> Option<NameConstraintsSettings> {
-    if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
-        return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => Some(ncs.clone()),
-            _ => None,
-        };
+    ///`set_initial_policy_set` is used to set `PS_INITIAL_POLICY_SET` items in a [`CertificationPathSettings`] instance
+    pub fn set_initial_policy_set(&mut self, v: Strings) {
+        self.0.insert(
+            PS_INITIAL_POLICY_SET.to_string(),
+            CertificationPathProcessingTypes::Strings(v),
+        );
     }
-    None
-}
 
-/// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
-/// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
-pub fn get_initial_permitted_subtrees_as_set(
-    cps: &CertificationPathSettings,
-    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<Option<NameConstraintsSet>> {
-    if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
-        return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
-                match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
-                    Ok(nc) => Ok(Some(nc)),
-                    Err(e) => Err(e),
-                }
+    /// `set_initial_policy_set_from_oid_set` is used to set `PS_INITIAL_POLICY_SET` items in a [`CertificationPathSettings`] instance
+    /// given an ObjectIdentifierSet object instead of a Strings object.
+    pub fn set_initial_policy_set_from_oid_set(&mut self, v: ObjectIdentifierSet) {
+        let mut s = Strings::new();
+        for o in v {
+            s.push(o.to_string());
+        }
+
+        self.0.insert(
+            PS_INITIAL_POLICY_SET.to_string(),
+            CertificationPathProcessingTypes::Strings(s),
+        );
+    }
+
+    ///`get_initial_policy_set_as_oid_set` is used to retrieve `PS_INITIAL_POLICY_SET` items from a [`CertificationPathSettings`] instance
+    /// as an ObjectIdentifierSet object instead of a Strings object.
+    pub fn get_initial_policy_set_as_oid_set(&self) -> ObjectIdentifierSet {
+        let strs = self.get_initial_policy_set();
+        let mut bts = BTreeSet::new();
+        for s in strs {
+            if let Ok(oid) = ObjectIdentifier::from_str(s.as_str()) {
+                bts.insert(oid);
             }
-            _ => Ok(None),
-        };
+        }
+        bts
     }
-    Ok(None)
-}
 
-/// `get_initial_permitted_subtrees_with_default_as_set` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
-/// If present, a [`NameConstraintsSet`] value containing configured values is returned, else a default
-/// instance is returned.
-pub fn get_initial_permitted_subtrees_with_default_as_set(
-    cps: &CertificationPathSettings,
-    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<NameConstraintsSet> {
-    if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
-        return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
-                match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
-                    Ok(nc) => Ok(nc),
-                    Err(e) => Err(e),
+    // PS_INITIAL_EXCLUDED_SUBTREES (will need lifetime aware macro)
+
+    /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else None is returned.
+    pub fn get_initial_permitted_subtrees(&self) -> Option<NameConstraintsSettings> {
+        if self.0.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
+            return match &self.0[PS_INITIAL_PERMITTED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => Some(ncs.clone()),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
+    /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
+    pub fn get_initial_permitted_subtrees_as_set(
+        &self,
+        bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+    ) -> Result<Option<NameConstraintsSet>> {
+        if self.0.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
+            return match &self.0[PS_INITIAL_PERMITTED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
+                    match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
+                        Ok(nc) => Ok(Some(nc)),
+                        Err(e) => Err(e),
+                    }
                 }
-            }
-            _ => Ok(NameConstraintsSet::default()),
-        };
+                _ => Ok(None),
+            };
+        }
+        Ok(None)
     }
-    Ok(NameConstraintsSet::default())
-}
 
-/// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSet`] value is returned, else NameConstraintsSet::default() is returned.
-pub fn get_initial_permitted_subtrees_with_default(
-    cps: &CertificationPathSettings,
-) -> NameConstraintsSettings {
-    if cps.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
-        return match &cps[PS_INITIAL_PERMITTED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => ncs.clone(),
-            _ => NameConstraintsSettings::default(),
-        };
-    }
-    NameConstraintsSettings::default()
-}
-
-/// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
-/// a [`CertificationPathSettings`] map.
-pub fn set_initial_permitted_subtrees(
-    cps: &mut CertificationPathSettings,
-    ncs: NameConstraintsSettings,
-) {
-    cps.insert(
-        PS_INITIAL_PERMITTED_SUBTREES.to_string(),
-        CertificationPathProcessingTypes::NameConstraintsSettings(ncs),
-    );
-}
-
-/// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
-/// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-pub fn set_initial_permitted_subtrees_from_set(
-    cps: &mut CertificationPathSettings,
-    ncs: &NameConstraintsSet,
-) {
-    cps.insert(
-        PS_INITIAL_PERMITTED_SUBTREES.to_string(),
-        CertificationPathProcessingTypes::NameConstraintsSettings(
-            name_constraints_set_to_name_constraints_settings(ncs),
-        ),
-    );
-}
-
-/// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else None is returned.
-pub fn get_initial_excluded_subtrees(
-    cps: &CertificationPathSettings,
-) -> Option<NameConstraintsSettings> {
-    if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
-        return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => Some(ncs.clone()),
-            _ => None,
-        };
-    }
-    None
-}
-
-/// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
-/// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
-pub fn get_initial_excluded_subtrees_as_set(
-    cps: &CertificationPathSettings,
-    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<Option<NameConstraintsSet>> {
-    if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
-        return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
-                match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
-                    Ok(nc) => Ok(Some(nc)),
-                    Err(e) => Err(e),
+    /// `get_initial_permitted_subtrees_with_default_as_set` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
+    /// If present, a [`NameConstraintsSet`] value containing configured values is returned, else a default
+    /// instance is returned.
+    pub fn get_initial_permitted_subtrees_with_default_as_set(
+        &self,
+        bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+    ) -> Result<NameConstraintsSet> {
+        if self.0.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
+            return match &self.0[PS_INITIAL_PERMITTED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
+                    match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
+                        Ok(nc) => Ok(nc),
+                        Err(e) => Err(e),
+                    }
                 }
-            }
-            _ => Ok(None),
-        };
+                _ => Ok(NameConstraintsSet::default()),
+            };
+        }
+        Ok(NameConstraintsSet::default())
     }
-    Ok(None)
-}
 
-/// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
-/// If present, a [`NameConstraintsSet`] value is returned, else a default instance is returned.
-pub fn get_initial_excluded_subtrees_with_default_as_set(
-    cps: &CertificationPathSettings,
-    bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
-) -> Result<NameConstraintsSet> {
-    if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
-        return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
-                match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
-                    Ok(nc) => Ok(nc),
-                    Err(e) => Err(e),
+    /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSet`] value is returned, else NameConstraintsSet::default() is returned.
+    pub fn get_initial_permitted_subtrees_with_default(&self) -> NameConstraintsSettings {
+        if self.0.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
+            return match &self.0[PS_INITIAL_PERMITTED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => ncs.clone(),
+                _ => NameConstraintsSettings::default(),
+            };
+        }
+        NameConstraintsSettings::default()
+    }
+
+    /// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
+    /// a [`CertificationPathSettings`] map.
+    pub fn set_initial_permitted_subtrees(&mut self, ncs: NameConstraintsSettings) {
+        self.0.insert(
+            PS_INITIAL_PERMITTED_SUBTREES.to_string(),
+            CertificationPathProcessingTypes::NameConstraintsSettings(ncs),
+        );
+    }
+
+    /// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
+    /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
+    pub fn set_initial_permitted_subtrees_from_set(
+        &mut self,
+        ncs: &NameConstraintsSet,
+    ) -> Result<()> {
+        self.0.insert(
+            PS_INITIAL_PERMITTED_SUBTREES.to_string(),
+            CertificationPathProcessingTypes::NameConstraintsSettings(
+                name_constraints_set_to_name_constraints_settings(ncs)?,
+            ),
+        );
+        Ok(())
+    }
+
+    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else None is returned.
+    pub fn get_initial_excluded_subtrees(&self) -> Option<NameConstraintsSettings> {
+        if self.0.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
+            return match &self.0[PS_INITIAL_EXCLUDED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => Some(ncs.clone()),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
+    /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
+    pub fn get_initial_excluded_subtrees_as_set(
+        &self,
+        bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+    ) -> Result<Option<NameConstraintsSet>> {
+        if self.0.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
+            return match &self.0[PS_INITIAL_EXCLUDED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
+                    match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
+                        Ok(nc) => Ok(Some(nc)),
+                        Err(e) => Err(e),
+                    }
                 }
-            }
-            _ => Ok(NameConstraintsSet::default()),
-        };
+                _ => Ok(None),
+            };
+        }
+        Ok(None)
     }
-    Ok(NameConstraintsSet::default())
-}
 
-/// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-/// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else NameConstraintsSet::default() is returned.
-pub fn get_initial_excluded_subtrees_with_default(
-    cps: &CertificationPathSettings,
-) -> NameConstraintsSettings {
-    if cps.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
-        return match &cps[PS_INITIAL_EXCLUDED_SUBTREES] {
-            CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => ncs.clone(),
-            _ => NameConstraintsSettings::default(),
-        };
+    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
+    /// If present, a [`NameConstraintsSet`] value is returned, else a default instance is returned.
+    pub fn get_initial_excluded_subtrees_with_default_as_set(
+        &self,
+        bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
+    ) -> Result<NameConstraintsSet> {
+        if self.0.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
+            return match &self.0[PS_INITIAL_EXCLUDED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => {
+                    match name_constraints_settings_to_name_constraints_set(ncs, bufs) {
+                        Ok(nc) => Ok(nc),
+                        Err(e) => Err(e),
+                    }
+                }
+                _ => Ok(NameConstraintsSet::default()),
+            };
+        }
+        Ok(NameConstraintsSet::default())
     }
-    NameConstraintsSettings::default()
-}
 
-/// `set_initial_excluded_subtrees` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
-/// a [`CertificationPathSettings`] map.
-pub fn set_initial_excluded_subtrees(
-    cps: &mut CertificationPathSettings,
-    ncs: NameConstraintsSettings,
-) {
-    cps.insert(
-        PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
-        CertificationPathProcessingTypes::NameConstraintsSettings(ncs),
-    );
-}
+    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else NameConstraintsSet::default() is returned.
+    pub fn get_initial_excluded_subtrees_with_default(&self) -> NameConstraintsSettings {
+        if self.0.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
+            return match &self.0[PS_INITIAL_EXCLUDED_SUBTREES] {
+                CertificationPathProcessingTypes::NameConstraintsSettings(ncs) => ncs.clone(),
+                _ => NameConstraintsSettings::default(),
+            };
+        }
+        NameConstraintsSettings::default()
+    }
 
-/// `set_initial_excluded_subtrees_from_set` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
-/// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
-pub fn set_initial_excluded_subtrees_from_set(
-    cps: &mut CertificationPathSettings,
-    ncs: &NameConstraintsSet,
-) {
-    cps.insert(
-        PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
-        CertificationPathProcessingTypes::NameConstraintsSettings(
-            name_constraints_set_to_name_constraints_settings(ncs),
-        ),
-    );
+    /// `set_initial_excluded_subtrees` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
+    /// a [`CertificationPathSettings`] map.
+    pub fn set_initial_excluded_subtrees(&mut self, ncs: NameConstraintsSettings) {
+        self.0.insert(
+            PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
+            CertificationPathProcessingTypes::NameConstraintsSettings(ncs),
+        );
+    }
+
+    /// `set_initial_excluded_subtrees_from_set` is used to set the `PS_INITIAL_EXCLUDED_SUBTREES` value in
+    /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
+    pub fn set_initial_excluded_subtrees_from_set(
+        &mut self,
+        ncs: &NameConstraintsSet,
+    ) -> Result<()> {
+        self.0.insert(
+            PS_INITIAL_EXCLUDED_SUBTREES.to_string(),
+            CertificationPathProcessingTypes::NameConstraintsSettings(
+                name_constraints_set_to_name_constraints_settings(ncs)?,
+            ),
+        );
+        Ok(())
+    }
 }
 
 cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, u64, {
@@ -624,59 +620,57 @@ cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, u64, {
 });
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_VALIDITY, bool, true);
-// PS_KEY_USAGE (see below, need lifetime aware macro to avoid manual implementation)
-//cps_gets_and_sets!(PS_EXTENDED_KEY_USAGE, Strings);
-///`get_extended_key_usage` is used to retrieve `PS_EXTENDED_KEY_USAGE` items from a [`CertificationPathSettings`] instance
-pub fn get_extended_key_usage(cps: &CertificationPathSettings) -> Option<Strings> {
-    if cps.contains_key(PS_EXTENDED_KEY_USAGE) {
-        return match &cps[PS_EXTENDED_KEY_USAGE] {
-            CertificationPathProcessingTypes::Strings(v) => Some(v.clone()),
-            _ => None,
-        };
-    }
-    None
-}
 
-///`set_extended_key_usage` is used to set `PS_EXTENDED_KEY_USAGE` items in a [`CertificationPathSettings`] instance
-pub fn set_extended_key_usage(cps: &mut CertificationPathSettings, v: Strings) {
-    cps.insert(
-        PS_EXTENDED_KEY_USAGE.to_string(),
-        CertificationPathProcessingTypes::Strings(v),
-    );
-}
-
-///`set_extended_key_usage` is used to set `PS_EXTENDED_KEY_USAGE` items in a [`CertificationPathSettings`] instance
-/// given an ObjectIdentifierSet instead of a Strings object.
-pub fn set_extended_key_usage_from_oid_set(
-    cps: &mut CertificationPathSettings,
-    v: ObjectIdentifierSet,
-) {
-    let mut s = Strings::new();
-    for o in v {
-        s.push(o.to_string());
-    }
-
-    cps.insert(
-        PS_EXTENDED_KEY_USAGE.to_string(),
-        CertificationPathProcessingTypes::Strings(s),
-    );
-}
-
-///`get_extended_key_usage_as_oid_set` is used to retrieve `PS_EXTENDED_KEY_USAGE` items from a [`CertificationPathSettings`] instance
-/// as an ObjectIdentifierSet object instead of a Strings object.
-pub fn get_extended_key_usage_as_oid_set(
-    cps: &CertificationPathSettings,
-) -> Option<ObjectIdentifierSet> {
-    let mut bts = BTreeSet::new();
-    if let Some(strs) = get_extended_key_usage(cps) {
-        for s in strs {
-            if let Ok(oid) = ObjectIdentifier::from_str(s.as_str()) {
-                bts.insert(oid);
-            }
+impl CertificationPathSettings {
+    // PS_KEY_USAGE (see below, need lifetime aware macro to avoid manual implementation)
+    //cps_gets_and_sets!(PS_EXTENDED_KEY_USAGE, Strings);
+    ///`get_extended_key_usage` is used to retrieve `PS_EXTENDED_KEY_USAGE` items from a [`CertificationPathSettings`] instance
+    pub fn get_extended_key_usage(&self) -> Option<Strings> {
+        if self.0.contains_key(PS_EXTENDED_KEY_USAGE) {
+            return match &self.0[PS_EXTENDED_KEY_USAGE] {
+                CertificationPathProcessingTypes::Strings(v) => Some(v.clone()),
+                _ => None,
+            };
         }
-        Some(bts)
-    } else {
         None
+    }
+
+    ///`set_extended_key_usage` is used to set `PS_EXTENDED_KEY_USAGE` items in a [`CertificationPathSettings`] instance
+    pub fn set_extended_key_usage(&mut self, v: Strings) {
+        self.0.insert(
+            PS_EXTENDED_KEY_USAGE.to_string(),
+            CertificationPathProcessingTypes::Strings(v),
+        );
+    }
+
+    ///`set_extended_key_usage` is used to set `PS_EXTENDED_KEY_USAGE` items in a [`CertificationPathSettings`] instance
+    /// given an ObjectIdentifierSet instead of a Strings object.
+    pub fn set_extended_key_usage_from_oid_set(&mut self, v: ObjectIdentifierSet) {
+        let mut s = Strings::new();
+        for o in v {
+            s.push(o.to_string());
+        }
+
+        self.0.insert(
+            PS_EXTENDED_KEY_USAGE.to_string(),
+            CertificationPathProcessingTypes::Strings(s),
+        );
+    }
+
+    ///`get_extended_key_usage_as_oid_set` is used to retrieve `PS_EXTENDED_KEY_USAGE` items from a [`CertificationPathSettings`] instance
+    /// as an ObjectIdentifierSet object instead of a Strings object.
+    pub fn get_extended_key_usage_as_oid_set(&self) -> Option<ObjectIdentifierSet> {
+        let mut bts = BTreeSet::new();
+        if let Some(strs) = self.get_extended_key_usage() {
+            for s in strs {
+                if let Ok(oid) = ObjectIdentifier::from_str(s.as_str()) {
+                    bts.insert(oid);
+                }
+            }
+            Some(bts)
+        } else {
+            None
+        }
     }
 }
 
@@ -712,24 +706,26 @@ cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_USE_POLICY_GRAPH, bool, false);
 
-/// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
-/// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
-pub fn get_target_key_usage(cps: &CertificationPathSettings) -> Option<u16> {
-    if cps.contains_key(PS_KEY_USAGE) {
-        return match &cps[PS_KEY_USAGE] {
-            CertificationPathProcessingTypes::U16(v) => Some(*v),
-            _ => None,
-        };
+impl CertificationPathSettings {
+    /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
+    /// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
+    pub fn get_target_key_usage(&self) -> Option<u16> {
+        if self.0.contains_key(PS_KEY_USAGE) {
+            return match &self.0[PS_KEY_USAGE] {
+                CertificationPathProcessingTypes::U16(v) => Some(*v),
+                _ => None,
+            };
+        }
+        None
     }
-    None
-}
 
-/// `set_target_key_usage` is used to set the [`PS_KEY_USAGE`] value in a [`CertificationPathSettings`] map.
-pub fn set_target_key_usage(cps: &mut CertificationPathSettings, v: u16) {
-    cps.insert(
-        PS_KEY_USAGE.to_string(),
-        CertificationPathProcessingTypes::U16(v),
-    );
+    /// `set_target_key_usage` is used to set the [`PS_KEY_USAGE`] value in a [`CertificationPathSettings`] map.
+    pub fn set_target_key_usage(&mut self, v: u16) {
+        self.0.insert(
+            PS_KEY_USAGE.to_string(),
+            CertificationPathProcessingTypes::U16(v),
+        );
+    }
 }
 
 /// `read_settings` accepts a string containing the name of a file that notionally contains JSON data that
@@ -767,89 +763,93 @@ cps_gets_and_sets_with_default!(PS_CBOR_TA_STORE, bool, false);
 fn test_default_gets_cps() {
     let cps = CertificationPathSettings::default();
 
-    assert!(!get_initial_explicit_policy_indicator(&cps));
-    assert!(!get_initial_policy_mapping_inhibit_indicator(&cps));
-    assert!(!get_initial_inhibit_any_policy_indicator(&cps));
+    assert!(!cps.get_initial_explicit_policy_indicator());
+    assert!(!cps.get_initial_policy_mapping_inhibit_indicator());
+    assert!(!cps.get_initial_inhibit_any_policy_indicator());
 
     #[cfg(feature = "std")]
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        assert!(get_time_of_interest(&cps) > before.as_secs());
+        assert!(cps.get_time_of_interest() > before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        assert_eq!(get_time_of_interest(&cps), 0);
+        assert_eq!(cps.get_time_of_interest(), 0);
     }
 
-    assert!(!get_enforce_trust_anchor_constraints(&cps));
-    assert!(get_enforce_trust_anchor_validity(&cps));
-    assert!(!get_extended_key_usage_path(&cps));
-    assert_eq!(60, get_crl_timeout(&cps));
-    assert!(!get_enforce_alg_and_key_size_constraints(&cps));
+    assert!(!cps.get_enforce_trust_anchor_constraints());
+    assert!(cps.get_enforce_trust_anchor_validity());
+    assert!(!cps.get_extended_key_usage_path());
+    assert_eq!(60, cps.get_crl_timeout());
+    assert!(!cps.get_enforce_alg_and_key_size_constraints());
 
-    assert!(get_use_validator_filter_when_building(&cps));
-    assert!(get_check_revocation_status(&cps));
-    assert!(get_check_ocsp_from_aia(&cps));
-    assert!(get_retrieve_from_aia_sia_http(&cps));
-    assert!(!get_retrieve_from_aia_sia_ldap(&cps));
-    assert!(get_check_crls(&cps));
-    assert!(get_check_crldp_http(&cps));
-    assert!(!get_check_crldp_ldap(&cps));
-    assert!(get_crl_grace_periods_as_last_resort(&cps));
-    assert!(!get_ignore_expired(&cps));
+    assert!(cps.get_use_validator_filter_when_building());
+    assert!(cps.get_check_revocation_status());
+    assert!(cps.get_check_ocsp_from_aia());
+    assert!(cps.get_retrieve_from_aia_sia_http());
+    assert!(!cps.get_retrieve_from_aia_sia_ldap());
+    assert!(cps.get_check_crls());
+    assert!(cps.get_check_crldp_http());
+    assert!(!cps.get_check_crldp_ldap());
+    assert!(cps.get_crl_grace_periods_as_last_resort());
+    assert!(!cps.get_ignore_expired());
     assert_eq!(
         OcspNonceSetting::DoNotSendNonce,
-        get_ocsp_aia_nonce_setting(&cps)
+        cps.get_ocsp_aia_nonce_setting()
     );
-    assert!(!get_require_country_code_indicator(&cps));
+    assert!(!cps.get_require_country_code_indicator());
 
-    assert_eq!(vec![ANY_POLICY.to_string()], get_initial_policy_set(&cps));
-    assert!(!get_cbor_ta_store(&cps));
+    assert_eq!(vec![ANY_POLICY.to_string()], cps.get_initial_policy_set());
+    assert!(!cps.get_cbor_ta_store());
 }
 
 #[test]
 fn test_no_default_gets_cps() {
     let cps = CertificationPathSettings::default();
 
-    assert_eq!(None, get_perm_countries(&cps));
-    assert_eq!(None, get_excl_countries(&cps));
-    assert_eq!(None, get_initial_permitted_subtrees(&cps));
+    assert_eq!(None, cps.get_perm_countries());
+    assert_eq!(None, cps.get_excl_countries());
+    assert_eq!(None, cps.get_initial_permitted_subtrees());
     let mut bufs1 = BTreeMap::new();
     assert_eq!(
         None,
-        get_initial_permitted_subtrees_as_set(&cps, &mut bufs1).unwrap()
+        cps.get_initial_permitted_subtrees_as_set(&mut bufs1)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSettings::default(),
-        get_initial_permitted_subtrees_with_default(&cps)
+        cps.get_initial_permitted_subtrees_with_default()
     );
     assert_eq!(
         NameConstraintsSet::default(),
-        get_initial_permitted_subtrees_with_default_as_set(&cps, &mut bufs1).unwrap()
+        cps.get_initial_permitted_subtrees_with_default_as_set(&mut bufs1)
+            .unwrap()
     );
-    assert_eq!(None, get_initial_excluded_subtrees(&cps));
+    assert_eq!(None, cps.get_initial_excluded_subtrees());
     let mut bufs2 = BTreeMap::new();
     assert_eq!(
         None,
-        get_initial_excluded_subtrees_as_set(&cps, &mut bufs2).unwrap()
+        cps.get_initial_excluded_subtrees_as_set(&mut bufs2)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSet::default(),
-        get_initial_excluded_subtrees_with_default_as_set(&cps, &mut bufs2).unwrap()
+        cps.get_initial_excluded_subtrees_with_default_as_set(&mut bufs2)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSettings::default(),
-        get_initial_excluded_subtrees_with_default(&cps)
+        cps.get_initial_excluded_subtrees_with_default()
     );
-    assert_eq!(None, get_extended_key_usage(&cps));
-    assert_eq!(None, get_target_key_usage(&cps));
+    assert_eq!(None, cps.get_extended_key_usage());
+    assert_eq!(None, cps.get_target_key_usage());
 
-    assert_eq!(None, get_trust_anchor_folder(&cps));
-    assert_eq!(None, get_certification_authority_folder(&cps));
-    assert_eq!(None, get_download_folder(&cps));
-    assert_eq!(None, get_last_modified_map_file(&cps));
-    assert_eq!(None, get_uri_blocklist_file(&cps));
+    assert_eq!(None, cps.get_trust_anchor_folder());
+    assert_eq!(None, cps.get_certification_authority_folder());
+    assert_eq!(None, cps.get_download_folder());
+    assert_eq!(None, cps.get_last_modified_map_file());
+    assert_eq!(None, cps.get_uri_blocklist_file());
 }
 
 #[test]
@@ -858,79 +858,79 @@ fn test_default_sets_cps() {
 
     let mut cps = CertificationPathSettings::default();
 
-    set_initial_explicit_policy_indicator(&mut cps, true);
-    assert!(get_initial_explicit_policy_indicator(&cps));
-    set_initial_policy_mapping_inhibit_indicator(&mut cps, true);
-    assert!(get_initial_policy_mapping_inhibit_indicator(&cps));
-    set_initial_inhibit_any_policy_indicator(&mut cps, true);
-    assert!(get_initial_inhibit_any_policy_indicator(&cps));
+    cps.set_initial_explicit_policy_indicator(true);
+    assert!(cps.get_initial_explicit_policy_indicator());
+    cps.set_initial_policy_mapping_inhibit_indicator(true);
+    assert!(cps.get_initial_policy_mapping_inhibit_indicator());
+    cps.set_initial_inhibit_any_policy_indicator(true);
+    assert!(cps.get_initial_inhibit_any_policy_indicator());
 
     #[cfg(feature = "std")]
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        set_time_of_interest(&mut cps, before.as_secs());
-        assert_eq!(get_time_of_interest(&cps), before.as_secs());
+        cps.set_time_of_interest(before.as_secs());
+        assert_eq!(cps.get_time_of_interest(), before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        set_time_of_interest(&mut cps, 1);
-        assert_eq!(get_time_of_interest(&cps), 1);
+        cps.set_time_of_interest(1);
+        assert_eq!(cps.get_time_of_interest(), 1);
     }
 
-    set_enforce_trust_anchor_constraints(&mut cps, true);
-    assert!(get_enforce_trust_anchor_constraints(&cps));
-    set_enforce_trust_anchor_validity(&mut cps, false);
-    assert!(!get_enforce_trust_anchor_validity(&cps));
-    set_extended_key_usage_path(&mut cps, true);
-    assert!(get_extended_key_usage_path(&cps));
-    set_crl_timeout(&mut cps, 120);
-    assert_eq!(120, get_crl_timeout(&cps));
-    set_enforce_alg_and_key_size_constraints(&mut cps, true);
-    assert!(get_enforce_alg_and_key_size_constraints(&cps));
+    cps.set_enforce_trust_anchor_constraints(true);
+    assert!(cps.get_enforce_trust_anchor_constraints());
+    cps.set_enforce_trust_anchor_validity(false);
+    assert!(!cps.get_enforce_trust_anchor_validity());
+    cps.set_extended_key_usage_path(true);
+    assert!(cps.get_extended_key_usage_path());
+    cps.set_crl_timeout(120);
+    assert_eq!(120, cps.get_crl_timeout());
+    cps.set_enforce_alg_and_key_size_constraints(true);
+    assert!(cps.get_enforce_alg_and_key_size_constraints());
 
-    set_use_validator_filter_when_building(&mut cps, false);
-    assert!(!get_use_validator_filter_when_building(&cps));
-    set_check_revocation_status(&mut cps, false);
-    assert!(!get_check_revocation_status(&cps));
-    set_check_ocsp_from_aia(&mut cps, false);
-    assert!(!get_check_ocsp_from_aia(&cps));
-    set_retrieve_from_aia_sia_http(&mut cps, false);
-    assert!(!get_retrieve_from_aia_sia_http(&cps));
+    cps.set_use_validator_filter_when_building(false);
+    assert!(!cps.get_use_validator_filter_when_building());
+    cps.set_check_revocation_status(false);
+    assert!(!cps.get_check_revocation_status());
+    cps.set_check_ocsp_from_aia(false);
+    assert!(!cps.get_check_ocsp_from_aia());
+    cps.set_retrieve_from_aia_sia_http(false);
+    assert!(!cps.get_retrieve_from_aia_sia_http());
 
-    set_retrieve_from_aia_sia_ldap(&mut cps, true);
-    assert!(get_retrieve_from_aia_sia_ldap(&cps));
+    cps.set_retrieve_from_aia_sia_ldap(true);
+    assert!(cps.get_retrieve_from_aia_sia_ldap());
 
-    set_check_crls(&mut cps, false);
-    assert!(!get_check_crls(&cps));
-    set_check_crldp_http(&mut cps, false);
-    assert!(!get_check_crldp_http(&cps));
+    cps.set_check_crls(false);
+    assert!(!cps.get_check_crls());
+    cps.set_check_crldp_http(false);
+    assert!(!cps.get_check_crldp_http());
 
-    set_check_crldp_ldap(&mut cps, true);
-    assert!(get_check_crldp_ldap(&cps));
+    cps.set_check_crldp_ldap(true);
+    assert!(cps.get_check_crldp_ldap());
 
-    set_crl_grace_periods_as_last_resort(&mut cps, false);
-    assert!(!get_crl_grace_periods_as_last_resort(&cps));
+    cps.set_crl_grace_periods_as_last_resort(false);
+    assert!(!cps.get_crl_grace_periods_as_last_resort());
 
-    set_ignore_expired(&mut cps, true);
-    assert!(get_ignore_expired(&cps));
+    cps.set_ignore_expired(true);
+    assert!(cps.get_ignore_expired());
 
-    set_ocsp_aia_nonce_setting(&mut cps, OcspNonceSetting::SendNonceRequireMatch);
+    cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::SendNonceRequireMatch);
     assert_eq!(
         OcspNonceSetting::SendNonceRequireMatch,
-        get_ocsp_aia_nonce_setting(&cps)
+        cps.get_ocsp_aia_nonce_setting()
     );
 
-    set_require_country_code_indicator(&mut cps, true);
-    assert!(get_require_country_code_indicator(&cps));
+    cps.set_require_country_code_indicator(true);
+    assert!(cps.get_require_country_code_indicator());
 
-    set_initial_policy_set(&mut cps, vec![ID_CE_POLICY_MAPPINGS.to_string()]);
+    cps.set_initial_policy_set(vec![ID_CE_POLICY_MAPPINGS.to_string()]);
     assert_eq!(
         vec![ID_CE_POLICY_MAPPINGS.to_string()],
-        get_initial_policy_set(&cps)
+        cps.get_initial_policy_set()
     );
 
-    set_cbor_ta_store(&mut cps, true);
-    assert!(get_cbor_ta_store(&cps));
+    cps.set_cbor_ta_store(true);
+    assert!(cps.get_cbor_ta_store());
 }
 
 #[test]
@@ -942,36 +942,37 @@ fn test_no_default_sets_cps() {
     let mut cps = CertificationPathSettings::default();
 
     let v = vec!["US".to_string()];
-    set_perm_countries(&mut cps, v.clone());
-    assert_eq!(&v, &get_perm_countries(&cps).unwrap());
-    set_excl_countries(&mut cps, v.clone());
-    assert_eq!(&v, &get_excl_countries(&cps).unwrap());
+    cps.set_perm_countries(v.clone());
+    assert_eq!(&v, &cps.get_perm_countries().unwrap());
+    cps.set_excl_countries(v.clone());
+    assert_eq!(&v, &cps.get_excl_countries().unwrap());
 
-    assert_eq!(None, get_initial_permitted_subtrees(&cps));
+    assert_eq!(None, cps.get_initial_permitted_subtrees());
     let mut bufs1 = BTreeMap::new();
     assert_eq!(
         None,
-        get_initial_permitted_subtrees_as_set(&cps, &mut bufs1).unwrap()
+        cps.get_initial_permitted_subtrees_as_set(&mut bufs1)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSettings::default(),
-        get_initial_permitted_subtrees_with_default(&cps)
+        cps.get_initial_permitted_subtrees_with_default()
     );
     assert_eq!(
         NameConstraintsSet::default(),
-        get_initial_permitted_subtrees_with_default_as_set(&cps, &mut bufs1).unwrap()
+        cps.get_initial_permitted_subtrees_with_default_as_set(&mut bufs1)
+            .unwrap()
     );
-    set_initial_permitted_subtrees(
-        &mut cps,
-        crate::NameConstraintsSettings {
-            directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
-            rfc822_name: Some(vec!["x@example.com".to_string()]),
-            user_principal_name: Some(vec!["1234567890@mil".to_string()]),
-            dns_name: Some(vec!["j.example.com".to_string()]),
-            uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
-        },
-    );
-    let perm = get_initial_permitted_subtrees(&cps).unwrap();
+    cps.set_initial_permitted_subtrees(crate::NameConstraintsSettings {
+        directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
+        rfc822_name: Some(vec!["x@example.com".to_string()]),
+        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
+        dns_name: Some(vec!["j.example.com".to_string()]),
+        uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+        ip_address: None,
+        not_supported: None,
+    });
+    let perm = cps.get_initial_permitted_subtrees().unwrap();
     assert_eq!(
         Some(vec!["https://j.example.com".to_string()]),
         perm.uniform_resource_identifier
@@ -986,7 +987,8 @@ fn test_no_default_sets_cps() {
         Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         perm.directory_name
     );
-    let perm_set = get_initial_permitted_subtrees_as_set(&cps, &mut bufs1)
+    let perm_set = cps
+        .get_initial_permitted_subtrees_as_set(&mut bufs1)
         .unwrap()
         .unwrap();
     let ia5 = Ia5String::new("x@example.com").unwrap();
@@ -1002,31 +1004,32 @@ fn test_no_default_sets_cps() {
     assert_eq!(1, perm_set.user_principal_name.len());
     assert_eq!(1, perm_set.directory_name.len());
 
-    assert_eq!(None, get_initial_excluded_subtrees(&cps));
+    assert_eq!(None, cps.get_initial_excluded_subtrees());
     let mut bufs2 = BTreeMap::new();
     assert_eq!(
         None,
-        get_initial_excluded_subtrees_as_set(&cps, &mut bufs2).unwrap()
+        cps.get_initial_excluded_subtrees_as_set(&mut bufs2)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSet::default(),
-        get_initial_excluded_subtrees_with_default_as_set(&cps, &mut bufs2).unwrap()
+        cps.get_initial_excluded_subtrees_with_default_as_set(&mut bufs2)
+            .unwrap()
     );
     assert_eq!(
         NameConstraintsSettings::default(),
-        get_initial_excluded_subtrees_with_default(&cps)
+        cps.get_initial_excluded_subtrees_with_default()
     );
-    set_initial_excluded_subtrees(
-        &mut cps,
-        crate::NameConstraintsSettings {
-            directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
-            rfc822_name: Some(vec!["y@example.com".to_string()]),
-            user_principal_name: Some(vec!["0987654321@mil".to_string()]),
-            dns_name: Some(vec!["s.example.com".to_string()]),
-            uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
-        },
-    );
-    let excl = get_initial_excluded_subtrees(&cps).unwrap();
+    cps.set_initial_excluded_subtrees(crate::NameConstraintsSettings {
+        directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
+        rfc822_name: Some(vec!["y@example.com".to_string()]),
+        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
+        dns_name: Some(vec!["s.example.com".to_string()]),
+        uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+        ip_address: None,
+        not_supported: None,
+    });
+    let excl = cps.get_initial_excluded_subtrees().unwrap();
     assert_eq!(
         Some(vec!["https://s.example.com".to_string()]),
         excl.uniform_resource_identifier
@@ -1041,7 +1044,8 @@ fn test_no_default_sets_cps() {
         Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         excl.directory_name
     );
-    let excl_set = get_initial_excluded_subtrees_as_set(&cps, &mut bufs1)
+    let excl_set = cps
+        .get_initial_excluded_subtrees_as_set(&mut bufs1)
         .unwrap()
         .unwrap();
     let ia5 = Ia5String::new("y@example.com").unwrap();
@@ -1058,29 +1062,29 @@ fn test_no_default_sets_cps() {
     assert_eq!(1, excl_set.directory_name.len());
 
     let v = vec!["1.2.3.4.5".to_string()];
-    set_extended_key_usage(&mut cps, v.clone());
-    assert_eq!(&v, &get_extended_key_usage(&cps).unwrap());
-    let eku_set = get_extended_key_usage_as_oid_set(&cps).unwrap();
-    let eku_setb = get_extended_key_usage_as_oid_set(&cps).unwrap();
+    cps.set_extended_key_usage(v.clone());
+    assert_eq!(&v, &cps.get_extended_key_usage().unwrap());
+    let eku_set = cps.get_extended_key_usage_as_oid_set().unwrap();
+    let eku_setb = cps.get_extended_key_usage_as_oid_set().unwrap();
     let mut cps_eku_set = CertificationPathSettings::default();
-    set_extended_key_usage_from_oid_set(&mut cps_eku_set, eku_set);
-    let eku_set_copy = get_extended_key_usage_as_oid_set(&cps_eku_set).unwrap();
+    cps_eku_set.set_extended_key_usage_from_oid_set(eku_set);
+    let eku_set_copy = cps_eku_set.get_extended_key_usage_as_oid_set().unwrap();
     assert_eq!(eku_setb, eku_set_copy);
 
-    assert_eq!(None, get_target_key_usage(&cps));
+    assert_eq!(None, cps.get_target_key_usage());
 
     let f = "/some/folder".to_string();
-    set_trust_anchor_folder(&mut cps, f.clone());
-    assert_eq!(&f, &get_trust_anchor_folder(&cps).unwrap());
+    cps.set_trust_anchor_folder(f.clone());
+    assert_eq!(&f, &cps.get_trust_anchor_folder().unwrap());
 
-    set_certification_authority_folder(&mut cps, f.clone());
-    assert_eq!(&f, &get_certification_authority_folder(&cps).unwrap());
-    set_download_folder(&mut cps, f.clone());
-    assert_eq!(&f, &get_download_folder(&cps).unwrap());
+    cps.set_certification_authority_folder(f.clone());
+    assert_eq!(&f, &cps.get_certification_authority_folder().unwrap());
+    cps.set_download_folder(f.clone());
+    assert_eq!(&f, &cps.get_download_folder().unwrap());
 
     let f = "/some/file.txt".to_string();
-    set_last_modified_map_file(&mut cps, f.clone());
-    assert_eq!(&f, &get_last_modified_map_file(&cps).unwrap());
-    set_uri_blocklist_file(&mut cps, f.clone());
-    assert_eq!(&f, &get_uri_blocklist_file(&cps).unwrap());
+    cps.set_last_modified_map_file(f.clone());
+    assert_eq!(&f, &cps.get_last_modified_map_file().unwrap());
+    cps.set_uri_blocklist_file(f.clone());
+    assert_eq!(&f, &cps.get_uri_blocklist_file().unwrap());
 }

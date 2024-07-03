@@ -27,22 +27,18 @@ use x509_cert::ext::pkix::{
 };
 use x509_cert::name::Name;
 use x509_cert::{
+    certificate::CertificateInner,
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
-    Certificate,
 };
 
 use crate::crl::CrlReasons::AllReasons;
 use crate::Error::CrlIncompatible;
 use crate::{
-    add_crl_entry, compare_names, get_time_of_interest, log_error_for_subject, name_to_string,
-    set_validation_status, CertificationPathResults, CertificationPathSettings, DeferDecodeSigned,
-    Error, ExtensionProcessing, PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment,
-    Result,
+    compare_names, log_error_for_subject, name_to_string, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
+    PDVExtension, PathValidationStatus, PkiEnvironment, Result,
 };
-
-#[cfg(feature = "revocation")]
-use crate::add_failed_crl;
 
 #[cfg(feature = "remote")]
 use std::time::Duration;
@@ -55,9 +51,6 @@ use der::asn1::Ia5String;
 
 #[cfg(feature = "remote")]
 use alloc::vec;
-
-#[cfg(feature = "remote")]
-use crate::{add_crl, get_crl_timeout};
 
 // Certificates are classified based on the values found in the CRLDistributionPoints and BasicConstraints
 // extensions, if present, without regard for criticality.  Certificates with BasicConstraints present and
@@ -856,7 +849,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
@@ -876,7 +869,7 @@ fn verify_crl(
             issuer_cert,
             format!("CRL signature verification error: {:?}", e).as_str(),
         );
-        set_validation_status(cpr, PathValidationStatus::SignatureVerificationFailure);
+        cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
             PathValidationStatus::SignatureVerificationFailure,
         ));
@@ -950,7 +943,7 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> 
     Ok(())
 }
 
-fn check_crl_sign(cert: &Certificate) -> Result<()> {
+fn check_crl_sign(cert: &CertificateInner) -> Result<()> {
     if let Some(exts) = &cert.tbs_certificate.extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_KEY_USAGE {
@@ -982,7 +975,7 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
@@ -999,7 +992,7 @@ pub(crate) fn process_crl(
             } else {
                 error!("Failed to parse CRL from with {}", e);
             }
-            add_failed_crl(cpr, crl_buf, result_index);
+            cpr.add_failed_crl(crl_buf, result_index);
             return Err(Error::Asn1Error(e));
         }
     };
@@ -1059,7 +1052,7 @@ pub(crate) fn process_crl(
         return Err(Error::CrlIncompatible);
     }
 
-    let toi = get_time_of_interest(cps);
+    let toi = cps.get_time_of_interest();
     check_crl_validity(toi, &crl)?;
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
@@ -1095,7 +1088,7 @@ pub(crate) fn process_crl(
 
                 match rc.to_der() {
                     Ok(enc_entry) => {
-                        add_crl_entry(cpr, enc_entry, result_index);
+                        cpr.add_crl_entry(enc_entry, result_index);
                     }
                     Err(e) => {
                         error!(
@@ -1134,7 +1127,7 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
@@ -1146,7 +1139,7 @@ pub(crate) async fn check_revocation_crl_remote(
             name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
         );
     } else {
-        let timeout = get_crl_timeout(cps);
+        let timeout = cps.get_crl_timeout();
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 
@@ -1168,19 +1161,19 @@ pub(crate) async fn check_revocation_crl_remote(
             ) {
                 Ok(_ok) => {
                     target_status = {
-                        add_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_crl(crl.as_slice(), pos);
                         info!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject);
                         PathValidationStatus::Valid
                     }
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
-                        add_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_crl(crl.as_slice(), pos);
                         info!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject);
                         return PathValidationStatus::CertificateRevoked;
                     } else {
                         info!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e);
-                        add_failed_crl(cpr, crl.as_slice(), pos);
+                        cpr.add_failed_crl(crl.as_slice(), pos);
                     }
                 }
             };
@@ -1196,12 +1189,11 @@ pub(crate) async fn check_revocation_crl_remote(
 #[cfg(feature = "remote")]
 #[tokio::test]
 async fn fetch_crl_test() {
-    use crate::populate_5280_pki_environment;
     use crate::{CrlSourceFolders, RemoteStatus, RevocationCache};
     use std::path::PathBuf;
     let mut pe = PkiEnvironment::default();
     pe.clear_all_callbacks();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
 
     let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let f = d.join("tests/examples/fetch_crl_test");

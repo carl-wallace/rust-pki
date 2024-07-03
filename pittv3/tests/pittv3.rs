@@ -841,12 +841,24 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
         cmd.assert().stdout(predicate::str::contains(
             "Serializing 3 buffers and 4 partial paths",
         ));
-        cmd.assert().stdout(predicate::str::contains(
-            "Ignored tests/examples/cert_store_with_expired/subfolder/3.der as not valid at indicated time of interest",
-        ));
-        cmd.assert().stdout(predicate::str::contains(
-            "Ignored tests/examples/cert_store_with_expired/178.der as not valid at indicated time of interest",
-        ));
+        #[cfg(not(target_os = "windows"))]
+        {
+            cmd.assert().stdout(predicate::str::contains(
+                "Ignored tests/examples/cert_store_with_expired/subfolder/3.der as not valid at indicated time of interest",
+            ));
+            cmd.assert().stdout(predicate::str::contains(
+                "Ignored tests/examples/cert_store_with_expired/178.der as not valid at indicated time of interest",
+            ));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            cmd.assert().stdout(predicate::str::contains(
+                "Ignored tests/examples/cert_store_with_expired\\subfolder\\3.der as not valid at indicated time of interest",
+            ));
+            cmd.assert().stdout(predicate::str::contains(
+                "Ignored tests/examples/cert_store_with_expired\\178.der as not valid at indicated time of interest",
+            ));
+        }
         assert!(p.exists());
     }
 
@@ -1067,6 +1079,9 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("--list-buffers");
         cmd.assert().stdout(predicate::str::contains("Index: 3"));
+        #[cfg(target_os = "windows")]
+        cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired\\178.der is not valid at indicated time of interest"));
+        #[cfg(not(target_os = "windows"))]
         cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired/178.der is not valid at indicated time of interest"));
     }
 
@@ -1132,6 +1147,9 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         ));
         cmd.assert()
             .stdout(predicate::str::contains("Invalid paths found: 0"));
+        #[cfg(target_os = "windows")]
+        cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired\\178.der is not valid at indicated time of interest"));
+        #[cfg(not(target_os = "windows"))]
         cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired/178.der is not valid at indicated time of interest"));
     }
 
@@ -1461,8 +1479,14 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
         cmd.assert()
             .stdout(predicate::str::contains("Missing basicConstraints"));
         cmd.assert().stdout(predicate::str::contains("Self-signed"));
+
+        #[cfg(not(target_os = "windows"))]
         cmd.assert().stdout(predicate::str::contains(
             "Failed to parse certificate from tests/examples/cleanup_test/malformed.der",
+        ));
+        #[cfg(target_os = "windows")]
+        cmd.assert().stdout(predicate::str::contains(
+            "Failed to parse certificate from tests/examples/cleanup_test\\malformed.der",
         ));
     }
     {
@@ -1477,8 +1501,13 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
         //     .stdout(predicate::str::contains("Missing basicConstraints"));
         // cmd2.assert()
         //     .stdout(predicate::str::contains("Self-signed"));
+        #[cfg(not(target_os = "windows"))]
         cmd2.assert().stdout(predicate::str::contains(
             "Failed to parse certificate from tests/examples/cleanup_test/malformed.der",
+        ));
+        #[cfg(target_os = "windows")]
+        cmd2.assert().stdout(predicate::str::contains(
+            "Failed to parse certificate from tests/examples/cleanup_test\\malformed.der",
         ));
     }
     {

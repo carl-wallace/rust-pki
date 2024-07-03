@@ -4,7 +4,7 @@ resolver = "2"
 members = [
     "certval",
     "pkiprocmacros",
-    "pittv3"
+    "pittv3",
 ]
 
 [profile.bench]

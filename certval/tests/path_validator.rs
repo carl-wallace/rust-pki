@@ -51,7 +51,7 @@ fn pkits_test1() {
     let chain = vec![ca];
 
     let mut pe = PkiEnvironment::new();
-    populate_5280_pki_environment(&mut pe);
+    pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);

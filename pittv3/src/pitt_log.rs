@@ -49,7 +49,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial explicit policy: {}\n",
-            get_initial_explicit_policy_indicator(cps)
+            cps.get_initial_explicit_policy_indicator()
         )
         .as_bytes(),
     )
@@ -57,7 +57,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial policy mapping inhibit: {}\n",
-            get_initial_policy_mapping_inhibit_indicator(cps)
+            cps.get_initial_policy_mapping_inhibit_indicator()
         )
         .as_bytes(),
     )
@@ -65,14 +65,14 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial inhibit any policy: {}\n",
-            get_initial_inhibit_any_policy_indicator(cps)
+            cps.get_initial_inhibit_any_policy_indicator()
         )
         .as_bytes(),
     )
     .expect("Unable to write manifest file");
     f.write_all("Initial policy set: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let policy_set = get_initial_policy_set(cps);
+    let policy_set = cps.get_initial_policy_set();
     for policy in policy_set {
         f.write_all(format!("\t* {}\n", policy).as_bytes())
             .expect("Unable to write manifest file");
@@ -82,7 +82,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
 
-    let perm = match get_initial_permitted_subtrees_as_set(cps, &mut pbufs) {
+    let perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
         Ok(ip) => ip,
         Err(_e) => None,
     };
@@ -125,7 +125,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     } // end if let Some(perm) = perm
     f.write_all("Initial excluded names: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let excl = match get_initial_excluded_subtrees_as_set(cps, &mut ebufs) {
+    let excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
         Ok(ie) => ie,
         Err(_e) => None,
     };
@@ -169,7 +169,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Enforce trust anchor constraints: {}\n",
-            get_enforce_trust_anchor_constraints(cps)
+            cps.get_enforce_trust_anchor_constraints()
         )
         .as_bytes(),
     )
@@ -177,12 +177,12 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Enforce algorithm and key size constraints: {}\n",
-            get_enforce_alg_and_key_size_constraints(cps)
+            cps.get_enforce_alg_and_key_size_constraints()
         )
         .as_bytes(),
     )
     .expect("Unable to write manifest file");
-    f.write_all(format!("Check revocation: {}\n", get_check_revocation_status(cps)).as_bytes())
+    f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())
         .expect("Unable to write manifest file");
 }
 
@@ -533,13 +533,13 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
 /// `log_cpr` contributes to the manifest file related to
 /// [`CertificationPathResults`](../certval/path_settings/type.CertificationPathResults.html) contents.
 pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &CertificationPathResults) {
-    let status = get_validation_status(cpr);
+    let status = cpr.get_validation_status();
     if let Some(status) = status {
         f.write_all(format!("Status: {:?}\n\n", status).as_bytes())
             .expect("Unable to write manifest file");
     }
 
-    let vpt = get_final_valid_policy_tree(cpr);
+    let vpt = cpr.get_final_valid_policy_tree();
     if let Some(vpt) = vpt {
         f.write_all("Valid certificate policies\n".as_bytes())
             .expect("Unable to write manifest file");
@@ -557,7 +557,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
 
     // i + i in the below loops because TAs are not considered here (and the indexes for artifcacts uses
     // TAs in slot 0).
-    if let Some(ocsp_reqs) = get_ocsp_requests(cpr) {
+    if let Some(ocsp_reqs) = cpr.get_ocsp_requests() {
         for (i, or) in ocsp_reqs.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -570,7 +570,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_resp) = get_ocsp_responses(cpr) {
+    if let Some(ocsp_resp) = cpr.get_ocsp_responses() {
         for (i, or) in ocsp_resp.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -583,7 +583,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_reqs) = get_failed_ocsp_requests(cpr) {
+    if let Some(ocsp_reqs) = cpr.get_failed_ocsp_requests() {
         for (i, or) in ocsp_reqs.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -596,7 +596,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(ocsp_resp) = get_failed_ocsp_responses(cpr) {
+    if let Some(ocsp_resp) = cpr.get_failed_ocsp_responses() {
         for (i, or) in ocsp_resp.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -609,7 +609,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(crls) = get_crl(cpr) {
+    if let Some(crls) = cpr.get_crl() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -622,7 +622,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
-    if let Some(crls) = get_failed_crls(cpr) {
+    if let Some(crls) = cpr.get_failed_crls() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
             for (j, ir) in or.iter().enumerate() {
@@ -786,55 +786,59 @@ fn test_cps_log() {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut cps = CertificationPathSettings::new();
-    set_initial_explicit_policy_indicator(&mut cps, true);
-    set_initial_policy_mapping_inhibit_indicator(&mut cps, true);
-    set_initial_inhibit_any_policy_indicator(&mut cps, true);
+    cps.set_initial_explicit_policy_indicator(true);
+    cps.set_initial_policy_mapping_inhibit_indicator(true);
+    cps.set_initial_inhibit_any_policy_indicator(true);
     let policies = vec![ANY_POLICY.to_string()];
-    set_initial_policy_set(&mut cps, policies);
+    cps.set_initial_policy_set(policies);
     let perm = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
         user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
+        ip_address: None,
+        not_supported: None,
     };
-    set_initial_permitted_subtrees(&mut cps, perm);
+    cps.set_initial_permitted_subtrees(perm);
     let excl = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
         user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
+        ip_address: None,
+        not_supported: None,
     };
-    set_initial_excluded_subtrees(&mut cps, excl);
+    cps.set_initial_excluded_subtrees(excl);
     let toi = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
         n.as_secs()
     } else {
         0
     };
-    set_time_of_interest(&mut cps, toi);
+    cps.set_time_of_interest(toi);
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
-    set_extended_key_usage(&mut cps, ekus);
-    set_extended_key_usage_path(&mut cps, false);
-    set_enforce_alg_and_key_size_constraints(&mut cps, false);
-    set_check_revocation_status(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_check_ocsp_from_aia(&mut cps, false);
-    set_retrieve_from_aia_sia_http(&mut cps, false);
-    set_retrieve_from_aia_sia_ldap(&mut cps, false);
-    set_check_crls(&mut cps, false);
-    set_check_crldp_http(&mut cps, false);
-    set_check_crldp_ldap(&mut cps, false);
-    set_crl_grace_periods_as_last_resort(&mut cps, false);
-    set_ignore_expired(&mut cps, false);
-    set_ocsp_aia_nonce_setting(&mut cps, OcspNonceSetting::DoNotSendNonce);
-    set_require_country_code_indicator(&mut cps, false);
+    cps.set_extended_key_usage(ekus);
+    cps.set_extended_key_usage_path(false);
+    cps.set_enforce_alg_and_key_size_constraints(false);
+    cps.set_check_revocation_status(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_retrieve_from_aia_sia_http(false);
+    cps.set_retrieve_from_aia_sia_ldap(false);
+    cps.set_check_crls(false);
+    cps.set_check_crldp_http(false);
+    cps.set_check_crldp_ldap(false);
+    cps.set_crl_grace_periods_as_last_resort(false);
+    cps.set_ignore_expired(false);
+    cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
+    cps.set_require_country_code_indicator(false);
     let permcountries = vec!["AA".to_string()];
-    set_perm_countries(&mut cps, permcountries);
+    cps.set_perm_countries(permcountries);
     let exclcountries = vec!["BB".to_string()];
-    set_perm_countries(&mut cps, exclcountries);
+    cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
-    set_target_key_usage(&mut cps, fs.bits());
+    cps.set_target_key_usage(fs.bits());
 
     use tempfile::tempdir;
     let temp_dir = tempdir().unwrap();

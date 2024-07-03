@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 
 use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
+use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::Extensions;
-use x509_cert::Certificate;
 use x509_ocsp::*;
 
 use log::error;
@@ -15,16 +15,15 @@ use log::error;
 use log::{debug, info};
 
 use crate::{
-    add_failed_ocsp_response, add_ocsp_response, get_time_of_interest, valid_at_time,
-    CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error, PDVCertificate,
-    PathValidationStatus, PkiEnvironment, Result,
+    valid_at_time, CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error,
+    PDVCertificate, PathValidationStatus, PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use der::asn1::{Ia5String, OctetString};
+use der::asn1::{Ia5String, OctetStringRef};
 
 #[cfg(feature = "remote")]
 use reqwest::header::CONTENT_TYPE;
@@ -50,11 +49,11 @@ use x509_ocsp::Version::V1;
 
 #[cfg(feature = "remote")]
 use crate::{
-    add_failed_ocsp_request, add_ocsp_request, get_ocsp_aia_nonce_setting, name_to_string,
-    pdv_extension::ExtensionProcessing, OcspNonceSetting, PDVExtension, PKIXALG_SHA1,
+    name_to_string, pdv_extension::ExtensionProcessing, OcspNonceSetting, PDVExtension,
+    PKIXALG_SHA1,
 };
 
-fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
+fn get_key_hash(cert: &CertificateInner) -> Result<Vec<u8>> {
     Ok(Sha1::digest(
         cert.tbs_certificate
             .subject_public_key_info
@@ -64,7 +63,7 @@ fn get_key_hash(cert: &Certificate) -> Result<Vec<u8>> {
     .to_vec())
 }
 
-fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
+fn get_subject_name_hash(cert: &CertificateInner) -> Result<Vec<u8>> {
     let enc_subject = match cert.tbs_certificate.subject.to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
@@ -75,8 +74,8 @@ fn get_subject_name_hash(cert: &Certificate) -> Result<Vec<u8>> {
 
 /// unsupported_critical_extensions_present_single_response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) -> bool {
-    match &sr.single_extensions {
+fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse<'_>) -> bool {
+    match &sr.single_request_extensions {
         Some(exts) => {
             for e in exts {
                 if e.critical {
@@ -91,7 +90,7 @@ fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) 
 
 /// unsupported_critical_extensions_present__response returns true if any critical extension
 /// is present with a SingleResponse
-fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
+fn unsupported_critical_extensions_present_response(rd: &ResponseData<'_>) -> bool {
     match &rd.response_extensions {
         Some(exts) => {
             for e in exts {
@@ -108,7 +107,7 @@ fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
 /// cert_id_match returns true if the serial number, issuer name hash and issuer key hash in the cert_id object
 /// match the values passed as parameters. Else it returns false.
 fn cert_id_match(
-    cert_id: &CertId,
+    cert_id: &CertId<'_>,
     serial_number: &SerialNumber,
     name_hash: &[u8],
     key_hash: &[u8],
@@ -126,8 +125,8 @@ fn cert_id_match(
     true
 }
 
-fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
-    let time_of_interest = get_time_of_interest(cps);
+fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse<'_>) -> bool {
+    let time_of_interest = cps.get_time_of_interest();
     if 0 == time_of_interest {
         return true;
     }
@@ -190,7 +189,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
 
 #[cfg(feature = "remote")]
 fn prepare_ocsp_request(
-    target_cert: &Certificate,
+    target_cert: &CertificateInner,
     name_hash: &[u8],
     key_hash: &[u8],
     _nonce: Option<&[u8]>,
@@ -203,11 +202,11 @@ fn prepare_ocsp_request(
         oid: PKIXALG_SHA1,
         parameters: None,
     };
-    let issuer_name_hash = match OctetString::new(name_hash) {
+    let issuer_name_hash = match OctetStringRef::new(name_hash) {
         Ok(inh) => inh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
-    let issuer_key_hash = match OctetString::new(key_hash) {
+    let issuer_key_hash = match OctetStringRef::new(key_hash) {
         Ok(ikh) => ikh,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -296,9 +295,9 @@ fn no_check_present(exts: &Option<Extensions>) -> bool {
 
 fn verify_response_signature(
     pe: &PkiEnvironment,
-    signers_cert: &Certificate,
+    signers_cert: &CertificateInner,
     enc_ocsp_resp: &[u8],
-    bor: &BasicOcspResponse,
+    bor: &BasicOcspResponse<'_>,
 ) -> Result<()> {
     let ddbor = match DeferDecodeBasicOcspResponse::from_der(enc_ocsp_resp) {
         Ok(bor) => bor,
@@ -338,7 +337,7 @@ pub async fn send_ocsp_request(
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner,
     cpr: &mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
@@ -347,7 +346,7 @@ pub async fn send_ocsp_request(
         return Err(Error::InvalidUriScheme);
     }
 
-    let nonce_setting = get_ocsp_aia_nonce_setting(cps);
+    let nonce_setting = cps.get_ocsp_aia_nonce_setting();
 
     let nonce = if nonce_setting != OcspNonceSetting::DoNotSendNonce {
         //TODO implement me
@@ -374,7 +373,7 @@ pub async fn send_ocsp_request(
                 "Failed sending OCSP request to {} with {:?}",
                 uri_to_check, _e
             );
-            add_failed_ocsp_request(cpr, enc_ocsp_req, result_index);
+            cpr.add_failed_ocsp_request(enc_ocsp_req, result_index);
             return Err(Error::NetworkError);
         }
     };
@@ -392,12 +391,12 @@ pub async fn send_ocsp_request(
         key_hash.as_slice(),
     ) {
         Ok(_) => {
-            add_ocsp_request(cpr, enc_ocsp_req, result_index);
+            cpr.add_ocsp_request(enc_ocsp_req, result_index);
             Ok(())
         }
         Err(e) => {
-            add_failed_ocsp_response(cpr, enc_ocsp_resp, result_index);
-            add_failed_ocsp_request(cpr, enc_ocsp_req, result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp, result_index);
+            cpr.add_failed_ocsp_request(enc_ocsp_req, result_index);
             Err(e)
         }
     }
@@ -423,7 +422,7 @@ pub fn process_ocsp_response(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -450,7 +449,7 @@ fn process_ocsp_response_internal(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &Certificate,
+    issuers_cert: &CertificateInner,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -461,7 +460,7 @@ fn process_ocsp_response_internal(
         Ok(or) => or,
         Err(e) => {
             error!("Failed to parse OcspResponse from {}", uri_to_check);
-            add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
     };
@@ -471,7 +470,7 @@ fn process_ocsp_response_internal(
             "OcspResponse from {} indicates failure ({:?})",
             uri_to_check, or.response_status
         );
-        add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
     }
 
@@ -482,7 +481,7 @@ fn process_ocsp_response_internal(
                 "OcspResponse from {} contained no response bytes",
                 uri_to_check
             );
-            add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::OcspResponseError);
         }
     };
@@ -492,7 +491,7 @@ fn process_ocsp_response_internal(
             "OcspResponse from {} contained response bytes other than basic type ({})",
             uri_to_check, rb.response_type
         );
-        add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
     }
 
@@ -500,7 +499,7 @@ fn process_ocsp_response_internal(
         Ok(bor) => bor,
         Err(e) => {
             error!("OcspResponse from {} contained BasicOcspResponse that could not be parsed with: {}", uri_to_check, e);
-            add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
     };
@@ -510,7 +509,7 @@ fn process_ocsp_response_internal(
             "OcspResponse from {} contained at least one unsupported critical extension",
             uri_to_check
         );
-        add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::PathValidation(
             PathValidationStatus::UnprocessedCriticalExtension,
         ));
@@ -535,21 +534,20 @@ fn process_ocsp_response_internal(
                         &defer_cert.signature_algorithm,
                         &issuers_cert.tbs_certificate.subject_public_key_info,
                     ) {
-                        if let Ok(cert) = Certificate::from_der(certbuf.as_slice()) {
+                        if let Ok(cert) = CertificateInner::from_der(certbuf.as_slice()) {
                             if cert.tbs_certificate.signature != defer_cert.signature_algorithm {
                                 error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
-                                add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+                                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
                                 continue;
                             }
 
-                            let time_of_interest = get_time_of_interest(cps);
+                            let time_of_interest = cps.get_time_of_interest();
                             if 0 != time_of_interest {
                                 let target_ttl =
                                     valid_at_time(&cert.tbs_certificate, time_of_interest, false);
                                 if let Err(_e) = target_ttl {
                                     error!("Verified candidate responder cert from OCSPResponse from {} but certificate has expired", uri_to_check);
-                                    add_failed_ocsp_response(
-                                        cpr,
+                                    cpr.add_failed_ocsp_response(
                                         enc_ocsp_resp.to_vec(),
                                         result_index,
                                     );
@@ -582,7 +580,7 @@ fn process_ocsp_response_internal(
         let r = verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor);
         if r.is_err() {
             error!("OCSPResponse from {} featured no candidate certificate but response signature verification failed using issuing CA certificate", uri_to_check);
-            add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return r;
         } else {
             authorized_responder = true;
@@ -592,7 +590,7 @@ fn process_ocsp_response_internal(
 
     if !authorized_responder {
         error!("Failed to find authorized OCSP responder from {}. Note, responders signed by key rollover certificates are not presently accepted (though this may not have been a factor here).", uri_to_check);
-        add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
     }
 
@@ -601,7 +599,7 @@ fn process_ocsp_response_internal(
             "Signature on OCSPResponse from {} was not verified.",
             uri_to_check
         );
-        add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
     }
 
@@ -617,7 +615,7 @@ fn process_ocsp_response_internal(
         }
         if unsupported_critical_extensions_present_single_response(&sr) {
             error!("OCSPResponse from {} featured unrecognized critical extensions in single response.", uri_to_check);
-            add_failed_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+            cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::PathValidation(
                 PathValidationStatus::UnprocessedCriticalExtension,
             ));
@@ -653,7 +651,7 @@ fn process_ocsp_response_internal(
         }
     }
 
-    add_ocsp_response(cpr, enc_ocsp_resp.to_vec(), result_index);
+    cpr.add_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
     if retval == PathValidationStatus::Valid {
         Ok(())
     } else {
@@ -686,7 +684,7 @@ pub(crate) async fn check_revocation_ocsp(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &Certificate,
+    issuer_cert: &CertificateInner,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
