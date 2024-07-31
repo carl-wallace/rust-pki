@@ -228,7 +228,7 @@ impl NameConstraintsSet {
             return true;
         }
 
-        for gn_san in san {
+        if let Some(gn_san) = san {
             for subtree_san in gn_san.0.iter() {
                 match subtree_san {
                     #[allow(unused_mut)]
@@ -429,7 +429,7 @@ impl NameConstraintsSet {
             return false;
         }
 
-        for gn_san in san {
+        if let Some(gn_san) = san {
             for subtree_san in gn_san.0.iter() {
                 match subtree_san {
                     GeneralName::DirectoryName(dn_san) => {
