@@ -18,23 +18,23 @@ rust-version = "1.75"
 
 [dependencies]
 x509-cert = { version = "0.3.0-pre", default-features = false, features = ["hazmat","pem"] }
-const-oid = { version = "0.10.0-pre.2", default-features = false, features = ["db"] }
+const-oid = { version = "0.10.0-rc.0", default-features = false, features = ["db"] }
 cms = "0.3.0-pre"
-der = { version="0.8.0-pre.0", features = ["alloc", "derive", "flagset", "oid"] }
+der = { version="0.8.0-rc.0", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
-spki = { version = "0.8.0-pre.0", default-features = false, features = ["alloc"] }
+spki = { version = "0.8.0-rc.0", default-features = false, features = ["alloc"] }
 pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
 pem-rfc7468 = { version="1.0.0-pre.0", features = ["alloc"]}
 
 pkiprocmacros = { path = "../pkiprocmacros"}
 
-ecdsa = {version = "0.17.0-pre", default-features = false, features = ["der"]}
-p256 = {version = "0.14.0-pre.0", default-features = false, features = ["ecdsa", "ecdsa-core"]}
-p384 = {version = "0.14.0-pre", default-features = false, features = ["ecdsa"]}
-rsa = {version = "0.10.0-pre.1", default-features = false}
-sha1 = {version = "0.11.0-pre.3", default-features = false}
-sha2 = {version = "0.11.0-pre.3", default-features = false, features = ["oid"] }
+ecdsa = {version = "0.17.0-pre.7", default-features = false, features = ["der"]}
+p256 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa", "ecdsa-core"]}
+p384 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
+rsa = {version = "0.10.0-pre.2", default-features = false}
+sha1 = {version = "0.11.0-pre.4", default-features = false}
+sha2 = {version = "0.11.0-pre.4", default-features = false, features = ["oid"] }
 
 cfg-if = "1.0.0"
 # serde feature is added to std, revocation,std and remote
