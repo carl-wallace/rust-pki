@@ -121,7 +121,7 @@ fn cert_or_ta_folder_to_vec(
                     if collect_tas {
                         let r = TrustAnchorChoice::<Raw>::from_der(buffer.as_slice());
                         if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
-                            let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
+                            let r = valid_at_time(&cert.tbs_certificate(), time_of_interest, true);
                             if let Err(_e) = r {
                                 error!(
                                     "Ignored {} as not valid at indicated time of interest",
@@ -135,7 +135,7 @@ fn cert_or_ta_folder_to_vec(
                     } else {
                         let r = CertificateInner::from_der(buffer.as_slice());
                         if let Ok(cert) = r {
-                            let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
+                            let r = valid_at_time(&cert.tbs_certificate(), time_of_interest, true);
                             if let Err(_e) = r {
                                 error!(
                                     "Ignored {} as not valid at indicated time of interest",

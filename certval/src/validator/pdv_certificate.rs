@@ -141,7 +141,7 @@ impl ExtensionProcessing for PDVCertificate {
             return Ok(pe.get(oid));
         }
 
-        if let Some(exts) = self.decoded_cert.tbs_certificate.extensions.as_ref() {
+        if let Some(exts) = self.decoded_cert.tbs_certificate().extensions().as_ref() {
             if let Some(i) = exts.iter().find(|&ext| ext.extn_id == *oid) {
                 let v = i.extn_value.as_bytes();
                 match *oid {
@@ -256,8 +256,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
         reader: &mut R,
         header: ::der::Header,
     ) -> ::der::Result<Self> {
-        use ::der::Reader as _;
-        reader.read_nested(header.length, |reader| {
+        reader.read_nested(header.length(), |reader| {
             let tbs_certificate = reader.tlv_bytes()?;
             let signature_algorithm = reader.decode()?;
             let signature = reader.decode()?;

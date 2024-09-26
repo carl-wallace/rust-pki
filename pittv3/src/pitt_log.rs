@@ -200,7 +200,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
-            name_to_string(&cert.decoded_cert.tbs_certificate.issuer)
+            name_to_string(&cert.decoded_cert.tbs_certificate().issuer())
         )
         .as_bytes(),
     )
@@ -208,7 +208,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Subject Name: {}\n",
-            name_to_string(&cert.decoded_cert.tbs_certificate.subject)
+            name_to_string(&cert.decoded_cert.tbs_certificate().subject())
         )
         .as_bytes(),
     )
@@ -216,7 +216,12 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Serial Number: 0x{}\n",
-            buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes())
+            buffer_to_hex(
+                cert.decoded_cert
+                    .tbs_certificate()
+                    .serial_number()
+                    .as_bytes()
+            )
         )
         .as_bytes(),
     )
@@ -226,8 +231,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             "\t\t* Not Before: {}\n",
             &cert
                 .decoded_cert
-                .tbs_certificate
-                .validity
+                .tbs_certificate()
+                .validity()
                 .not_before
                 .to_string()
         )
@@ -239,8 +244,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             "\t\t* Not After: {}\n",
             &cert
                 .decoded_cert
-                .tbs_certificate
-                .validity
+                .tbs_certificate()
+                .validity()
                 .not_after
                 .to_string()
         )
@@ -253,8 +258,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             pe.oid_lookup(
                 &cert
                     .decoded_cert
-                    .tbs_certificate
-                    .subject_public_key_info
+                    .tbs_certificate()
+                    .subject_public_key_info()
                     .algorithm
                     .oid
             )
@@ -267,8 +272,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             "\t\t* Public key size: {} bytes\n",
             &cert
                 .decoded_cert
-                .tbs_certificate
-                .subject_public_key_info
+                .tbs_certificate()
+                .subject_public_key_info()
                 .subject_public_key
                 .raw_bytes()
                 .len()
@@ -280,7 +285,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Signature algorithm: {}\n",
-            pe.oid_lookup(&cert.decoded_cert.tbs_certificate.signature.oid)
+            pe.oid_lookup(&cert.decoded_cert.tbs_certificate().signature().oid)
         )
         .as_bytes(),
     )

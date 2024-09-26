@@ -88,7 +88,7 @@ impl TryFrom<TrustAnchorChoice<Raw>> for PDVTrustAnchorChoice {
 /// SEQUENCE tag for Name values and returns a parsed Name.
 #[cfg(feature = "webpki")]
 fn partial_name_to_name(partial_name_bytes: &[u8]) -> der::Result<Name> {
-    let l = Length::new(partial_name_bytes.len() as u16);
+    let l = Length::new(partial_name_bytes.len() as u32);
     let mut length_bytes = l.to_der()?;
     let mut enc_name = vec![0x30];
     enc_name.append(&mut length_bytes);
@@ -101,7 +101,7 @@ fn partial_name_to_name(partial_name_bytes: &[u8]) -> der::Result<Name> {
 /// SEQUENCE tag for SubjectPublicKeyInfo values and returns a parsed SubjectPublicKeyInfoOwned.
 #[cfg(feature = "webpki")]
 fn partial_spki_to_spki(partial_spki_bytes: &[u8]) -> der::Result<SubjectPublicKeyInfoOwned> {
-    let l = Length::new(partial_spki_bytes.len() as u16);
+    let l = Length::new(partial_spki_bytes.len() as u32);
     let mut length_bytes = l.to_der()?;
     let mut enc_spki = vec![0x30];
     enc_spki.append(&mut length_bytes);
@@ -224,7 +224,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
         }
 
         let exts = match &self.decoded_ta {
-            TrustAnchorChoice::Certificate(c) => &c.tbs_certificate.extensions,
+            TrustAnchorChoice::Certificate(c) => &c.tbs_certificate().extensions(),
             TrustAnchorChoice::TaInfo(tai) => {
                 if let Some(cp) = &tai.cert_path {
                     // TODO Support all TrustAnchorInfo overrides
@@ -247,7 +247,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
                     }
 
                     if let Some(c) = &cp.certificate {
-                        &c.tbs_certificate.extensions
+                        &c.tbs_certificate().extensions()
                     } else {
                         &None
                     }
@@ -355,7 +355,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
 pub fn get_trust_anchor_name(ta: &TrustAnchorChoice<Raw>) -> Result<&Name> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            return Ok(&cert.tbs_certificate.subject);
+            return Ok(&cert.tbs_certificate().subject());
         }
         TrustAnchorChoice::TaInfo(tai) => {
             if let Some(cert_path) = &tai.cert_path {
@@ -363,7 +363,7 @@ pub fn get_trust_anchor_name(ta: &TrustAnchorChoice<Raw>) -> Result<&Name> {
             }
         }
         TrustAnchorChoice::TbsCertificate(cert) => {
-            return Ok(&cert.subject);
+            return Ok(&cert.subject());
         }
     }
     Err(Error::NotFound)

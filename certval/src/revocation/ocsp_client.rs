@@ -55,8 +55,8 @@ use crate::{
 
 fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
     Ok(Sha1::digest(
-        cert.tbs_certificate
-            .subject_public_key_info
+        cert.tbs_certificate()
+            .subject_public_key_info()
             .subject_public_key
             .raw_bytes(),
     )
@@ -64,7 +64,7 @@ fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
 }
 
 fn get_subject_name_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
-    let enc_subject = match cert.tbs_certificate.subject.to_der() {
+    let enc_subject = match cert.tbs_certificate().subject().to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -215,7 +215,7 @@ fn prepare_ocsp_request(
         hash_algorithm,
         issuer_name_hash,
         issuer_key_hash,
-        serial_number: target_cert.tbs_certificate.serial_number.clone(),
+        serial_number: target_cert.tbs_certificate().serial_number().clone(),
     };
     //TODO add nonce support
     let request_list = vec![Request {
@@ -265,14 +265,12 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
         reader: &mut R,
         header: ::der::Header,
     ) -> ::der::Result<Self> {
-        use ::der::Reader as _;
-        reader.read_nested(header.length, |reader| {
+        reader.read_nested(header.length(), |reader| {
             let tbs_response_data = reader.tlv_bytes()?;
             let signature_algorithm = reader.tlv_bytes()?;
             let signature = reader.tlv_bytes()?;
-            let certs =
-                ::der::asn1::ContextSpecific::decode_explicit(reader, ::der::TagNumber::N0)?
-                    .map(|cs| cs.value);
+            let certs = ::der::asn1::ContextSpecific::decode_explicit(reader, ::der::TagNumber(0))?
+                .map(|cs| cs.value);
             Ok(Self {
                 tbs_response_data: tbs_response_data.to_vec(),
                 signature_algorithm: signature_algorithm.to_vec(),
@@ -283,9 +281,9 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
     }
 }
 
-fn no_check_present(exts: &Option<Extensions>) -> bool {
+fn no_check_present(exts: &Option<&Extensions>) -> bool {
     if let Some(exts) = exts {
-        for ext in exts {
+        for ext in exts.as_slice() {
             if ext.extn_id == ID_PKIX_OCSP_NOCHECK {
                 return true;
             }
@@ -316,7 +314,7 @@ fn verify_response_signature(
         &ddbor.tbs_response_data,
         signature,
         &bor.signature_algorithm,
-        &signers_cert.tbs_certificate.subject_public_key_info,
+        &signers_cert.tbs_certificate().subject_public_key_info(),
     )
 }
 
@@ -533,10 +531,11 @@ fn process_ocsp_response_internal(
                         &defer_cert.tbs_field,
                         defer_cert.signature.raw_bytes(),
                         &defer_cert.signature_algorithm,
-                        &issuers_cert.tbs_certificate.subject_public_key_info,
+                        &issuers_cert.tbs_certificate().subject_public_key_info(),
                     ) {
                         if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
-                            if cert.tbs_certificate.signature != defer_cert.signature_algorithm {
+                            if *cert.tbs_certificate().signature() != defer_cert.signature_algorithm
+                            {
                                 error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
                                 cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
                                 continue;
@@ -545,7 +544,7 @@ fn process_ocsp_response_internal(
                             let time_of_interest = cps.get_time_of_interest();
                             if time_of_interest.is_disabled() {
                                 let target_ttl =
-                                    valid_at_time(&cert.tbs_certificate, time_of_interest, false);
+                                    valid_at_time(&cert.tbs_certificate(), time_of_interest, false);
                                 if let Err(_e) = target_ttl {
                                     error!("Verified candidate responder cert from OCSPResponse from {} but certificate has expired", uri_to_check);
                                     cpr.add_failed_ocsp_response(
@@ -556,7 +555,7 @@ fn process_ocsp_response_internal(
                                 }
                             }
 
-                            if !no_check_present(&cert.tbs_certificate.extensions) {
+                            if !no_check_present(&cert.tbs_certificate().extensions()) {
                                 //TODO implement revocation checking of responder cert
                                 error!("no-check absent");
                             }
@@ -608,7 +607,7 @@ fn process_ocsp_response_internal(
     for sr in bor.tbs_response_data.responses {
         if !cert_id_match(
             &sr.cert_id,
-            &target_cert.decoded_cert.tbs_certificate.serial_number,
+            &target_cert.decoded_cert.tbs_certificate().serial_number(),
             name_hash,
             key_hash,
         ) {
@@ -693,7 +692,7 @@ pub(crate) async fn check_revocation_ocsp(
     if ocsp_aias.is_empty() {
         info!(
             "No OCSP AIAs found for {}",
-            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
+            name_to_string(&target_cert.decoded_cert.tbs_certificate().subject())
         );
     } else {
         for aia in ocsp_aias {
@@ -710,7 +709,7 @@ pub(crate) async fn check_revocation_ocsp(
                 info!(
                         "Determined revocation status ({}) using OCSP for certificate issued to {} via {}",
                         target_status,
-                        name_to_string(&target_cert.decoded_cert.tbs_certificate.subject),
+                        name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()),
                         aia.as_str(),
                     );
                 // no need to consider additional AIAs
@@ -718,7 +717,7 @@ pub(crate) async fn check_revocation_ocsp(
             } else {
                 info!(
                     "Failed to determine status for {} via {}",
-                    name_to_string(&target_cert.decoded_cert.tbs_certificate.subject),
+                    name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()),
                     aia.as_str()
                 );
             }

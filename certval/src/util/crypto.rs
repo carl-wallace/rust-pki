@@ -683,7 +683,7 @@ fn test_verify_signature_digest() {
                 &result,
                 defer_cert.signature.as_bytes().unwrap(),
                 &defer_cert.signature_algorithm,
-                &cert.tbs_certificate.subject_public_key_info,
+                &cert.tbs_certificate().subject_public_key_info(),
             );
             assert!(result.is_ok())
         }

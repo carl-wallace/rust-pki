@@ -54,9 +54,9 @@ pub fn is_self_signed_with_buffer(
             .verify_signature_message(
                 pe,
                 &defer_cert.tbs_field,
-                cert.signature.raw_bytes(),
-                &cert.tbs_certificate.signature,
-                &cert.tbs_certificate.subject_public_key_info,
+                cert.signature().raw_bytes(),
+                &cert.tbs_certificate().signature(),
+                &cert.tbs_certificate().subject_public_key_info(),
             )
             .is_ok(),
         Err(e) => {
@@ -78,7 +78,10 @@ pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
 pub fn is_self_issued(cert: &CertificateInner<Raw>) -> bool {
-    compare_names(&cert.tbs_certificate.issuer, &cert.tbs_certificate.subject)
+    compare_names(
+        &cert.tbs_certificate().issuer(),
+        &cert.tbs_certificate().subject(),
+    )
 }
 
 /// `collect_uris_from_aia_and_sia` collects unique URIs from AIA and SIA extensions from the presented
@@ -130,24 +133,25 @@ pub fn valid_at_time(
         return Ok(0);
     }
 
-    let nb = target.validity.not_before;
+    let validity = target.validity();
+    let nb = validity.not_before;
     if nb > toi {
         if !stifle_log {
-            log_error_for_name(&target.subject, "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
+            log_error_for_name(&target.subject(), "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
         }
         return Err(Error::PathValidation(
             PathValidationStatus::InvalidNotBeforeDate,
         ));
     }
 
-    let na = target.validity.not_after;
+    let na = validity.not_after;
     if na < toi {
         if !stifle_log {
             log_error_for_name(
-                &target.subject,
+                &target.subject(),
                 format!(
                     "certificate is expired relative to the configured time of interest: {}",
-                    target.validity.not_after
+                    validity.not_after
                 )
                 .as_str(),
             );
@@ -170,9 +174,8 @@ pub(crate) fn get_inhibit_any_policy_from_trust_anchor(
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
-                let i = extensions.iter();
-                for ext in i {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
+                for ext in extensions.as_slice() {
                     if ID_CE_INHIBIT_ANY_POLICY == ext.extn_id {
                         let iap_result = InhibitAnyPolicy::from_der(ext.extn_value.as_bytes());
                         if let Ok(_iap) = iap_result {
@@ -208,7 +211,7 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor(
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
@@ -248,7 +251,7 @@ pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
@@ -286,7 +289,7 @@ pub(crate) fn get_path_length_constraint_from_trust_anchor(
 ) -> Result<u8> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_BASIC_CONSTRAINTS == ext.extn_id {
@@ -440,11 +443,11 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
 /// `descended_from_dn` returns true if new_name is equal to or descended from prev_name and false otherwise.
 pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Option<u32>) -> bool {
     //if descendant fewer rdns then it is not a descendant
-    if subtree.0.len() > name.0.len() {
+    if subtree.len() > name.len() {
         return false;
     }
 
-    let diff = (name.0.len() - subtree.0.len()) as u32;
+    let diff = (name.len() - subtree.len()) as u32;
     if diff < min {
         return false;
     }
@@ -454,27 +457,19 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
         }
     }
 
-    for i in 0..subtree.0.len() {
-        if subtree.0[i] != name.0[i] {
+    for (subtree_rdn, name_rdn) in subtree.iter_rdn().zip(name.iter_rdn()) {
+        if subtree_rdn != name_rdn {
             let mut let_it_slide = false;
 
             // some folks can't manage to use the same character set in a name constraint and subject name
             // allow this practice to not break stuff
-            let l = &subtree.0[i];
-            let r = &name.0[i];
-            if l.0.len() != r.0.len() {
+            if subtree_rdn.len() != name_rdn.len() {
                 // diff number of attributes
                 return false;
             }
-            for j in 0..l.0.len() {
-                let la = l.0.get(j);
-                let ra = r.0.get(j);
-                if la.is_none() || ra.is_none() {
-                    // ought not occur
-                    return false;
-                }
-                let lau = la.unwrap();
-                let rau = ra.unwrap();
+            for (subtree_attr, name_attr) in subtree.iter().zip(name_rdn.iter()) {
+                let lau = subtree_attr;
+                let rau = name_attr;
                 if lau.oid != rau.oid {
                     // if the type of attribute, i.e., c, cn, o, is different, return false
                     return false;
@@ -599,12 +594,12 @@ pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
-    log_error_for_name(&ca.decoded_cert.tbs_certificate.subject, msg);
+    log_error_for_name(&ca.decoded_cert.tbs_certificate().subject(), msg);
 }
 
 /// log a message with subject name of the certificate appended
 pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
-    log_error_for_name(&ca.tbs_certificate.subject, msg);
+    log_error_for_name(&ca.tbs_certificate().subject(), msg);
 }
 
 /// `oid_lookup` takes an ObjectIdentifier and returns a string with a friendly name for the OID or
@@ -780,35 +775,19 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
 pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
-    if left.0.len() != right.0.len() {
+    if left.len() != right.len() {
         return false;
     }
 
-    for i in 0..left.0.len() {
-        let lrdn = &left.0[i];
-        let rrdn = &right.0[i];
-
-        if lrdn.0.len() != rrdn.0.len() {
+    for (lrdn, rrdn) in left.iter_rdn().zip(right.iter_rdn()) {
+        if lrdn.len() != rrdn.len() {
             return false;
         }
 
         if lrdn != rrdn {
             // only do the whitespace and case insensitve stuff is simpler compare fails (not full featured on no-std, hence tolerance for unused variables)
             #[allow(unused_variables)]
-            for j in 0..lrdn.0.len() {
-                let l = lrdn.0.get(j);
-                let r = rrdn.0.get(j);
-
-                if l.is_none() || r.is_none() {
-                    if l.is_none() && r.is_none() {
-                        continue;
-                    } else {
-                        return false;
-                    }
-                }
-                let l = l.unwrap();
-                let r = r.unwrap();
-
+            for (l, r) in lrdn.iter().zip(rrdn.iter()) {
                 if l.oid != r.oid {
                     return false;
                 }
@@ -859,8 +838,8 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
 
 /// Retrieves a string value from the first attribute of last RDN element in the presented Name.
 pub fn get_leaf_rdn(name: &Name) -> String {
-    let rdn = &name.0[name.0.len() - 1];
-    rdn.to_string()
+    let rdn = &name.iter_rdn().last();
+    rdn.map(|r| r.to_string()).unwrap_or_default()
 }
 
 /// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
@@ -871,12 +850,12 @@ pub fn ta_valid_at_time(
 ) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
-            return valid_at_time(&c.tbs_certificate, toi, stifle_log);
+            return valid_at_time(&c.tbs_certificate(), toi, stifle_log);
         }
         TrustAnchorChoice::TaInfo(tai) => {
             if let Some(cp) = &tai.cert_path {
                 if let Some(c) = &cp.certificate {
-                    return valid_at_time(&c.tbs_certificate, toi, stifle_log);
+                    return valid_at_time(&c.tbs_certificate(), toi, stifle_log);
                 }
             }
         }

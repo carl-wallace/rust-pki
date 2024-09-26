@@ -22,7 +22,7 @@ fn prehash_required() {
                 &parts.tbs_field,
                 parts.signature.raw_bytes(),
                 &parts.signature_algorithm,
-                &ca_cert.tbs_certificate.subject_public_key_info,
+                &ca_cert.tbs_certificate().subject_public_key_info(),
             )
             .unwrap();
         }
@@ -219,7 +219,7 @@ fn wire_certchain_works() {
     ))
     .unwrap();
     cert_source.push(certval::CertFile {
-        filename: format!("Intermediate CA #1 [{}]", cert.tbs_certificate.subject),
+        filename: format!("Intermediate CA #1 [{}]", cert.tbs_certificate().subject()),
         bytes: cert.to_der().unwrap(),
     });
 

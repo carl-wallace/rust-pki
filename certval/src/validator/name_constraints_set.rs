@@ -198,7 +198,7 @@ impl NameConstraintsSet {
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
     pub fn subject_within_permitted_subtrees(&self, subject: &Name) -> bool {
-        if subject.0.is_empty() {
+        if subject.is_empty() {
             // NULL subjects get a free pass
             return true;
         }
@@ -399,7 +399,7 @@ impl NameConstraintsSet {
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
     pub fn subject_within_excluded_subtrees(&self, subject: &Name) -> bool {
-        if subject.0.is_empty() {
+        if subject.is_empty() {
             // NULL subjects get a free pass
             return false;
         }
