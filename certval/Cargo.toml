@@ -38,43 +38,43 @@ rsa = {version = "0.10.0-pre.2", default-features = false, optional=true}
 sha1 = {version = "0.11.0-pre.4", default-features = false}
 sha2 = {version = "0.11.0-pre.4", default-features = false, features = ["oid"] }
 
-cfg-if = "1.0.0"
+cfg-if = "1.0.1"
 # serde feature is added to std, revocation,std and remote
-flagset = { version = "0.4.4", package = "flagset", default-features = false }
-lazy_static = {version = "1.4.*", features = ["spin_no_std"]}
-readonly = "0.2.11"
-serde = {version = "1.0.190", default-features = false, features = ["derive", "alloc"]}
+flagset = { version = "0.4.7", package = "flagset", default-features = false }
+lazy_static = {version = "1.5.0", features = ["spin_no_std"]}
+readonly = "0.2.13"
+serde = {version = "1.0.219", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
 
 bitvec = { version = "1.0.1", optional = true }
-ciborium = {version = "0.2.1", default-features = false }
-cidr = { version = "0.2.2", optional = true }
-log = {version = "0.4.20", default-features = false}
-ndarray = {version = "0.15.6", optional = true, default-features = false}
-reqwest = { version = "0.11.22", features = ["blocking"], optional = true}
-serde_json = {version = "1.0.108", optional = true, default-features = false, features = ["alloc"] }
-url = {version = "2.4.1", optional = true}
-walkdir = { version = "2.4.0", optional = true}
+ciborium = {version = "0.2.2", default-features = false }
+cidr = { version = "0.3.1", optional = true }
+log = {version = "0.4.27", default-features = false}
+ndarray = {version = "0.16.1", optional = true, default-features = false}
+reqwest = { version = "0.12.19", features = ["blocking"], optional = true}
+serde_json = {version = "1.0.140", optional = true, default-features = false, features = ["alloc"] }
+url = {version = "2.5.4", optional = true}
+walkdir = { version = "2.5.0", optional = true}
 
 # regex documentation notes a std feature that at some point in the future could be omitted
 # to enable no_std support, but for now std is required, so mark it optional
-regex = {version = "1.10.2", optional = true}
+regex = {version = "1.11.1", optional = true}
 
-pqcrypto-internals =  {version = "0.2.5", optional = true}
+pqcrypto-internals =  {version = "0.2.10", optional = true}
 pqcrypto-dilithium =  {version = "0.5.0", optional = true}
-pqcrypto-falcon = {version = "0.3.0", optional = true}
-pqcrypto-sphincsplus = {version = "0.7.0", optional = true}
-pqcrypto = {version = "0.17.0", optional = true}
+pqcrypto-falcon = {version = "0.4.0", optional = true}
+pqcrypto-sphincsplus = {version = "0.7.1", optional = true}
+pqcrypto = {version = "0.18.1", optional = true}
 pqcrypto-traits = {version = "0.3.5", optional = true}
 
-webpki-roots = {version = "0.25.1", optional = true}
+webpki-roots = {version = "0.25.4", optional = true}
 
 [dev-dependencies]
-tempfile = "3.8.1"
-hex-literal = "0.4.1"
-tokio-test = "0.4.2"
+tempfile = "3.20.0"
+hex-literal = "1.0.0"
+tokio-test = "0.4.4"
 pretty_env_logger = "0.5"
-tokio = { version = "1.33.0", features = ["full", "macros", "time", "rt-multi-thread"] }
+tokio = { version = "1.45.1", features = ["full", "macros", "time", "rt-multi-thread"] }
 
 
 # There are five feature gates:
