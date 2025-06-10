@@ -236,6 +236,8 @@ mod tests {
         let r = r.err();
         assert_eq!(Some(Error::NotFound), r);
 
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1731505759).unwrap());
+
         cps.set_retrieve_from_aia_sia_http(false);
         cps.set_certification_authority_folder(ca_store_folder.clone());
         pe.add_trust_anchor_source(Box::new(ta_store.clone()));

@@ -140,6 +140,7 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/pitt_focused.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");        
         cmd.arg("--list-aia-and-sia");
         cmd.assert().stdout(predicate::str::contains(
             "http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c",
@@ -148,31 +149,33 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-aia-and-sia");
         cmd.assert()
             .stdout(predicate::str::contains("https://psc.sia.es/ac_raiz.crt"));
     }
-    #[cfg(feature = "remote")]
-    {
-        let dp = Path::new("tests/examples/downloads_list_aia_and_sia");
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-        fs::create_dir_all(dp).unwrap();
-
-        let mut cmd = Command::cargo_bin("pittv3")?;
-        cmd.arg("-b").arg("tests/examples/pitt_focused.cbor");
-        cmd.arg("--list-aia-and-sia");
-        cmd.arg("-d").arg(dp.to_str().unwrap());
-        cmd.arg("-y");
-        cmd.assert().stdout(predicate::str::contains(
-            "http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c",
-        ));
-
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-    }
+    // todo - replace with current artifacts
+    // #[cfg(feature = "remote")]
+    // {
+    //     let dp = Path::new("tests/examples/downloads_list_aia_and_sia");
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    //     fs::create_dir_all(dp).unwrap();
+    // 
+    //     let mut cmd = Command::cargo_bin("pittv3")?;
+    //     cmd.arg("-b").arg("tests/examples/pitt_focused.cbor");
+    //     cmd.arg("--list-aia-and-sia");
+    //     cmd.arg("-d").arg(dp.to_str().unwrap());
+    //     cmd.arg("-y");
+    //     cmd.assert().stdout(predicate::str::contains(
+    //         "http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c",
+    //     ));
+    // 
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    // }
     Ok(())
 }
 
@@ -208,6 +211,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-partial-paths-for-leaf-ca").arg("5");
         cmd.assert().stdout(predicate::str::contains(
             "Found 1 partial paths featuring 1 different intermediate CA certificates",
@@ -216,6 +220,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("--list-partial-paths-for-leaf-ca").arg("5");
         cmd.assert().stdout(predicate::str::contains(
@@ -225,6 +230,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("--list-partial-paths-for-leaf-ca").arg("158");
         cmd.assert().stdout(predicate::str::contains(
@@ -234,6 +240,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("--list-partial-paths-for-leaf-ca").arg("158");
         cmd.assert().stdout(predicate::str::contains(
@@ -291,6 +298,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-buffers");
         cmd.assert().stdout(predicate::str::contains("Index: 0"));
         cmd.assert()
@@ -391,6 +399,7 @@ fn regen_ignore_self_signed() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen2.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
+        cmd.arg("--time-of-interest").arg("1674162034");    
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-c")
@@ -552,37 +561,38 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
 
-    #[cfg(feature = "remote")]
-    {
-        let dp = Path::new("tests/examples/downloads_empty_cbor3");
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-        fs::create_dir_all(dp).unwrap();
-
-        // Try dynamic building, which should download a ton of stuff and find two valid paths given
-        // the empty CBOR, ta_store_two, and validate_all flag.
-        let mut cmd = Command::cargo_bin("pittv3")?;
-        cmd.arg("--cbor").arg("tests/examples/empty.cbor");
-        cmd.arg("-t").arg("tests/examples/ta_store_two");
-        cmd.arg("-d").arg(dp.to_str().unwrap());
-        cmd.arg("-i").arg("1689847755");
-        cmd.arg("-s")
-            .arg("tests/examples/disable_revocation_checking.json");
-        cmd.arg("-y");
-        cmd.arg("-v");
-        cmd.arg("-e")
-            .arg("tests/examples/end_entities/from_email_CA_63.der");
-        cmd.assert().stdout(predicate::str::contains(
-            "Valid: 2 - Result folder indices: [0, 1]",
-        ));
-        cmd.assert()
-            .stdout(predicate::str::contains("Invalid paths found: 0"));
-
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-    }
+    // todo - replace with current artifacts
+    // #[cfg(feature = "remote")]
+    // {
+    //     let dp = Path::new("tests/examples/downloads_empty_cbor3");
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    //     fs::create_dir_all(dp).unwrap();
+    // 
+    //     // Try dynamic building, which should download a ton of stuff and find two valid paths given
+    //     // the empty CBOR, ta_store_two, and validate_all flag.
+    //     let mut cmd = Command::cargo_bin("pittv3")?;
+    //     cmd.arg("--cbor").arg("tests/examples/empty.cbor");
+    //     cmd.arg("-t").arg("tests/examples/ta_store_two");
+    //     cmd.arg("-d").arg(dp.to_str().unwrap());
+    //     cmd.arg("-i").arg("1689847755");
+    //     cmd.arg("-s")
+    //         .arg("tests/examples/disable_revocation_checking.json");
+    //     cmd.arg("-y");
+    //     cmd.arg("-v");
+    //     cmd.arg("-e")
+    //         .arg("tests/examples/end_entities/from_email_CA_63.der");
+    //     cmd.assert().stdout(predicate::str::contains(
+    //         "Valid: 2 - Result folder indices: [0, 1]",
+    //     ));
+    //     cmd.assert()
+    //         .stdout(predicate::str::contains("Invalid paths found: 0"));
+    // 
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    // }
 
     Ok(())
 }
@@ -762,35 +772,36 @@ fn absent_cbor3() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
 
-    #[cfg(feature = "remote")]
-    {
-        let dp = Path::new("tests/examples/downloads_absent_cbor3");
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-        fs::create_dir_all(dp).unwrap();
-
-        // Try dynamic building, which should download a ton of stuff and find two valid paths given
-        // the empty CBOR, ta_store_two, and validate_all flag.
-        let mut cmd = Command::cargo_bin("pittv3")?;
-        cmd.arg("-t").arg("tests/examples/ta_store_two");
-        cmd.arg("-d").arg(dp.to_str().unwrap());
-        cmd.arg("-i").arg("1689847755");
-        cmd.arg("-s")
-            .arg("tests/examples/disable_revocation_checking.json");
-        cmd.arg("-y");
-        cmd.arg("-v");
-        cmd.arg("-e")
-            .arg("tests/examples/end_entities/from_email_CA_63.der");
-        cmd.assert().stdout(predicate::str::contains(
-            "Valid: 2 - Result folder indices: [0, 1]",
-        ));
-        cmd.assert()
-            .stdout(predicate::str::contains("Invalid paths found: 0"));
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-    }
+    // todo - replace with current artifacts
+    // #[cfg(feature = "remote")]
+    // {
+    //     let dp = Path::new("tests/examples/downloads_absent_cbor3");
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    //     fs::create_dir_all(dp).unwrap();
+    // 
+    //     // Try dynamic building, which should download a ton of stuff and find two valid paths given
+    //     // the empty CBOR, ta_store_two, and validate_all flag.
+    //     let mut cmd = Command::cargo_bin("pittv3")?;
+    //     cmd.arg("-t").arg("tests/examples/ta_store_two");
+    //     cmd.arg("-d").arg(dp.to_str().unwrap());
+    //     cmd.arg("-i").arg("1689847755");
+    //     cmd.arg("-s")
+    //         .arg("tests/examples/disable_revocation_checking.json");
+    //     cmd.arg("-y");
+    //     cmd.arg("-v");
+    //     cmd.arg("-e")
+    //         .arg("tests/examples/end_entities/from_email_CA_63.der");
+    //     cmd.assert().stdout(predicate::str::contains(
+    //         "Valid: 2 - Result folder indices: [0, 1]",
+    //     ));
+    //     cmd.assert()
+    //         .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    // }
 
     Ok(())
 }
@@ -874,6 +885,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
     {
         let mut cmd = Command::cargo_bin("pittv3")?;
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
+        cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-buffers");
         cmd.assert().stdout(predicate::str::contains("Index: 2"));
     }
@@ -937,34 +949,35 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
         ));
     }
 
-    #[cfg(feature = "remote")]
-    {
-        let dp = Path::new("tests/examples/downloads_validate_skip_expired");
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-        fs::create_dir_all(dp).unwrap();
-
-        // Same as above but with dynamic build enabled.
-        let mut cmd = Command::cargo_bin("pittv3")?;
-        cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
-        cmd.arg("--time-of-interest").arg("1674162034");
-        cmd.arg("-t").arg("tests/examples/ta_store_three");
-        cmd.arg("-d").arg(dp.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/disable_revocation_checking.json");
-        cmd.arg("-y");
-        cmd.arg("-e")
-            .arg("tests/examples/end_entities/from_id_CA_59.der");
-        cmd.assert().stdout(predicate::str::contains(
-            "Valid: 1 - Result folder indices: [0]",
-        ));
-        cmd.assert()
-            .stdout(predicate::str::contains("Invalid paths found: 0"));
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-    }
+    // todo - replace with current artifacts
+    // #[cfg(feature = "remote")]
+    // {
+    //     let dp = Path::new("tests/examples/downloads_validate_skip_expired");
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    //     fs::create_dir_all(dp).unwrap();
+    // 
+    //     // Same as above but with dynamic build enabled.
+    //     let mut cmd = Command::cargo_bin("pittv3")?;
+    //     cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
+    //     cmd.arg("--time-of-interest").arg("1674162034");
+    //     cmd.arg("-t").arg("tests/examples/ta_store_three");
+    //     cmd.arg("-d").arg(dp.to_str().unwrap());
+    //     cmd.arg("-s")
+    //         .arg("tests/examples/disable_revocation_checking.json");
+    //     cmd.arg("-y");
+    //     cmd.arg("-e")
+    //         .arg("tests/examples/end_entities/from_id_CA_59.der");
+    //     cmd.assert().stdout(predicate::str::contains(
+    //         "Valid: 1 - Result folder indices: [0]",
+    //     ));
+    //     cmd.assert()
+    //         .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    // }
     fs::remove_file(p.to_str().unwrap())?;
     Ok(())
 }
@@ -1194,102 +1207,103 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         ));
     }
 
-    #[cfg(feature = "remote")]
-    {
-        let dp = Path::new("tests/examples/downloads_validate_with_expired1");
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-        fs::create_dir_all(dp).unwrap();
-        {
-            // Same as above but with dynamic build enabled.
-            let mut cmd = Command::cargo_bin("pittv3")?;
-            cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
-            cmd.arg("--time-of-interest").arg("1674162034");
-            cmd.arg("-t").arg("tests/examples/ta_store_three");
-            cmd.arg("-s")
-                .arg("tests/examples/disable_revocation_checking.json");
-            cmd.arg("-d").arg(dp.to_str().unwrap());
-            cmd.arg("-y");
-            cmd.arg("-e")
-                .arg("tests/examples/end_entities/from_id_CA_59.der");
-            cmd.assert().stdout(predicate::str::contains(
-                "Valid: 1 - Result folder indices: [0]",
-            ));
-            cmd.assert()
-                .stdout(predicate::str::contains("Invalid paths found: 0"));
-            cmd.assert()
-                .stdout(predicate::str::contains("* Paths found: 2"));
-        }
-
-        {
-            // Same as above but without clearing downloads folder
-            let mut cmd = Command::cargo_bin("pittv3")?;
-            cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
-            cmd.arg("--time-of-interest").arg("1674162034");
-            cmd.arg("-t").arg("tests/examples/ta_store_three");
-            cmd.arg("-s")
-                .arg("tests/examples/disable_revocation_checking.json");
-            cmd.arg("-d").arg(dp.to_str().unwrap());
-            cmd.arg("-y");
-            cmd.arg("-e")
-                .arg("tests/examples/end_entities/from_id_CA_59.der");
-            cmd.assert().stdout(predicate::str::contains(
-                "Valid: 1 - Result folder indices: [0]",
-            ));
-            cmd.assert()
-                .stdout(predicate::str::contains("Invalid paths found: 0"));
-            cmd.assert()
-                .stdout(predicate::str::contains("* Paths found: 2"));
-        }
-
-        {
-            remove_files_from_downloads(dp.to_str().unwrap());
-
-            // Same as above but with dynamic build enabled.
-            let mut cmd = Command::cargo_bin("pittv3")?;
-            cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
-            cmd.arg("-t").arg("tests/examples/ta_store_three");
-            cmd.arg("-d").arg(dp.to_str().unwrap());
-            cmd.arg("-s")
-                .arg("tests/examples/disable_revocation_checking.json");
-            cmd.arg("-i").arg("1642763756");
-            cmd.arg("-y");
-            cmd.arg("-e")
-                .arg("tests/examples/end_entities/from_id_CA_59.der");
-            cmd.assert().stdout(predicate::str::contains(
-                "Valid: 1 - Result folder indices: [0]",
-            ));
-            cmd.assert()
-                .stdout(predicate::str::contains("Invalid paths found: 0"));
-            cmd.assert()
-                .stdout(predicate::str::contains("Paths found: 5"));
-        }
-
-        {
-            // Same as above but without clearing downloads folder
-            let mut cmd = Command::cargo_bin("pittv3")?;
-            cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
-            cmd.arg("-t").arg("tests/examples/ta_store_three");
-            cmd.arg("-d").arg(dp.to_str().unwrap());
-            cmd.arg("-s")
-                .arg("tests/examples/disable_revocation_checking.json");
-            cmd.arg("-i").arg("1642763756");
-            cmd.arg("-y");
-            cmd.arg("-e")
-                .arg("tests/examples/end_entities/from_id_CA_59.der");
-            cmd.assert().stdout(predicate::str::contains(
-                "Valid: 1 - Result folder indices: [0]",
-            ));
-            cmd.assert()
-                .stdout(predicate::str::contains("Invalid paths found: 0"));
-            cmd.assert()
-                .stdout(predicate::str::contains("Paths found: 5"));
-        }
-        if Path::exists(dp) {
-            fs::remove_dir_all(dp).unwrap();
-        }
-    }
+    // todo - replace with current artifacts
+    // #[cfg(feature = "remote")]
+    // {
+    //     let dp = Path::new("tests/examples/downloads_validate_with_expired1");
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    //     fs::create_dir_all(dp).unwrap();
+    //     {
+    //         // Same as above but with dynamic build enabled.
+    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
+    //         cmd.arg("--time-of-interest").arg("1674162034");
+    //         cmd.arg("-t").arg("tests/examples/ta_store_three");
+    //         cmd.arg("-s")
+    //             .arg("tests/examples/disable_revocation_checking.json");
+    //         cmd.arg("-d").arg(dp.to_str().unwrap());
+    //         cmd.arg("-y");
+    //         cmd.arg("-e")
+    //             .arg("tests/examples/end_entities/from_id_CA_59.der");
+    //         cmd.assert().stdout(predicate::str::contains(
+    //             "Valid: 1 - Result folder indices: [0]",
+    //         ));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("* Paths found: 2"));
+    //     }
+    // 
+    //     {
+    //         // Same as above but without clearing downloads folder
+    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
+    //         cmd.arg("--time-of-interest").arg("1674162034");
+    //         cmd.arg("-t").arg("tests/examples/ta_store_three");
+    //         cmd.arg("-s")
+    //             .arg("tests/examples/disable_revocation_checking.json");
+    //         cmd.arg("-d").arg(dp.to_str().unwrap());
+    //         cmd.arg("-y");
+    //         cmd.arg("-e")
+    //             .arg("tests/examples/end_entities/from_id_CA_59.der");
+    //         cmd.assert().stdout(predicate::str::contains(
+    //             "Valid: 1 - Result folder indices: [0]",
+    //         ));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("* Paths found: 2"));
+    //     }
+    // 
+    //     {
+    //         remove_files_from_downloads(dp.to_str().unwrap());
+    // 
+    //         // Same as above but with dynamic build enabled.
+    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
+    //         cmd.arg("-t").arg("tests/examples/ta_store_three");
+    //         cmd.arg("-d").arg(dp.to_str().unwrap());
+    //         cmd.arg("-s")
+    //             .arg("tests/examples/disable_revocation_checking.json");
+    //         cmd.arg("-i").arg("1642763756");
+    //         cmd.arg("-y");
+    //         cmd.arg("-e")
+    //             .arg("tests/examples/end_entities/from_id_CA_59.der");
+    //         cmd.assert().stdout(predicate::str::contains(
+    //             "Valid: 1 - Result folder indices: [0]",
+    //         ));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Paths found: 5"));
+    //     }
+    // 
+    //     {
+    //         // Same as above but without clearing downloads folder
+    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
+    //         cmd.arg("-t").arg("tests/examples/ta_store_three");
+    //         cmd.arg("-d").arg(dp.to_str().unwrap());
+    //         cmd.arg("-s")
+    //             .arg("tests/examples/disable_revocation_checking.json");
+    //         cmd.arg("-i").arg("1642763756");
+    //         cmd.arg("-y");
+    //         cmd.arg("-e")
+    //             .arg("tests/examples/end_entities/from_id_CA_59.der");
+    //         cmd.assert().stdout(predicate::str::contains(
+    //             "Valid: 1 - Result folder indices: [0]",
+    //         ));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Invalid paths found: 0"));
+    //         cmd.assert()
+    //             .stdout(predicate::str::contains("Paths found: 5"));
+    //     }
+    //     if Path::exists(dp) {
+    //         fs::remove_dir_all(dp).unwrap();
+    //     }
+    // }
 
     fs::remove_file(p.to_str().unwrap())?;
     Ok(())
