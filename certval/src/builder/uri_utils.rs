@@ -64,6 +64,7 @@ fn save_certs_from_p7(
                     for (i, c) in sd.certificates.iter().enumerate() {
                         for a in c.0.iter() {
                             let f = format!("{}_{}.der", filename, i);
+                            #[allow(irrefutable_let_patterns)]
                             let pb = if let Ok(pb) = PathBuf::from_str(&f) {
                                 pb
                             } else {
@@ -115,7 +116,7 @@ fn save_cert(
     let r = CertificateInner::from_der(bytes);
     match r {
         Ok(cert) => {
-            if let Err(_e) = valid_at_time(&cert.tbs_certificate, time_of_interest, true) {
+            if let Err(_e) = valid_at_time(cert.tbs_certificate(), time_of_interest, true) {
                 debug!("Ignoring certificate downloaded from {} as not valid at indicated time of interest ({})", target, time_of_interest);
                 return saved;
             }
@@ -228,7 +229,7 @@ pub async fn fetch_to_buffer(
                 let fname_from_response = response
                     .url()
                     .path_segments()
-                    .and_then(|segments| segments.last())
+                    .and_then(|mut segments| segments.next_back())
                     .and_then(|name| if name.is_empty() { None } else { Some(name) })
                     .unwrap_or("tmp.bin");
 

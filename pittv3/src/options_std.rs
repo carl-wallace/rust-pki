@@ -395,10 +395,10 @@ pub async fn options_std(args: &Pittv3Args) {
             {
                 let p = Path::new(&download_folder);
                 let blp = p.join("last_modified_map.json");
-                let lmm_file = if let Some(bl) = blp.to_str() { bl } else { "" };
+                let lmm_file = blp.to_str().unwrap_or_default();
 
                 let blp = p.join("blocklist.json");
-                let blocklist_file = if let Some(bl) = blp.to_str() { bl } else { "" };
+                let blocklist_file = blp.to_str().unwrap_or_default();
 
                 if let Some(download_folder) = &args.download_folder {
                     //let mut buffers: Vec<CertFile> = vec![];
@@ -823,10 +823,10 @@ async fn generate_and_validate(args: &Pittv3Args) {
             if args.dynamic_build {
                 let p = Path::new(&download_folder);
                 let blp = p.join("last_modified_map.json");
-                let lmm_file = if let Some(bl) = blp.to_str() { bl } else { "" };
+                let lmm_file = blp.to_str().unwrap_or_default();
 
                 let blp = p.join("blocklist.json");
-                let blocklist_file = if let Some(bl) = blp.to_str() { bl } else { "" };
+                let blocklist_file = blp.to_str().unwrap_or_default();
 
                 // read the last modified map and blocklist once
                 let mut lmm = read_last_modified_map(lmm_file);

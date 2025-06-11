@@ -50,11 +50,11 @@ pub(crate) fn validate_cert(
         return Err(Error::Unrecognized);
     }
 
-    for (_i, path) in paths.iter_mut().enumerate() {
+    for path in paths.iter_mut() {
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.decoded_cert.tbs_certificate.subject.to_string()
+            path.target.decoded_cert.tbs_certificate().subject()
         );
         let mut cpr = CertificationPathResults::new();
 

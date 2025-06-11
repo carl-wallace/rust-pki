@@ -5,8 +5,8 @@ use alloc::vec::Vec;
 
 use log::{debug, error};
 
-#[cfg(feature = "pqc")]
-use der::Decode;
+// #[cfg(feature = "pqc")]
+// use der::Decode;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
 
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
@@ -15,8 +15,8 @@ use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use crate::util::error::{Error, PathValidationStatus, Result};
 use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 
-#[cfg(feature = "pqc")]
-use pqckeys::composite::*;
+// #[cfg(feature = "pqc")]
+// use pqckeys::composite::*;
 #[cfg(feature = "pqc")]
 use pqckeys::pqc_oids::*;
 #[cfg(feature = "pqc")]
@@ -335,113 +335,113 @@ pub fn verify_signature_message_rust_crypto(
     Err(Error::Unrecognized)
 }
 
-#[cfg(feature = "pqc")]
-fn is_explicit_composite(oid: ObjectIdentifier) -> bool {
-    ENTU_DILITHIUM3_ECDSA_P256 == oid
-}
+// #[cfg(feature = "pqc")]
+// fn is_explicit_composite(oid: ObjectIdentifier) -> bool {
+//     ENTU_DILITHIUM3_ECDSA_P256 == oid
+// }
+//
+// #[cfg(feature = "pqc")]
+// fn is_generic_composite(oid: ObjectIdentifier) -> bool {
+//     ENTU_COMPOSITE_SIG == oid
+// }
+//
+// #[cfg(feature = "pqc")]
+// fn is_composite(oid: ObjectIdentifier) -> bool {
+//     is_explicit_composite(oid) || is_generic_composite(oid)
+// }
 
-#[cfg(feature = "pqc")]
-fn is_generic_composite(oid: ObjectIdentifier) -> bool {
-    ENTU_COMPOSITE_SIG == oid
-}
-
-#[cfg(feature = "pqc")]
-fn is_composite(oid: ObjectIdentifier) -> bool {
-    is_explicit_composite(oid) || is_generic_composite(oid)
-}
-
-#[cfg(feature = "pqc")]
-/// verify_signature_message_composite_pqcrypto
-pub fn verify_signature_message_composite_pqcrypto(
-    _pe: &PkiEnvironment,
-    message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
-    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
-    spki: &SubjectPublicKeyInfoOwned,         // public key
-) -> Result<()> {
-    // only doing generic composite at present
-    if is_composite(signature_alg.oid) {
-        // Parse each composite value
-        // Params is an AnyRef, so it needs to be encoded to access value
-        let params_enc = if let Some(p) = &signature_alg.parameters {
-            match p.to_der() {
-                Ok(rv) => rv,
-                Err(_e) => return Err(Error::Unrecognized),
-            }
-        } else {
-            return Err(Error::Unrecognized);
-        };
-
-        let params = match CompositeParams::from_der(params_enc.as_slice()) {
-            Ok(p) => p,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        let cs = match CompositeSignatureValue::from_der(signature) {
-            Ok(cs) => cs,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        let cspki = match CompositePublicKey::from_der(spki.subject_public_key.raw_bytes()) {
-            Ok(cspki) => cspki,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        // Make sure number of params and signatures is same and that there are at least that many
-        // public key values
-        if cs.len() != params.len() {
-            return Err(Error::Unrecognized);
-        }
-        if cs.len() > cspki.len() {
-            return Err(Error::Unrecognized);
-        }
-
-        // iterate over signatures
-        for i in 0..cs.len() {
-            let cur_sig = match cs[i].as_bytes() {
-                Some(r) => r,
-                None => return Err(Error::Unrecognized),
-            };
-            let cur_sig_alg = &params[i];
-            let ecdsa_key = is_ecdsa(&cur_sig_alg.oid);
-            let mut matched = false;
-
-            // find the public key that matches
-            for cur_spki in &cspki {
-                if cur_sig_alg.oid == cur_spki.algorithm.oid
-                    || (ecdsa_key && PKIXALG_EC_PUBLIC_KEY == cur_spki.algorithm.oid)
-                {
-                    if ecdsa_key {
-                        verify_signature_message_rust_crypto(
-                            _pe,
-                            message_to_verify,
-                            cur_sig,
-                            cur_sig_alg,
-                            cur_spki,
-                        )?;
-                        matched = true;
-                        break;
-                    } else {
-                        verify_signature_message_pqcrypto(
-                            _pe,
-                            message_to_verify,
-                            cur_sig,
-                            cur_sig_alg,
-                            cur_spki,
-                        )?;
-                        matched = true;
-                        break;
-                    }
-                }
-            }
-            if !matched {
-                return Err(Error::Unrecognized);
-            }
-        }
-        return Ok(());
-    }
-    Err(Error::Unrecognized)
-}
+// #[cfg(feature = "pqc")]
+// /// verify_signature_message_composite_pqcrypto
+// pub fn verify_signature_message_composite_pqcrypto(
+//     _pe: &PkiEnvironment,
+//     message_to_verify: &[u8],                 // buffer to verify
+//     signature: &[u8],                         // signature
+//     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+//     spki: &SubjectPublicKeyInfoOwned,         // public key
+// ) -> Result<()> {
+//     // only doing generic composite at present
+//     if is_composite(signature_alg.oid) {
+//         // Parse each composite value
+//         // Params is an AnyRef, so it needs to be encoded to access value
+//         let params_enc = if let Some(p) = &signature_alg.parameters {
+//             match p.to_der() {
+//                 Ok(rv) => rv,
+//                 Err(_e) => return Err(Error::Unrecognized),
+//             }
+//         } else {
+//             return Err(Error::Unrecognized);
+//         };
+//
+//         let params = match CompositeParams::from_der(params_enc.as_slice()) {
+//             Ok(p) => p,
+//             Err(_e) => return Err(Error::Unrecognized),
+//         };
+//
+//         let cs = match CompositeSignatureValue::from_der(signature) {
+//             Ok(cs) => cs,
+//             Err(_e) => return Err(Error::Unrecognized),
+//         };
+//
+//         let cspki = match CompositePublicKey::from_der(spki.subject_public_key.raw_bytes()) {
+//             Ok(cspki) => cspki,
+//             Err(_e) => return Err(Error::Unrecognized),
+//         };
+//
+//         // Make sure number of params and signatures is same and that there are at least that many
+//         // public key values
+//         if cs.len() != params.len() {
+//             return Err(Error::Unrecognized);
+//         }
+//         if cs.len() > cspki.len() {
+//             return Err(Error::Unrecognized);
+//         }
+//
+//         // iterate over signatures
+//         for i in 0..cs.len() {
+//             let cur_sig = match cs[i].as_bytes() {
+//                 Some(r) => r,
+//                 None => return Err(Error::Unrecognized),
+//             };
+//             let cur_sig_alg = &params[i];
+//             let ecdsa_key = is_ecdsa(&cur_sig_alg.oid);
+//             let mut matched = false;
+//
+//             // find the public key that matches
+//             for cur_spki in &cspki {
+//                 if cur_sig_alg.oid == cur_spki.algorithm.oid
+//                     || (ecdsa_key && PKIXALG_EC_PUBLIC_KEY == cur_spki.algorithm.oid)
+//                 {
+//                     if ecdsa_key {
+//                         verify_signature_message_rust_crypto(
+//                             _pe,
+//                             message_to_verify,
+//                             cur_sig,
+//                             cur_sig_alg,
+//                             cur_spki,
+//                         )?;
+//                         matched = true;
+//                         break;
+//                     } else {
+//                         verify_signature_message_pqcrypto(
+//                             _pe,
+//                             message_to_verify,
+//                             cur_sig,
+//                             cur_sig_alg,
+//                             cur_spki,
+//                         )?;
+//                         matched = true;
+//                         break;
+//                     }
+//                 }
+//             }
+//             if !matched {
+//                 return Err(Error::Unrecognized);
+//             }
+//         }
+//         return Ok(());
+//     }
+//     Err(Error::Unrecognized)
+// }
 #[cfg(feature = "pqc")]
 macro_rules! pqverify {
     ($pkt:ty, $dst:ty, $vdst:expr, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
@@ -683,7 +683,7 @@ fn test_verify_signature_digest() {
                 &result,
                 defer_cert.signature.as_bytes().unwrap(),
                 &defer_cert.signature_algorithm,
-                &cert.tbs_certificate.subject_public_key_info,
+                &cert.tbs_certificate().subject_public_key_info(),
             );
             assert!(result.is_ok())
         }

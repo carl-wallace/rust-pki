@@ -327,7 +327,7 @@ impl CrlSource for CrlSourceFolders {
             cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER)
         {
             if let Some(kid) = &akid.key_identifier {
-                if inner.skid_map.contains_key(&kid.as_bytes().to_vec()) {
+                if inner.skid_map.contains_key(kid.as_bytes()) {
                     let indices = &inner.skid_map[&kid.as_bytes().to_vec()];
                     let mut retval = vec![];
                     for index in indices {
@@ -340,7 +340,7 @@ impl CrlSource for CrlSourceFolders {
             }
         }
 
-        let issuer_name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
+        let issuer_name = name_to_string(cert.decoded_cert.tbs_certificate().issuer());
         if inner.issuer_map.contains_key(&issuer_name) {
             let indices = &inner.issuer_map[&issuer_name];
             let mut retval = vec![];
@@ -529,8 +529,13 @@ impl RevocationStatusCache for RevocationCache {
         cert: &PDVCertificate,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus {
-        let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
-        let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
+        let name = name_to_string(cert.decoded_cert.tbs_certificate().issuer());
+        let serial = buffer_to_hex(
+            cert.decoded_cert
+                .tbs_certificate()
+                .serial_number()
+                .as_bytes(),
+        );
 
         let cache_map = if let Ok(c) = self.cache_map.read() {
             c
@@ -555,8 +560,13 @@ impl RevocationStatusCache for RevocationCache {
             return;
         }
 
-        let name = name_to_string(&cert.decoded_cert.tbs_certificate.issuer);
-        let serial = buffer_to_hex(cert.decoded_cert.tbs_certificate.serial_number.as_bytes());
+        let name = name_to_string(cert.decoded_cert.tbs_certificate().issuer());
+        let serial = buffer_to_hex(
+            cert.decoded_cert
+                .tbs_certificate()
+                .serial_number()
+                .as_bytes(),
+        );
         let key = (name, serial);
 
         let mut cache_map = if let Ok(g) = self.cache_map.write() {

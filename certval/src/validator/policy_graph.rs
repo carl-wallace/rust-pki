@@ -130,11 +130,7 @@ pub fn check_certificate_policies_graph(
                         let p_oid = &cp.policy_identifier;
                         let mut p_q: Option<Vec<u8>> = None;
                         if cp.policy_qualifiers.is_some() {
-                            p_q = match cp.policy_qualifiers.to_der() {
-                                Ok(encoded_qualifers) => Some(encoded_qualifers),
-                                // ignore qualifiers that don't encode
-                                Err(_e) => None,
-                            };
+                            p_q = cp.policy_qualifiers.to_der().ok();
                         }
 
                         // for i and ii, save the indices of any parents and add the nodes below to avoid
@@ -190,11 +186,7 @@ pub fn check_certificate_policies_graph(
                         //use when processing step (2) below.
                         has_any_policy = true;
                         if cp.policy_qualifiers.is_some() {
-                            ap_q = match cp.policy_qualifiers.to_der() {
-                                Ok(encoded_qualifers) => Some(encoded_qualifers),
-                                // ignore qualifiers that don't encode
-                                Err(_e) => None,
-                            }
+                            ap_q = cp.policy_qualifiers.to_der().ok();
                         }
                     }
                 }

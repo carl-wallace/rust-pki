@@ -603,7 +603,7 @@ impl PkiEnvironment {
 
         #[cfg(feature = "pqc")]
         self.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
-        #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
+        // #[cfg(feature = "pqc")]
+        // self.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
     }
 }

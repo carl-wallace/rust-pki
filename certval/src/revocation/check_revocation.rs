@@ -7,7 +7,7 @@
 //! - Allowlist (i.e., certificates that have been declared "not revoked" by configuration)
 //! - Blocklist (i.e., certificates that have been declared "revoked" by configuration)
 //! - Cached revocation status (i.e., certificates whose "revoked" or "not revoked" status has been
-//! previously determined and saved in a cache that implements the [`RevocationStatusCache`](../certval/pki_environment_traits/type.RevocationStatusCache.html) trait.
+//!   previously determined and saved in a cache that implements the [`RevocationStatusCache`](../certval/pki_environment_traits/type.RevocationStatusCache.html) trait.
 //! - Locally available CRLs (i.e., from file system or provided by application)
 //! - Locally available OCSP responses (i.e., provided by application, presumably obtained via stapling)
 //! - OCSP responses obtained from an OCSP responder
@@ -101,7 +101,7 @@ pub async fn check_revocation(
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
         let cur_cert = ca_cert_ref;
-        let cur_cert_subject = name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate.subject);
+        let cur_cert_subject = name_to_string(ca_cert_ref.decoded_cert.tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {
@@ -298,7 +298,8 @@ pub fn check_revocation(
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
         let cur_cert = ca_cert_ref;
-        let cur_cert_subject = name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate.subject);
+        let cur_cert_subject =
+            name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {

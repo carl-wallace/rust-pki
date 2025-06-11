@@ -1,5 +1,3 @@
-#![cfg(feature = "sha1_sig")]
-
 use certval::{PathValidationStatus, PkiEnvironment};
 use const_oid::db::rfc5912::SHA_1_WITH_RSA_ENCRYPTION;
 use der::referenced::OwnedToRef;
