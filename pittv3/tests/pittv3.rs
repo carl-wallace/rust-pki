@@ -154,28 +154,29 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
         cmd.assert()
             .stdout(predicate::str::contains("https://psc.sia.es/ac_raiz.crt"));
     }
-    // todo - replace with current artifacts
-    // #[cfg(feature = "remote")]
-    // {
-    //     let dp = Path::new("tests/examples/downloads_list_aia_and_sia");
-    //     if Path::exists(dp) {
-    //         fs::remove_dir_all(dp).unwrap();
-    //     }
-    //     fs::create_dir_all(dp).unwrap();
-    //
-    //     let mut cmd = Command::cargo_bin("pittv3")?;
-    //     cmd.arg("-b").arg("tests/examples/pitt_focused.cbor");
-    //     cmd.arg("--list-aia-and-sia");
-    //     cmd.arg("-d").arg(dp.to_str().unwrap());
-    //     cmd.arg("-y");
-    //     cmd.assert().stdout(predicate::str::contains(
-    //         "http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c",
-    //     ));
-    //
-    //     if Path::exists(dp) {
-    //         fs::remove_dir_all(dp).unwrap();
-    //     }
-    // }
+
+    // target created via: ../target/release/pittv3 -b tests/examples/pitt_focused_2025.cbor -t tests/examples/2025/ta/ -c tests/examples/2025/ca/ --generate
+    #[cfg(feature = "remote")]
+    {
+        let dp = Path::new("tests/examples/downloads_list_aia_and_sia");
+        if Path::exists(dp) {
+            fs::remove_dir_all(dp).unwrap();
+        }
+        fs::create_dir_all(dp).unwrap();
+    
+        let mut cmd = Command::cargo_bin("pittv3")?;
+        cmd.arg("-b").arg("tests/examples/pitt_focused_2025.cbor");
+        cmd.arg("--list-aia-and-sia");
+        cmd.arg("-d").arg(dp.to_str().unwrap());
+        cmd.arg("-y");
+        cmd.assert().stdout(predicate::str::contains(
+            "http://crl.disa.mil/issuedto/DODROOTCA6_IT.p7c",
+        ));
+    
+        if Path::exists(dp) {
+            fs::remove_dir_all(dp).unwrap();
+        }
+    }
     Ok(())
 }
 
