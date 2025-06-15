@@ -291,7 +291,7 @@ pub async fn options_std(args: &Pittv3Args) {
         let cbor = read_cbor(&args.cbor);
         if cbor.is_empty() {
             println!(
-                "Failed to read CBOR data from file located at {}",
+                "Failed to read CBOR data from the file located at {}",
                 cbor_file
             );
             return;
