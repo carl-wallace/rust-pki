@@ -50,7 +50,7 @@ pub(crate) fn validate_cert(
         return Err(Error::Unrecognized);
     }
 
-    for path in paths.iter_mut() {
+    for (_i, path) in paths.iter_mut().enumerate() {
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
