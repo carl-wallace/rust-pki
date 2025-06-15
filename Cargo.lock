@@ -3309,6 +3309,11 @@ dependencies = [
 ]
 
 [[patch.unused]]
+name = "pqckeys"
+version = "0.1.0"
+source = "git+https://github.com/baloo/pqckeys.git?branch=baloo/pre-releases#9950d3574f2f4e31950babf674356f232a0286ee"
+
+[[patch.unused]]
 name = "crmf"
 version = "0.3.0-pre.0"
 source = "git+https://github.com/RustCrypto/formats.git#abf73ebfd1574839574f14340585c85566ce6074"
@@ -3372,8 +3377,3 @@ source = "git+https://github.com/baloo/RSA.git#70d185bb1cf1d6b500cea926591b9bd9f
 name = "signature"
 version = "3.0.0-pre"
 source = "git+https://github.com/baloo/traits.git?branch=baloo/digest-newtype-master#b6669d2499a81d48b97f8461d989c40010ad6692"
-
-[[patch.unused]]
-name = "pqckeys"
-version = "0.1.0"
-source = "git+https://github.com/baloo/pqckeys.git?branch=baloo/pre-releases#9950d3574f2f4e31950babf674356f232a0286ee"
