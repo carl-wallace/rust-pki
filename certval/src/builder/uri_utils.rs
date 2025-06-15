@@ -55,43 +55,48 @@ fn save_certs_from_p7(
         return false;
     };
 
-    let ci = ContentInfo::from_der(bytes);
-    if let Ok(ci) = ci {
-        if let Ok(content) = ci.content.to_der() {
-            let sd = SignedData::from_der(content.as_slice());
-            match sd {
-                Ok(sd) => {
-                    for (i, c) in sd.certificates.iter().enumerate() {
-                        for a in c.0.iter() {
-                            let f = format!("{}_{}.der", filename, i);
-                            let Ok(pb) = PathBuf::from_str(&f);
-                            if let Ok(enccert) = a.to_der() {
-                                if save_cert(
-                                    pe,
-                                    &pb,
-                                    enccert.as_slice(),
-                                    target,
-                                    buffers,
-                                    time_of_interest,
-                                ) {
-                                    at_least_one_saved = true;
+    match ContentInfo::from_der(bytes) {
+        Ok(ci) => {
+            if let Ok(content) = ci.content.to_der() {
+                let sd = SignedData::from_der(content.as_slice());
+                match sd {
+                    Ok(sd) => {
+                        for (i, c) in sd.certificates.iter().enumerate() {
+                            for a in c.0.iter() {
+                                let f = format!("{}_{}.der", filename, i);
+                                #[allow(irrefutable_let_patterns)]
+                                let Ok(pb) = PathBuf::from_str(&f);
+                                if let Ok(enccert) = a.to_der() {
+                                    if save_cert(
+                                        pe,
+                                        &pb,
+                                        enccert.as_slice(),
+                                        target,
+                                        buffers,
+                                        time_of_interest,
+                                    ) {
+                                        at_least_one_saved = true;
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    error!("Failed to parse SignedData from {} with {:?}", target, e);
+                    Err(e) => {
+                        error!("Failed to parse SignedData from {} with {:?}", target, e);
+                    }
                 }
             }
+        }
+        Err(e) => {
+            error!("Failed to parse ContentInfo from {} with {:?}", target, e);
         }
     }
     at_least_one_saved
 }
 
-/// `save_cert` takes a buffer that notionally contains a certificate. if the certificate can be parsed
+/// `save_cert` takes a buffer that notionally contains a certificate. if the certificate can be parsed,
 /// and it is not present in `buffers`, then it is appended to `buffers` and written to `filename`. The
-/// file write is best effort. If it fails, life goes on.
+/// attempt to write a file is "best effort". If it fails, life goes on.
 #[cfg(feature = "remote")]
 fn save_cert(
     pe: &PkiEnvironment,
@@ -255,53 +260,57 @@ pub async fn fetch_to_buffer(
 
                 let fname = path.join(fname_from_response);
 
-                let content = &response.bytes().await;
-                if let Ok(bytes) = content {
-                    debug!("Downloaded buffer {}", target);
+                match &response.bytes().await {
+                    Ok(bytes) => {
+                        debug!("Downloaded buffer {}", target);
 
-                    // save_certs_from_p7
-                    if "application/pkcs7-mime" == content_type {
-                        save_certs_from_p7(
-                            pe,
-                            &fname,
-                            bytes.as_ref(),
-                            target,
-                            buffers,
-                            time_of_interest,
-                        );
-                    } else if "application/x-x509-ca-cert" == content_type {
-                        save_cert(
-                            pe,
-                            &fname,
-                            bytes.as_ref(),
-                            target,
-                            buffers,
-                            time_of_interest,
-                        );
-                    } else {
-                        let r = CertificateInner::<Raw>::from_der(bytes.as_ref());
-                        match r {
-                            Ok(_) => {
-                                save_cert(
-                                    pe,
-                                    &fname,
-                                    bytes.as_ref(),
-                                    target,
-                                    buffers,
-                                    time_of_interest,
-                                );
-                            }
-                            Err(_) => {
-                                save_certs_from_p7(
-                                    pe,
-                                    &fname,
-                                    bytes.as_ref(),
-                                    target,
-                                    buffers,
-                                    time_of_interest,
-                                );
+                        // save_certs_from_p7
+                        if "application/pkcs7-mime" == content_type {
+                            save_certs_from_p7(
+                                pe,
+                                &fname,
+                                bytes.as_ref(),
+                                target,
+                                buffers,
+                                time_of_interest,
+                            );
+                        } else if "application/x-x509-ca-cert" == content_type {
+                            save_cert(
+                                pe,
+                                &fname,
+                                bytes.as_ref(),
+                                target,
+                                buffers,
+                                time_of_interest,
+                            );
+                        } else {
+                            let r = CertificateInner::<Raw>::from_der(bytes.as_ref());
+                            match r {
+                                Ok(_) => {
+                                    save_cert(
+                                        pe,
+                                        &fname,
+                                        bytes.as_ref(),
+                                        target,
+                                        buffers,
+                                        time_of_interest,
+                                    );
+                                }
+                                Err(_) => {
+                                    save_certs_from_p7(
+                                        pe,
+                                        &fname,
+                                        bytes.as_ref(),
+                                        target,
+                                        buffers,
+                                        time_of_interest,
+                                    );
+                                }
                             }
                         }
+                    }
+                    Err(e) => {
+                        error!("Failed to download {} with {:?}", target, e);
                     }
                 }
             }
