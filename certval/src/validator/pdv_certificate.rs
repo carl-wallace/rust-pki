@@ -10,7 +10,7 @@ use der::{asn1::ObjectIdentifier, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::{
-    certificate::{CertificateInner, Raw},
+    certificate::{Certificate, CertificateInner, Raw},
     ext::{pkix::crl::CrlDistributionPoints, pkix::*},
 };
 
@@ -92,6 +92,23 @@ impl TryFrom<CertificateInner<Raw>> for PDVCertificate {
         let mut pdv_cert = PDVCertificate {
             encoded_cert: enc_cert,
             decoded_cert: cert,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        };
+        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_cert)
+    }
+}
+
+impl TryFrom<Certificate> for PDVCertificate {
+    type Error = der::Error;
+
+    fn try_from(cert: Certificate) -> der::Result<Self> {
+        let enc_cert = cert.to_der()?;
+        let raw = CertificateInner::<Raw>::from_der(&enc_cert)?;
+        let mut pdv_cert = PDVCertificate {
+            encoded_cert: enc_cert,
+            decoded_cert: raw,
             metadata: None,
             parsed_extensions: Default::default(),
         };
