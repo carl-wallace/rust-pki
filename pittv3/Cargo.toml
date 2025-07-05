@@ -20,9 +20,9 @@ rust-version = "1.81"
 base64ct = { version = "1.8.0", features = ["alloc"], optional=true }
 const-oid = { version = "0.10.1", default-features = false, features = ["db"] }
 cms = "0.3.0-pre.0"
-der = { version="0.8.0-rc.4", features = ["alloc", "derive", "flagset", "oid"] }
+der = { version="0.8.0-rc.6", features = ["alloc", "derive", "flagset", "oid"] }
 pem-rfc7468 = { version="1.0.0-rc.3", features = ["alloc"]}
-spki = { version = "0.8.0-rc.2", default-features = false, features = ["alloc"] }
+spki = { version = "0.8.0-rc.3", default-features = false, features = ["alloc"] }
 x509-cert = { version = "0.3.0-rc.0", default-features = false, features = ["pem"] }
 x509-ocsp = { version = "0.3.0-pre" }
 
@@ -46,8 +46,8 @@ serde = { version = "1.0.219", default-features = false, features = ["derive", "
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
 
 ndarray = {version = "0.16.1", optional = true}
-reqwest = { version = "0.12.20", features = ["blocking"], optional = true}
-tokio = { version = "1.45.1", features = ["full", "time", "rt-multi-thread"], optional = true }
+reqwest = { version = "0.12.22", features = ["blocking"], optional = true}
+tokio = { version = "1.46.1", features = ["full", "time", "rt-multi-thread"], optional = true }
 walkdir = { version = "2.5.0", optional = true}
 
 pqcrypto-internals =  {version = "0.2.10", optional = true}

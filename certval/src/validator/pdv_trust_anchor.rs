@@ -87,7 +87,7 @@ impl TryFrom<TrustAnchorChoice<Raw>> for PDVTrustAnchorChoice {
 /// SEQUENCE tag for Name values and returns a parsed Name.
 #[cfg(feature = "webpki")]
 fn partial_name_to_name(partial_name_bytes: &[u8]) -> der::Result<Name> {
-    let l = Length::new(partial_name_bytes.len() as u16);
+    let l = Length::new(partial_name_bytes.len() as u32);
     let mut length_bytes = l.to_der()?;
     let mut enc_name = vec![0x30];
     enc_name.append(&mut length_bytes);
@@ -100,7 +100,7 @@ fn partial_name_to_name(partial_name_bytes: &[u8]) -> der::Result<Name> {
 /// SEQUENCE tag for SubjectPublicKeyInfo values and returns a parsed SubjectPublicKeyInfoOwned.
 #[cfg(feature = "webpki")]
 fn partial_spki_to_spki(partial_spki_bytes: &[u8]) -> der::Result<SubjectPublicKeyInfoOwned> {
-    let l = Length::new(partial_spki_bytes.len() as u16);
+    let l = Length::new(partial_spki_bytes.len() as u32);
     let mut length_bytes = l.to_der()?;
     let mut enc_spki = vec![0x30];
     enc_spki.append(&mut length_bytes);

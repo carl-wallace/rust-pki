@@ -20,10 +20,10 @@ rust-version = "1.81"
 base64ct = { version = "1.8.0", features = ["alloc"], optional=true }
 const-oid = { version = "0.10.1", default-features = false, features = ["db"] }
 cms = "0.3.0-pre.0"
-der = { version="0.8.0-rc.4", features = ["alloc", "derive", "flagset", "oid"] }
+der = { version="0.8.0-rc.6", features = ["alloc", "derive", "flagset", "oid"] }
 pem-rfc7468 = { version="1.0.0-rc.3", features = ["alloc"]}
 pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "kemri", optional=true }
-spki = { version = "0.8.0-rc.2", default-features = false, features = ["alloc"] }
+spki = { version = "0.8.0-rc.3", default-features = false, features = ["alloc"] }
 x509-cert = { version = "0.3.0-rc.0", default-features = false, features = ["hazmat","pem"] }
 x509-ocsp = { version = "0.3.0-pre" }
 
