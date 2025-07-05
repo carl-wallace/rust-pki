@@ -60,13 +60,6 @@ walkdir = { version = "2.5.0", optional = true}
 # to enable no_std support, but for now std is required, so mark it optional
 regex = {version = "1.11.1", optional = true}
 
-pqcrypto-internals =  {version = "0.2.10", optional = true}
-#pqcrypto-dilithium =  {version = "0.5.0", optional = true}
-#pqcrypto-falcon = {version = "0.4.0", optional = true}
-pqcrypto-sphincsplus = {version = "0.7.1", optional = true}
-pqcrypto = {version = "0.18.1", optional = true}
-pqcrypto-traits = {version = "0.3.5", optional = true}
-
 ml-dsa = { version = "0.1.0-pre.2", optional = true }
 slh-dsa = { version = "0.2.0-pre", optional = true }
 
@@ -93,7 +86,7 @@ default = ["remote", "webpki"]
 revocation = ["dep:ndarray"]
 std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
-pqc = ["pqcrypto-internals", "ml-dsa", "slh-dsa", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
+pqc = ["ml-dsa", "slh-dsa", "pqckeys"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]
 eddsa = ["dep:ed25519-dalek"]
