@@ -2,6 +2,8 @@
 //! [Rust Crypto](https://github.com/RustCrypto) project for support.
 
 use alloc::vec::Vec;
+#[cfg(feature = "pqc")]
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
 
 use log::{debug, error};
 
@@ -19,8 +21,6 @@ use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 use pqckeys::composite::*;
 #[cfg(feature = "pqc")]
 use pqckeys::pqc_oids::*;
-#[cfg(feature = "pqc")]
-use pqcrypto_falcon::{falcon1024, falcon512};
 #[cfg(feature = "pqc")]
 use pqcrypto_sphincsplus::{
     sphincssha2128fsimple, sphincssha2128ssimple, sphincssha2192fsimple, sphincssha2192ssimple,
@@ -80,88 +80,78 @@ pub(crate) fn is_eddsa(oid: &ObjectIdentifier) -> bool {
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_ml_dsa_44_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == ML_DSA_44_IPD
+pub(crate) fn is_ml_dsa_44(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_44
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_ml_dsa_65_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == ML_DSA_65_IPD
+pub(crate) fn is_ml_dsa_65(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_65
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_ml_dsa_87_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == ML_DSA_87_IPD
+pub(crate) fn is_ml_dsa_87(oid: &ObjectIdentifier) -> bool {
+    *oid == ML_DSA_87
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_falcon512(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_FALCON_512
+pub(crate) fn is_slh_dsa_sha2_128f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_128F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_falcon1024(oid: &ObjectIdentifier) -> bool {
-    *oid == OQ_FALCON_1024
+pub(crate) fn is_slh_dsa_sha2_128s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_128S
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_128f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_128F_IPD
+pub(crate) fn is_slh_dsa_sha2_192f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_192F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_128s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_128S_IPD
+pub(crate) fn is_slh_dsa_sha2_192s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_192S
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_192f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_192F_IPD
+pub(crate) fn is_slh_dsa_sha2_256f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_256F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_192s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_192S_IPD
+pub(crate) fn is_slh_dsa_sha2_256s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHA2_256S
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_256f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_256F_IPD
+pub(crate) fn is_slh_dsa_shake_128f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_128F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_sha2_256s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHA2_256S_IPD
+pub(crate) fn is_slh_dsa_shake_128s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_128S
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_128f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_128F_IPD
+pub(crate) fn is_slh_dsa_shake_192f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_192F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_128s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_128S_IPD
+pub(crate) fn is_slh_dsa_shake_192s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_192S
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_192f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_192F_IPD
+pub(crate) fn is_slh_dsa_shake_256f(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_256F
 }
 
 #[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_192s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_192S_IPD
-}
-
-#[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_256f_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_256F_IPD
-}
-
-#[cfg(feature = "pqc")]
-pub(crate) fn is_slh_dsa_shake_256s_ipd(oid: &ObjectIdentifier) -> bool {
-    *oid == SLH_DSA_SHAKE_256S_IPD
+pub(crate) fn is_slh_dsa_shake_256s(oid: &ObjectIdentifier) -> bool {
+    *oid == SLH_DSA_SHAKE_256S
 }
 
 /// calculate_hash_rust_crypto implements the [`CalculateHash`](../certval/pki_environment_traits/type.CalculateHash.html) interface for [`PkiEnvironment`] using
@@ -346,113 +336,114 @@ pub fn verify_signature_message_rust_crypto(
     Err(Error::Unrecognized)
 }
 
-#[cfg(feature = "pqc")]
-fn is_explicit_composite(oid: ObjectIdentifier) -> bool {
-    ENTU_DILITHIUM3_ECDSA_P256 == oid
-}
+//#[cfg(feature = "pqc")]
+//fn is_explicit_composite(oid: ObjectIdentifier) -> bool {
+//    ENTU_DILITHIUM3_ECDSA_P256 == oid
+//}
+//
+//#[cfg(feature = "pqc")]
+//fn is_generic_composite(oid: ObjectIdentifier) -> bool {
+//    ENTU_COMPOSITE_SIG == oid
+//}
+//
+//#[cfg(feature = "pqc")]
+//fn is_composite(oid: ObjectIdentifier) -> bool {
+//    is_explicit_composite(oid) || is_generic_composite(oid)
+//}
+//
+//#[cfg(feature = "pqc")]
+///// verify_signature_message_composite_pqcrypto
+//pub fn verify_signature_message_composite_pqcrypto(
+//    _pe: &PkiEnvironment,
+//    message_to_verify: &[u8],                 // buffer to verify
+//    signature: &[u8],                         // signature
+//    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+//    spki: &SubjectPublicKeyInfoOwned,         // public key
+//) -> Result<()> {
+//    // only doing generic composite at present
+//    if is_composite(signature_alg.oid) {
+//        // Parse each composite value
+//        // Params is an AnyRef, so it needs to be encoded to access value
+//        let params_enc = if let Some(p) = &signature_alg.parameters {
+//            match p.to_der() {
+//                Ok(rv) => rv,
+//                Err(_e) => return Err(Error::Unrecognized),
+//            }
+//        } else {
+//            return Err(Error::Unrecognized);
+//        };
+//
+//        let params = match CompositeParams::from_der(params_enc.as_slice()) {
+//            Ok(p) => p,
+//            Err(_e) => return Err(Error::Unrecognized),
+//        };
+//
+//        let cs = match CompositeSignatureValue::from_der(signature) {
+//            Ok(cs) => cs,
+//            Err(_e) => return Err(Error::Unrecognized),
+//        };
+//
+//        let cspki = match CompositePublicKey::from_der(spki.subject_public_key.raw_bytes()) {
+//            Ok(cspki) => cspki,
+//            Err(_e) => return Err(Error::Unrecognized),
+//        };
+//
+//        // Make sure number of params and signatures is same and that there are at least that many
+//        // public key values
+//        if cs.len() != params.len() {
+//            return Err(Error::Unrecognized);
+//        }
+//        if cs.len() > cspki.len() {
+//            return Err(Error::Unrecognized);
+//        }
+//
+//        // iterate over signatures
+//        for i in 0..cs.len() {
+//            let cur_sig = match cs[i].as_bytes() {
+//                Some(r) => r,
+//                None => return Err(Error::Unrecognized),
+//            };
+//            let cur_sig_alg = &params[i];
+//            let ecdsa_key = is_ecdsa(&cur_sig_alg.oid);
+//            let mut matched = false;
+//
+//            // find the public key that matches
+//            for cur_spki in &cspki {
+//                if cur_sig_alg.oid == cur_spki.algorithm.oid
+//                    || (ecdsa_key && PKIXALG_EC_PUBLIC_KEY == cur_spki.algorithm.oid)
+//                {
+//                    if ecdsa_key {
+//                        verify_signature_message_rust_crypto(
+//                            _pe,
+//                            message_to_verify,
+//                            cur_sig,
+//                            cur_sig_alg,
+//                            cur_spki,
+//                        )?;
+//                        matched = true;
+//                        break;
+//                    } else {
+//                        verify_signature_message_pqcrypto(
+//                            _pe,
+//                            message_to_verify,
+//                            cur_sig,
+//                            cur_sig_alg,
+//                            cur_spki,
+//                        )?;
+//                        matched = true;
+//                        break;
+//                    }
+//                }
+//            }
+//            if !matched {
+//                return Err(Error::Unrecognized);
+//            }
+//        }
+//        return Ok(());
+//    }
+//    Err(Error::Unrecognized)
+//}
 
-#[cfg(feature = "pqc")]
-fn is_generic_composite(oid: ObjectIdentifier) -> bool {
-    ENTU_COMPOSITE_SIG == oid
-}
-
-#[cfg(feature = "pqc")]
-fn is_composite(oid: ObjectIdentifier) -> bool {
-    is_explicit_composite(oid) || is_generic_composite(oid)
-}
-
-#[cfg(feature = "pqc")]
-/// verify_signature_message_composite_pqcrypto
-pub fn verify_signature_message_composite_pqcrypto(
-    _pe: &PkiEnvironment,
-    message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
-    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
-    spki: &SubjectPublicKeyInfoOwned,         // public key
-) -> Result<()> {
-    // only doing generic composite at present
-    if is_composite(signature_alg.oid) {
-        // Parse each composite value
-        // Params is an AnyRef, so it needs to be encoded to access value
-        let params_enc = if let Some(p) = &signature_alg.parameters {
-            match p.to_der() {
-                Ok(rv) => rv,
-                Err(_e) => return Err(Error::Unrecognized),
-            }
-        } else {
-            return Err(Error::Unrecognized);
-        };
-
-        let params = match CompositeParams::from_der(params_enc.as_slice()) {
-            Ok(p) => p,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        let cs = match CompositeSignatureValue::from_der(signature) {
-            Ok(cs) => cs,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        let cspki = match CompositePublicKey::from_der(spki.subject_public_key.raw_bytes()) {
-            Ok(cspki) => cspki,
-            Err(_e) => return Err(Error::Unrecognized),
-        };
-
-        // Make sure number of params and signatures is same and that there are at least that many
-        // public key values
-        if cs.len() != params.len() {
-            return Err(Error::Unrecognized);
-        }
-        if cs.len() > cspki.len() {
-            return Err(Error::Unrecognized);
-        }
-
-        // iterate over signatures
-        for i in 0..cs.len() {
-            let cur_sig = match cs[i].as_bytes() {
-                Some(r) => r,
-                None => return Err(Error::Unrecognized),
-            };
-            let cur_sig_alg = &params[i];
-            let ecdsa_key = is_ecdsa(&cur_sig_alg.oid);
-            let mut matched = false;
-
-            // find the public key that matches
-            for cur_spki in &cspki {
-                if cur_sig_alg.oid == cur_spki.algorithm.oid
-                    || (ecdsa_key && PKIXALG_EC_PUBLIC_KEY == cur_spki.algorithm.oid)
-                {
-                    if ecdsa_key {
-                        verify_signature_message_rust_crypto(
-                            _pe,
-                            message_to_verify,
-                            cur_sig,
-                            cur_sig_alg,
-                            cur_spki,
-                        )?;
-                        matched = true;
-                        break;
-                    } else {
-                        verify_signature_message_pqcrypto(
-                            _pe,
-                            message_to_verify,
-                            cur_sig,
-                            cur_sig_alg,
-                            cur_spki,
-                        )?;
-                        matched = true;
-                        break;
-                    }
-                }
-            }
-            if !matched {
-                return Err(Error::Unrecognized);
-            }
-        }
-        return Ok(());
-    }
-    Err(Error::Unrecognized)
-}
 #[cfg(feature = "pqc")]
 macro_rules! pqverify {
     ($pkt:ty, $dst:ty, $vdst:expr, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
@@ -473,6 +464,43 @@ macro_rules! pqverify {
 }
 
 #[cfg(feature = "pqc")]
+macro_rules! pqverify_mldsa {
+    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
+        let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val)
+            .map_err(|_e| Error::PqcValidation)?;
+        let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
+
+        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
+            .map_err(|_e| Error::PqcValidation)?;
+        let sig = ml_dsa::Signature::<$pkt>::decode(&sig_bytes);
+
+        match sig.map(|sig| vk.verify_internal(&[$message_to_verify], &sig)) {
+            Some(_) => {
+                return Ok(());
+            }
+            None => {
+                return Err(Error::Unrecognized);
+            }
+        }
+    }};
+}
+
+#[cfg(feature = "pqc")]
+macro_rules! pqverify_slhdsa {
+    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
+        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val);
+        match sig.map(|sig| vk.verify_internal(&[$message_to_verify], $sig)) {
+            Some(_) => {
+                return Ok(());
+            }
+            None => {
+                return Err(Error::Unrecognized);
+            }
+        }
+    }};
+}
+
+#[cfg(feature = "pqc")]
 /// Write some stuff. TODO
 pub fn verify_signature_message_pqcrypto(
     _pe: &PkiEnvironment,
@@ -488,61 +516,46 @@ pub fn verify_signature_message_pqcrypto(
     //     Err(_e) => return Err(Error::Unrecognized),
     // };
     let spki_val = spki.subject_public_key.raw_bytes();
-    if is_ml_dsa_44_ipd(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium2::PublicKey,
-            pqcrypto_dilithium::dilithium2::DetachedSignature,
-            pqcrypto_dilithium::dilithium2::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_ml_dsa_65_ipd(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium3::PublicKey,
-            pqcrypto_dilithium::dilithium3::DetachedSignature,
-            pqcrypto_dilithium::dilithium3::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_ml_dsa_87_ipd(&signature_alg.oid) {
-        pqverify!(
-            pqcrypto_dilithium::dilithium5::PublicKey,
-            pqcrypto_dilithium::dilithium5::DetachedSignature,
-            pqcrypto_dilithium::dilithium5::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_falcon512(&signature_alg.oid) {
-        pqverify!(
-            falcon512::PublicKey,
-            falcon512::DetachedSignature,
-            falcon512::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_falcon1024(&signature_alg.oid) {
-        pqverify!(
-            falcon1024::PublicKey,
-            falcon1024::DetachedSignature,
-            falcon1024::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_slh_dsa_sha2_128f_ipd(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2128fsimple::PublicKey,
-            sphincssha2128fsimple::DetachedSignature,
-            sphincssha2128fsimple::verify_detached_signature,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if is_slh_dsa_sha2_128s_ipd(&signature_alg.oid) {
+    if is_ml_dsa_44(&signature_alg.oid) {
+        pqverify_mldsa!(MlDsa44, message_to_verify, spki_val, signature)
+    } else if is_ml_dsa_65(&signature_alg.oid) {
+        pqverify_mldsa!(MlDsa65, message_to_verify, spki_val, signature)
+    } else if is_ml_dsa_87(&signature_alg.oid) {
+        pqverify_mldsa!(MlDsa87, message_to_verify, spki_val, signature)
+    } else if is_slh_dsa_sha2_128f(&signature_alg.oid) {
+        let vk = slh_dsa::VerifyingKey::<slh_dsa::Sha2_128f>::try_from(spki_val)
+            .map_err(|_e| Error::PqcValidation)?;
+        let sig: slh_dsa::Signature<slh_dsa::Sha2_128f> = signature
+            .to_vec()
+            .as_slice()
+            .try_into()
+            .map_err(|_e| Error::PqcValidation)?;
+
+        match vk.slh_verify_internal(&[message_to_verify], &sig) {
+            Ok(_) => {
+                return Ok(());
+            }
+            Err(e) => {
+                error!("Failed to verify SLH DSA signature: {}", e);
+                return Err(Error::Unrecognized);
+            }
+        }
+
+        // pqverify_slhdsa!(
+        //     slh_dsa::Shake128f,
+        //     message_to_verify,
+        //     spki_val,
+        //     signature
+        // )
+        // pqverify!(
+        //     sphincssha2128fsimple::PublicKey,
+        //     sphincssha2128fsimple::DetachedSignature,
+        //     sphincssha2128fsimple::verify_detached_signature,
+        //     message_to_verify,
+        //     spki_val,
+        //     signature
+        // )
+    } else if is_slh_dsa_sha2_128s(&signature_alg.oid) {
         pqverify!(
             sphincssha2128ssimple::PublicKey,
             sphincssha2128ssimple::DetachedSignature,
@@ -551,7 +564,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_sha2_192f_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_192f(&signature_alg.oid) {
         pqverify!(
             sphincssha2192fsimple::PublicKey,
             sphincssha2192fsimple::DetachedSignature,
@@ -560,7 +573,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_sha2_192s_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_192s(&signature_alg.oid) {
         pqverify!(
             sphincssha2192ssimple::PublicKey,
             sphincssha2192ssimple::DetachedSignature,
@@ -569,7 +582,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_sha2_256f_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_256f(&signature_alg.oid) {
         pqverify!(
             sphincssha2256fsimple::PublicKey,
             sphincssha2256fsimple::DetachedSignature,
@@ -578,7 +591,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_sha2_256s_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_sha2_256s(&signature_alg.oid) {
         pqverify!(
             sphincssha2256ssimple::PublicKey,
             sphincssha2256ssimple::DetachedSignature,
@@ -587,7 +600,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_128f_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_128f(&signature_alg.oid) {
         pqverify!(
             sphincsshake128fsimple::PublicKey,
             sphincsshake128fsimple::DetachedSignature,
@@ -596,7 +609,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_128s_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_128s(&signature_alg.oid) {
         pqverify!(
             sphincsshake128ssimple::PublicKey,
             sphincsshake128ssimple::DetachedSignature,
@@ -605,7 +618,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_192f_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_192f(&signature_alg.oid) {
         pqverify!(
             sphincsshake192fsimple::PublicKey,
             sphincsshake192fsimple::DetachedSignature,
@@ -614,7 +627,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_192s_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_192s(&signature_alg.oid) {
         pqverify!(
             sphincsshake192ssimple::PublicKey,
             sphincsshake192ssimple::DetachedSignature,
@@ -623,7 +636,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_256f_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_256f(&signature_alg.oid) {
         pqverify!(
             sphincsshake256fsimple::PublicKey,
             sphincsshake256fsimple::DetachedSignature,
@@ -632,7 +645,7 @@ pub fn verify_signature_message_pqcrypto(
             spki_val,
             signature
         )
-    } else if is_slh_dsa_shake_256s_ipd(&signature_alg.oid) {
+    } else if is_slh_dsa_shake_256s(&signature_alg.oid) {
         pqverify!(
             sphincsshake256ssimple::PublicKey,
             sphincsshake256ssimple::DetachedSignature,

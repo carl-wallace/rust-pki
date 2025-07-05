@@ -21,7 +21,9 @@ cms = { git = "https://github.com/RustCrypto/formats.git" }
 x509-cert = { git = "https://github.com/RustCrypto/formats.git" }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
-ecdsa = { git = "https://github.com/RustCrypto/signatures.git" }
+ecdsa           = { git = "https://github.com/RustCrypto/signatures.git" }
+ml-dsa          = { git = "https://github.com/RustCrypto/signatures.git" }
+slh-dsa         = { git = "https://github.com/RustCrypto/signatures.git"}
 
 primefield = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
 p256 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
