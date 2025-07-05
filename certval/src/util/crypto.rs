@@ -1,34 +1,23 @@
 //! Provides implementations of crypto-related [`PkiEnvironment`] interfaces using libraries from the
 //! [Rust Crypto](https://github.com/RustCrypto) project for support.
 
-#[cfg(feature = "pqc")]
-use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
 use alloc::vec::Vec;
 
 use log::{debug, error};
 
-// #[cfg(feature = "pqc")]
-// use der::Decode;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
-
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
-use crate::util::error::{Error, PathValidationStatus, Result};
-use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
-
-// #[cfg(feature = "pqc")]
-// use pqckeys::composite::*;
+#[cfg(feature = "pqc")]
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
+#[cfg(feature = "pqc")]
+use slh_dsa::signature::Verifier;
 #[cfg(feature = "pqc")]
 use pqckeys::pqc_oids::*;
-#[cfg(feature = "pqc")]
-use pqcrypto_sphincsplus::{
-    sphincssha2128fsimple, sphincssha2128ssimple, sphincssha2192fsimple, sphincssha2192ssimple,
-    sphincssha2256fsimple, sphincssha2256ssimple, sphincsshake128fsimple, sphincsshake128ssimple,
-    sphincsshake192fsimple, sphincsshake192ssimple, sphincsshake256fsimple, sphincsshake256ssimple,
-};
-#[cfg(feature = "pqc")]
-use pqcrypto_traits::sign::{DetachedSignature, PublicKey as OtherPublicKey};
+
+use crate::util::error::{Error, PathValidationStatus, Result};
+use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
@@ -432,24 +421,6 @@ pub fn verify_signature_message_rust_crypto(
 //     // }
 //     Err(Error::Unrecognized)
 // }
-#[cfg(feature = "pqc")]
-macro_rules! pqverify {
-    ($pkt:ty, $dst:ty, $vdst:expr, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let pk = <$pkt>::from_bytes($spki_val).unwrap();
-        let sm = <$dst>::from_bytes($signature).unwrap();
-        let verifiedmsg = $vdst(&sm, $message_to_verify, &pk);
-        match verifiedmsg {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(_e) => {
-                return Err(Error::PathValidation(
-                    PathValidationStatus::SignatureVerificationFailure,
-                ));
-            }
-        };
-    }};
-}
 
 #[cfg(feature = "pqc")]
 macro_rules! pqverify_mldsa {
@@ -475,13 +446,14 @@ macro_rules! pqverify_mldsa {
 #[cfg(feature = "pqc")]
 macro_rules! pqverify_slhdsa {
     ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val);
-        match sig
-            .map(|sig| vk.verify_internal(&[$message_to_verify], $sig)) {
-            Some(_) => {
+        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val).map_err(|_e| {Error::PqcValidation})?;
+        let sig : slh_dsa::Signature<$pkt> = $signature.to_vec().as_slice().try_into().map_err(|_e| {Error::PqcValidation})?;
+        match vk.verify($message_to_verify, &sig) {
+            Ok(_) => {
                 return Ok(());
             }
-            None => {
+            Err(e) => {
+                error!("Failed to verify SLH DSA signature: {}", e);
                 return Err(Error::Unrecognized);
             }
         }
@@ -526,129 +498,85 @@ pub fn verify_signature_message_pqcrypto(
             signature
         )
     } else if is_slh_dsa_sha2_128f(&signature_alg.oid) {
-
-        let vk = slh_dsa::VerifyingKey::<slh_dsa::Sha2_128f>::try_from(spki_val).map_err(|_e| {Error::PqcValidation})?;
-        let sig : slh_dsa::Signature<slh_dsa::Sha2_128f> = signature.to_vec().as_slice().try_into().map_err(|_e| {Error::PqcValidation})?;
-
-        match vk.slh_verify_internal(&[message_to_verify], &sig) {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to verify SLH DSA signature: {}", e);
-                return Err(Error::Unrecognized);
-            }
-        }
-
-        // pqverify_slhdsa!(
-        //     slh_dsa::Shake128f,
-        //     message_to_verify,
-        //     spki_val,
-        //     signature
-        // )
-        // pqverify!(
-        //     sphincssha2128fsimple::PublicKey,
-        //     sphincssha2128fsimple::DetachedSignature,
-        //     sphincssha2128fsimple::verify_detached_signature,
-        //     message_to_verify,
-        //     spki_val,
-        //     signature
-        // )
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_128f,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if is_slh_dsa_sha2_128s(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2128ssimple::PublicKey,
-            sphincssha2128ssimple::DetachedSignature,
-            sphincssha2128ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_128s,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_sha2_192f(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2192fsimple::PublicKey,
-            sphincssha2192fsimple::DetachedSignature,
-            sphincssha2192fsimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_192f,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_sha2_192s(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2192ssimple::PublicKey,
-            sphincssha2192ssimple::DetachedSignature,
-            sphincssha2192ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_192s,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_sha2_256f(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2256fsimple::PublicKey,
-            sphincssha2256fsimple::DetachedSignature,
-            sphincssha2256fsimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_256f,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_sha2_256s(&signature_alg.oid) {
-        pqverify!(
-            sphincssha2256ssimple::PublicKey,
-            sphincssha2256ssimple::DetachedSignature,
-            sphincssha2256ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Sha2_256s,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_128f(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake128fsimple::PublicKey,
-            sphincsshake128fsimple::DetachedSignature,
-            sphincsshake128fsimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake128f,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_128s(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake128ssimple::PublicKey,
-            sphincsshake128ssimple::DetachedSignature,
-            sphincsshake128ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake128s,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_192f(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake192fsimple::PublicKey,
-            sphincsshake192fsimple::DetachedSignature,
-            sphincsshake192fsimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake192f,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_192s(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake192ssimple::PublicKey,
-            sphincsshake192ssimple::DetachedSignature,
-            sphincsshake192ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake192s,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_256f(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake256fsimple::PublicKey,
-            sphincsshake256fsimple::DetachedSignature,
-            sphincsshake256fsimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake256f,
             message_to_verify,
             spki_val,
             signature
         )
     } else if is_slh_dsa_shake_256s(&signature_alg.oid) {
-        pqverify!(
-            sphincsshake256ssimple::PublicKey,
-            sphincsshake256ssimple::DetachedSignature,
-            sphincsshake256ssimple::verify_detached_signature,
+        pqverify_slhdsa!(
+            slh_dsa::Shake256s,
             message_to_verify,
             spki_val,
             signature
