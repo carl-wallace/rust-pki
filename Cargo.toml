@@ -38,7 +38,9 @@ hmac            = { git = "https://github.com/RustCrypto/MACs.git" }
 rsa             = { git = "https://github.com/RustCrypto/RSA.git" }
 
 ecdsa           = { git = "https://github.com/RustCrypto/signatures.git" }
+ml-dsa          = { git = "https://github.com/RustCrypto/signatures" }
 rfc6979         = { git = "https://github.com/RustCrypto/signatures.git" }
+slh-dsa         = { git = "https://github.com/RustCrypto/signatures.git"}
 
 crypto-common    = { git = "https://github.com/RustCrypto/traits.git" }
 digest           = { git = "https://github.com/RustCrypto/traits.git" }

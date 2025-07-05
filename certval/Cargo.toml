@@ -29,11 +29,11 @@ x509-ocsp = { version = "0.3.0-pre" }
 
 pkiprocmacros = { path = "../pkiprocmacros"}
 
-ecdsa = {version = "0.17.0-rc.2", default-features = false, features = ["der"]}
+ecdsa = {version = "0.17.0-rc.3", default-features = false, features = ["der"]}
 ed25519-dalek = { version = "2.2.0-pre", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
-p256 = {version = "0.14.0-pre.7", default-features = false, features = ["ecdsa"]}
-p384 = {version = "0.14.0-pre.7", default-features = false, features = ["ecdsa"]}
-p521 = {version = "0.14.0-pre.7", default-features = false, features = ["ecdsa"]}
+p256 = {version = "0.14.0-pre.8", default-features = false, features = ["ecdsa"]}
+p384 = {version = "0.14.0-pre.8", default-features = false, features = ["ecdsa"]}
+p521 = {version = "0.14.0-pre.8", default-features = false, features = ["ecdsa"]}
 rsa = {version = "0.10.0-rc.0", default-features = false, optional=true}
 sha1 = {version = "0.11.0-rc.0", default-features = false}
 sha2 = {version = "0.11.0-rc.0", default-features = false, features = ["oid"] }
@@ -61,11 +61,14 @@ walkdir = { version = "2.5.0", optional = true}
 regex = {version = "1.11.1", optional = true}
 
 pqcrypto-internals =  {version = "0.2.10", optional = true}
-pqcrypto-dilithium =  {version = "0.5.0", optional = true}
-pqcrypto-falcon = {version = "0.4.0", optional = true}
+#pqcrypto-dilithium =  {version = "0.5.0", optional = true}
+#pqcrypto-falcon = {version = "0.4.0", optional = true}
 pqcrypto-sphincsplus = {version = "0.7.1", optional = true}
 pqcrypto = {version = "0.18.1", optional = true}
 pqcrypto-traits = {version = "0.3.5", optional = true}
+
+ml-dsa = { version = "0.1.0-pre.2", optional = true }
+slh-dsa = { version = "0.2.0-pre", optional = true }
 
 webpki-roots = {version = "0.25.4", optional = true}
 
@@ -90,7 +93,7 @@ default = ["remote", "webpki"]
 revocation = ["dep:ndarray"]
 std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "ed25519-dalek/std", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
-pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
+pqc = ["pqcrypto-internals", "ml-dsa", "slh-dsa", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]
 

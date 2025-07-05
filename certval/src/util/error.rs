@@ -130,6 +130,8 @@ pub enum Error {
     StdIoError(std::io::ErrorKind),
     /// Failed to obtain lock guard
     LockGuardError,
+    /// PQC verification error
+    PqcValidation
 }
 
 impl Error {
@@ -223,7 +225,8 @@ impl fmt::Display for Error {
             Error::ResourceUnchanged => write!(f, "ResourceUnchanged"),
             #[cfg(feature = "std")]
             Error::StdIoError(err) => write!(f, "StdError: {:?}", err),
-            &Error::LockGuardError => write!(f, "LockGuardError"),
+            Error::LockGuardError => write!(f, "LockGuardError"),
+            Error::PqcValidation => write!(f, "PqcValidation"),
         }
     }
 }
