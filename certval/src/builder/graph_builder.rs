@@ -82,7 +82,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 let tmp_vec: Vec<Option<PDVCertificate>> = vec![];
                 let r = cert_store.initialize(cps);
                 if let Err(e) = r {
-                    error!("Failed to populate cert map: {}", e);
+                    error!("Failed to populate cert map: {e}");
                 }
 
                 collect_uris_from_aia_and_sia_for_graph_build(&tmp_vec, &mut uris, certs_count);
@@ -102,7 +102,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
             )
             .await;
             if let Err(e) = r {
-                error!("URI fetching failed with {:?}", e);
+                error!("URI fetching failed with {e:?}");
             }
             let json_lmm = serde_json::to_string(&lmm);
             if !lmm_file.is_empty() {
@@ -127,16 +127,13 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
             }
             certs_count = cert_store.num_buffers();
             uris_count = uris.len();
-            error!("URI count: {}; Cert count: {}", uris_count, certs_count);
+            error!("URI count: {uris_count}; Cert count: {certs_count}");
         }
     }
 
     let r = cert_store.initialize(cps);
     if let Err(e) = r {
-        error!(
-            "Failed to populate parsed certificate vector with error {:?}",
-            e
-        );
+        error!("Failed to populate parsed certificate vector with error {e:?}");
     }
 
     if cert_store.num_buffers() == 0 {
@@ -172,8 +169,7 @@ pub fn read_cbor(filename: &Option<String>) -> Vec<u8> {
                 }
                 Err(e) => {
                     error!(
-                        "Failed to read CBOR data from {} with {:?}. Continuing without it.",
-                        filename, e
+                        "Failed to read CBOR data from {filename} with {e:?}. Continuing without it."
                     );
                 }
             }
@@ -246,7 +242,7 @@ mod tests {
         let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse CBOR file: {}", e)
+                panic!("Failed to parse CBOR file: {e}")
             }
         };
         assert_eq!(3, cert_source.len());
@@ -259,7 +255,7 @@ mod tests {
         let cert_source = match CertSource::new_from_cbor(cbor.unwrap().as_slice()) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse CBOR file: {}", e)
+                panic!("Failed to parse CBOR file: {e}")
             }
         };
         assert_eq!(3, cert_source.len());

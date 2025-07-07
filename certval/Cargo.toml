@@ -24,7 +24,7 @@ der = { version="0.8.0-rc.0", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 base64ct = { version="1.6.0", features = ["alloc"], optional=true }
 spki = { version = "0.8.0-rc.0", default-features = false, features = ["alloc"] }
-pqckeys = { git = "https://github.com/carl-wallace/pqckeys", optional=true }
+pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "kemri", optional=true }
 pem-rfc7468 = { version="1.0.0-pre.0", features = ["alloc"]}
 
 pkiprocmacros = { path = "../pkiprocmacros"}
@@ -64,10 +64,10 @@ ml-dsa = { version = "0.1.0-pre.2", optional = true }
 slh-dsa = { version = "0.2.0-pre", optional = true }
 
 webpki-roots = {version = "0.25.4", optional = true}
+hex-literal = "1.0.0"
 
 [dev-dependencies]
 tempfile = "3.20.0"
-hex-literal = "1.0.0"
 tokio-test = "0.4.4"
 pretty_env_logger = "0.5"
 tokio = { version = "1.45.1", features = ["full", "macros", "time", "rt-multi-thread"] }
