@@ -807,7 +807,7 @@ pub async fn pkits_guts(
                 continue;
             }
 
-            println!("{}", case_name);
+            println!("{case_name}");
             let mut ta = PDVTrustAnchorChoice::try_from(
                 pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
             )
@@ -819,7 +819,7 @@ pub async fn pkits_guts(
                     Ok(ee_cert) => ee_cert,
                     Err(err) => {
                         let k = err.kind();
-                        println!("{}: {}", k, err);
+                        println!("{k}: {err}");
                         continue;
                     }
                 };
@@ -912,7 +912,7 @@ pub async fn pkits_guts(
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
                 {
-                    panic!("Unexpected result for {}", case_name);
+                    panic!("Unexpected result for {case_name}");
                 }
 
                 if !verified_ta_as_target {
@@ -937,7 +937,7 @@ pub async fn pkits_guts(
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
                     {
-                        panic!("Unexpected result for {}", case_name);
+                        panic!("Unexpected result for {case_name}");
                     }
                     verified_ta_as_target = true;
                 }
@@ -968,7 +968,7 @@ pub async fn pkits_guts(
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
                         {
-                            println!("Unexpected result for {} with TA enforcement", case_name);
+                            println!("Unexpected result for {case_name} with TA enforcement");
                         }
                     }
                 }

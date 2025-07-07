@@ -308,7 +308,7 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
             Ok(pdvcert)
         }
         Err(e) => {
-            error!("Failed to parse certificate from {}: {}", filename, e);
+            error!("Failed to parse certificate from {filename}: {e}");
             Err(Error::Asn1Error(e))
         }
     }

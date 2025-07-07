@@ -54,8 +54,7 @@ cfg_if! {
             if let Some(logging_config) = &args.logging_config {
                 if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
                     println!(
-                        "ERROR: failed to configure logging using {} with {:?}. Continuing without logging.",
-                        logging_config, e
+                        "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
                     );
                 } else {
                     logging_configured = true;
@@ -74,13 +73,12 @@ cfg_if! {
                             let handle = log4rs::init_config(config);
                             if let Err(e) = handle {
                                 println!(
-                                    "ERROR: failed to configure logging for stdout with {:?}. Continuing without logging.",
-                                    e
+                                    "ERROR: failed to configure logging for stdout with {e:?}. Continuing without logging."
                                 );
                             }
                         }
                     Err(e) => {
-                        println!("ERROR: failed to prepare default logging configuration with {:?}. Continuing without logging", e);
+                        println!("ERROR: failed to prepare default logging configuration with {e:?}. Continuing without logging");
                     }
                 }
             }

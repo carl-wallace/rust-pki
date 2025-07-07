@@ -158,7 +158,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     {
         client
     } else {
-        error!("Failed to prepare OCSP client: {}", uri_to_check);
+        error!("Failed to prepare OCSP client: {uri_to_check}");
         return Err(Error::NetworkError);
     };
 
@@ -171,7 +171,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     {
         Ok(b) => b,
         Err(e) => {
-            debug!("OCSP request send failed with {}: {}", e, uri_to_check);
+            debug!("OCSP request send failed with {e}: {uri_to_check}");
             return Err(Error::NetworkError);
         }
     };
@@ -179,7 +179,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     let body_bytes = match body.bytes().await {
         Ok(bb) => bb,
         Err(e) => {
-            error!("Failed to read OCSP response with {}: {}", e, uri_to_check);
+            error!("Failed to read OCSP response with {e}: {uri_to_check}");
             return Err(Error::NetworkError);
         }
     };
@@ -367,11 +367,8 @@ pub async fn send_ocsp_request(
 
     let enc_ocsp_resp = match post_ocsp(uri_to_check, enc_ocsp_req.as_slice()).await {
         Ok(eor) => eor,
-        Err(_e) => {
-            error!(
-                "Failed sending OCSP request to {} with {:?}",
-                uri_to_check, _e
-            );
+        Err(e) => {
+            error!("Failed sending OCSP request to {uri_to_check} with {e:?}");
             cpr.add_failed_ocsp_request(enc_ocsp_req, result_index);
             return Err(Error::NetworkError);
         }
@@ -458,7 +455,7 @@ fn process_ocsp_response_internal(
     let or = match OcspResponse::from_der(enc_ocsp_resp) {
         Ok(or) => or,
         Err(e) => {
-            error!("Failed to parse OcspResponse from {}", uri_to_check);
+            error!("Failed to parse OcspResponse from {uri_to_check}");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
@@ -466,8 +463,8 @@ fn process_ocsp_response_internal(
 
     if or.response_status != OcspResponseStatus::Successful {
         error!(
-            "OcspResponse from {} indicates failure ({:?})",
-            uri_to_check, or.response_status
+            "OcspResponse from {uri_to_check} indicates failure ({:?})",
+            or.response_status
         );
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
@@ -476,10 +473,7 @@ fn process_ocsp_response_internal(
     let rb = match &or.response_bytes {
         Some(rb) => rb,
         None => {
-            error!(
-                "OcspResponse from {} contained no response bytes",
-                uri_to_check
-            );
+            error!("OcspResponse from {uri_to_check} contained no response bytes");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::OcspResponseError);
         }
@@ -487,8 +481,8 @@ fn process_ocsp_response_internal(
 
     if rb.response_type != ID_PKIX_OCSP_BASIC {
         error!(
-            "OcspResponse from {} contained response bytes other than basic type ({})",
-            uri_to_check, rb.response_type
+            "OcspResponse from {uri_to_check} contained response bytes other than basic type ({})",
+            rb.response_type
         );
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
@@ -497,7 +491,7 @@ fn process_ocsp_response_internal(
     let bor = match BasicOcspResponse::from_der(rb.response.as_bytes()) {
         Ok(bor) => bor,
         Err(e) => {
-            error!("OcspResponse from {} contained BasicOcspResponse that could not be parsed with: {}", uri_to_check, e);
+            error!("OcspResponse from {uri_to_check} contained BasicOcspResponse that could not be parsed with: {e}");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::Asn1Error(e));
         }
@@ -505,8 +499,7 @@ fn process_ocsp_response_internal(
 
     if unsupported_critical_extensions_present_response(&bor.tbs_response_data) {
         error!(
-            "OcspResponse from {} contained at least one unsupported critical extension",
-            uri_to_check
+            "OcspResponse from {uri_to_check} contained at least one unsupported critical extension"
         );
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::PathValidation(
@@ -536,7 +529,7 @@ fn process_ocsp_response_internal(
                         if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
                             if cert.tbs_certificate().signature() != &defer_cert.signature_algorithm
                             {
-                                error!("Verified candidate responder cert from OCSPResponse from {} but signature algorithm match failed", uri_to_check);
+                                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but signature algorithm match failed");
                                 cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
                                 continue;
                             }
@@ -546,7 +539,7 @@ fn process_ocsp_response_internal(
                                 let target_ttl =
                                     valid_at_time(cert.tbs_certificate(), time_of_interest, false);
                                 if let Err(_e) = target_ttl {
-                                    error!("Verified candidate responder cert from OCSPResponse from {} but certificate has expired", uri_to_check);
+                                    error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but certificate has expired");
                                     cpr.add_failed_ocsp_response(
                                         enc_ocsp_resp.to_vec(),
                                         result_index,
@@ -565,7 +558,7 @@ fn process_ocsp_response_internal(
                             let r =
                                 verify_response_signature(pe, &cert, rb.response.as_bytes(), &bor);
                             if r.is_err() {
-                                error!("Verified candidate responder cert from OCSPResponse from {} but response signature verification failed", uri_to_check);
+                                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but response signature verification failed");
                                 continue;
                             } else {
                                 sigverified = true;
@@ -579,7 +572,7 @@ fn process_ocsp_response_internal(
         // try the issuer's cert
         let r = verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor);
         if r.is_err() {
-            error!("OCSPResponse from {} featured no candidate certificate but response signature verification failed using issuing CA certificate", uri_to_check);
+            error!("OCSPResponse from {uri_to_check} featured no candidate certificate but response signature verification failed using issuing CA certificate");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return r;
         } else {
@@ -589,16 +582,13 @@ fn process_ocsp_response_internal(
     }
 
     if !authorized_responder {
-        error!("Failed to find authorized OCSP responder from {}. Note, responders signed by key rollover certificates are not presently accepted (though this may not have been a factor here).", uri_to_check);
+        error!("Failed to find authorized OCSP responder from {uri_to_check}. Note, responders signed by key rollover certificates are not presently accepted (though this may not have been a factor here).");
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
     }
 
     if !sigverified {
-        error!(
-            "Signature on OCSPResponse from {} was not verified.",
-            uri_to_check
-        );
+        error!("Signature on OCSPResponse from {uri_to_check} was not verified.");
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
     }
@@ -614,7 +604,7 @@ fn process_ocsp_response_internal(
             continue;
         }
         if unsupported_critical_extensions_present_single_response(&sr) {
-            error!("OCSPResponse from {} featured unrecognized critical extensions in single response.", uri_to_check);
+            error!("OCSPResponse from {uri_to_check} featured unrecognized critical extensions in single response.");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
             return Err(Error::PathValidation(
                 PathValidationStatus::UnprocessedCriticalExtension,

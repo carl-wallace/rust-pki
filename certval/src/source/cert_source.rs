@@ -513,10 +513,7 @@ impl CertSource {
                 let skid = hex_skid_from_cert(cert);
                 let sub = get_leaf_rdn(cert.decoded_cert.tbs_certificate().subject());
                 let iss = get_leaf_rdn(cert.decoded_cert.tbs_certificate().issuer());
-                info!(
-                    "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                    i, skid, iss, sub
-                );
+                info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
             }
         }
     }
@@ -550,7 +547,7 @@ impl CertSource {
                     let iss = get_leaf_rdn(cert.decoded_cert.tbs_certificate().issuer());
                     if let Some(perm) = &nc.permitted_subtrees {
                         logged_some = true;
-                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                         info!("Permitted Name Constraints");
                         for gs in perm {
                             info!("- {}", general_subtree_to_string(gs));
@@ -558,7 +555,7 @@ impl CertSource {
                     }
                     if let Some(excl) = &nc.excluded_subtrees {
                         logged_some = true;
-                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                         info!("Excluded Name Constraints");
                         for gs in excl {
                             info!("- {}", general_subtree_to_string(gs));
@@ -599,7 +596,7 @@ impl CertSource {
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     let cert = &self.certs[v[0]];
@@ -608,7 +605,7 @@ impl CertSource {
                     } else {
                         "".to_string()
                     };
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         }
@@ -616,14 +613,13 @@ impl CertSource {
         for _ in self.certs.iter().flatten() {
             non_null_certs += 1;
         }
-        let mut message = format!("{} certificates yielded: ", non_null_certs);
+        let mut message = format!("{non_null_certs} certificates yielded: ");
         for (i, count) in counts.iter().enumerate() {
             if 0 == i {
-                message.push_str(format!("\n - {} paths with 1 certificate", count).as_str());
+                message.push_str(format!("\n - {count} paths with 1 certificate").as_str());
             } else if counts[i] != 0 {
-                message.push_str(
-                    format!(";\n - {} paths with {} certificates", count, i + 1).as_str(),
-                );
+                message
+                    .push_str(format!(";\n - {count} paths with {} certificates", i + 1).as_str());
             }
         }
         info!("{}", message.as_str());
@@ -637,8 +633,7 @@ impl CertSource {
             true,
         ) {
             error!(
-                "No paths found because target is not valid at indicated time of interest ({})",
-                time_of_interest
+                "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
             return;
         }
@@ -677,8 +672,7 @@ impl CertSource {
                             let skid = hex_skid_from_cert(cert);
                             if !skid.is_empty() {
                                 debug!(
-                                    "Using calculated key identifier in lieu of AKID for {}",
-                                    name_str
+                                    "Using calculated key identifier in lieu of AKID for {name_str}"
                                 );
                                 akid_hex = skid;
                                 break;
@@ -708,11 +702,11 @@ impl CertSource {
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     if v.is_empty() {
-                        error!("Empty partial paths vector for {}: . Skipping.", label);
+                        error!("Empty partial paths vector for {label}: . Skipping.");
                         continue;
                     }
 
@@ -747,15 +741,12 @@ impl CertSource {
                         }
                     }
                     counter += 1;
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            error!(
-                "Missing AKID in target and failed to find by name - {}",
-                fname
-            );
+            error!("Missing AKID in target and failed to find by name - {fname}");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
@@ -764,10 +755,7 @@ impl CertSource {
                     let skid = hex_skid_from_cert(cert);
                     let sub = get_leaf_rdn(cert.decoded_cert.tbs_certificate().subject());
                     let iss = get_leaf_rdn(cert.decoded_cert.tbs_certificate().issuer());
-                    info!(
-                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                        i, skid, iss, sub
-                    );
+                    info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                 }
             }
         }
@@ -818,7 +806,7 @@ impl CertSource {
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     let mut vlabel = "".to_string();
@@ -835,15 +823,12 @@ impl CertSource {
                         }
                     }
                     counter += 1;
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            error!(
-                "Missing SKID in leaf CA and failed to calculate one - {}",
-                fname
-            );
+            error!("Missing SKID in leaf CA and failed to calculate one - {fname}");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
@@ -852,10 +837,7 @@ impl CertSource {
                     let skid = hex_skid_from_cert(cert);
                     let sub = get_leaf_rdn(cert.decoded_cert.tbs_certificate().subject());
                     let iss = get_leaf_rdn(cert.decoded_cert.tbs_certificate().issuer());
-                    info!(
-                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                        i, skid, iss, sub
-                    );
+                    info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                 }
             }
         }
@@ -896,10 +878,7 @@ impl CertSource {
         match r {
             Ok(_) => Ok(buffer),
             Err(e) => {
-                error!(
-                    "Failed to generate CBOR file containing partial paths with error: {:?}",
-                    e
-                );
+                error!("Failed to generate CBOR file containing partial paths with error: {e:?}");
                 Err(Error::Unrecognized)
             }
         }
@@ -1373,8 +1352,7 @@ impl CertificateSource for CertSource {
             true,
         ) {
             error!(
-                "No paths found because target is not valid at indicated time of interest ({})",
-                time_of_interest
+                "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
             return Err(e);
         }
@@ -1470,7 +1448,7 @@ impl CertificateSource for CertSource {
                                             }
                                         } else {
                                             let fname = get_filename_from_cert_metadata(cert);
-                                            error!("Missing AKID for trust anchor - {}", fname);
+                                            error!("Missing AKID for trust anchor - {fname}");
                                             if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
                                             {
                                                 error!("Found trust anchor by name");
@@ -1502,10 +1480,7 @@ impl CertificateSource for CertSource {
                 }
             } else {
                 let fname = get_filename_from_cert_metadata(target);
-                error!(
-                    "Missing AKID in target and failed to find by name - {}",
-                    fname
-                );
+                error!("Missing AKID in target and failed to find by name - {fname}");
             }
 
             if akid_hex.is_empty() || paths_count == paths.len() {
@@ -1519,8 +1494,7 @@ impl CertificateSource for CertSource {
                                 let skid = hex_skid_from_cert(cert);
                                 if !skid.is_empty() {
                                     debug!(
-                                        "Using calculated key identifier in lieu of AKID for {}",
-                                        name_str
+                                        "Using calculated key identifier in lieu of AKID for {name_str}"
                                     );
                                     akid_hex = skid;
                                     changed = true;

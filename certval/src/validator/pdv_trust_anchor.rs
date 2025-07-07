@@ -129,7 +129,7 @@ impl TryFrom<&TrustAnchor<'_>> for PDVTrustAnchorChoice {
         let key_id = match spki.subject_public_key.as_bytes() {
             Some(b) => Sha1::digest(b),
             None => {
-                error!("Failed to calculate key identifier for {}", n);
+                error!("Failed to calculate key identifier for {n}");
                 return Err(Error::Unrecognized);
             }
         };

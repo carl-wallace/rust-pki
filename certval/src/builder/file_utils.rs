@@ -75,7 +75,7 @@ fn cert_or_ta_folder_to_vec(
     collect_tas: bool,
 ) -> Result<usize> {
     if !Path::is_dir(Path::new(certsdir)) {
-        error!("{} does not exist or is not a directory", certsdir);
+        error!("{certsdir} does not exist or is not a directory");
         return Err(Error::NotFound);
     }
 
@@ -146,7 +146,7 @@ fn cert_or_ta_folder_to_vec(
 
                             if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
                                 if let Some(s) = path.to_str() {
-                                    info!("Ignoring {} as self-signed", s);
+                                    info!("Ignoring {s} as self-signed");
                                 }
                                 continue;
                             }
@@ -234,18 +234,18 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
                 match f.read_exact(&mut buffer) {
                     Ok(_) => Ok(buffer),
                     Err(e) => {
-                        error!("Failed to read data from {:?}: {}", filename, e);
+                        error!("Failed to read data from {filename:?}: {e}");
                         Err(Error::StdIoError(e.kind()))
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to read metadata for {:?}: {}", filename, e);
+                error!("Failed to read metadata for {filename:?}: {e}");
                 Err(Error::StdIoError(e.kind()))
             }
         },
         Err(e) => {
-            error!("Failed to read {:?}: {}", filename, e);
+            error!("Failed to read {filename:?}: {e}");
             Err(Error::StdIoError(e.kind()))
         }
     }
@@ -263,7 +263,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
                 return Ok(b.1);
             }
             Err(e) => {
-                error!("Failed to PEM decode data from {:?}: {:?}", filename, e);
+                error!("Failed to PEM decode data from {filename:?}: {e:?}");
                 return Err(Error::Unrecognized);
             }
         }

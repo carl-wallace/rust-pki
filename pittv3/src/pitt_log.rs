@@ -74,7 +74,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         .expect("Unable to write manifest file");
     let policy_set = cps.get_initial_policy_set();
     for policy in policy_set {
-        f.write_all(format!("\t* {}\n", policy).as_bytes())
+        f.write_all(format!("\t* {policy}\n").as_bytes())
             .expect("Unable to write manifest file");
     }
     f.write_all("Initial permitted names: \n".as_bytes())
@@ -102,19 +102,19 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in perm.rfc822_name {
             if let GeneralName::Rfc822Name(rfc822) = &gs.base {
-                f.write_all(format!("\t\t\t* RFC822 name: {}\n", rfc822).as_bytes())
+                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
         for gs in perm.uniform_resource_identifier {
             if let GeneralName::UniformResourceIdentifier(uri) = &gs.base {
-                f.write_all(format!("\t\t\t* URI: {}\n", uri).as_bytes())
+                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
         for gs in perm.dns_name {
             if let GeneralName::DnsName(dns) = &gs.base {
-                f.write_all(format!("\t\t\t* DNS name: {}\n", dns).as_bytes())
+                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -144,19 +144,19 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         }
         for gs in excl.rfc822_name {
             if let GeneralName::Rfc822Name(rfc822) = &gs.base {
-                f.write_all(format!("\t\t\t* RFC822 name: {}\n", rfc822).as_bytes())
+                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
         for gs in excl.uniform_resource_identifier {
             if let GeneralName::UniformResourceIdentifier(uri) = &gs.base {
-                f.write_all(format!("\t\t\t* URI: {}\n", uri).as_bytes())
+                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
         for gs in excl.dns_name {
             if let GeneralName::DnsName(dns) = &gs.base {
-                f.write_all(format!("\t\t\t* DNS name: {}\n", dns).as_bytes())
+                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
                     .expect("Unable to write manifest file");
             }
         }
@@ -301,8 +301,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             } else {
                 f.write_all(
                     format!(
-                        "\t\t* Path length constraint: only {} CA certificate(s) may follow\n",
-                        plc
+                        "\t\t* Path length constraint: only {plc} CA certificate(s) may follow\n"
                     )
                     .as_bytes(),
                 )
@@ -324,11 +323,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     let pdv_ext = cert.get_extension(&ID_CE_POLICY_CONSTRAINTS);
     if let Ok(Some(PDVExtension::PolicyConstraints(pc))) = pdv_ext {
         if let Some(re) = pc.require_explicit_policy {
-            f.write_all(format!("\t\t* Require explicit policy: {}\n", re).as_bytes())
+            f.write_all(format!("\t\t* Require explicit policy: {re}\n").as_bytes())
                 .expect("Unable to write manifest file");
         }
         if let Some(re) = pc.inhibit_policy_mapping {
-            f.write_all(format!("\t\t* Inhibit policy mapping: {}\n", re).as_bytes())
+            f.write_all(format!("\t\t* Inhibit policy mapping: {re}\n").as_bytes())
                 .expect("Unable to write manifest file");
         }
     }
@@ -359,7 +358,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = pdv_ext {
         if let Some(kid) = &akid.key_identifier {
             let akid_hex = buffer_to_hex(kid.as_bytes());
-            f.write_all(format!("\t\t* Authority key identifier: {}\n", akid_hex).as_bytes())
+            f.write_all(format!("\t\t* Authority key identifier: {akid_hex}\n").as_bytes())
                 .expect("Unable to write manifest file");
         }
         if let Some(iss) = &akid.authority_cert_issuer {
@@ -380,11 +379,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                         }
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {}\n", rfc822).as_bytes())
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {}\n", dns).as_bytes())
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DirectoryName(dn) => {
@@ -392,7 +391,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {}\n", uri).as_bytes())
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
@@ -413,7 +412,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     let pdv_ext = cert.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
     if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = pdv_ext {
         let skid_hex = buffer_to_hex(skid.0.as_bytes());
-        f.write_all(format!("\t\t* Subject key identifier: {}\n", skid_hex).as_bytes())
+        f.write_all(format!("\t\t* Subject key identifier: {skid_hex}\n").as_bytes())
             .expect("Unable to write manifest file");
     }
     //TODO FIX
@@ -439,7 +438,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
         f.write_all("\t\t* Extended key usage\n".as_bytes())
             .expect("Unable to write manifest file");
         for p in &eku.0 {
-            f.write_all(format!("\t\t\t* {}\n", p).as_bytes())
+            f.write_all(format!("\t\t\t* {p}\n").as_bytes())
                 .expect("Unable to write manifest file");
         }
     }
@@ -464,11 +463,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                         }
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {}\n", rfc822).as_bytes())
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {}\n", dns).as_bytes())
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DirectoryName(dn) => {
@@ -476,7 +475,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {}\n", uri).as_bytes())
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
@@ -505,11 +504,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                         }
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {}\n", rfc822).as_bytes())
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {}\n", dns).as_bytes())
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::DirectoryName(dn) => {
@@ -517,7 +516,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
                             .expect("Unable to write manifest file");
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {}\n", uri).as_bytes())
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
                             .expect("Unable to write manifest file");
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
@@ -538,7 +537,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
 pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &CertificationPathResults) {
     let status = cpr.get_validation_status();
     if let Some(status) = status {
-        f.write_all(format!("Status: {:?}\n\n", status).as_bytes())
+        f.write_all(format!("Status: {status:?}\n\n").as_bytes())
             .expect("Unable to write manifest file");
     }
 
@@ -678,13 +677,10 @@ pub fn log_path(
     let np1 = ef.join(Path::new(&target_filename));
     let r = fs::create_dir_all(&np1);
     if let Err(e) = r {
-        error!(
-            "Failed to create directories for {} with: {}",
-            target_folder, e
-        );
+        error!("Failed to create directories for {target_folder} with: {e}");
     }
 
-    let np = np1.join(Path::new(format!("{}", index).as_str()));
+    let np = np1.join(Path::new(format!("{index}").as_str()));
     let r = fs::create_dir_all(&np);
 
     if let Err(e) = r {
@@ -713,7 +709,7 @@ pub fn log_path(
             return;
         };
         let s = get_filename_from_metadata(&path.target);
-        f.write_all(format!("Certification path validation results for: {}\n\n", s).as_bytes())
+        f.write_all(format!("Certification path validation results for: {s}\n\n").as_bytes())
             .expect("Unable to write manifest file");
         f.write_all(
             "********************************************************************************\n"

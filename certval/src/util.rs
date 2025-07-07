@@ -1,6 +1,8 @@
 //! Basic utility functionality supporting certification path validation
 
 pub mod crypto;
+pub mod crypto_composite;
+pub mod crypto_pqc;
 pub mod error;
 pub mod pdv_alg_oids;
 pub mod pdv_utilities;

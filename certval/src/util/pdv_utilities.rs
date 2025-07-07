@@ -60,10 +60,7 @@ pub fn is_self_signed_with_buffer(
             )
             .is_ok(),
         Err(e) => {
-            error!(
-                "Failed to defer decode certificate in is_self_signed with: {}",
-                e
-            );
+            error!("Failed to defer decode certificate in is_self_signed with: {e}");
             false
         }
     }
@@ -587,10 +584,7 @@ pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<Algorithm
 
 pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
     let name_str = name_to_string(name);
-    error!(
-        "Encountered error while processing certificate with subject {}: {}",
-        name_str, msg
-    );
+    error!("Encountered error while processing certificate with subject {name_str}: {msg}");
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
@@ -751,7 +745,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
             match c {
                 '#' if i == 0 => s.push_str("\\#"),
                 ' ' if i == 0 || iter.peek().is_none() => s.push_str("\\ "),
-                '"' | '+' | ',' | ';' | '<' | '>' | '\\' => s.push_str(format!("\\{}", c).as_str()),
+                '"' | '+' | ',' | ';' | '<' | '>' | '\\' => s.push_str(format!("\\{c}").as_str()),
                 '\x00'..='\x1f' | '\x7f' => s.push_str(format!("\\{:02x}", c as u8).as_str()),
                 _ => s.push(c),
             }
@@ -761,7 +755,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
             Ok(val) => {
                 s.push_str(format!("{}=#", atav.oid).as_str());
                 for c in val {
-                    s.push_str(format!("{:02x}", c).as_str());
+                    s.push_str(format!("{c:02x}").as_str());
                 }
             }
             Err(e) => {
@@ -868,14 +862,14 @@ pub fn ta_valid_at_time(
 pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
     match &gs.base {
         GeneralName::DirectoryName(dn) => {
-            format!("DirectoryName: {}", dn)
+            format!("DirectoryName: {dn}")
         }
         GeneralName::UniformResourceIdentifier(uri) => {
-            format!("UniformResourceIdentifier: {}", uri)
+            format!("UniformResourceIdentifier: {uri}")
         }
-        GeneralName::DnsName(dns) => format!("DnsName: {}", dns),
+        GeneralName::DnsName(dns) => format!("DnsName: {dns}"),
         GeneralName::Rfc822Name(rfc822) => {
-            format!("Rfc822Name: {}", rfc822)
+            format!("Rfc822Name: {rfc822}")
         }
         GeneralName::OtherName(_on) => format!("OtherName: {:?}", gs.base),
         GeneralName::RegisteredId(_rid) => format!("RegisteredId: {:?}", gs.base),

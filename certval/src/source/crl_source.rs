@@ -284,7 +284,7 @@ impl CrlSource for CrlSourceFolders {
         let digest = Sha256::digest(uri).to_vec();
         let hex = buffer_to_hex(digest.as_slice());
         if !hex.is_empty() {
-            let filename = format!("{}.crl", hex);
+            let filename = format!("{hex}.crl");
             let path = Path::new(self.crls_folder.as_str()).join(filename);
             if let Err(_e) = std::fs::write(&path, crl_buf) {
                 return Err(Error::Unrecognized);
@@ -483,7 +483,7 @@ fn index_crls_internal(
                     let crl = match CertificateList::from_der(crl_buf.as_slice()) {
                         Ok(crl) => crl,
                         Err(e) => {
-                            error!("Failed to parse CRL with {}", e);
+                            error!("Failed to parse CRL with {e}");
                             continue;
                         }
                     };
@@ -504,7 +504,7 @@ fn index_crls_internal(
                                 );
                             } else if fs::remove_file(e.path()).is_err() {
                                 if let Some(filename) = e.path().to_str() {
-                                    error!("Failed to delete stale CRL at {}", filename);
+                                    error!("Failed to delete stale CRL at {filename}");
                                 }
                             }
                         }

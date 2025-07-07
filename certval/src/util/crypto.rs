@@ -1,27 +1,22 @@
 //! Provides implementations of crypto-related [`PkiEnvironment`] interfaces using libraries from the
 //! [Rust Crypto](https://github.com/RustCrypto) project for support.
 
+use crate::util::error::{Error, PathValidationStatus, Result};
+use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 use alloc::vec::Vec;
-
-use log::{debug, error};
-
+use const_oid::db::rfc5912::ID_RSASSA_PSS;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
+use der::{Enumerated, Sequence};
+use log::{debug, error};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
-#[cfg(feature = "pqc")]
-use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
-#[cfg(feature = "pqc")]
-use slh_dsa::signature::Verifier;
-
-#[cfg(feature = "pqc")]
-use const_oid::db::{
-    fips204::{ID_ML_DSA_44, ID_ML_DSA_65,ID_ML_DSA_87 },
-    fips205::*
-};
-
-use crate::util::error::{Error, PathValidationStatus, Result};
-use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
+#[cfg(feature = "rsa")]
+use const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512};
+#[cfg(feature = "rsa")]
+use der::Decode;
+#[cfg(feature = "rsa")]
+use ed25519_dalek::Verifier;
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
@@ -168,6 +163,45 @@ pub fn verify_signature_message_rust_crypto(
                     });
             }
         }
+    } else if ID_RSASSA_PSS == signature_alg.oid {
+        #[cfg(feature = "rsa")]
+        use rsa::pkcs8::DecodePublicKey as _;
+        #[cfg(feature = "rsa")]
+        if let Ok(enc_spki) = spki.to_der() {
+            let rsa = rsa::RsaPublicKey::from_public_key_der(&enc_spki);
+            if let Ok(rsa) = rsa {
+                let enc_params = signature_alg.parameters.to_der()?;
+                let params = RsaPssParams::from_der(&enc_params)?;
+                let hash_to_verify =
+                    calculate_hash_rust_crypto(pe, &params.hash, message_to_verify)?;
+
+                if ID_SHA_256 == params.hash.oid {
+                    let pss: rsa::pss::VerifyingKey<Sha256> = rsa::pss::VerifyingKey::new(rsa);
+                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
+                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    });
+                } else if ID_SHA_384 == params.hash.oid {
+                    let pss: rsa::pss::VerifyingKey<Sha384> = rsa::pss::VerifyingKey::new(rsa);
+                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
+                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    });
+                } else if ID_SHA_512 == params.hash.oid {
+                    let pss: rsa::pss::VerifyingKey<Sha512> = rsa::pss::VerifyingKey::new(rsa);
+                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
+                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    });
+                } else {
+                    error!(
+                        "Unrecognized hash algorithm in RSA PSS parameters {:?}",
+                        params.hash.oid.to_string()
+                    );
+                    return Err(Error::Unrecognized);
+                }
+            }
+        }
     } else if is_ecdsa(&signature_alg.oid) {
         let named_curve = get_named_curve_parameter(&spki.algorithm)?;
 
@@ -216,7 +250,7 @@ pub fn verify_signature_message_rust_crypto(
                 verify_with_ecdsa!(p521)
             }
             _ => {
-                error!("Unrecognized or unsupported named curve: {}", named_curve);
+                error!("Unrecognized or unsupported named curve: {named_curve}");
                 Err(Error::Unrecognized)
             }
         };
@@ -243,259 +277,39 @@ pub fn verify_signature_message_rust_crypto(
     Err(Error::Unrecognized)
 }
 
-// #[cfg(feature = "pqc")]
-// fn is_composite(oid: ObjectIdentifier) -> Result<(AlgorithmIdentifierOwned, AlgorithmIdentifierOwned)> {
-//     todo!()
-// }
+/// Parameters to support use of the RSA PSS signature scheme as defined in [RFC 5912 Section 8].
+///
+/// ```text
+///    RSASSA-PSS-params  ::=  SEQUENCE  {
+//        hashAlgorithm     [0] HashAlgorithm DEFAULT sha1Identifier,
+//        maskGenAlgorithm  [1] MaskGenAlgorithm DEFAULT mgf1SHA1,
+//        saltLength        [2] INTEGER DEFAULT 20,
+//        trailerField      [3] INTEGER DEFAULT 1
+//    }
+/// ```
+/// [RFC 5912 Section 8]: https://www.rfc-editor.org/rfc/rfc5912#section-8
+#[derive(Clone, Debug, Eq, PartialEq, Sequence)]
+pub struct RsaPssParams {
+    /// Hash Algorithm
+    pub hash: AlgorithmIdentifierOwned,
 
-// #[cfg(feature = "pqc")]
-// /// verify_signature_message_composite_pqcrypto
-// pub fn verify_signature_message_composite_pqcrypto(
-//     _pe: &PkiEnvironment,
-//     message_to_verify: &[u8],                 // buffer to verify
-//     signature: &[u8],                         // signature
-//     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
-//     spki: &SubjectPublicKeyInfoOwned,         // public key
-// ) -> Result<()> {
-//     // only doing generic composite at present
-//     // if is_composite(signature_alg.oid) {
-//     //     // Parse each composite value
-//     //     // Params is an AnyRef, so it needs to be encoded to access value
-//     //     let params_enc = if let Some(p) = &signature_alg.parameters {
-//     //         match p.to_der() {
-//     //             Ok(rv) => rv,
-//     //             Err(_e) => return Err(Error::Unrecognized),
-//     //         }
-//     //     } else {
-//     //         return Err(Error::Unrecognized);
-//     //     };
-//     //
-//     //     let params = match CompositeParams::from_der(params_enc.as_slice()) {
-//     //         Ok(p) => p,
-//     //         Err(_e) => return Err(Error::Unrecognized),
-//     //     };
-//     //
-//     //     let cs = match CompositeSignatureValue::from_der(signature) {
-//     //         Ok(cs) => cs,
-//     //         Err(_e) => return Err(Error::Unrecognized),
-//     //     };
-//     //
-//     //     let cspki = match CompositePublicKey::from_der(spki.subject_public_key.raw_bytes()) {
-//     //         Ok(cspki) => cspki,
-//     //         Err(_e) => return Err(Error::Unrecognized),
-//     //     };
-//     //
-//     //     // Make sure number of params and signatures is same and that there are at least that many
-//     //     // public key values
-//     //     if cs.len() != params.len() {
-//     //         return Err(Error::Unrecognized);
-//     //     }
-//     //     if cs.len() > cspki.len() {
-//     //         return Err(Error::Unrecognized);
-//     //     }
-//     //
-//     //     // iterate over signatures
-//     //     for i in 0..cs.len() {
-//     //         let cur_sig = match cs[i].as_bytes() {
-//     //             Some(r) => r,
-//     //             None => return Err(Error::Unrecognized),
-//     //         };
-//     //         let cur_sig_alg = &params[i];
-//     //         let ecdsa_key = is_ecdsa(&cur_sig_alg.oid);
-//     //         let mut matched = false;
-//     //
-//     //         // find the public key that matches
-//     //         for cur_spki in &cspki {
-//     //             if cur_sig_alg.oid == cur_spki.algorithm.oid
-//     //                 || (ecdsa_key && PKIXALG_EC_PUBLIC_KEY == cur_spki.algorithm.oid)
-//     //             {
-//     //                 if ecdsa_key {
-//     //                     verify_signature_message_rust_crypto(
-//     //                         _pe,
-//     //                         message_to_verify,
-//     //                         cur_sig,
-//     //                         cur_sig_alg,
-//     //                         cur_spki,
-//     //                     )?;
-//     //                     matched = true;
-//     //                     break;
-//     //                 } else {
-//     //                     verify_signature_message_pqcrypto(
-//     //                         _pe,
-//     //                         message_to_verify,
-//     //                         cur_sig,
-//     //                         cur_sig_alg,
-//     //                         cur_spki,
-//     //                     )?;
-//     //                     matched = true;
-//     //                     break;
-//     //                 }
-//     //             }
-//     //         }
-//     //         if !matched {
-//     //             return Err(Error::Unrecognized);
-//     //         }
-//     //     }
-//     //     return Ok(());
-//     // }
-//     Err(Error::Unrecognized)
-// }
+    /// Mask Generation Function (MGF)
+    pub mask_gen: AlgorithmIdentifierOwned,
 
-#[cfg(feature = "pqc")]
-macro_rules! pqverify_mldsa {
-    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val).map_err(|_e| {Error::PqcValidation})?;
-        let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
+    /// Salt length
+    pub salt_len: u32,
 
-        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature).map_err(|_e| {Error::PqcValidation})?;
-        let sig = ml_dsa::Signature::<$pkt>::decode(&sig_bytes);
-
-        match sig
-            .map(|sig| vk.verify_internal(&[$message_to_verify], &sig)) {
-            Some(_) => {
-                return Ok(());
-            }
-            None => {
-                return Err(Error::Unrecognized);
-            }
-        }
-    }};
+    /// Trailer field (i.e. [`TrailerField::BC`])
+    pub trailer_field: TrailerField,
 }
 
-#[cfg(feature = "pqc")]
-macro_rules! pqverify_slhdsa {
-    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val).map_err(|_e| {Error::PqcValidation})?;
-        let sig : slh_dsa::Signature<$pkt> = $signature.to_vec().as_slice().try_into().map_err(|_e| {Error::PqcValidation})?;
-        match vk.verify($message_to_verify, &sig) {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to verify SLH DSA signature: {}", e);
-                return Err(Error::Unrecognized);
-            }
-        }
-    }};
-}
-
-#[cfg(feature = "pqc")]
-/// Verify ML-DSA and SLH-DSA signatures.
-pub fn verify_signature_message_pqcrypto(
-    _pe: &PkiEnvironment,
-    message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
-    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
-    spki: &SubjectPublicKeyInfoOwned,         // public key
-) -> Result<()> {
-    let spki_val = spki.subject_public_key.raw_bytes();
-    if ID_ML_DSA_44 == signature_alg.oid {
-        pqverify_mldsa!(
-            MlDsa44,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_ML_DSA_65 == signature_alg.oid {
-        pqverify_mldsa!(
-            MlDsa65,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_ML_DSA_87 == signature_alg.oid {
-        pqverify_mldsa!(
-            MlDsa87,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_128_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_128f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_128_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_128s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_192_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_192f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_192_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_192s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_256_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_256f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHA_2_256_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Sha2_256s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_128_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake128f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_128_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake128s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_192_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake192f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_192_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake192s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_256_F == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake256f,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    } else if ID_SLH_DSA_SHAKE_256_S == signature_alg.oid {
-        pqverify_slhdsa!(
-            slh_dsa::Shake256s,
-            message_to_verify,
-            spki_val,
-            signature
-        )
-    }
-    Err(Error::Unrecognized)
+/// todo
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Enumerated)]
+#[asn1(type = "INTEGER")]
+#[repr(u8)]
+pub enum TrailerField {
+    /// the only supported value (0xbc, default)
+    BC = 1,
 }
 
 #[test]
