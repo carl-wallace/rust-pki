@@ -131,7 +131,19 @@ fn is_composite(
             parameters: Some(Any::from_der(&der_params)?),
         };
         Ok((pqc, trad))
-    } else if ID_MLDSA65_RSA4096_PKCS15_SHA512 == composite_oid {
+    } else if ID_MLDSA65_RSA3072_PKCS15_SHA512 == composite_oid
+    {
+        let pqc = AlgorithmIdentifierOwned {
+            oid: ID_ML_DSA_65,
+            parameters: None,
+        };
+        let trad = AlgorithmIdentifierOwned {
+            oid: PKIXALG_SHA256_WITH_RSA_ENCRYPTION,
+            parameters: Some(Any::from(AnyRef::NULL)),
+        };
+        Ok((pqc, trad))
+    } else if ID_MLDSA65_RSA4096_PKCS15_SHA512 == composite_oid
+    {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_65,
             parameters: None,
