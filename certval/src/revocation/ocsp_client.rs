@@ -265,7 +265,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
         reader: &mut R,
         header: ::der::Header,
     ) -> ::der::Result<Self> {
-        reader.read_nested(header.length, |reader| {
+        reader.read_nested(header.length(), |reader| {
             let tbs_response_data = reader.tlv_bytes()?;
             let signature_algorithm = reader.tlv_bytes()?;
             let signature = reader.tlv_bytes()?;

@@ -273,7 +273,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
         reader: &mut R,
         header: ::der::Header,
     ) -> ::der::Result<Self> {
-        reader.read_nested(header.length, |reader| {
+        reader.read_nested(header.length(), |reader| {
             let tbs_certificate = reader.tlv_bytes()?;
             let signature_algorithm = reader.decode()?;
             let signature = reader.decode()?;

@@ -37,7 +37,7 @@ hmac            = { git = "https://github.com/RustCrypto/MACs.git" }
 
 rsa             = { git = "https://github.com/RustCrypto/RSA.git" }
 
-ecdsa           = { git = "https://github.com/RustCrypto/signatures.git" }
+ecdsa         = { git = "https://github.com/carl-wallace/signatures.git", branch = "aes_mgmt" }
 ml-dsa          = { git = "https://github.com/RustCrypto/signatures" }
 rfc6979         = { git = "https://github.com/RustCrypto/signatures.git" }
 slh-dsa         = { git = "https://github.com/RustCrypto/signatures.git"}
