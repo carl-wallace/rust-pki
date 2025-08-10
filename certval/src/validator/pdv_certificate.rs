@@ -62,10 +62,10 @@ pub struct PDVCertificate {
     encoded_cert: Vec<u8>,
     /// Decoded Certificate object
     decoded_cert: CertificateInner<Raw>,
-    /// Optional metadata about the trust anchor
-    metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
     parsed_extensions: ParsedExtensions,
+    /// The source for the certificate
+    locator: Option<String>,
 }
 
 impl PDVCertificate {
@@ -73,8 +73,8 @@ impl PDVCertificate {
         let mut pdv_cert = PDVCertificate {
             encoded_cert: cert.to_der()?,
             decoded_cert: cert,
-            metadata: None,
             parsed_extensions: Default::default(),
+            locator: None,
         };
         pdv_cert.parse_extensions(EXTS_OF_INTEREST);
         Ok(pdv_cert)
@@ -85,9 +85,9 @@ impl PDVCertificate {
         &self.encoded_cert
     }
 
-    /// Return metadatas
-    pub fn metadata(&self) -> Option<&Asn1Metadata> {
-        self.metadata.as_ref()
+    /// Return the locator for the source of this certificate
+    pub fn locator(&self) -> Option<&str> {
+        self.locator.as_ref().map(String::as_str)
     }
 }
 
@@ -295,18 +295,8 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
     let r = CertificateInner::from_der(buffer);
     match r {
         Ok(cert) => {
-            let mut md = Asn1Metadata::new();
-            md.insert(
-                MD_LOCATOR.to_string(),
-                Asn1MetadataTypes::String(filename.to_string()),
-            );
-            let mut pdvcert = PDVCertificate {
-                encoded_cert: buffer.to_vec(),
-                decoded_cert: cert,
-                metadata: Some(md),
-                parsed_extensions: ParsedExtensions::new(),
-            };
-            pdvcert.parse_extensions(EXTS_OF_INTEREST);
+            let mut pdvcert = PDVCertificate::new(cert)?;
+            pdvcert.locator = Some(filename.to_string());
             Ok(pdvcert)
         }
         Err(e) => {

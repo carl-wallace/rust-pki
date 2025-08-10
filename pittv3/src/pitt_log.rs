@@ -24,12 +24,7 @@ use certval::*;
 /// `get_filename_from_metadata` takes a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) object and returns the value read from the
 /// `MD_LOCATOR` entry in the metadata field, if present, or an empty string, if not present.
 pub fn get_filename_from_metadata(cert: &PDVCertificate) -> String {
-    if let Some(md) = cert.metadata() {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            return filename.to_owned();
-        }
-    }
-    "".to_string()
+    cert.locator().map(str::to_string).unwrap_or_default()
 }
 
 /// `get_file_stem_or_empty` returns stem of indicated file if it can be read or an empty string.
@@ -656,15 +651,10 @@ pub fn log_path(
     let ta = &path.trust_anchor;
     let target = &path.target;
 
-    let mut target_filename = if let Some(md) = target.metadata() {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            get_file_stem_or_empty(filename)
-        } else {
-            "".to_string()
-        }
-    } else {
-        "".to_string()
-    };
+    let mut target_filename = target
+        .locator()
+        .map(get_file_stem_or_empty)
+        .unwrap_or_default();
 
     if target_filename.is_empty() {
         let digest = Sha256::digest(path.target.as_bytes()).to_vec();
