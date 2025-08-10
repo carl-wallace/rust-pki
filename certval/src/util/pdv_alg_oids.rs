@@ -5,6 +5,7 @@ use der::asn1::ObjectIdentifier;
 // id-edwards-curve-algs OBJECT IDENTIFIER ::= { 1 3 101 }
 
 /// id-Ed25519       OBJECT IDENTIFIER ::= { id-edwards-curve-algs 112 }
+#[cfg(feature = "eddsa")]
 pub const PKIXALG_ED25519: ObjectIdentifier = ed25519_dalek::pkcs8::ALGORITHM_OID;
 
 // -------------------------------------------------------------------------------------------------
