@@ -34,10 +34,6 @@ use crate::EXTS_OF_INTEREST;
 /// may be dropped in favor of a String filename member in place of current [`Asn1Metadata`] members..
 pub type Asn1Metadata = BTreeMap<String, Asn1MetadataTypes>;
 
-/// [`MD_LOCATOR`] is used to set/get a String value to/from an [`Asn1Metadata`] object. The value
-/// may represent a file name, URI or other locator for troubleshooting purposes.
-pub static MD_LOCATOR: &str = "mdLocator";
-
 /// Small assortment of types that can be used to save metadata collected during certification path
 /// processing. For example, saving whether or not a certificate is self-issued or self-signed.
 #[derive(PartialEq, Clone, Eq)]
