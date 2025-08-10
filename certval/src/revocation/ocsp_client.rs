@@ -359,7 +359,7 @@ pub async fn send_ocsp_request(
     let name_hash = get_subject_name_hash(issuers_cert)?;
 
     let enc_ocsp_req = prepare_ocsp_request(
-        &target_cert.decoded_cert,
+        target_cert.as_ref(),
         name_hash.as_slice(),
         key_hash.as_slice(),
         nonce,
@@ -607,7 +607,7 @@ fn process_ocsp_response_internal(
     for sr in bor.tbs_response_data.responses {
         if !cert_id_match(
             &sr.cert_id,
-            &target_cert.decoded_cert.tbs_certificate().serial_number(),
+            &target_cert.as_ref().tbs_certificate().serial_number(),
             name_hash,
             key_hash,
         ) {
@@ -692,7 +692,7 @@ pub(crate) async fn check_revocation_ocsp(
     if ocsp_aias.is_empty() {
         info!(
             "No OCSP AIAs found for {}",
-            name_to_string(&target_cert.decoded_cert.tbs_certificate().subject())
+            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
         );
     } else {
         for aia in ocsp_aias {
@@ -709,7 +709,7 @@ pub(crate) async fn check_revocation_ocsp(
                 info!(
                         "Determined revocation status ({}) using OCSP for certificate issued to {} via {}",
                         target_status,
-                        name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()),
+                        name_to_string(&target_cert.as_ref().tbs_certificate().subject()),
                         aia.as_str(),
                     );
                 // no need to consider additional AIAs
@@ -717,7 +717,7 @@ pub(crate) async fn check_revocation_ocsp(
             } else {
                 info!(
                     "Failed to determine status for {} via {}",
-                    name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()),
+                    name_to_string(&target_cert.as_ref().tbs_certificate().subject()),
                     aia.as_str()
                 );
             }

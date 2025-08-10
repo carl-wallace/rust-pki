@@ -153,10 +153,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
         buffer_to_hex(skid.0.as_bytes())
     } else {
-        let working_spki = &cert
-            .decoded_cert
-            .tbs_certificate()
-            .subject_public_key_info();
+        let working_spki = &cert.as_ref().tbs_certificate().subject_public_key_info();
         //todo unwrap
         let digest = Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
         buffer_to_hex(digest.as_slice())
@@ -338,7 +335,7 @@ impl TrustAnchorSource for TaSource {
         target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         let mut akid_hex = None;
-        let mut name_vec = vec![target.decoded_cert.tbs_certificate().issuer()];
+        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {

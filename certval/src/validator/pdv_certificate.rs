@@ -59,13 +59,42 @@ pub enum Asn1MetadataTypes {
 #[derive(Clone, Eq, PartialEq)]
 pub struct PDVCertificate {
     /// Binary, encoded Certificate object
-    pub encoded_cert: Vec<u8>,
+    encoded_cert: Vec<u8>,
     /// Decoded Certificate object
-    pub decoded_cert: CertificateInner<Raw>,
+    decoded_cert: CertificateInner<Raw>,
     /// Optional metadata about the trust anchor
-    pub metadata: Option<Asn1Metadata>,
+    metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
-    pub parsed_extensions: ParsedExtensions,
+    parsed_extensions: ParsedExtensions,
+}
+
+impl PDVCertificate {
+    fn new(cert: CertificateInner<Raw>) -> der::Result<Self> {
+        let mut pdv_cert = PDVCertificate {
+            encoded_cert: cert.to_der()?,
+            decoded_cert: cert,
+            metadata: None,
+            parsed_extensions: Default::default(),
+        };
+        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_cert)
+    }
+
+    /// Return the byte encoding of the Certificate object
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.encoded_cert
+    }
+
+    /// Return metadatas
+    pub fn metadata(&self) -> Option<&Asn1Metadata> {
+        self.metadata.as_ref()
+    }
+}
+
+impl AsRef<CertificateInner<Raw>> for PDVCertificate {
+    fn as_ref(&self) -> &CertificateInner<Raw> {
+        &self.decoded_cert
+    }
 }
 
 impl TryFrom<&[u8]> for PDVCertificate {
@@ -73,14 +102,7 @@ impl TryFrom<&[u8]> for PDVCertificate {
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
         let cert = CertificateInner::from_der(enc_cert)?;
-        let mut pdv_cert = PDVCertificate {
-            encoded_cert: enc_cert.to_vec(),
-            decoded_cert: cert,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_cert)
+        Self::new(cert)
     }
 }
 
@@ -93,14 +115,7 @@ where
     fn try_from(cert: CertificateInner<P>) -> der::Result<Self> {
         let enc_cert = cert.to_der()?;
         let cert = CertificateInner::from_der(&enc_cert)?;
-        let mut pdv_cert = PDVCertificate {
-            encoded_cert: enc_cert,
-            decoded_cert: cert,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_cert)
+        Self::new(cert)
     }
 }
 

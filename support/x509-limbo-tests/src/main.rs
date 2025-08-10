@@ -415,7 +415,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     {
         let p = Path::new("./target");
         let f = p.join(Path::new("target.der"));
-        let _ = fs::write(f, &leaf.encoded_cert);
+        let _ = fs::write(f, leaf.as_bytes());
     }
 
     // find all paths in the graph built above

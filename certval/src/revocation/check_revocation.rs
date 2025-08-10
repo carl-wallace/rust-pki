@@ -101,8 +101,7 @@ pub async fn check_revocation(
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
         let cur_cert = ca_cert_ref;
-        let cur_cert_subject =
-            name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate().subject());
+        let cur_cert_subject = name_to_string(&ca_cert_ref.as_ref().tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {
@@ -230,7 +229,7 @@ pub async fn check_revocation(
         }
 
         statuses.push(cur_status);
-        issuer_cert = cur_cert.decoded_cert.clone();
+        issuer_cert = cur_cert.as_ref().clone();
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {
@@ -299,8 +298,7 @@ pub fn check_revocation(
     let mut statuses = vec![];
     for (pos, ca_cert_ref) in v.iter().enumerate() {
         let cur_cert = ca_cert_ref;
-        let cur_cert_subject =
-            name_to_string(&ca_cert_ref.decoded_cert.tbs_certificate().subject());
+        let cur_cert_subject = name_to_string(&ca_cert_ref.as_ref().tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {
@@ -411,7 +409,7 @@ pub fn check_revocation(
         }
 
         statuses.push(cur_status);
-        issuer_cert = cur_cert.decoded_cert.clone();
+        issuer_cert = cur_cert.as_ref().clone();
     }
 
     if statuses.contains(&RevocationStatusNotDetermined) {
