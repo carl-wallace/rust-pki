@@ -1,7 +1,6 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 
 use crate::asn1::piv_naci_indicator::PivNaciIndicator;
-use alloc::collections::BTreeMap;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -28,25 +27,6 @@ use x509_ocsp::OcspNoCheck;
 use crate::pdv_extension::*;
 use crate::util::error::*;
 use crate::EXTS_OF_INTEREST;
-
-/// [`Asn1Metadata`] is a typedef of a BTreeMap map that associates types represented by the [`Asn1MetadataTypes`]
-/// enum objects with arbitrary string values. At present this is only used to convey filenames and
-/// may be dropped in favor of a String filename member in place of current [`Asn1Metadata`] members..
-pub type Asn1Metadata = BTreeMap<String, Asn1MetadataTypes>;
-
-/// Small assortment of types that can be used to save metadata collected during certification path
-/// processing. For example, saving whether or not a certificate is self-issued or self-signed.
-#[derive(PartialEq, Clone, Eq)]
-pub enum Asn1MetadataTypes {
-    /// Used for metadata represented as a bool
-    Bool(bool),
-    /// Used for metadata represented as a u32
-    Number(u32),
-    /// Used for metadata represented as a String
-    String(String),
-    /// Used for metadata represented as a `Vec<u8>`
-    Buffer(Vec<u8>),
-}
 
 /// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, optional metadata
 /// and optional parsed extensions in support of certification path development and validation operations.

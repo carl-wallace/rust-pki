@@ -33,7 +33,6 @@ use x509_cert::Certificate;
 use x509_ocsp::OcspNoCheck;
 
 use crate::util::error::*;
-use crate::validator::pdv_certificate::*;
 use crate::validator::pdv_extension::*;
 
 /// [`PDVTrustAnchorChoice`] is used to aggregate a binary TrustAnchorChoice, a parsed TrustAnchorChoice,
@@ -45,8 +44,6 @@ pub struct PDVTrustAnchorChoice {
     pub encoded_ta: Vec<u8>,
     /// Decoded TrustAnchorChoice object
     pub decoded_ta: TrustAnchorChoice<Raw>,
-    /// Optional metadata about the trust anchor
-    pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the TrustAnchorChoice
     pub parsed_extensions: ParsedExtensions,
     /// The source for the certificate
@@ -58,7 +55,6 @@ impl PDVTrustAnchorChoice {
         let mut pdv_ta = PDVTrustAnchorChoice {
             encoded_ta: ta.to_der()?,
             decoded_ta: ta,
-            metadata: None,
             parsed_extensions: Default::default(),
             locator: None,
         };
