@@ -12,12 +12,12 @@ categories = ["cryptography", "pki", "no-std"]
 keywords = ["crypto", "x.509", "OCSP"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version = "0.3.0-pre", default-features = false, features = ["hazmat","pem"] }
+x509-cert = { version = "0.3.0-pre.0", default-features = false, features = ["hazmat","pem"] }
 const-oid = { version = "0.10.0-rc.0", default-features = false, features = ["db"] }
 cms = "0.3.0-pre"
 der = { version="0.8.0-rc.0", features = ["alloc", "derive", "flagset", "oid"] }
@@ -33,8 +33,8 @@ ecdsa = {version = "0.17.0-pre.7", default-features = false, features = ["der"]}
 p256 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
 p384 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
 p521 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
-ed25519-dalek = { version = "2.2.0-pre", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
-rsa = {version = "0.10.0-pre.2", default-features = false, optional=true}
+ed25519-dalek = { version = "=3.0.0-pre.0", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
+rsa = {version = "0.10.0-pre.2", default-features = false, optional = true, features = ["encoding"]}
 sha1 = {version = "0.11.0-pre.4", default-features = false}
 sha2 = {version = "0.11.0-pre.4", default-features = false, features = ["oid"] }
 
@@ -88,7 +88,7 @@ tokio = { version = "1.45.1", features = ["full", "macros", "time", "rt-multi-th
 [features]
 default = ["remote", "webpki"]
 revocation = ["dep:ndarray"]
-std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "ed25519-dalek/std", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
+std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
 webpki = ["webpki-roots"]

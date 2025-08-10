@@ -11,15 +11,23 @@ chrono = "0.4.38"
 pem = "3.0.4"
 serde_json = "1.0.116"
 certval = { path = "../../certval", features = ["rsa"] }
-x509-cert = { version = "0.3.0-pre", features = ["hazmat"] }
+x509-cert = { version = "0.3.0-pre.0", features = ["hazmat"] }
 rayon = "1.10.0"
 cidr = "0.2.2"
 
-ed25519-dalek = { version = "2.2.0-pre", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
+ed25519-dalek = { version = "3.0.0-pre.0", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
 
 [patch.crates-io]
-cms        = { git = "https://github.com/RustCrypto/formats.git" }
-x509-ocsp  = { git = "https://github.com/RustCrypto/formats.git" }
-x509-cert  = { git = "https://github.com/RustCrypto/formats.git" }
-# FIXME: https://github.com/dalek-cryptography/curve25519-dalek/pull/676
-ed25519-dalek = { git = "https://github.com/dalek-cryptography/curve25519-dalek.git", branch = "rustcrypto-new-releases" }
+ed25519-dalek    = { git = "https://github.com/dalek-cryptography/curve25519-dalek.git" }
+
+der_derive = { git = "https://github.com/RustCrypto/formats.git" }
+cms = { git = "https://github.com/RustCrypto/formats.git" }
+x509-cert = { git = "https://github.com/RustCrypto/formats.git" }
+x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
+
+ecdsa = { git = "https://github.com/RustCrypto/signatures.git" }
+
+primefield = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+p256 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+p384 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+p521 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }

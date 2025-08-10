@@ -87,7 +87,11 @@ pub(crate) async fn validate_cert_file(
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.decoded_cert.tbs_certificate.subject.to_string()
+            path.target
+                .decoded_cert
+                .tbs_certificate()
+                .subject()
+                .to_string()
         );
         let mut cpr = CertificationPathResults::new();
 
@@ -333,7 +337,7 @@ pub fn cleanup_certs(
                     match parse_cert(target.as_slice(), filename) {
                         Ok(tc) => {
                             if !t.is_disabled() {
-                                let r = valid_at_time(&tc.decoded_cert.tbs_certificate, t, true);
+                                let r = valid_at_time(&tc.decoded_cert.tbs_certificate(), t, true);
                                 if let Err(_e) = r {
                                     delete_file = true;
                                     error!(

@@ -98,7 +98,7 @@ pub fn validate_path_rfc5280(
     cpr.set_validation_status(PathValidationStatus::Valid);
     info!(
         "Successfully completed basic path validation checks for certificate issued to {}",
-        name_to_string(&cp.target.decoded_cert.tbs_certificate.subject)
+        name_to_string(&cp.target.decoded_cert.tbs_certificate().subject())
     );
     Ok(())
 }
@@ -233,11 +233,11 @@ pub fn check_validity(
     };
 
     let target = &cp.target;
-    let target_ttl = valid_at_time(&target.decoded_cert.tbs_certificate, toi, false);
+    let target_ttl = valid_at_time(&target.decoded_cert.tbs_certificate(), toi, false);
     is_valid(target_ttl)?;
 
     for ca_cert in cp.intermediates.iter() {
-        let ca_ttl = valid_at_time(&ca_cert.decoded_cert.tbs_certificate, toi, false);
+        let ca_ttl = valid_at_time(&ca_cert.decoded_cert.tbs_certificate(), toi, false);
         is_valid(ca_ttl)?;
     }
 
@@ -297,7 +297,7 @@ pub fn check_names(
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
         if !compare_names(
-            &ca_cert.decoded_cert.tbs_certificate.issuer,
+            &ca_cert.decoded_cert.tbs_certificate().issuer(),
             &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
@@ -308,7 +308,7 @@ pub fn check_names(
         }
 
         if pos + 1 != certs_in_cert_path {
-            working_issuer_name = ca_cert.decoded_cert.tbs_certificate.subject.clone();
+            working_issuer_name = ca_cert.decoded_cert.tbs_certificate().subject().clone();
         }
     }
 
@@ -317,9 +317,9 @@ pub fn check_names(
         let self_issued = is_self_issued(&ca_cert.decoded_cert);
 
         if (pos + 1) == certs_in_cert_path || !self_issued {
-            if !permitted_subtrees
-                .subject_within_permitted_subtrees(&ca_cert.decoded_cert.tbs_certificate.subject)
-            {
+            if !permitted_subtrees.subject_within_permitted_subtrees(
+                &ca_cert.decoded_cert.tbs_certificate().subject(),
+            ) {
                 log_error_for_ca(
                     ca_cert,
                     "permitted name constraints violation for subject name",
@@ -331,7 +331,7 @@ pub fn check_names(
             }
 
             if excluded_subtrees
-                .subject_within_excluded_subtrees(&ca_cert.decoded_cert.tbs_certificate.subject)
+                .subject_within_excluded_subtrees(&ca_cert.decoded_cert.tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -579,8 +579,8 @@ pub fn check_critical_extensions(
     let mut ensure_criticals_processed = |cert: &PDVCertificate,
                                           err_str: &'static str|
      -> Result<()> {
-        if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
-            for ext in exts {
+        if let Some(exts) = &cert.decoded_cert.tbs_certificate().extensions() {
+            for ext in exts.as_slice() {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
                     log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
                     cpr.set_validation_status(PathValidationStatus::UnprocessedCriticalExtension);
@@ -770,20 +770,20 @@ pub fn enforce_trust_anchor_constraints(
 
     match &ta.decoded_ta {
         TrustAnchorChoice::Certificate(c) => {
-            check_critical_extensions_from_ta(&c.tbs_certificate.extensions)?;
+            check_critical_extensions_from_ta(&c.tbs_certificate().extensions())?;
         }
         TrustAnchorChoice::TaInfo(tai) => {
-            check_critical_extensions_from_ta(&tai.extensions)?;
+            check_critical_extensions_from_ta(&tai.extensions.as_ref())?;
         }
         TrustAnchorChoice::TbsCertificate(tbs) => {
-            check_critical_extensions_from_ta(&tbs.extensions)?;
+            check_critical_extensions_from_ta(&tbs.extensions())?;
         }
     }
 
     Ok(mod_cps)
 }
 
-fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
+fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
     let recognized_oids = [
         ID_CE_BASIC_CONSTRAINTS,
         ID_CE_NAME_CONSTRAINTS,
@@ -793,7 +793,7 @@ fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
         ID_CE_INHIBIT_ANY_POLICY,
     ];
     if let Some(exts) = exts {
-        for ext in exts {
+        for ext in exts.as_slice() {
             if ext.critical && !recognized_oids.contains(&ext.extn_id) {
                 return Err(Error::Unrecognized);
             }
@@ -828,15 +828,15 @@ pub fn verify_signatures(
             }
         };
 
-        if cur_cert.decoded_cert.tbs_certificate.signature
-            != cur_cert.decoded_cert.signature_algorithm
+        if cur_cert.decoded_cert.tbs_certificate().signature()
+            != cur_cert.decoded_cert.signature_algorithm()
         {
             log_error_for_ca(
                 cur_cert,
                 format!(
                     "signature algorithm mismatch: {:?} - {:?}",
-                    cur_cert.decoded_cert.tbs_certificate.signature,
-                    cur_cert.decoded_cert.signature_algorithm
+                    cur_cert.decoded_cert.tbs_certificate().signature(),
+                    cur_cert.decoded_cert.signature_algorithm()
                 )
                 .as_str(),
             );
@@ -847,8 +847,8 @@ pub fn verify_signatures(
         let r = pe.verify_signature_message(
             pe,
             &defer_cert.tbs_field,
-            cur_cert.decoded_cert.signature.raw_bytes(),
-            &cur_cert.decoded_cert.tbs_certificate.signature,
+            cur_cert.decoded_cert.signature().raw_bytes(),
+            &cur_cert.decoded_cert.tbs_certificate().signature(),
             &working_spki,
         );
         if let Err(e) = r {
@@ -864,8 +864,8 @@ pub fn verify_signatures(
 
         working_spki = cur_cert
             .decoded_cert
-            .tbs_certificate
-            .subject_public_key_info
+            .tbs_certificate()
+            .subject_public_key_info()
             .clone();
     }
     Ok(())
