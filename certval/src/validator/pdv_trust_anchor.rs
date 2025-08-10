@@ -49,6 +49,34 @@ pub struct PDVTrustAnchorChoice {
     pub metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the TrustAnchorChoice
     pub parsed_extensions: ParsedExtensions,
+    /// The source for the certificate
+    locator: Option<String>,
+}
+
+impl PDVTrustAnchorChoice {
+    fn new(ta: TrustAnchorChoice<Raw>) -> der::Result<Self> {
+        let mut pdv_ta = PDVTrustAnchorChoice {
+            encoded_ta: ta.to_der()?,
+            decoded_ta: ta,
+            metadata: None,
+            parsed_extensions: Default::default(),
+            locator: None,
+        };
+        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_ta)
+    }
+
+    /// Create a trust anchor from source
+    pub fn create(source: &[u8], filename: &str) -> der::Result<Self> {
+        let mut pdv_ta = Self::try_from(source)?;
+        pdv_ta.locator = Some(filename.to_string());
+        Ok(pdv_ta)
+    }
+
+    /// Return the locator for the source of this certificate
+    pub fn locator(&self) -> Option<&str> {
+        self.locator.as_ref().map(String::as_str)
+    }
 }
 
 impl TryFrom<&[u8]> for PDVTrustAnchorChoice {
@@ -56,14 +84,7 @@ impl TryFrom<&[u8]> for PDVTrustAnchorChoice {
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
         let ta = TrustAnchorChoice::from_der(enc_cert)?;
-        let mut pdv_ta = PDVTrustAnchorChoice {
-            encoded_ta: enc_cert.to_vec(),
-            decoded_ta: ta,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_ta)
+        Self::new(ta)
     }
 }
 
@@ -71,15 +92,7 @@ impl TryFrom<TrustAnchorChoice<Raw>> for PDVTrustAnchorChoice {
     type Error = der::Error;
 
     fn try_from(ta: TrustAnchorChoice<Raw>) -> der::Result<Self> {
-        let enc_ta = ta.to_der()?;
-        let mut pdv_ta = PDVTrustAnchorChoice {
-            encoded_ta: enc_ta.to_vec(),
-            decoded_ta: ta,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_ta)
+        Self::new(ta)
     }
 }
 
@@ -155,15 +168,7 @@ impl TryFrom<&TrustAnchor<'_>> for PDVTrustAnchorChoice {
             ta_title_lang_tag: None,
         };
         let tac = TrustAnchorChoice::TaInfo(tai);
-        let enc_ta = tac.to_der()?;
-        let mut pdv_ta = PDVTrustAnchorChoice {
-            encoded_ta: enc_ta.to_vec(),
-            decoded_ta: tac,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_ta.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_ta)
+        Ok(PDVTrustAnchorChoice::new(tac)?)
     }
 }
 
@@ -173,12 +178,7 @@ impl TryFrom<Certificate> for PDVTrustAnchorChoice {
     fn try_from(cert: Certificate) -> der::Result<Self> {
         let enc_cert = cert.to_der()?;
         let ta = TrustAnchorChoice::from_der(&enc_cert)?;
-        Ok(PDVTrustAnchorChoice {
-            encoded_ta: enc_cert.to_vec(),
-            decoded_ta: ta,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        })
+        PDVTrustAnchorChoice::new(ta)
     }
 }
 
