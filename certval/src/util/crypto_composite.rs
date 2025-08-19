@@ -2,19 +2,18 @@
 //!
 #![cfg(feature = "pqc")]
 
-use alloc::{vec, vec::Vec};
 use crate::crypto::{is_ecdsa, is_eddsa, is_rsa};
 use crate::{
     Error, PkiEnvironment, RsaPssParams, TrailerField, PKIXALG_ECDSA_WITH_SHA256,
-    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1,
-    PKIXALG_SECP384R1, PKIXALG_SECP521R1, PKIXALG_SHA256_WITH_RSA_ENCRYPTION,
-    PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
+    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1,
+    PKIXALG_SECP521R1, PKIXALG_SHA256_WITH_RSA_ENCRYPTION, PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
 };
-use const_oid::db::rfc8410::ID_ED_25519;
+use alloc::{vec, vec::Vec};
 use const_oid::db::fips204::*;
 use const_oid::db::rfc5912::{
     ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_512, RSA_ENCRYPTION,
 };
+use const_oid::db::rfc8410::ID_ED_25519;
 use const_oid::ObjectIdentifier;
 use der::asn1::BitString;
 use der::Decode;
@@ -100,15 +99,22 @@ fn is_composite(
         };
         Ok((pqc, trad))
     } else if ID_MLDSA44_ED25519_SHA512 == composite_oid {
-        let pqc = AlgorithmIdentifierOwned {
-            oid: ID_ML_DSA_44,
-            parameters: None,
-        };
-        let trad = AlgorithmIdentifierOwned {
-            oid: ID_ED_25519,
-            parameters: None,
-        };
-        Ok((pqc, trad))
+        #[cfg(feature = "eddsa")]
+        {
+            let pqc = AlgorithmIdentifierOwned {
+                oid: ID_ML_DSA_44,
+                parameters: None,
+            };
+            let trad = AlgorithmIdentifierOwned {
+                oid: ID_ED_25519,
+                parameters: None,
+            };
+            Ok((pqc, trad))
+        }
+        #[cfg(not(feature = "eddsa"))]
+        {
+            Err(Error::Unrecognized)
+        }
     } else if ID_MLDSA44_ECDSA_P256_SHA256 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_44,
@@ -133,8 +139,7 @@ fn is_composite(
             parameters: Some(Any::from_der(&der_params)?),
         };
         Ok((pqc, trad))
-    } else if ID_MLDSA65_RSA3072_PKCS15_SHA512 == composite_oid
-    {
+    } else if ID_MLDSA65_RSA3072_PKCS15_SHA512 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_65,
             parameters: None,
@@ -144,8 +149,7 @@ fn is_composite(
             parameters: Some(Any::from(AnyRef::NULL)),
         };
         Ok((pqc, trad))
-    } else if ID_MLDSA65_RSA4096_PKCS15_SHA512 == composite_oid
-    {
+    } else if ID_MLDSA65_RSA4096_PKCS15_SHA512 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_65,
             parameters: None,
@@ -178,15 +182,22 @@ fn is_composite(
         };
         Ok((pqc, trad))
     } else if ID_MLDSA65_ED25519_SHA512 == composite_oid {
-        let pqc = AlgorithmIdentifierOwned {
-            oid: ID_ML_DSA_65,
-            parameters: None,
-        };
-        let trad = AlgorithmIdentifierOwned {
-            oid: ID_ED_25519,
-            parameters: None,
-        };
-        Ok((pqc, trad))
+        #[cfg(feature = "eddsa")]
+        {
+            let pqc = AlgorithmIdentifierOwned {
+                oid: ID_ML_DSA_65,
+                parameters: None,
+            };
+            let trad = AlgorithmIdentifierOwned {
+                oid: ID_ED_25519,
+                parameters: None,
+            };
+            Ok((pqc, trad))
+        }
+        #[cfg(not(feature = "eddsa"))]
+        {
+            Err(Error::Unrecognized)
+        }
     } else if ID_MLDSA87_ECDSA_P384_SHA512 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_87,
@@ -302,12 +313,19 @@ fn split_key(
             subject_public_key: BitString::from_bytes(trad_key)?,
         }
     } else if is_eddsa(&trad_oid) {
-        SubjectPublicKeyInfoOwned {
-            algorithm: AlgorithmIdentifierOwned {
-                oid: ID_ED_25519,
-                parameters: Some(Any::from(AnyRef::NULL)),
-            },
-            subject_public_key: BitString::from_bytes(trad_key)?,
+        #[cfg(feature = "eddsa")]
+        {
+            SubjectPublicKeyInfoOwned {
+                algorithm: AlgorithmIdentifierOwned {
+                    oid: ID_ED_25519,
+                    parameters: Some(Any::from(AnyRef::NULL)),
+                },
+                subject_public_key: BitString::from_bytes(trad_key)?,
+            }
+        }
+        #[cfg(not(feature = "eddsa"))]
+        {
+            return Err(Error::Unrecognized);
         }
     } else {
         error!("Unrecognized traditional OID passed to split_key: {trad_oid}");

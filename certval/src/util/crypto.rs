@@ -11,16 +11,14 @@ use log::{debug, error};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
-#[cfg(feature = "rsa")]
-use alloc::string::ToString;
-#[cfg(feature = "rsa")]
-use rsa::signature::Verifier;
-#[cfg(feature = "rsa")]
-use const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512};
-#[cfg(feature = "rsa")]
-use der::Decode;
 #[cfg(feature = "eddsa")]
 use const_oid::db::rfc8410::ID_ED_25519;
+use {
+    alloc::string::ToString,
+    const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512},
+    der::Decode,
+    signature::Verifier,
+};
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.

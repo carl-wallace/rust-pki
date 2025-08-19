@@ -301,6 +301,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "signature",
  "slh-dsa",
  "spki",
  "subtle-encoding",
