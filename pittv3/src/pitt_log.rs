@@ -24,7 +24,7 @@ use certval::*;
 /// `get_filename_from_metadata` takes a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) object and returns the value read from the
 /// `MD_LOCATOR` entry in the metadata field, if present, or an empty string, if not present.
 pub fn get_filename_from_metadata(cert: &PDVCertificate) -> String {
-    if let Some(md) = &cert.metadata {
+    if let Some(md) = cert.metadata() {
         if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
             return filename.to_owned();
         }
@@ -200,7 +200,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
-            name_to_string(&cert.decoded_cert.tbs_certificate().issuer())
+            name_to_string(&cert.as_ref().tbs_certificate().issuer())
         )
         .as_bytes(),
     )
@@ -208,7 +208,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Subject Name: {}\n",
-            name_to_string(&cert.decoded_cert.tbs_certificate().subject())
+            name_to_string(&cert.as_ref().tbs_certificate().subject())
         )
         .as_bytes(),
     )
@@ -216,12 +216,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Serial Number: 0x{}\n",
-            buffer_to_hex(
-                cert.decoded_cert
-                    .tbs_certificate()
-                    .serial_number()
-                    .as_bytes()
-            )
+            buffer_to_hex(cert.as_ref().tbs_certificate().serial_number().as_bytes())
         )
         .as_bytes(),
     )
@@ -230,7 +225,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
         format!(
             "\t\t* Not Before: {}\n",
             &cert
-                .decoded_cert
+                .as_ref()
                 .tbs_certificate()
                 .validity()
                 .not_before
@@ -243,7 +238,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
         format!(
             "\t\t* Not After: {}\n",
             &cert
-                .decoded_cert
+                .as_ref()
                 .tbs_certificate()
                 .validity()
                 .not_after
@@ -257,7 +252,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             "\t\t* Public key algorithm: {}\n",
             pe.oid_lookup(
                 &cert
-                    .decoded_cert
+                    .as_ref()
                     .tbs_certificate()
                     .subject_public_key_info()
                     .algorithm
@@ -271,7 +266,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
         format!(
             "\t\t* Public key size: {} bytes\n",
             &cert
-                .decoded_cert
+                .as_ref()
                 .tbs_certificate()
                 .subject_public_key_info()
                 .subject_public_key
@@ -285,7 +280,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Signature algorithm: {}\n",
-            pe.oid_lookup(&cert.decoded_cert.tbs_certificate().signature().oid)
+            pe.oid_lookup(&cert.as_ref().tbs_certificate().signature().oid)
         )
         .as_bytes(),
     )
@@ -661,7 +656,7 @@ pub fn log_path(
     let ta = &path.trust_anchor;
     let target = &path.target;
 
-    let mut target_filename = if let Some(md) = &target.metadata {
+    let mut target_filename = if let Some(md) = target.metadata() {
         if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
             get_file_stem_or_empty(filename)
         } else {
@@ -672,7 +667,7 @@ pub fn log_path(
     };
 
     if target_filename.is_empty() {
-        let digest = Sha256::digest(path.target.encoded_cert.as_slice()).to_vec();
+        let digest = Sha256::digest(path.target.as_bytes()).to_vec();
         target_filename = buffer_to_hex(digest.as_slice());
     }
 
@@ -697,13 +692,13 @@ pub fn log_path(
         );
     }
     let p = np.join(format!("{}-target.der", path.intermediates.len() + 1).as_str());
-    fs::write(p, target.encoded_cert.as_slice()).expect("Unable to write target file");
+    fs::write(p, target.as_bytes()).expect("Unable to write target file");
     let p = np.join("0-ta.der");
     fs::write(p, ta.encoded_ta.as_slice()).expect("Unable to write TA file");
 
     for (i, ca) in path.intermediates.iter().enumerate() {
         let p = np.join(format!("{}.der", i + 1));
-        fs::write(p, ca.encoded_cert.as_slice()).expect("Unable to write intermediate CA file");
+        fs::write(p, ca.as_bytes()).expect("Unable to write intermediate CA file");
     }
 
     if let Some(cpr) = cpr {
