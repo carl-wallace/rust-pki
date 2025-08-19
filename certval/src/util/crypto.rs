@@ -21,7 +21,7 @@ use {
     der::Decode,
 };
 
-#[cfg(any(feature = "rsa", feature = "eddsa"))]
+#[cfg(feature = "rsa")]
 use signature::Verifier;
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
