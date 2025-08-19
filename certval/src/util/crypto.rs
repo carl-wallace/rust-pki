@@ -12,11 +12,12 @@ use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 #[cfg(feature = "rsa")]
-use const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512};
-#[cfg(feature = "rsa")]
-use der::Decode;
-#[cfg(feature = "rsa")]
-use ed25519_dalek::Verifier;
+use {
+    alloc::string::ToString,
+    const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512},
+    der::Decode,
+    signature::Verifier,
+};
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
