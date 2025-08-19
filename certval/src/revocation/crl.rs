@@ -657,7 +657,7 @@ fn validate_crl_issuer_name(
         Ok(Some(PDVExtension::CrlDistributionPoints(crl_dp))) => crl_dp,
         _ => match Name::from_der(&crl_info.issuer_name_blob) {
             Ok(n) => {
-                if compare_names(&cert.decoded_cert.tbs_certificate().issuer(), &n) {
+                if compare_names(&cert.as_ref().tbs_certificate().issuer(), &n) {
                     return Ok(None);
                 } else {
                     return Err(Error::CrlIncompatible);
@@ -685,7 +685,7 @@ fn validate_crl_issuer_name(
 
     match Name::from_der(&crl_info.issuer_name_blob) {
         Ok(n) => {
-            if compare_names(&cert.decoded_cert.tbs_certificate().issuer(), &n) {
+            if compare_names(&cert.as_ref().tbs_certificate().issuer(), &n) {
                 Ok(None)
             } else {
                 Err(Error::CrlIncompatible)
@@ -843,7 +843,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
     //		If the CRL issuer name does not match the cert issuer name, the indirectCRL field must be present
     //		in the IDP.
 
-    let enc_iss = match target_cert.decoded_cert.tbs_certificate().issuer().to_der() {
+    let enc_iss = match target_cert.as_ref().tbs_certificate().issuer().to_der() {
         Ok(b) => b,
         Err(_e) => return Err(Error::Unrecognized),
     };
@@ -1025,7 +1025,7 @@ pub(crate) fn process_crl(
     if !COMPATIBLE_SCOPE[(cert_type as usize, crl_info.type_info.scope as usize)]
         || !COMPATIBLE_COVERAGE[(cert_type as usize, crl_info.type_info.coverage as usize)]
     {
-        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()));
+        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1048,7 +1048,7 @@ pub(crate) fn process_crl(
         target_cert,
         &mut collected_reasons,
     ) {
-        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate().subject()));
+        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1057,7 +1057,7 @@ pub(crate) fn process_crl(
         info!(
             "Discarding CRL from {} as having incompatible authority for certificate issued to {}",
             name_to_string(&crl.tbs_cert_list.issuer),
-            name_to_string(&target_cert.decoded_cert.tbs_certificate().subject())
+            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
         );
         return Err(Error::CrlIncompatible);
     }
@@ -1087,7 +1087,7 @@ pub(crate) fn process_crl(
 
             if rc
                 .serial_number
-                .der_cmp(&target_cert.decoded_cert.tbs_certificate().serial_number())
+                .der_cmp(&target_cert.as_ref().tbs_certificate().serial_number())
                 .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
                 .unwrap_or_default()
             {
@@ -1143,12 +1143,12 @@ pub(crate) async fn check_revocation_crl_remote(
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
-    let cur_cert_subject = name_to_string(&target_cert.decoded_cert.tbs_certificate().subject());
+    let cur_cert_subject = name_to_string(&target_cert.as_ref().tbs_certificate().subject());
     let crl_dps = get_crl_dps(target_cert);
     if crl_dps.is_empty() {
         info!(
             "No CRL DPs found for {}",
-            name_to_string(&target_cert.decoded_cert.tbs_certificate().subject())
+            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
         );
     } else {
         let timeout = cps.get_crl_timeout();

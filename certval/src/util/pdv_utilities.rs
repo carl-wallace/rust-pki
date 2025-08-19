@@ -69,7 +69,7 @@ pub fn is_self_signed_with_buffer(
 /// `is_self_signed` returns true if the public key in the certificate can be used to verify the
 /// signature on the certificate.
 pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
-    is_self_signed_with_buffer(pe, &cert.decoded_cert, cert.encoded_cert.as_slice())
+    is_self_signed_with_buffer(pe, &cert.as_ref(), cert.as_bytes())
 }
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
@@ -588,7 +588,7 @@ pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
-    log_error_for_name(&ca.decoded_cert.tbs_certificate().subject(), msg);
+    log_error_for_name(&ca.as_ref().tbs_certificate().subject(), msg);
 }
 
 /// log a message with subject name of the certificate appended

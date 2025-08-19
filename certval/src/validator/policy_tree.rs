@@ -209,8 +209,7 @@ pub fn check_certificate_policies(
                 // no need to check i < n since this loop is for intermediate CAs only (so we are not at the target)
                 if has_any_policy
                     && (inhibit_any_policy > 0
-                        || (i < certs_in_cert_path as usize
-                            && is_self_issued(&ca_cert.decoded_cert)))
+                        || (i < certs_in_cert_path as usize && is_self_issued(ca_cert.as_ref())))
                 {
                     for p_index in &valid_policy_tree[i - 1] {
                         // for each node in the valid_policy_tree of depth i-1, for
@@ -404,7 +403,7 @@ pub fn check_certificate_policies(
                 }
             }
 
-            if !is_self_issued(&ca_cert.decoded_cert) {
+            if !is_self_issued(ca_cert.as_ref()) {
                 explicit_policy = explicit_policy.saturating_sub(1);
                 inhibit_any_policy = inhibit_any_policy.saturating_sub(1);
                 policy_mapping = policy_mapping.saturating_sub(1);
