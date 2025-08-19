@@ -1,7 +1,6 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 
 use crate::asn1::piv_naci_indicator::PivNaciIndicator;
-use alloc::collections::BTreeMap;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -29,29 +28,6 @@ use crate::pdv_extension::*;
 use crate::util::error::*;
 use crate::EXTS_OF_INTEREST;
 
-/// [`Asn1Metadata`] is a typedef of a BTreeMap map that associates types represented by the [`Asn1MetadataTypes`]
-/// enum objects with arbitrary string values. At present this is only used to convey filenames and
-/// may be dropped in favor of a String filename member in place of current [`Asn1Metadata`] members..
-pub type Asn1Metadata = BTreeMap<String, Asn1MetadataTypes>;
-
-/// [`MD_LOCATOR`] is used to set/get a String value to/from an [`Asn1Metadata`] object. The value
-/// may represent a file name, URI or other locator for troubleshooting purposes.
-pub static MD_LOCATOR: &str = "mdLocator";
-
-/// Small assortment of types that can be used to save metadata collected during certification path
-/// processing. For example, saving whether or not a certificate is self-issued or self-signed.
-#[derive(PartialEq, Clone, Eq)]
-pub enum Asn1MetadataTypes {
-    /// Used for metadata represented as a bool
-    Bool(bool),
-    /// Used for metadata represented as a u32
-    Number(u32),
-    /// Used for metadata represented as a String
-    String(String),
-    /// Used for metadata represented as a `Vec<u8>`
-    Buffer(Vec<u8>),
-}
-
 /// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, optional metadata
 /// and optional parsed extensions in support of certification path development and validation operations.
 ///
@@ -62,10 +38,10 @@ pub struct PDVCertificate {
     encoded_cert: Vec<u8>,
     /// Decoded Certificate object
     decoded_cert: CertificateInner<Raw>,
-    /// Optional metadata about the trust anchor
-    metadata: Option<Asn1Metadata>,
     /// Optional parsed extension from the Certificate
     parsed_extensions: ParsedExtensions,
+    /// The source for the certificate
+    locator: Option<String>,
 }
 
 impl PDVCertificate {
@@ -73,8 +49,8 @@ impl PDVCertificate {
         let mut pdv_cert = PDVCertificate {
             encoded_cert: cert.to_der()?,
             decoded_cert: cert,
-            metadata: None,
             parsed_extensions: Default::default(),
+            locator: None,
         };
         pdv_cert.parse_extensions(EXTS_OF_INTEREST);
         Ok(pdv_cert)
@@ -85,9 +61,9 @@ impl PDVCertificate {
         &self.encoded_cert
     }
 
-    /// Return metadatas
-    pub fn metadata(&self) -> Option<&Asn1Metadata> {
-        self.metadata.as_ref()
+    /// Return the locator for the source of this certificate
+    pub fn locator(&self) -> Option<&str> {
+        self.locator.as_ref().map(String::as_str)
     }
 }
 
@@ -295,18 +271,8 @@ pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
     let r = CertificateInner::from_der(buffer);
     match r {
         Ok(cert) => {
-            let mut md = Asn1Metadata::new();
-            md.insert(
-                MD_LOCATOR.to_string(),
-                Asn1MetadataTypes::String(filename.to_string()),
-            );
-            let mut pdvcert = PDVCertificate {
-                encoded_cert: buffer.to_vec(),
-                decoded_cert: cert,
-                metadata: Some(md),
-                parsed_extensions: ParsedExtensions::new(),
-            };
-            pdvcert.parse_extensions(EXTS_OF_INTEREST);
+            let mut pdvcert = PDVCertificate::new(cert)?;
+            pdvcert.locator = Some(filename.to_string());
             Ok(pdvcert)
         }
         Err(e) => {

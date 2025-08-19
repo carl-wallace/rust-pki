@@ -28,7 +28,6 @@
 //!
 
 use alloc::{
-    borrow::ToOwned,
     collections::BTreeMap,
     string::{String, ToString},
 };
@@ -62,7 +61,7 @@ use crate::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
     CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
-    NameConstraintsSet, PDVCertificate, PkiEnvironment, TimeOfInterest, EXTS_OF_INTEREST,
+    NameConstraintsSet, PDVCertificate, PkiEnvironment, TimeOfInterest,
     PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
@@ -929,16 +928,10 @@ impl CertSource {
                 };
 
                 if valid {
-                    let mut md = Asn1Metadata::new();
-                    md.insert(
-                        MD_LOCATOR.to_string(),
-                        Asn1MetadataTypes::String(cert_file.filename.clone()),
-                    );
-
-                    let mut pdvcert = PDVCertificate::try_from(
+                    let pdvcert = parse_cert(
                         self.buffers_and_paths.buffers[i].bytes.as_slice(),
+                        &cert_file.filename,
                     )?;
-                    pdvcert.parse_extensions(EXTS_OF_INTEREST);
                     self.certs.push(Some(pdvcert));
                 } else {
                     self.certs.push(None);
@@ -1629,12 +1622,7 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
 /// get_filename_from_ta_metadata returns the string from the MD_LOCATOR in the metadata or an
 /// empty string.
 pub fn get_filename_from_cert_metadata(cert: &PDVCertificate) -> String {
-    if let Some(md) = cert.metadata() {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            return filename.to_owned();
-        }
-    }
-    "".to_string()
+    cert.locator().map(str::to_string).unwrap_or_default()
 }
 
 #[cfg(feature = "std")]

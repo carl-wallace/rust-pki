@@ -51,14 +51,13 @@ use x509_cert::{
 
 use crate::{
     environment::pki_environment_traits::TrustAnchorSource,
-    pdv_certificate::*,
     pdv_extension::PDVExtension,
     pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name,
     source::cert_source::CertFile,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
+    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -164,12 +163,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
 /// `get_filename_from_ta_metadata` returns the string from the `MD_LOCATOR` in the metadata or an
 /// empty string.
 pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
-    if let Some(md) = &cert.metadata {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            return filename.to_owned();
-        }
-    }
-    "".to_string()
+    cert.locator().map(str::to_string).unwrap_or_default()
 }
 
 /// `TrustAnchorKeyId` is a String value containing the ASCII hex representation of public key from
@@ -433,22 +427,9 @@ fn populate_parsed_ta_vector(
     parsed_ta_vec: &mut Vec<PDVTrustAnchorChoice>,
 ) {
     for cf in ta_buffer_vec {
-        match PDVTrustAnchorChoice::try_from(cf.bytes.as_slice()) {
-            Ok(mut ta) => {
-                let mut md = Asn1Metadata::new();
-                md.insert(
-                    MD_LOCATOR.to_string(),
-                    Asn1MetadataTypes::String(cf.filename.clone()),
-                );
-                ta.metadata = Some(md);
-                if !parsed_ta_vec.contains(&ta) {
-                    ta.parse_extensions(EXTS_OF_INTEREST);
-                    parsed_ta_vec.push(ta);
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse TrustAnchorChoice: {e:?}");
-            }
+        match PDVTrustAnchorChoice::create(cf.bytes.as_slice(), &cf.filename) {
+            Ok(ta) => parsed_ta_vec.push(ta),
+            Err(e) => error!("Failed to parse TrustAnchorChoice: {:?}", e),
         }
     }
 }
