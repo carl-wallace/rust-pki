@@ -13,12 +13,16 @@ use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 #[cfg(feature = "eddsa")]
 use const_oid::db::rfc8410::ID_ED_25519;
+
+#[cfg(feature = "rsa")]
 use {
     alloc::string::ToString,
     const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512},
     der::Decode,
-    signature::Verifier,
 };
+
+#[cfg(any(feature = "rsa", feature = "eddsa"))]
+use signature::Verifier;
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
