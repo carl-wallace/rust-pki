@@ -821,7 +821,7 @@ pub fn verify_signatures(
             Err(e) => {
                 log_error_for_ca(
                     cur_cert,
-                    format!("signature verification error: {:?}", e).as_str(),
+                    format!("signature verification error: {e:?}").as_str(),
                 );
                 cpr.set_validation_status(PathValidationStatus::EncodingError);
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
@@ -854,7 +854,7 @@ pub fn verify_signatures(
         if let Err(e) = r {
             log_error_for_ca(
                 cur_cert,
-                format!("signature verification error: {:?}", e).as_str(),
+                format!("signature verification error: {e:?}").as_str(),
             );
             cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
             return Err(Error::PathValidation(

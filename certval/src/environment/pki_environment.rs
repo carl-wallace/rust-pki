@@ -49,6 +49,12 @@ use crate::{
     CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice, TimeOfInterest,
 };
 
+#[cfg(feature = "pqc")]
+use crate::util::{
+    crypto_composite::verify_signature_message_composite_rustcrypto,
+    crypto_pqc::verify_signature_message_rustcrypto,
+};
+
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
 /// different platforms or to allow support to be tailored for specific use cases.
 pub struct PkiEnvironment {
@@ -602,8 +608,8 @@ impl PkiEnvironment {
         }
 
         #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
+        self.add_verify_signature_message_callback(verify_signature_message_rustcrypto);
         #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
+        self.add_verify_signature_message_callback(verify_signature_message_composite_rustcrypto);
     }
 }

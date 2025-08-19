@@ -64,10 +64,10 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let flag = signature.value_name;
     let return_t = signature.value_type;
 
-    let flag_str = format!("{}", flag)[3..].to_lowercase();
-    let getter_str = format!("get_{}", flag_str);
-    let setter_str = format!("set_{}", flag_str);
-    let cps_type_str = format!("{}", return_t);
+    let flag_str = format!("{flag}")[3..].to_lowercase();
+    let getter_str = format!("get_{flag_str}");
+    let setter_str = format!("set_{flag_str}");
+    let cps_type_str = format!("{return_t}");
     let mut upper_cps_type_str = if is_string_numeric(&cps_type_str[1..]) {
         cps_type_str.to_uppercase()
     } else {
@@ -81,12 +81,10 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let cps_type = syn::Ident::new(&upper_cps_type_str, return_t.span());
 
     let getter_comment = format!(
-        "`{}` is used to retrieve `{}` items from a [`CertificationPathSettings`] instance",
-        getter_str, flag
+        "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathSettings`] instance"
     );
     let setter_comment = format!(
-        "`{}` is used to set `{}` items in a [`CertificationPathSettings`] instance",
-        setter_str, flag
+        "`{setter_str}` is used to set `{flag}` items in a [`CertificationPathSettings`] instance"
     );
 
     let tokens = quote! {
@@ -119,10 +117,10 @@ pub fn cpr_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let flag = signature.value_name;
     let return_t = signature.value_type;
 
-    let flag_str = format!("{}", flag)[3..].to_lowercase();
-    let getter_str = format!("get_{}", flag_str);
-    let setter_str = format!("set_{}", flag_str);
-    let cpr_type_str = format!("{}", return_t);
+    let flag_str = format!("{flag}")[3..].to_lowercase();
+    let getter_str = format!("get_{flag_str}");
+    let setter_str = format!("set_{flag_str}");
+    let cpr_type_str = format!("{return_t}");
     let mut upper_cpr_type_str = if is_string_numeric(&cpr_type_str[1..]) {
         cpr_type_str.to_uppercase()
     } else {
@@ -136,12 +134,10 @@ pub fn cpr_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let cpr_type = syn::Ident::new(&upper_cpr_type_str, return_t.span());
 
     let getter_comment = format!(
-        "`{}` is used to retrieve `{}` items from a [`CertificationPathResults`] instance",
-        getter_str, flag
+        "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathResults`] instance"
     );
     let setter_comment = format!(
-        "`{}` is used to set `{}` items in a [`CertificationPathResults`] instance",
-        setter_str, flag
+        "`{setter_str}` is used to set `{flag}` items in a [`CertificationPathResults`] instance"
     );
 
     let tokens = quote! {
@@ -218,10 +214,10 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let return_t = signature.value_type;
     let default_value = signature.default_value;
 
-    let flag_str = format!("{}", flag)[3..].to_lowercase();
-    let getter_str = format!("get_{}", flag_str);
-    let setter_str = format!("set_{}", flag_str);
-    let cps_type_str = format!("{}", return_t);
+    let flag_str = format!("{flag}")[3..].to_lowercase();
+    let getter_str = format!("get_{flag_str}");
+    let setter_str = format!("set_{flag_str}");
+    let cps_type_str = format!("{return_t}");
     let mut upper_cps_type_str = if is_string_numeric(&cps_type_str[1..]) {
         cps_type_str.to_uppercase()
     } else {
@@ -235,12 +231,10 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let cps_type = syn::Ident::new(&upper_cps_type_str, return_t.span());
 
     let getter_comment = format!(
-        "`{}` is used to retrieve `{}` items from a [`CertificationPathSettings`] instance",
-        getter_str, flag
+        "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathSettings`] instance"
     );
     let setter_comment = format!(
-        "`{}` is used to set `{}` items in a [`CertificationPathSettings`] instance",
-        setter_str, flag
+        "`{setter_str}` is used to set `{flag}` items in a [`CertificationPathSettings`] instance"
     );
 
     let tokens = quote! {
@@ -274,10 +268,10 @@ pub fn cpr_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let return_t = signature.value_type;
     let default_value = signature.default_value;
 
-    let flag_str = format!("{}", flag)[3..].to_lowercase();
-    let getter_str = format!("get_{}", flag_str);
-    let setter_str = format!("set_{}", flag_str);
-    let cpr_type_str = format!("{}", return_t);
+    let flag_str = format!("{flag}")[3..].to_lowercase();
+    let getter_str = format!("get_{flag_str}");
+    let setter_str = format!("set_{flag_str}");
+    let cpr_type_str = format!("{return_t}");
     let mut upper_cpr_type_str = if is_string_numeric(&cpr_type_str[1..]) {
         cpr_type_str.to_uppercase()
     } else {
@@ -291,12 +285,10 @@ pub fn cpr_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let cpr_type = syn::Ident::new(&upper_cpr_type_str, return_t.span());
 
     let getter_comment = format!(
-        "`{}` is used to retrieve `{}` items from a [`CertificationPathSettings`] instance",
-        getter_str, flag
+        "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathSettings`] instance"
     );
     let setter_comment = format!(
-        "`{}` is used to set `{}` items in a [`CertificationPathSettings`] instance",
-        setter_str, flag
+        "`{setter_str}` is used to set `{flag}` items in a [`CertificationPathSettings`] instance"
     );
 
     let tokens = quote! {

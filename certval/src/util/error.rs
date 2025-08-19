@@ -130,6 +130,8 @@ pub enum Error {
     StdIoError(std::io::ErrorKind),
     /// Failed to obtain lock guard
     LockGuardError,
+    /// PQC verification error
+    PqcValidation,
 }
 
 impl Error {
@@ -205,7 +207,7 @@ impl fmt::Display for PathValidationStatus {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::PathValidation(err) => write!(f, "PathValidationError: {}", err),
+            Error::PathValidation(err) => write!(f, "PathValidationError: {err}"),
             Error::NotFound => write!(f, "NotFound"),
             Error::Unrecognized => write!(f, "Unrecognized"),
             Error::InvalidUriScheme => write!(f, "InvalidUriScheme"),
@@ -218,12 +220,13 @@ impl fmt::Display for Error {
             Error::UnsupportedCrlEntryExtension => write!(f, "UnsupportedCrlEntryExtension"),
             Error::NetworkError => write!(f, "NetworkError"),
             Error::OcspResponseError => write!(f, "OcspResponseError"),
-            Error::Asn1Error(err) => write!(f, "Asn1Error: {}", err),
+            Error::Asn1Error(err) => write!(f, "Asn1Error: {err}"),
             Error::UriOnBlocklist => write!(f, "UriOnBlocklist"),
             Error::ResourceUnchanged => write!(f, "ResourceUnchanged"),
             #[cfg(feature = "std")]
-            Error::StdIoError(err) => write!(f, "StdError: {:?}", err),
-            &Error::LockGuardError => write!(f, "LockGuardError"),
+            Error::StdIoError(err) => write!(f, "StdError: {err:?}"),
+            Error::LockGuardError => write!(f, "LockGuardError"),
+            Error::PqcValidation => write!(f, "PqcValidation"),
         }
     }
 }

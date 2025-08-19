@@ -55,10 +55,7 @@ pub(crate) async fn validate_cert_file(
     let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
 
     let target_cert = parse_cert(target_bytes.as_slice(), cert_filename)?;
-    info!(
-        "Start building and validating path(s) for {}",
-        cert_filename
-    );
+    info!("Start building and validating path(s) for {cert_filename}");
 
     let start2 = Instant::now();
     stats.files_processed += 1;
@@ -66,14 +63,8 @@ pub(crate) async fn validate_cert_file(
     let mut paths: Vec<CertificationPath> = vec![];
     let r = pe.get_paths_for_target(&target_cert, &mut paths, threshold, time_of_interest);
     if let Err(e) = r {
-        println!(
-            "Failed to find certification paths for target with error {:?}",
-            e
-        );
-        error!(
-            "Failed to find certification paths for target with error {:?}",
-            e
-        );
+        println!("Failed to find certification paths for target with error {e:?}");
+        error!("Failed to find certification paths for target with error {e:?}");
         return Err(Error::Unrecognized);
     }
 
@@ -115,7 +106,7 @@ pub(crate) async fn validate_cert_file(
             Ok(_) => {
                 stats.valid_paths_per_target += 1;
 
-                info!("Successfully validated {}", cert_filename);
+                info!("Successfully validated {cert_filename}");
                 if !args.validate_all {
                     break;
                 }
@@ -125,10 +116,10 @@ pub(crate) async fn validate_cert_file(
 
                 log_path(pe, &args.error_folder, path, i, None, None);
                 if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) {
-                    info!("Failed to validate {} with {:?}", cert_filename, e);
+                    info!("Failed to validate {cert_filename} with {e:?}");
                     break;
                 } else {
-                    info!("Failed to validate {} with {:?}", cert_filename, e);
+                    info!("Failed to validate {cert_filename} with {e:?}");
                 }
             }
         }
@@ -216,13 +207,13 @@ pub async fn validate_cert_folder(
                                 }
                             }
                         } else {
-                            info!("Skipping {}", filename);
+                            info!("Skipping {filename}");
                         }
                     }
                 }
             }
             _ => {
-                error!("Failed to unwrap entry in {}", certs_folder);
+                error!("Failed to unwrap entry in {certs_folder}");
             }
         }
     }
@@ -272,7 +263,7 @@ pub async fn generate(
             fs::write(cbor, graph.as_slice()).expect("Unable to write generated CBOR file");
         }
     } else {
-        println!("Failed: {:?}", graph);
+        println!("Failed: {graph:?}");
     }
     println!("Generation took {:?}", Instant::now() - start);
 }
@@ -325,7 +316,7 @@ pub fn cleanup_certs(
                         vec![]
                     };
                     if target.is_empty() {
-                        error!("Failed to read target file at {}", filename);
+                        error!("Failed to read target file at {filename}");
                         continue;
                     }
 
@@ -337,26 +328,25 @@ pub fn cleanup_certs(
                                 if let Err(_e) = r {
                                     delete_file = true;
                                     error!(
-                                        "Not valid at indicated time of interest ({}): {}",
-                                        t, filename
+                                        "Not valid at indicated time of interest ({t}): {filename}"
                                     );
                                 }
                             }
 
                             if is_self_signed(pe, &tc) {
                                 delete_file = true;
-                                error!("Self-signed: {}", filename);
+                                error!("Self-signed: {filename}");
                             }
 
                             let bc = tc.get_extension(&ID_CE_BASIC_CONSTRAINTS);
                             if let Ok(Some(PDVExtension::BasicConstraints(bc))) = bc {
                                 if !bc.ca {
                                     delete_file = true;
-                                    error!("Not a CA per basicConstraints: {}", filename);
+                                    error!("Not a CA per basicConstraints: {filename}");
                                 }
                             } else {
                                 delete_file = true;
-                                error!("Missing basicConstraints: {}", filename);
+                                error!("Missing basicConstraints: {filename}");
                             }
                         }
                         Err(_e) => {
@@ -371,7 +361,7 @@ pub fn cleanup_certs(
                 }
             }
             Err(e) => {
-                println!("Failed to unwrap entry: {}", e);
+                println!("Failed to unwrap entry: {e}");
             }
         } // end match entry {
     } // end for entry in WalkDir::new(certs_folder)
@@ -423,7 +413,7 @@ pub fn cleanup_tas(
                         vec![]
                     };
                     if target.is_empty() {
-                        error!("Failed to read target file at {}", filename);
+                        error!("Failed to read target file at {filename}");
                         continue;
                     }
 
@@ -433,14 +423,11 @@ pub fn cleanup_tas(
                             let r = ta_valid_at_time(&ta, t, true);
                             if r.is_err() {
                                 delete_file = true;
-                                error!(
-                                    "Not valid at indicated time of interest ({}): {}",
-                                    t, filename
-                                );
+                                error!("Not valid at indicated time of interest ({t}): {filename}");
                             }
                         }
                         Err(e) => {
-                            error!("Failed to parse trust anchor at {} with {}", filename, e);
+                            error!("Failed to parse trust anchor at {filename} with {e}");
                             delete_file = true;
                         }
                     }
@@ -451,7 +438,7 @@ pub fn cleanup_tas(
                 }
             }
             Err(e) => {
-                println!("Failed to unwrap entry: {}", e);
+                println!("Failed to unwrap entry: {e}");
             }
         } // end match entry {
     } // end for entry in WalkDir::new(certs_folder)
@@ -462,15 +449,15 @@ fn delete_or_move_file(error_folder: &str, path: &Path, filename: &str) {
         //delete file
         let r = fs::remove_file(path);
         if let Err(e) = r {
-            println!("Failed to delete {} with {:?}", filename, e);
-            error!("Failed to delete {} with {:?}", filename, e);
+            println!("Failed to delete {filename} with {e:?}");
+            error!("Failed to delete {filename} with {e:?}");
         }
     } else if let Some(new_filename) = Path::new(error_folder).join(path).file_name() {
         // move file
         let r = fs::rename(filename, new_filename);
         if let Err(e) = r {
-            println!("Failed to delete {} with {:?}", filename, e);
-            error!("Failed to delete {} with {:?}", filename, e);
+            println!("Failed to delete {filename} with {e:?}");
+            error!("Failed to delete {filename} with {e:?}");
         }
     }
 }

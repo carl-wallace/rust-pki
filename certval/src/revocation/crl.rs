@@ -385,14 +385,14 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<
     }
 
     if pe.check_blocklist(uri) {
-        info!("{} is on the blocklist", uri);
+        info!("{uri} is on the blocklist");
         return Err(Error::UriOnBlocklist);
     }
 
     let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(c) => c,
         Err(e) => {
-            debug!("Failed to prepare HTTP client to retrieve CRL: {}", e);
+            debug!("Failed to prepare HTTP client to retrieve CRL: {e}");
             return Err(Error::ResourceUnchanged);
         }
     };
@@ -423,13 +423,13 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<
             match &b {
                 Ok(bytes) => Ok(bytes.clone().to_vec()),
                 Err(e) => {
-                    debug!("Failed to retrieve CRL bytes from {} with {}", uri, e);
+                    debug!("Failed to retrieve CRL bytes from {uri} with {e}");
                     Err(Error::NetworkError)
                 }
             }
         }
         Err(e) => {
-            debug!("Failed to fetch CRL from {}: {:?}", uri, e);
+            debug!("Failed to fetch CRL from {uri}: {e:?}");
             pe.add_to_blocklist(uri);
             Err(Error::NetworkError)
         }
@@ -877,7 +877,7 @@ fn verify_crl(
     if let Err(e) = r {
         log_error_for_subject(
             issuer_cert,
-            format!("CRL signature verification error: {:?}", e).as_str(),
+            format!("CRL signature verification error: {e:?}").as_str(),
         );
         cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
@@ -998,9 +998,9 @@ pub(crate) fn process_crl(
         Ok(crl) => crl,
         Err(e) => {
             if let Some(uri) = uri {
-                error!("Failed to parse CRL from {} with {}", uri, e);
+                error!("Failed to parse CRL from {uri} with {e}");
             } else {
-                error!("Failed to parse CRL from with {}", e);
+                error!("Failed to parse CRL from with {e}");
             }
             cpr.add_failed_crl(crl_buf, result_index);
             return Err(Error::Asn1Error(e));
@@ -1010,7 +1010,7 @@ pub(crate) fn process_crl(
 
     if let Some(uri) = uri {
         if let Err(e) = pe.add_crl(crl_buf, &crl, uri) {
-            error!("Failed to save CRL with: {}", e);
+            error!("Failed to save CRL with: {e}");
         }
     }
 
@@ -1106,10 +1106,7 @@ pub(crate) fn process_crl(
                         cpr.add_crl_entry(enc_entry, result_index);
                     }
                     Err(e) => {
-                        error!(
-                            "Failed to encode CRL entry for logging purposes with: {}",
-                            e
-                        );
+                        error!("Failed to encode CRL entry for logging purposes with: {e}");
                     }
                 };
 
@@ -1177,17 +1174,17 @@ pub(crate) async fn check_revocation_crl_remote(
                 Ok(_ok) => {
                     target_status = {
                         cpr.add_crl(crl.as_slice(), pos);
-                        info!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject);
+                        info!("Determined revocation status (valid) using CRL for certificate issued to {cur_cert_subject}");
                         PathValidationStatus::Valid
                     }
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
                         cpr.add_crl(crl.as_slice(), pos);
-                        info!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject);
+                        info!("Determined revocation status (revoked) using CRL for certificate issued to {cur_cert_subject}");
                         return PathValidationStatus::CertificateRevoked;
                     } else {
-                        info!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e);
+                        info!("Failed to determine revocation status using CRL for certificate issued to {cur_cert_subject} with {e}");
                         cpr.add_failed_crl(crl.as_slice(), pos);
                     }
                 }
