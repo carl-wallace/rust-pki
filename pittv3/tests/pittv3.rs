@@ -1750,7 +1750,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
 //     Ok(())
 // }
 
-#[cfg(all(feature = "pqc", feature = "rsa"))]
+#[cfg(all(feature = "pqc", feature = "rsa", feature = "eddsa"))]
 #[test]
 fn pqc_composite_verify() -> Result<(), Box<dyn std::error::Error>> {
     let paths = std::fs::read_dir("tests/examples/composite").unwrap();

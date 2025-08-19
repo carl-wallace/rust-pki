@@ -76,6 +76,7 @@ pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]
 sha1_sig = ["rsa"]
 rsa = ["certval/rsa", "dep:rsa"]
+eddsa = ["certval/eddsa"]
 
 [package.metadata.docs.rs]
 all-features = true
