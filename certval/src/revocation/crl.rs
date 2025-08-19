@@ -2,7 +2,11 @@
 //! indirect CRLs, on hold, and nameRelativeToIssuer distribution points)
 
 extern crate alloc;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use flagset::{flags, FlagSet};
 use lazy_static::lazy_static;
 use ndarray::{arr2, ArrayBase, Dim, OwnedRepr};
@@ -1084,7 +1088,7 @@ pub(crate) fn process_crl(
             if rc
                 .serial_number
                 .der_cmp(&target_cert.decoded_cert.tbs_certificate().serial_number())
-                .map(|ordering| matches!(ordering, std::cmp::Ordering::Equal))
+                .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
                 .unwrap_or_default()
             {
                 // this is probably not a useful check. will change ultimate error from revoked to
