@@ -12,11 +12,15 @@ use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 #[cfg(feature = "rsa")]
+use alloc::string::ToString;
+#[cfg(feature = "rsa")]
+use rsa::signature::Verifier;
+#[cfg(feature = "rsa")]
 use const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512};
 #[cfg(feature = "rsa")]
 use der::Decode;
-#[cfg(feature = "rsa")]
-use ed25519_dalek::Verifier;
+#[cfg(feature = "eddsa")]
+use const_oid::db::rfc8410::ID_ED_25519;
 
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
@@ -59,7 +63,7 @@ pub(crate) fn is_ecdsa(oid: &ObjectIdentifier) -> bool {
 pub(crate) fn is_eddsa(oid: &ObjectIdentifier) -> bool {
     #[cfg(feature = "eddsa")]
     {
-        *oid == PKIXALG_ED25519
+        *oid == ID_ED_25519
     }
     #[cfg(not(feature = "eddsa"))]
     {

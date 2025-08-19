@@ -14,7 +14,10 @@ cfg_if! {
 }
 
 use crate::EXTS_OF_INTEREST;
-use alloc::vec::Vec;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec
+};
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE,

@@ -2,13 +2,15 @@
 //!
 #![cfg(feature = "pqc")]
 
+use alloc::{vec, vec::Vec};
 use crate::crypto::{is_ecdsa, is_eddsa, is_rsa};
 use crate::{
     Error, PkiEnvironment, RsaPssParams, TrailerField, PKIXALG_ECDSA_WITH_SHA256,
-    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_ED25519, PKIXALG_SECP256R1,
+    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1,
     PKIXALG_SECP384R1, PKIXALG_SECP521R1, PKIXALG_SHA256_WITH_RSA_ENCRYPTION,
     PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
 };
+use const_oid::db::rfc8410::ID_ED_25519;
 use const_oid::db::fips204::*;
 use const_oid::db::rfc5912::{
     ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_512, RSA_ENCRYPTION,
@@ -103,7 +105,7 @@ fn is_composite(
             parameters: None,
         };
         let trad = AlgorithmIdentifierOwned {
-            oid: PKIXALG_ED25519,
+            oid: ID_ED_25519,
             parameters: None,
         };
         Ok((pqc, trad))
@@ -181,7 +183,7 @@ fn is_composite(
             parameters: None,
         };
         let trad = AlgorithmIdentifierOwned {
-            oid: PKIXALG_ED25519,
+            oid: ID_ED_25519,
             parameters: None,
         };
         Ok((pqc, trad))
@@ -302,7 +304,7 @@ fn split_key(
     } else if is_eddsa(&trad_oid) {
         SubjectPublicKeyInfoOwned {
             algorithm: AlgorithmIdentifierOwned {
-                oid: PKIXALG_ED25519,
+                oid: ID_ED_25519,
                 parameters: Some(Any::from(AnyRef::NULL)),
             },
             subject_public_key: BitString::from_bytes(trad_key)?,
