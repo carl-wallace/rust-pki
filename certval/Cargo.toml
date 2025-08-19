@@ -33,8 +33,8 @@ ecdsa = {version = "0.17.0-pre.7", default-features = false, features = ["der"]}
 p256 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
 p384 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
 p521 = {version = "0.14.0-pre.1", default-features = false, features = ["ecdsa"]}
-ed25519-dalek = { version = "=3.0.0-pre.0", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
-rsa = {version = "0.10.0-pre.2", default-features = false, optional = true, features = ["encoding"]}
+ed25519-dalek = { version = "=3.0.0-pre.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
+rsa = {version = "0.10.0-pre.2", default-features = false, optional=true, features = ["encoding"]}
 sha1 = {version = "0.11.0-pre.4", default-features = false}
 sha2 = {version = "0.11.0-pre.4", default-features = false, features = ["oid"] }
 
@@ -93,6 +93,7 @@ remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
 pqc = ["pqcrypto-internals", "pqcrypto-dilithium", "pqcrypto-falcon", "pqcrypto-sphincsplus", "pqcrypto", "pqcrypto-traits", "pqckeys"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]
+eddsa = ["dep:ed25519-dalek"]
 
 [package.metadata.docs.rs]
 all-features = true

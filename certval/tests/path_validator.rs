@@ -184,7 +184,7 @@ fn denies_self_signed_ee() {
     panic!("EE cert was accepted");
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", feature = "eddsa"))]
 #[test]
 fn wire_certchain_works() {
     use der::{DecodePem, Encode};

@@ -67,8 +67,16 @@ pub(crate) fn is_ecdsa(oid: &ObjectIdentifier) -> bool {
         || *oid == PKIXALG_ECDSA_WITH_SHA512
 }
 
+#[allow(unused_variables)]
 pub(crate) fn is_eddsa(oid: &ObjectIdentifier) -> bool {
-    *oid == PKIXALG_ED25519
+    #[cfg(feature = "eddsa")]
+    {
+        *oid == PKIXALG_ED25519
+    }
+    #[cfg(not(feature = "eddsa"))]
+    {
+        false
+    }
 }
 
 #[cfg(feature = "pqc")]
@@ -313,22 +321,25 @@ pub fn verify_signature_message_rust_crypto(
             }
         };
     } else if is_eddsa(&signature_alg.oid) {
-        let Ok(verifying_key) =
-            ed25519_dalek::VerifyingKey::try_from(spki.subject_public_key.raw_bytes())
-        else {
-            error!("Could not decode verifying key");
-            return Err(Error::PathValidation(PathValidationStatus::EncodingError));
-        };
-        let Ok(s) = ed25519_dalek::Signature::from_slice(signature) else {
-            error!("Could not decode signature");
-            return Err(Error::PathValidation(PathValidationStatus::EncodingError));
-        };
-        verifying_key
-            .verify_strict(message_to_verify, &s)
-            .map_err(|_| {
-                Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
-            })?;
-        return Ok(());
+        #[cfg(feature = "eddsa")]
+        {
+            let Ok(verifying_key) =
+                ed25519_dalek::VerifyingKey::try_from(spki.subject_public_key.raw_bytes())
+            else {
+                error!("Could not decode verifying key");
+                return Err(Error::PathValidation(PathValidationStatus::EncodingError));
+            };
+            let Ok(s) = ed25519_dalek::Signature::from_slice(signature) else {
+                error!("Could not decode signature");
+                return Err(Error::PathValidation(PathValidationStatus::EncodingError));
+            };
+            verifying_key
+                .verify_strict(message_to_verify, &s)
+                .map_err(|_| {
+                    Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                })?;
+            return Ok(());
+        }
     }
 
     debug!("Unrecognized signature algorithm: {}", signature_alg.oid);
