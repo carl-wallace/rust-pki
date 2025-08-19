@@ -21,12 +21,11 @@ cms = { git = "https://github.com/RustCrypto/formats.git" }
 x509-cert = { git = "https://github.com/RustCrypto/formats.git" }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
-ecdsa = { git = "https://github.com/RustCrypto/signatures.git" }
+ecdsa           = { git = "https://github.com/RustCrypto/signatures.git" }
+ml-dsa          = { git = "https://github.com/RustCrypto/signatures.git" }
+slh-dsa         = { git = "https://github.com/RustCrypto/signatures.git"}
 
 primefield = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
 p256 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
 p384 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
 p521 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
-
-[patch.'https://github.com/carl-wallace/pqckeys']
-pqckeys = { git = "https://github.com/baloo/pqckeys.git", branch = "baloo/pre-releases" }

@@ -275,7 +275,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.1")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -290,7 +290,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BadSigned"];
         pkits_data_map
             .entry("4.1")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -307,7 +307,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.1")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -323,20 +323,20 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     // {
     //     let target_file_name = "ValidDSASignaturesTest4EE.crt";
     //     let intermediate_ca_file_names = vec!["DSA"];
-    //     pkits_data_map.entry("4.1").or_insert_with(Vec::new).push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: None});
-    //     pkits_settings_map.entry("4.1").or_insert_with(Vec::new).push(&G_DEFAULT_SETTINGS);
+    //     pkits_data_map.entry("4.1").or_default().push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: None});
+    //     pkits_settings_map.entry("4.1").or_default().push(&G_DEFAULT_SETTINGS);
     // }
     // {
     //     let target_file_name = "ValidDSAParameterInheritanceTest5EE.crt";
     //     let intermediate_ca_file_names = vec!["DSA", "DSAParametersInherited"];
-    //     pkits_data_map.entry("4.1").or_insert_with(Vec::new).push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: None});
-    //     pkits_settings_map.entry("4.1").or_insert_with(Vec::new).push(&G_DEFAULT_SETTINGS);
+    //     pkits_data_map.entry("4.1").or_default().push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: None});
+    //     pkits_settings_map.entry("4.1").or_default().push(&G_DEFAULT_SETTINGS);
     // }
     // {
     //     let target_file_name = "InvalidDSASignatureTest6EE.crt";
     //     let intermediate_ca_file_names = vec!["DSA"];
-    //     pkits_data_map.entry("4.1").or_insert_with(Vec::new).push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: Some(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)});
-    //     pkits_settings_map.entry("4.1").or_insert_with(Vec::new).push(&G_DEFAULT_SETTINGS);
+    //     pkits_data_map.entry("4.1").or_default().push(PkitsTestCase{target_file_name, intermediate_ca_file_names, alt_test_name: None, crls: vec![], expected_error: Some(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)});
+    //     pkits_settings_map.entry("4.1").or_default().push(&G_DEFAULT_SETTINGS);
     // }
 
     //-----------------------------------------------------------------------------
@@ -347,7 +347,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BadnotBeforeDate"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -364,7 +364,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -382,7 +382,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let intermediate_ca_file_names = vec!["Good"];
     //     pkits_data_map
     //         .entry("4.2")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -396,7 +396,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -411,7 +411,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BadnotAfterDate"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -428,7 +428,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -445,7 +445,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -462,7 +462,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.2")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -481,7 +481,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -498,7 +498,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["NameOrdering"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -515,7 +515,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -530,7 +530,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -545,7 +545,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["UID"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -560,7 +560,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["RFC3280MandatoryAttributeTypes"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -575,7 +575,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["RFC3280OptionalAttributeTypes"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -590,7 +590,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["UTF8StringEncodedNames"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -605,7 +605,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["RolloverfromPrintableStringtoUTF8String"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -620,7 +620,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["UTF8StringCaseInsensitiveMatch"];
         pkits_data_map
             .entry("4.3")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -639,7 +639,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidMissingCRLTest1EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -654,7 +654,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidRevokedCATest2EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -669,7 +669,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidRevokedEETest3EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -684,7 +684,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidBadCRLSignatureTest4EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -699,7 +699,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidBadCRLIssuerNameTest5EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -714,7 +714,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidWrongCRLTest6EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -729,7 +729,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidTwoCRLsTest7EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -744,7 +744,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidUnknownCRLEntryExtensionTest8EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -759,7 +759,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidUnknownCRLExtensionTest9EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -774,7 +774,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidUnknownCRLExtensionTest10EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -790,7 +790,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidOldCRLnextUpdateTest11EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -805,7 +805,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "Invalidpre2000CRLnextUpdateTest12EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -820,7 +820,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidGeneralizedTimeCRLnextUpdateTest13EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -836,7 +836,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidNegativeSerialNumberTest14EE.crt";
     //     pkits_data_map
     //         .entry("4.4")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -851,7 +851,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidNegativeSerialNumberTest15EE.crt";
     //     pkits_data_map
     //         .entry("4.4")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -866,7 +866,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidLongSerialNumberTest16EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -881,7 +881,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidLongSerialNumberTest17EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -896,7 +896,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidLongSerialNumberTest18EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -911,7 +911,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidSeparateCertificateandCRLKeysTest19EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -926,7 +926,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidSeparateCertificateandCRLKeysTest20EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -942,7 +942,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvalidSeparateCertificateandCRLKeysTest21EE.crt";
         pkits_data_map
             .entry("4.4")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -957,7 +957,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidTwoCRLsTest7EE.crt";
         pkits_data_map
             .entry("4.4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -977,7 +977,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
             vec!["BasicSelfIssuedNewKey", "BasicSelfIssuedNewKeyOldWithNew"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -993,7 +993,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
             vec!["BasicSelfIssuedNewKey", "BasicSelfIssuedNewKeyOldWithNew"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1013,7 +1013,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
             vec!["BasicSelfIssuedOldKey", "BasicSelfIssuedOldKeyNewWithOld"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1028,7 +1028,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BasicSelfIssuedOldKey"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1043,7 +1043,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BasicSelfIssuedOldKey"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1062,7 +1062,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["BasicSelfIssuedCRLSigningKey"];
         pkits_data_map
             .entry("4.5")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1082,7 +1082,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["MissingbasicConstraints"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1099,7 +1099,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["basicConstraintsCriticalcAFalse"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1116,7 +1116,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["basicConstraintsNotCriticalcAFalse"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1133,7 +1133,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["basicConstraintsNotCritical"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1148,7 +1148,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["pathLenConstraint0", "pathLenConstraint0sub"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1169,7 +1169,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1186,7 +1186,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["pathLenConstraint0"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1201,7 +1201,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["pathLenConstraint0"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1220,7 +1220,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1241,7 +1241,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1263,7 +1263,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1285,7 +1285,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1307,7 +1307,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1327,7 +1327,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1342,7 +1342,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["pathLenConstraint0", "pathLenConstraint0SelfIssued"];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1361,7 +1361,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1383,7 +1383,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidSelfIssuedpathLenConstraintTest17EE.crt";
         pkits_data_map
             .entry("4.6")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1402,7 +1402,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["keyUsageCriticalkeyCertSignFalse"];
         pkits_data_map
             .entry("4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1417,7 +1417,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["keyUsageNotCriticalkeyCertSignFalse"];
         pkits_data_map
             .entry("4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1432,7 +1432,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["keyUsageNotCritical"];
         pkits_data_map
             .entry("4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1447,7 +1447,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["keyUsageCriticalcRLSignFalse"];
         pkits_data_map
             .entry("4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1462,7 +1462,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["keyUsageNotCriticalcRLSignFalse"];
         pkits_data_map
             .entry("4.7")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1481,7 +1481,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1496,7 +1496,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1511,7 +1511,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1526,7 +1526,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1542,7 +1542,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["NoPolicies"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1557,7 +1557,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["NoPolicies"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1573,7 +1573,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "PoliciesP2sub"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1588,7 +1588,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "PoliciesP2sub"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1603,7 +1603,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "PoliciesP2sub"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1619,7 +1619,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "Goodsub"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1635,7 +1635,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "PoliciesP2subCA2"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1655,7 +1655,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1674,7 +1674,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1693,7 +1693,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1713,7 +1713,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1733,7 +1733,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1754,7 +1754,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1770,7 +1770,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP12"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1785,7 +1785,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP12"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1800,7 +1800,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP12"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1816,7 +1816,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["anyPolicy"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1831,7 +1831,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["anyPolicy"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1847,7 +1847,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP3"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1863,7 +1863,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP123"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1878,7 +1878,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP123"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1893,7 +1893,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP123"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1909,7 +1909,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["anyPolicy"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1924,7 +1924,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["anyPolicy"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1940,7 +1940,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec![];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1956,7 +1956,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1972,7 +1972,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -1988,7 +1988,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP12"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2003,7 +2003,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PoliciesP12"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2019,7 +2019,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec![];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2035,7 +2035,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2050,7 +2050,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good"];
         pkits_data_map
             .entry("4.8")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2074,7 +2074,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2094,7 +2094,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2114,7 +2114,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2134,7 +2134,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2154,7 +2154,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2170,7 +2170,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
             vec!["requireExplicitPolicy2", "requireExplicitPolicy2SelfIssued"];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2189,7 +2189,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2209,7 +2209,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.9")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2228,7 +2228,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Mapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2243,7 +2243,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Mapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2258,7 +2258,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Mapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2274,7 +2274,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Mapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2289,7 +2289,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Mapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2309,7 +2309,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2328,7 +2328,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2348,7 +2348,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2364,7 +2364,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1Mapping1to234", "P1Mapping1to234sub"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2379,7 +2379,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1Mapping1to234", "P1Mapping1to234sub"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2395,7 +2395,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1Mapping1to234", "P1Mapping1to234sub"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2410,7 +2410,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1Mapping1to234", "P1Mapping1to234sub"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2427,7 +2427,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["MappingFromanyPolicy"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2443,7 +2443,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["MappingToanyPolicy"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2459,7 +2459,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["PanyPolicyMapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2475,7 +2475,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["Good", "GoodsubCAPanyPolicyMapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2491,7 +2491,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P12Mapping1to3"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2506,7 +2506,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P12Mapping1to3"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2522,7 +2522,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1anyPolicyMapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2538,7 +2538,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["P1anyPolicyMapping1to2"];
         pkits_data_map
             .entry("4.10")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2558,7 +2558,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitPolicyMapping0", "inhibitPolicyMapping0sub"];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2574,7 +2574,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
             vec!["inhibitPolicyMapping1P12", "inhibitPolicyMapping1P12sub"];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2593,7 +2593,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2612,7 +2612,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2632,7 +2632,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2651,7 +2651,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2670,7 +2670,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2690,7 +2690,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2710,7 +2710,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2730,7 +2730,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2750,7 +2750,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.11")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2769,7 +2769,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy0"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2784,7 +2784,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy0"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2799,7 +2799,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy1", "inhibitAnyPolicy1subCA1"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2814,7 +2814,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy1", "inhibitAnyPolicy1subCA1"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2829,7 +2829,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy1", "inhibitAnyPolicy1subCA1"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2848,7 +2848,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2863,7 +2863,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["inhibitAnyPolicy1", "inhibitAnyPolicy1subCAIAP5"];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2882,7 +2882,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2902,7 +2902,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2922,7 +2922,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2941,7 +2941,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         ];
         pkits_data_map
             .entry("4.12")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2960,7 +2960,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2975,7 +2975,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -2992,7 +2992,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3009,7 +3009,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3024,7 +3024,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3039,7 +3039,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3054,7 +3054,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3071,7 +3071,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN4"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3088,7 +3088,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN4"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3105,7 +3105,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN5"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3122,7 +3122,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN5"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3137,7 +3137,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3154,7 +3154,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3171,7 +3171,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3186,7 +3186,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3", "nameConstraintsDN3subCA1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3203,7 +3203,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3", "nameConstraintsDN3subCA1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3220,7 +3220,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3", "nameConstraintsDN3subCA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3237,7 +3237,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN3", "nameConstraintsDN3subCA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3252,7 +3252,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1SelfIssued"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3267,7 +3267,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1SelfIssued"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3285,7 +3285,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3300,7 +3300,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3317,7 +3317,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3332,7 +3332,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3349,7 +3349,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3364,7 +3364,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsRFC822CA3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3381,7 +3381,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3396,7 +3396,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA3"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3414,7 +3414,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let intermediate_ca_file_names = vec!["nameConstraintsDN1", "nameConstraintsDN1subCA3"];
     //     pkits_data_map
     //         .entry("4.13")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3429,7 +3429,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDNS1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3444,7 +3444,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDNS1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3461,7 +3461,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDNS2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3476,7 +3476,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDNS2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3493,7 +3493,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsURI1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3508,7 +3508,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsURI1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3525,7 +3525,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsURI2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3540,7 +3540,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsURI2"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3557,7 +3557,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec!["nameConstraintsDNS1"];
         pkits_data_map
             .entry("4.13")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3579,7 +3579,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValiddistributionPointTest1EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3594,7 +3594,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvaliddistributionPointTest2EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3609,7 +3609,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvaliddistributionPointTest3EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3625,7 +3625,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValiddistributionPointTest4EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3640,7 +3640,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValiddistributionPointTest5EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3655,7 +3655,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvaliddistributionPointTest6EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3670,7 +3670,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValiddistributionPointTest7EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3685,7 +3685,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvaliddistributionPointTest8EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3700,7 +3700,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "InvaliddistributionPointTest9EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3715,7 +3715,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let target_file_name = "ValidNoissuingDistributionPointTest10EE.crt";
         pkits_data_map
             .entry("4.14")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -3731,7 +3731,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlyContainsUserCertsTest11EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3746,7 +3746,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlyContainsCACertsTest12EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3761,7 +3761,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidonlyContainsCACertsTest13EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3776,7 +3776,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlyContainsAttributeCertsTest14EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3791,7 +3791,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlySomeReasonsTest15EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3806,7 +3806,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlySomeReasonsTest16EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3821,7 +3821,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlySomeReasonsTest17EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3836,7 +3836,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidonlySomeReasonsTest18EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3851,7 +3851,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidonlySomeReasonsTest19EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3866,7 +3866,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlySomeReasonsTest20EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3882,7 +3882,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidonlySomeReasonsTest21EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3897,7 +3897,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidIDPwithindirectCRLTest22EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3912,7 +3912,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidIDPwithindirectCRLTest23EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3927,7 +3927,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidIDPwithindirectCRLTest24EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3942,7 +3942,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidIDPwithindirectCRLTest25EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3957,7 +3957,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidIDPwithindirectCRLTest26EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3972,7 +3972,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidcRLIssuerTest27EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -3987,7 +3987,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidcRLIssuerTest28EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4002,7 +4002,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidcRLIssuerTest29EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4017,7 +4017,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidcRLIssuerTest30EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4033,7 +4033,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidcRLIssuerTest31EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4048,7 +4048,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidcRLIssuerTest32EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4063,7 +4063,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "ValidcRLIssuerTest33EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4078,7 +4078,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidcRLIssuerTest34EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4093,7 +4093,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //     let target_file_name = "InvalidcRLIssuerTest35EE.crt";
     //     pkits_data_map
     //         .entry("4.14")
-    //         .or_insert_with(Vec::new)
+    //         .or_default()
     //         .push(PkitsTestCase {
     //             target_file_name,
     //             intermediate_ca_file_names,
@@ -4118,7 +4118,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec![];
         pkits_data_map
             .entry("4.16")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,
@@ -4133,7 +4133,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
         let intermediate_ca_file_names = vec![];
         pkits_data_map
             .entry("4.16")
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(PkitsTestCase {
                 target_file_name,
                 intermediate_ca_file_names,

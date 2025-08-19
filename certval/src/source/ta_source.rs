@@ -234,7 +234,7 @@ impl TaSource {
         let bap: BuffersAndPaths = match from_reader(cbor) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse embedded EE CBOR with: {}", e)
+                panic!("Failed to parse embedded EE CBOR with: {e}")
             }
         };
 
@@ -309,15 +309,9 @@ impl TaSource {
             let ta_filename = get_filename_from_ta_metadata(ta);
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let sub = get_leaf_rdn(name);
-                info!(
-                    "Index: {:3}; SKID: {}; Subject: {}; Filename: {}",
-                    i, hex_skid, sub, ta_filename
-                );
+                info!("Index: {i:3}; SKID: {hex_skid}; Subject: {sub}; Filename: {ta_filename}");
             } else {
-                info!(
-                    "Index: {:3}; SKID: {}; Subject: No Name; Filename: {}",
-                    i, hex_skid, ta_filename
-                );
+                info!("Index: {i:3}; SKID: {hex_skid}; Subject: No Name; Filename: {ta_filename}");
             }
         }
     }

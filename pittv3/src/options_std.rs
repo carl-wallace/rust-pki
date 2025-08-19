@@ -219,17 +219,13 @@ pub async fn options_std(args: &Pittv3Args) {
                 TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
             );
             if let Err(e) = r {
-                println!(
-                    "Failed to load trust anchors from {} with error {:?}",
-                    ta_folder, e
-                );
+                println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
                 return;
             }
 
             if let Err(e) = ta_store.initialize() {
                 println!(
-                    "Failed to initialize trust anchor source from {} with error {:?}",
-                    ta_folder, e
+                    "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
                 );
                 return;
             }
@@ -243,8 +239,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 Ok(mut ta_store) => {
                     if let Err(e) = ta_store.initialize() {
                         println!(
-                            "Failed to initialize trust anchor source from webpki-roots with error {:?}",
-                            e
+                            "Failed to initialize trust anchor source from webpki-roots with error {e:?}"
                         );
                         return;
                     }
@@ -253,8 +248,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 }
                 Err(e) => {
                     println!(
-                        "Failed to create trust anchor source from webpki-roots with error {:?}",
-                        e
+                        "Failed to create trust anchor source from webpki-roots with error {e:?}"
                     );
                     return;
                 }
@@ -290,22 +284,19 @@ pub async fn options_std(args: &Pittv3Args) {
 
         let cbor = read_cbor(&args.cbor);
         if cbor.is_empty() {
-            println!(
-                "Failed to read CBOR data from file located at {}",
-                cbor_file
-            );
+            println!("Failed to read CBOR data from the file located at {cbor_file}");
             return;
         }
 
         let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse CBOR file at {} with: {}", cbor_file, e)
+                panic!("Failed to parse CBOR file at {cbor_file} with: {e}")
             }
         };
         let r = cert_source.initialize(&cps);
         if let Err(e) = r {
-            error!("Failed to populate cert vector with: {:?}", e);
+            error!("Failed to populate cert vector with: {e:?}");
         }
 
         pe.populate_5280_pki_environment();
@@ -323,10 +314,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     pe.add_trust_anchor_source(Box::new(ta_store));
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to initialize TA store from webpki-roots: {:?}. Continuing...",
-                        e
-                    );
+                    error!("Failed to initialize TA store from webpki-roots: {e:?}. Continuing...");
                 }
             };
         }
@@ -341,16 +329,12 @@ pub async fn options_std(args: &Pittv3Args) {
                 TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
             );
             if let Err(e) = r {
-                println!(
-                    "Failed to load trust anchors from {} with error {:?}",
-                    ta_folder, e
-                );
+                println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
                 return;
             }
             if let Err(e) = ta_store.initialize() {
                 println!(
-                    "Failed to initialize trust anchor source from {} with error {:?}",
-                    ta_folder, e
+                    "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
                 );
                 return;
             }
@@ -376,7 +360,7 @@ pub async fn options_std(args: &Pittv3Args) {
             let c = &cert_source.get_cert_at_index(index);
             if let Some(cert) = c {
                 let p = Path::new(&download_folder);
-                let fname = format!("{}.der", index);
+                let fname = format!("{index}.der");
                 let f = p.join(fname);
                 fs::write(f, cert.as_bytes()).expect("Unable to write certificate file");
             } else {
@@ -417,7 +401,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     )
                     .await;
                     if let Err(e) = r {
-                        error!("Encountered error downloading URIs: {}", e);
+                        error!("Encountered error downloading URIs: {e}");
                     }
                     let json_lmm = serde_json::to_string(&lmm);
                     if !lmm_file.is_empty() {
@@ -449,10 +433,10 @@ pub async fn options_std(args: &Pittv3Args) {
                 let buffers = cert_source.get_buffers();
                 for (i, buffer) in buffers.iter().enumerate() {
                     let p = Path::new(download_folder);
-                    let fname = format!("{}.der", i);
+                    let fname = format!("{i}.der");
                     let pbuf = p.join(fname);
                     if let Err(e) = fs::write(pbuf, &buffer.bytes) {
-                        error!("Failed to write certificate #{} to file: {}", i, e);
+                        error!("Failed to write certificate #{i} to file: {e}");
                     }
                 }
             }
@@ -464,7 +448,7 @@ pub async fn options_std(args: &Pittv3Args) {
             let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
                 t
             } else {
-                error!("Failed to read file at {}", cert_filename);
+                error!("Failed to read file at {cert_filename}");
                 return;
             };
 
@@ -516,12 +500,11 @@ pub async fn options_std(args: &Pittv3Args) {
                                     if label == "CERTIFICATE" {
                                         match Certificate::from_der(&der_bytes) {
                                             Ok(_) => {
-                                                let path = Path::new(&ca_folder)
-                                                    .join(format!("{}.der", i));
+                                                let path =
+                                                    Path::new(&ca_folder).join(format!("{i}.der"));
                                                 if fs::write(path, der_bytes).is_err() {
                                                     println!(
-                                                        "Failed to write certificate from row {}",
-                                                        i
+                                                        "Failed to write certificate from row {i}"
                                                     );
                                                 }
                                             }
@@ -536,7 +519,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 }
             }
             Err(e) => {
-                println!("Failed to read data from Mozilla CSV file with {}", e);
+                println!("Failed to read data from Mozilla CSV file with {e}");
             }
         }
     } else if args.validate_self_signed {
@@ -553,9 +536,9 @@ pub async fn options_std(args: &Pittv3Args) {
                     );
 
                     if is_self_signed(&pe, &target_cert) {
-                        println!("{} is self-signed", eff);
+                        println!("{eff} is self-signed");
                     } else {
-                        println!("{} is not self-signed", eff);
+                        println!("{eff} is not self-signed");
                     }
                 } else {
                     // try base 64
@@ -571,9 +554,9 @@ pub async fn options_std(args: &Pittv3Args) {
                             );
 
                             if is_self_signed(&pe, &target_cert) {
-                                println!("{} is self-signed", eff);
+                                println!("{eff} is self-signed");
                             } else {
-                                println!("{} is not self-signed", eff);
+                                println!("{eff} is not self-signed");
                             }
                         }
                     }
@@ -637,7 +620,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     let mut cps = match read_settings(&args.settings) {
         Ok(cps) => cps,
         Err(e) => {
-            panic!("Failed to parse settings file: {:?}", e)
+            panic!("Failed to parse settings file: {e:?}")
         }
     };
 
@@ -668,10 +651,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                 ta_store_added = true;
             }
             Err(e) => {
-                error!(
-                    "Failed to initialize TA store from webpki-roots: {:?}. Continuing...",
-                    e
-                );
+                error!("Failed to initialize TA store from webpki-roots: {e:?}. Continuing...");
             }
         };
     }
@@ -686,17 +666,11 @@ async fn generate_and_validate(args: &Pittv3Args) {
             TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
         );
         if let Err(e) = r {
-            println!(
-                "Failed to load trust anchors from {} with error {:?}",
-                ta_folder, e
-            );
+            println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
             return;
         }
         if let Err(e) = ta_store.initialize() {
-            println!(
-                "Failed to initialize trust anchor source from {} with error {:?}",
-                ta_folder, e
-            );
+            println!("Failed to initialize trust anchor source from {ta_folder} with error {e:?}");
             return;
         }
         pe.add_trust_anchor_source(Box::new(ta_store));
@@ -753,7 +727,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
             match crl_source.index_crls(cps.get_time_of_interest()) {
                 Ok(_) => Some(crl_source),
                 Err(e) => {
-                    error!("Failed to index CRL source with {}", e);
+                    error!("Failed to index CRL source with {e}");
                     None
                 }
             }
@@ -786,7 +760,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
             // Empty CBOR is fine when doing dynamic building or when validating certificates
             // issued by a trust anchor
             if 0 == pass {
-                info!("Empty CBOR file at {}. Proceeding without it.", cbor_file);
+                info!("Empty CBOR file at {cbor_file}. Proceeding without it.");
             }
             CertSource::default()
 
@@ -799,8 +773,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                 Ok(cbor_data) => cbor_data,
                 Err(e) => {
                     error!(
-                        "Failed to parse CBOR file at {} with: {}. Proceeding without it.",
-                        cbor_file, e
+                        "Failed to parse CBOR file at {cbor_file} with: {e}. Proceeding without it."
                     );
                     CertSource::default()
                 }
@@ -882,7 +855,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                     }
                 }
                 if let Err(e) = r {
-                    error!("Failed to fetch fresh URIs with {:?}", e);
+                    error!("Failed to fetch fresh URIs with {e:?}");
                     break;
                 }
             } else if 0 < pass {
@@ -897,7 +870,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
         //instead of holding all certs parsed all the time?
         let r = cert_source.initialize(&cps);
         if let Err(e) = r {
-            error!("Failed to populate cert map: {}", e);
+            error!("Failed to populate cert map: {e}");
             break;
         }
 
@@ -911,10 +884,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
                 Ok(new_cbor) => {
                     cbor = new_cbor;
                 }
-                Err(e) => error!(
-                    "Failed to serialize CBOR after dynamic building with {:?}",
-                    e
-                ),
+                Err(e) => error!("Failed to serialize CBOR after dynamic building with {e:?}"),
             }
 
             #[cfg(feature = "remote")]
@@ -1036,7 +1006,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
         let s = &stats[k];
-        info!("Stats for {}", k);
+        info!("Stats for {k}");
         info!("\t * Paths found: {}", s.paths_per_target);
         info!("\t * Valid paths found: {}", s.valid_paths_per_target);
         info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
@@ -1062,7 +1032,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
         totals.invalid_paths_per_target
     );
 
-    debug!("Args: {:?}", args);
+    debug!("Args: {args:?}");
 
     info!(
         "{:?} to deserialize graph and perform build and validation operation(s) for {} file(s)",
