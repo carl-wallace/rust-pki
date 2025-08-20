@@ -27,7 +27,7 @@ spki = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"] 
 pem-rfc7468 = { version="1.0.0-rc.3", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
-rsa = { version = "0.10.0-rc.4", optional = true }
+rsa = { version = "0.10.0-rc.4", optional = true, features = ["encoding"] }
 sha1 = {version = "0.11.0-rc.0", default-features = false, features = ["oid"]}
 sha2 = {version = "0.11.0-rc.0", default-features = false, features = ["oid"] }
 
