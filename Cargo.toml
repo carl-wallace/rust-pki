@@ -14,18 +14,14 @@ debug = true
 debug = true
 
 [patch.crates-io]
-ed25519-dalek    = { git = "https://github.com/dalek-cryptography/curve25519-dalek.git" }
-
-der_derive = { git = "https://github.com/RustCrypto/formats.git" }
-cms = { git = "https://github.com/RustCrypto/formats.git" }
-x509-cert = { git = "https://github.com/RustCrypto/formats.git" }
+cms       = { git = "https://github.com/RustCrypto/formats.git" }
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
-ecdsa           = { git = "https://github.com/RustCrypto/signatures.git" }
-ml-dsa          = { git = "https://github.com/RustCrypto/signatures.git" }
-slh-dsa         = { git = "https://github.com/RustCrypto/signatures.git"}
+elliptic-curve = { git = "https://github.com/RustCrypto/traits.git" }
 
-primefield = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
-p256 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
-p384 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
-p521 = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+ff = { git = "https://github.com/tarcieri/ff", branch = "rand_core/v0.10.0-rc-2" }
+group = { git = "https://github.com/tarcieri/group", branch = "rand_core/v0.10.0-rc-2" }
+
+primefield       = { git = "https://github.com/RustCrypto/elliptic-curves.git" }
+
+ecdsa = { git = "https://github.com/RustCrypto/signatures.git" }

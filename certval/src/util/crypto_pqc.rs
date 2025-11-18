@@ -24,7 +24,7 @@ macro_rules! pqverify_mldsa {
             .map_err(|_e| Error::PqcValidation)?;
         let sig = ml_dsa::Signature::<$pkt>::decode(&sig_bytes);
 
-        match sig.map(|sig| vk.verify_internal(&[$message_to_verify], &sig)) {
+        match sig.map(|sig| vk.verify_internal($message_to_verify, &sig)) {
             Some(_) => {
                 return Ok(());
             }
