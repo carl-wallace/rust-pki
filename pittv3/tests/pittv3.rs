@@ -187,6 +187,7 @@ fn list_name_constraints() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("pittv3")?;
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--list-name-constraints");
+    cmd.arg("-i").arg("1668770981");
     cmd.assert()
         .stdout(predicate::str::contains("DnsName: abensberg.de"));
     Ok(())
