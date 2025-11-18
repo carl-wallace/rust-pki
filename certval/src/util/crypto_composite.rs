@@ -227,9 +227,9 @@ fn is_composite(
             parameters: Some(Any::from_der(trad_der.as_slice())?),
         };
         Ok((pqc, trad, DS_MLDSA87_ECDSA_P384_SHA512.to_vec()))
-    } else if ID_MLDSA87_ED448_SHAKE256 == composite_oid {
-        // DS_MLDSA87_ED448_SHAKE256
-        todo!()
+    // } else if ID_MLDSA87_ED448_SHAKE256 == composite_oid {
+    //     // DS_MLDSA87_ED448_SHAKE256
+    //     todo!()
     } else if ID_MLDSA87_RSA3072_PSS_SHA512 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_87,
