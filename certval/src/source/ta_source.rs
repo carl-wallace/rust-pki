@@ -70,9 +70,9 @@ pub fn get_subject_public_key_info_from_trust_anchor(
     ta: &TrustAnchorChoice<Raw>,
 ) -> &SubjectPublicKeyInfoOwned {
     match ta {
-        TrustAnchorChoice::Certificate(cert) => &cert.tbs_certificate().subject_public_key_info(),
+        TrustAnchorChoice::Certificate(cert) => cert.tbs_certificate().subject_public_key_info(),
         TrustAnchorChoice::TaInfo(tai) => &tai.pub_key,
-        TrustAnchorChoice::TbsCertificate(tbs) => &tbs.subject_public_key_info(),
+        TrustAnchorChoice::TbsCertificate(tbs) => tbs.subject_public_key_info(),
     }
 }
 
@@ -173,7 +173,7 @@ pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
 /// * the subjectKeyIdentifier extension in a TrustAnchorChoice::Certificate structure,
 /// * the keyID field in a TrustAnchorChoice::TrustAnchorInfo structure
 /// * the SHA256 digest of the  SubjectPublicKeyInfoOwned read from TrustAnchorChoice::Certificate or
-/// TrustAnchorChoice::TrustAnchorInfo
+///   TrustAnchorChoice::TrustAnchorInfo
 pub type TrustAnchorKeyId = String;
 
 #[derive(Clone)]

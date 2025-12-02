@@ -314,7 +314,7 @@ fn verify_response_signature(
         &ddbor.tbs_response_data,
         signature,
         &bor.signature_algorithm,
-        &signers_cert.tbs_certificate().subject_public_key_info(),
+        signers_cert.tbs_certificate().subject_public_key_info(),
     )
 }
 
@@ -524,7 +524,7 @@ fn process_ocsp_response_internal(
                         &defer_cert.tbs_field,
                         defer_cert.signature.raw_bytes(),
                         &defer_cert.signature_algorithm,
-                        &issuers_cert.tbs_certificate().subject_public_key_info(),
+                        issuers_cert.tbs_certificate().subject_public_key_info(),
                     ) {
                         if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
                             if *cert.tbs_certificate().signature() != defer_cert.signature_algorithm
@@ -537,7 +537,7 @@ fn process_ocsp_response_internal(
                             let time_of_interest = cps.get_time_of_interest();
                             if time_of_interest.is_disabled() {
                                 let target_ttl =
-                                    valid_at_time(&cert.tbs_certificate(), time_of_interest, false);
+                                    valid_at_time(cert.tbs_certificate(), time_of_interest, false);
                                 if let Err(_e) = target_ttl {
                                     error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but certificate has expired");
                                     cpr.add_failed_ocsp_response(
@@ -597,7 +597,7 @@ fn process_ocsp_response_internal(
     for sr in bor.tbs_response_data.responses {
         if !cert_id_match(
             &sr.cert_id,
-            &target_cert.as_ref().tbs_certificate().serial_number(),
+            target_cert.as_ref().tbs_certificate().serial_number(),
             name_hash,
             key_hash,
         ) {
@@ -682,7 +682,7 @@ pub(crate) async fn check_revocation_ocsp(
     if ocsp_aias.is_empty() {
         info!(
             "No OCSP AIAs found for {}",
-            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
+            name_to_string(target_cert.as_ref().tbs_certificate().subject())
         );
     } else {
         for aia in ocsp_aias {
@@ -699,7 +699,7 @@ pub(crate) async fn check_revocation_ocsp(
                 info!(
                         "Determined revocation status ({}) using OCSP for certificate issued to {} via {}",
                         target_status,
-                        name_to_string(&target_cert.as_ref().tbs_certificate().subject()),
+                        name_to_string(target_cert.as_ref().tbs_certificate().subject()),
                         aia.as_str(),
                     );
                 // no need to consider additional AIAs
@@ -707,7 +707,7 @@ pub(crate) async fn check_revocation_ocsp(
             } else {
                 info!(
                     "Failed to determine status for {} via {}",
-                    name_to_string(&target_cert.as_ref().tbs_certificate().subject()),
+                    name_to_string(target_cert.as_ref().tbs_certificate().subject()),
                     aia.as_str()
                 );
             }

@@ -73,7 +73,7 @@ impl PDVTrustAnchorChoice {
 
     /// Return the locator for the source of this certificate
     pub fn locator(&self) -> Option<&str> {
-        self.locator.as_ref().map(String::as_str)
+        self.locator.as_deref()
     }
 }
 
@@ -353,7 +353,7 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
 pub fn get_trust_anchor_name(ta: &TrustAnchorChoice<Raw>) -> Result<&Name> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            return Ok(&cert.tbs_certificate().subject());
+            return Ok(cert.tbs_certificate().subject());
         }
         TrustAnchorChoice::TaInfo(tai) => {
             if let Some(cert_path) = &tai.cert_path {
@@ -361,7 +361,7 @@ pub fn get_trust_anchor_name(ta: &TrustAnchorChoice<Raw>) -> Result<&Name> {
             }
         }
         TrustAnchorChoice::TbsCertificate(cert) => {
-            return Ok(&cert.subject());
+            return Ok(cert.subject());
         }
     }
     Err(Error::NotFound)

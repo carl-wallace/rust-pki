@@ -223,7 +223,7 @@ pub async fn fetch_to_buffer(
                 let fname_from_response = response
                     .url()
                     .path_segments()
-                    .and_then(|segments| segments.last())
+                    .and_then(|mut segments| segments.next_back())
                     .and_then(|name| if name.is_empty() { None } else { Some(name) })
                     .unwrap_or("tmp.bin");
 

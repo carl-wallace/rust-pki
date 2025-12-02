@@ -94,11 +94,11 @@ pub fn get_pkits_crl_ca_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}{}", G_CRLS_FOLDER.as_str(), fname, "CACRL.crl");
     let p = Path::new(f.as_str());
     if p.exists() {
-        return get_file_as_byte_vec(Path::new(&p));
+        get_file_as_byte_vec(Path::new(&p))
     } else {
         let f = format!("{}{}{}", G_CRLS_FOLDER.as_str(), fname, "CRL.crl");
         let p = Path::new(f.as_str());
-        return get_file_as_byte_vec(Path::new(&p));
+        get_file_as_byte_vec(Path::new(&p))
     }
 }
 

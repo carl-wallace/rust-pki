@@ -22,7 +22,7 @@ fn prehash_required() {
                 &parts.tbs_field,
                 parts.signature.raw_bytes(),
                 &parts.signature_algorithm,
-                &ca_cert.tbs_certificate().subject_public_key_info(),
+                ca_cert.tbs_certificate().subject_public_key_info(),
             )
             .unwrap();
         }

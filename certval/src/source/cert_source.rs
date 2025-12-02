@@ -510,8 +510,8 @@ impl CertSource {
         for (i, c) in self.certs.iter().enumerate() {
             if let Some(cert) = c {
                 let skid = hex_skid_from_cert(cert);
-                let sub = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
-                let iss = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                 info!(
                     "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                     i, skid, iss, sub
@@ -545,8 +545,8 @@ impl CertSource {
                 let nc_ext = cert.get_extension(&ID_CE_NAME_CONSTRAINTS);
                 if let Ok(Some(PDVExtension::NameConstraints(nc))) = nc_ext {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
-                    let iss = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     if let Some(perm) = &nc.permitted_subtrees {
                         logged_some = true;
                         info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
@@ -592,7 +592,7 @@ impl CertSource {
                     for c in &self.skid_map[key] {
                         let cert = &self.certs[*c];
                         if let Some(cert) = cert {
-                            label = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
+                            label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                             break;
                         }
                     }
@@ -603,7 +603,7 @@ impl CertSource {
                 for v in inner {
                     let cert = &self.certs[v[0]];
                     let vlabel = if let Some(cert) = cert {
-                        get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer())
+                        get_leaf_rdn(cert.as_ref().tbs_certificate().issuer())
                     } else {
                         "".to_string()
                     };
@@ -629,7 +629,7 @@ impl CertSource {
 
     /// Logs info about partial paths and corresponding buffers for a given target
     pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: TimeOfInterest) {
-        if let Err(_e) = valid_at_time(&target.as_ref().tbs_certificate(), time_of_interest, true) {
+        if let Err(_e) = valid_at_time(target.as_ref().tbs_certificate(), time_of_interest, true) {
             error!(
                 "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
@@ -695,7 +695,7 @@ impl CertSource {
                 for c in &self.skid_map[&key] {
                     let cert = &self.certs[*c];
                     if let Some(cert) = cert {
-                        label = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
+                        label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                         break;
                     }
                 }
@@ -717,8 +717,8 @@ impl CertSource {
                     let issuer = &self.certs[*last_index];
                     if let Some(ca) = issuer {
                         if !compare_names(
-                            &ca.as_ref().tbs_certificate().subject(),
-                            &target.as_ref().tbs_certificate().issuer(),
+                            ca.as_ref().tbs_certificate().subject(),
+                            target.as_ref().tbs_certificate().issuer(),
                         ) {
                             error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                             break;
@@ -734,7 +734,7 @@ impl CertSource {
                     for ii in v {
                         let cert = &self.certs[*ii];
                         if let Some(cert) = cert {
-                            vlabel = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                            vlabel = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                             break;
                         }
                     }
@@ -751,8 +751,8 @@ impl CertSource {
             if indices.contains(&i) {
                 if let Some(cert) = c {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
-                    let iss = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     info!(
                         "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                         i, skid, iss, sub
@@ -802,7 +802,7 @@ impl CertSource {
                 for c in &self.skid_map[&key] {
                     let cert = &self.certs[*c];
                     if let Some(cert) = cert {
-                        label = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
+                        label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                         break;
                     }
                 }
@@ -819,7 +819,7 @@ impl CertSource {
                     for ii in v {
                         let cert = &self.certs[*ii];
                         if let Some(cert) = cert {
-                            vlabel = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                            vlabel = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                             break;
                         }
                     }
@@ -836,8 +836,8 @@ impl CertSource {
             if indices.contains(&i) {
                 if let Some(cert) = c {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.as_ref().tbs_certificate().subject());
-                    let iss = get_leaf_rdn(&cert.as_ref().tbs_certificate().issuer());
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     info!(
                         "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                         i, skid, iss, sub
@@ -917,7 +917,7 @@ impl CertSource {
                 let valid = if time_of_interest.is_disabled() {
                     true
                 } else {
-                    let r = valid_at_time(&cert.tbs_certificate(), time_of_interest, false);
+                    let r = valid_at_time(cert.tbs_certificate(), time_of_interest, false);
                     if r.is_err() {
                         error!(
                             "Certificate from {} is not valid at indicated time of interest",
@@ -957,7 +957,7 @@ impl CertSource {
                     self.skid_map.insert(hex_skid, vec![i]);
                 }
 
-                let name_str = name_to_string(&cert.as_ref().tbs_certificate().subject());
+                let name_str = name_to_string(cert.as_ref().tbs_certificate().subject());
                 if self.name_map.contains_key(&name_str) {
                     let mut v = self.name_map[&name_str].clone();
                     v.push(i);
@@ -1052,7 +1052,7 @@ impl CertSource {
         for i in path.iter() {
             if let Some(ca_cert) = &self.certs[*i] {
                 if let Err(_e) =
-                    valid_at_time(&ca_cert.as_ref().tbs_certificate(), time_of_interest, false)
+                    valid_at_time(ca_cert.as_ref().tbs_certificate(), time_of_interest, false)
                 {
                     return false;
                 }
@@ -1072,17 +1072,17 @@ impl CertSource {
         // Iterate over the list of intermediate CA certificates plus target to check name chaining
         for (pos, i) in path.iter().enumerate() {
             if let Some(ca_cert) = &self.certs[*i] {
-                let self_issued = is_self_issued(&ca_cert.as_ref());
+                let self_issued = is_self_issued(ca_cert.as_ref());
 
                 if (pos + 1) == path.len() || !self_issued {
                     if !permitted_subtrees.subject_within_permitted_subtrees(
-                        &ca_cert.as_ref().tbs_certificate().subject(),
+                        ca_cert.as_ref().tbs_certificate().subject(),
                     ) {
                         return false;
                     }
 
                     if excluded_subtrees.subject_within_excluded_subtrees(
-                        &ca_cert.as_ref().tbs_certificate().subject(),
+                        ca_cert.as_ref().tbs_certificate().subject(),
                     ) {
                         return false;
                     }
@@ -1204,7 +1204,7 @@ impl CertSource {
                         // RFC 5914 TAs do not necessary have to have a name, if this is one of those, ignore it
                         let ta_name = get_trust_anchor_name(&ta.decoded_ta);
                         if let Ok(ta_name) = ta_name {
-                            if compare_names(&cur_cert.as_ref().tbs_certificate().issuer(), ta_name)
+                            if compare_names(cur_cert.as_ref().tbs_certificate().issuer(), ta_name)
                             {
                                 let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
                                 if let Ok(defer_cert) = defer_cert {
@@ -1215,7 +1215,7 @@ impl CertSource {
                                         pe,
                                         &defer_cert.tbs_field,
                                         cur_cert.as_ref().signature().raw_bytes(),
-                                        &cur_cert.as_ref().tbs_certificate().signature(),
+                                        cur_cert.as_ref().tbs_certificate().signature(),
                                         spki,
                                     );
                                     if let Ok(_r) = r {
@@ -1265,8 +1265,8 @@ impl CertSource {
                                     // Not doing that at present because policy and name constraints
                                     // are more variable than use of current time as time of interest
                                     if compare_names(
-                                        &cur_cert.as_ref().tbs_certificate().issuer(),
-                                        &prospective_ca_cert.as_ref().tbs_certificate().subject(),
+                                        cur_cert.as_ref().tbs_certificate().issuer(),
+                                        prospective_ca_cert.as_ref().tbs_certificate().subject(),
                                     ) && self.check_names_in_partial_path(prospective_path)
                                         && self
                                             .check_validity_in_partial_path(prospective_path, cps)
@@ -1275,8 +1275,8 @@ impl CertSource {
                                             pe,
                                             &defer_cert.tbs_field,
                                             cur_cert.as_ref().signature().raw_bytes(),
-                                            &cur_cert.as_ref().tbs_certificate().signature(),
-                                            &prospective_ca_cert
+                                            cur_cert.as_ref().tbs_certificate().signature(),
+                                            prospective_ca_cert
                                                 .as_ref()
                                                 .tbs_certificate()
                                                 .subject_public_key_info(),
@@ -1336,7 +1336,7 @@ impl CertificateSource for CertSource {
         threshold: usize,
         time_of_interest: TimeOfInterest,
     ) -> Result<()> {
-        if let Err(e) = valid_at_time(&target.as_ref().tbs_certificate(), time_of_interest, true) {
+        if let Err(e) = valid_at_time(target.as_ref().tbs_certificate(), time_of_interest, true) {
             error!(
                 "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
@@ -1389,8 +1389,8 @@ impl CertificateSource for CertSource {
                             let issuer = &self.certs[*last_index];
                             if let Some(ca) = issuer {
                                 if !compare_names(
-                                    &ca.as_ref().tbs_certificate().subject(),
-                                    &target.as_ref().tbs_certificate().issuer(),
+                                    ca.as_ref().tbs_certificate().subject(),
+                                    target.as_ref().tbs_certificate().issuer(),
                                 ) {
                                     error!("Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                                     continue;
@@ -1610,10 +1610,10 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
         )];
     for c in &path.intermediates {
         let ca = c.clone();
-        if spki_array.contains(&&ca.as_ref().tbs_certificate().subject_public_key_info()) {
+        if spki_array.contains(&ca.as_ref().tbs_certificate().subject_public_key_info()) {
             return true;
         } else {
-            spki_array.push(&c.as_ref().tbs_certificate().subject_public_key_info());
+            spki_array.push(c.as_ref().tbs_certificate().subject_public_key_info());
         }
     }
     false
@@ -1655,7 +1655,7 @@ fn get_certificates_test() {
                 cert_store.skid_map.insert(hex_skid, vec![i]);
             }
 
-            let name_str = name_to_string(&cert.as_ref().tbs_certificate().subject());
+            let name_str = name_to_string(cert.as_ref().tbs_certificate().subject());
             if cert_store.name_map.contains_key(&name_str) {
                 let mut v = cert_store.name_map[&name_str].clone();
                 v.push(i);
