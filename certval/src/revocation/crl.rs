@@ -298,18 +298,31 @@ pub struct CrlType {
     pub reasons: CrlReasons,
 }
 
+/// Struct to represent basic information regarding a CRL, including type of CRL, issuer, next
+/// update, this update, etc.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CrlInfo {
+pub struct CrlInfo {
+    /// Classification of CRL per the CrlType enum
     pub type_info: CrlType,
+    /// Time of this update as a Unix epoch value
     pub this_update: u64,
+    /// Optional time of next update as a Unix epoch value
     pub next_update: Option<u64>,
+    /// Issuer name in string form
     pub issuer_name: String,
+    /// Issuer name in DER-encoded form
     pub issuer_name_blob: Vec<u8>,
+    /// Signature algorithm in DER-encoded form
     pub sig_alg_blob: Vec<u8>,
+    /// Optional extensions in DER-encoded form
     pub exts_blob: Option<Vec<u8>>,
+    /// Optional issuing distribution point in string form
     pub idp_name: Option<String>,
+    /// Optional issuing distribution point in DER-encoded form
     pub idp_blob: Option<Vec<u8>>,
+    /// Optional subject key identifier in DER-encoded form
     pub skid: Option<Vec<u8>>,
+    /// Optional filename in DER-encoded form
     pub filename: Option<String>,
 }
 
@@ -479,7 +492,8 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
+/// Takes a CRL and returns a CrlInfo structure with information about the CRL.
+pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
