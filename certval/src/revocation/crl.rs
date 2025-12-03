@@ -229,7 +229,7 @@ lazy_static! {
 }
 
 /// The CertRevType enum is used to identify certificate with regard to types of CRLs that are applicable.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CertRevType {
     /// Certificate features a distribution point name and either no basicConstraints or basicConstraints with isCA set to false
     EeDp,
@@ -243,7 +243,7 @@ pub enum CertRevType {
 
 /// The CrlScope enum is used to identify CRL scope, i.e., whether the CRL is full, partitioned, delta or
 /// delta partianed. Partitioning is performed using issuing distribution point extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlScope {
     /// CRL is not limited in scope by issuing distribution point or delta CRL indicator
     Complete,
@@ -257,7 +257,7 @@ pub enum CrlScope {
 
 /// The CrlCoverage enum is used to identify CRL coverage, i.e., whether the CRL features entries for
 /// all types of entities, only for CA entities or only for end entities.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlCoverage {
     /// CRL coverage is not limited by flags in issuing distribution point
     All,
@@ -268,7 +268,7 @@ pub enum CrlCoverage {
 }
 
 /// The CrlAuthority enum is used to identify CRL authority, i.e., whether a CRL is direct or indirect.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlAuthority {
     /// CRL only features entries that were issued by the CRL issuer
     Direct,
@@ -277,7 +277,7 @@ pub enum CrlAuthority {
 }
 
 /// The CrlReasons enum is used to identify CRL reasons.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlReasons {
     /// The CRL covers all CRL reasons
     AllReasons,
@@ -286,7 +286,7 @@ pub enum CrlReasons {
 }
 
 /// CrlType features a set of enum values that determine the type of CRL based on evaluation of extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CrlType {
     /// Indicates scope of CRL relative to distribution point and delta CRL indicator
     pub scope: CrlScope,
@@ -300,7 +300,7 @@ pub struct CrlType {
 
 /// Struct to represent basic information regarding a CRL, including type of CRL, issuer, next
 /// update, this update, etc.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CrlInfo {
     /// Classification of CRL per the CrlType enum
     pub type_info: CrlType,
