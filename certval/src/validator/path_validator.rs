@@ -53,14 +53,14 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
 /// [RFC 5280 Section 6.1]. It is intended for use in the validate_path field of a [`PkiEnvironment`] structure.
 ///
 /// - The [`PkiEnvironment`] parameter provides a variety of callback functions that support certification
-/// path validation, for example, signature verification, digest generation, and logging.
+///   path validation, for example, signature verification, digest generation, and logging.
 /// - The [`CertificationPathSettings`] parameter defines values that govern path validation. This consists
-/// of a mix of standard path validation inputs from [RFC 5280 Section 6.1.1] and non-standard inputs,
-/// i.e., whether or not to validate extendedKeyUsage values across the path.
+///   of a mix of standard path validation inputs from [RFC 5280 Section 6.1.1] and non-standard inputs,
+///   i.e., whether or not to validate extendedKeyUsage values across the path.
 /// - The [`CertificationPath`] parameter provides the target certificate to validate along with a trust
-/// anchor and, if necessary, intermediate CA certificates.
+///   anchor and, if necessary, intermediate CA certificates.
 /// - The [`CertificationPathResults`] parameter is used to collect potentially useful information from the
-/// certification path validation operation.
+///   certification path validation operation.
 ///
 /// [RFC 5280 Section 6.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1>
 /// [RFC 5280 Section 6.1.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1.1>
@@ -98,7 +98,7 @@ pub fn validate_path_rfc5280(
     cpr.set_validation_status(PathValidationStatus::Valid);
     info!(
         "Successfully completed basic path validation checks for certificate issued to {}",
-        name_to_string(&cp.target.as_ref().tbs_certificate().subject())
+        name_to_string(cp.target.as_ref().tbs_certificate().subject())
     );
     Ok(())
 }
@@ -233,11 +233,11 @@ pub fn check_validity(
     };
 
     let target = &cp.target;
-    let target_ttl = valid_at_time(&target.as_ref().tbs_certificate(), toi, false);
+    let target_ttl = valid_at_time(target.as_ref().tbs_certificate(), toi, false);
     is_valid(target_ttl)?;
 
     for ca_cert in cp.intermediates.iter() {
-        let ca_ttl = valid_at_time(&ca_cert.as_ref().tbs_certificate(), toi, false);
+        let ca_ttl = valid_at_time(ca_cert.as_ref().tbs_certificate(), toi, false);
         is_valid(ca_ttl)?;
     }
 
@@ -273,14 +273,8 @@ pub fn check_names(
     // Read input variables from path settings
     let mut pbufs = BTreeMap::new();
     let mut ebufs = BTreeMap::new();
-    let initial_perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
-        Ok(ip) => ip,
-        Err(e) => return Err(e),
-    };
-    let initial_excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
-        Ok(ie) => ie,
-        Err(e) => return Err(e),
-    };
+    let initial_perm = cps.get_initial_permitted_subtrees_as_set(&mut pbufs)?;
+    let initial_excl = cps.get_initial_excluded_subtrees_as_set(&mut ebufs)?;
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
@@ -297,7 +291,7 @@ pub fn check_names(
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
         if !compare_names(
-            &ca_cert.as_ref().tbs_certificate().issuer(),
+            ca_cert.as_ref().tbs_certificate().issuer(),
             &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
@@ -318,7 +312,7 @@ pub fn check_names(
 
         if (pos + 1) == certs_in_cert_path || !self_issued {
             if !permitted_subtrees
-                .subject_within_permitted_subtrees(&ca_cert.as_ref().tbs_certificate().subject())
+                .subject_within_permitted_subtrees(ca_cert.as_ref().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -331,7 +325,7 @@ pub fn check_names(
             }
 
             if excluded_subtrees
-                .subject_within_excluded_subtrees(&ca_cert.as_ref().tbs_certificate().subject())
+                .subject_within_excluded_subtrees(ca_cert.as_ref().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -654,12 +648,8 @@ pub fn enforce_trust_anchor_constraints(
             if let Some(nc) = pdv_ext {
                 if let PDVExtension::NameConstraints(nc) = nc {
                     if let Some(permitted) = &nc.permitted_subtrees {
-                        let mut initial_perm = match cps
-                            .get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)
-                        {
-                            Ok(ip) => ip,
-                            Err(e) => return Err(e),
-                        };
+                        let mut initial_perm = cps
+                            .get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)?;
                         initial_perm.calculate_union(permitted);
                         mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm)?;
                     }
@@ -671,10 +661,7 @@ pub fn enforce_trust_anchor_constraints(
         if let Some(PDVExtension::NameConstraints(nc)) = name_constraints {
             if let Some(excluded) = &nc.excluded_subtrees {
                 let mut initial_excl =
-                    match cps.get_initial_excluded_subtrees_with_default_as_set(&mut ebufs) {
-                        Ok(ie) => ie,
-                        Err(e) => return Err(e),
-                    };
+                    cps.get_initial_excluded_subtrees_with_default_as_set(&mut ebufs)?;
                 initial_excl.calculate_union(excluded);
                 mod_cps.set_initial_excluded_subtrees_from_set(&initial_excl)?;
             }
@@ -848,7 +835,7 @@ pub fn verify_signatures(
             pe,
             &defer_cert.tbs_field,
             cur_cert.as_ref().signature().raw_bytes(),
-            &cur_cert.as_ref().tbs_certificate().signature(),
+            cur_cert.as_ref().tbs_certificate().signature(),
             &working_spki,
         );
         if let Err(e) = r {

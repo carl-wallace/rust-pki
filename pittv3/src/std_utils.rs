@@ -78,7 +78,7 @@ pub(crate) async fn validate_cert_file(
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.as_ref().tbs_certificate().subject().to_string()
+            path.target.as_ref().tbs_certificate().subject()
         );
         let mut cpr = CertificationPathResults::new();
 
@@ -310,11 +310,7 @@ pub fn cleanup_certs(
                         continue;
                     }
 
-                    let target = if let Ok(t) = get_file_as_byte_vec_pem(path) {
-                        t
-                    } else {
-                        vec![]
-                    };
+                    let target = get_file_as_byte_vec_pem(path).unwrap_or_default();
                     if target.is_empty() {
                         error!("Failed to read target file at {filename}");
                         continue;
@@ -324,7 +320,7 @@ pub fn cleanup_certs(
                     match parse_cert(target.as_slice(), filename) {
                         Ok(tc) => {
                             if !t.is_disabled() {
-                                let r = valid_at_time(&tc.as_ref().tbs_certificate(), t, true);
+                                let r = valid_at_time(tc.as_ref().tbs_certificate(), t, true);
                                 if let Err(_e) = r {
                                     delete_file = true;
                                     error!(
@@ -407,11 +403,7 @@ pub fn cleanup_tas(
                         continue;
                     }
 
-                    let target = if let Ok(t) = get_file_as_byte_vec_pem(e.path()) {
-                        t
-                    } else {
-                        vec![]
-                    };
+                    let target = get_file_as_byte_vec_pem(e.path()).unwrap_or_default();
                     if target.is_empty() {
                         error!("Failed to read target file at {filename}");
                         continue;

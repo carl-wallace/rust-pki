@@ -77,10 +77,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
 
-    let perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
-        Ok(ip) => ip,
-        Err(_e) => None,
-    };
+    let perm = cps.get_initial_permitted_subtrees_as_set(&mut pbufs).unwrap_or_default();
     if let Some(perm) = perm {
         for gs in perm.user_principal_name {
             if let GeneralName::OtherName(on) = &gs.base {
@@ -120,10 +117,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     } // end if let Some(perm) = perm
     f.write_all("Initial excluded names: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
-        Ok(ie) => ie,
-        Err(_e) => None,
-    };
+    let excl = cps.get_initial_excluded_subtrees_as_set(&mut ebufs).unwrap_or_default();
     if let Some(excl) = excl {
         for gs in excl.user_principal_name {
             if let GeneralName::OtherName(on) = &gs.base {
@@ -195,7 +189,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
-            name_to_string(&cert.as_ref().tbs_certificate().issuer())
+            name_to_string(cert.as_ref().tbs_certificate().issuer())
         )
         .as_bytes(),
     )
@@ -203,7 +197,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Subject Name: {}\n",
-            name_to_string(&cert.as_ref().tbs_certificate().subject())
+            name_to_string(cert.as_ref().tbs_certificate().subject())
         )
         .as_bytes(),
     )

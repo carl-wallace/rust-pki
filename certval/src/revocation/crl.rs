@@ -229,7 +229,7 @@ lazy_static! {
 }
 
 /// The CertRevType enum is used to identify certificate with regard to types of CRLs that are applicable.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CertRevType {
     /// Certificate features a distribution point name and either no basicConstraints or basicConstraints with isCA set to false
     EeDp,
@@ -243,7 +243,7 @@ pub enum CertRevType {
 
 /// The CrlScope enum is used to identify CRL scope, i.e., whether the CRL is full, partitioned, delta or
 /// delta partianed. Partitioning is performed using issuing distribution point extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlScope {
     /// CRL is not limited in scope by issuing distribution point or delta CRL indicator
     Complete,
@@ -257,7 +257,7 @@ pub enum CrlScope {
 
 /// The CrlCoverage enum is used to identify CRL coverage, i.e., whether the CRL features entries for
 /// all types of entities, only for CA entities or only for end entities.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlCoverage {
     /// CRL coverage is not limited by flags in issuing distribution point
     All,
@@ -268,7 +268,7 @@ pub enum CrlCoverage {
 }
 
 /// The CrlAuthority enum is used to identify CRL authority, i.e., whether a CRL is direct or indirect.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlAuthority {
     /// CRL only features entries that were issued by the CRL issuer
     Direct,
@@ -277,7 +277,7 @@ pub enum CrlAuthority {
 }
 
 /// The CrlReasons enum is used to identify CRL reasons.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlReasons {
     /// The CRL covers all CRL reasons
     AllReasons,
@@ -286,7 +286,7 @@ pub enum CrlReasons {
 }
 
 /// CrlType features a set of enum values that determine the type of CRL based on evaluation of extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CrlType {
     /// Indicates scope of CRL relative to distribution point and delta CRL indicator
     pub scope: CrlScope,
@@ -298,18 +298,31 @@ pub struct CrlType {
     pub reasons: CrlReasons,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CrlInfo {
+/// Struct to represent basic information regarding a CRL, including type of CRL, issuer, next
+/// update, this update, etc.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CrlInfo {
+    /// Classification of CRL per the CrlType enum
     pub type_info: CrlType,
+    /// Time of this update as a Unix epoch value
     pub this_update: u64,
+    /// Optional time of next update as a Unix epoch value
     pub next_update: Option<u64>,
+    /// Issuer name in string form
     pub issuer_name: String,
+    /// Issuer name in DER-encoded form
     pub issuer_name_blob: Vec<u8>,
+    /// Signature algorithm in DER-encoded form
     pub sig_alg_blob: Vec<u8>,
+    /// Optional extensions in DER-encoded form
     pub exts_blob: Option<Vec<u8>>,
+    /// Optional issuing distribution point in string form
     pub idp_name: Option<String>,
+    /// Optional issuing distribution point in DER-encoded form
     pub idp_blob: Option<Vec<u8>>,
+    /// Optional subject key identifier in DER-encoded form
     pub skid: Option<Vec<u8>>,
+    /// Optional filename in DER-encoded form
     pub filename: Option<String>,
 }
 
@@ -479,7 +492,8 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
+/// Takes a CRL and returns a CrlInfo structure with information about the CRL.
+pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
@@ -540,7 +554,7 @@ pub(crate) fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
                             }
                             if idp_name.is_none() {
                                 // not supporting non-DN/URI DPs
-                                return Err(Error::Unrecognized.into());
+                                return Err(Error::Unrecognized);
                             }
                         }
                         Some(DistributionPointName::NameRelativeToCRLIssuer(_unsupported)) => {
@@ -657,7 +671,7 @@ fn validate_crl_issuer_name(
         Ok(Some(PDVExtension::CrlDistributionPoints(crl_dp))) => crl_dp,
         _ => match Name::from_der(&crl_info.issuer_name_blob) {
             Ok(n) => {
-                if compare_names(&cert.as_ref().tbs_certificate().issuer(), &n) {
+                if compare_names(cert.as_ref().tbs_certificate().issuer(), &n) {
                     return Ok(None);
                 } else {
                     return Err(Error::CrlIncompatible);
@@ -685,7 +699,7 @@ fn validate_crl_issuer_name(
 
     match Name::from_der(&crl_info.issuer_name_blob) {
         Ok(n) => {
-            if compare_names(&cert.as_ref().tbs_certificate().issuer(), &n) {
+            if compare_names(cert.as_ref().tbs_certificate().issuer(), &n) {
                 Ok(None)
             } else {
                 Err(Error::CrlIncompatible)
@@ -872,7 +886,7 @@ fn verify_crl(
         &defer_crl.tbs_field,
         defer_crl.signature.raw_bytes(),
         &defer_crl.signature_algorithm,
-        &issuer_cert.tbs_certificate().subject_public_key_info(),
+        issuer_cert.tbs_certificate().subject_public_key_info(),
     );
     if let Err(e) = r {
         log_error_for_subject(
@@ -1025,7 +1039,7 @@ pub(crate) fn process_crl(
     if !COMPATIBLE_SCOPE[(cert_type as usize, crl_info.type_info.scope as usize)]
         || !COMPATIBLE_COVERAGE[(cert_type as usize, crl_info.type_info.coverage as usize)]
     {
-        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.as_ref().tbs_certificate().subject()));
+        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1048,7 +1062,7 @@ pub(crate) fn process_crl(
         target_cert,
         &mut collected_reasons,
     ) {
-        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.as_ref().tbs_certificate().subject()));
+        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1057,7 +1071,7 @@ pub(crate) fn process_crl(
         info!(
             "Discarding CRL from {} as having incompatible authority for certificate issued to {}",
             name_to_string(&crl.tbs_cert_list.issuer),
-            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
+            name_to_string(target_cert.as_ref().tbs_certificate().subject())
         );
         return Err(Error::CrlIncompatible);
     }
@@ -1087,7 +1101,7 @@ pub(crate) fn process_crl(
 
             if rc
                 .serial_number
-                .der_cmp(&target_cert.as_ref().tbs_certificate().serial_number())
+                .der_cmp(target_cert.as_ref().tbs_certificate().serial_number())
                 .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
                 .unwrap_or_default()
             {
@@ -1143,12 +1157,12 @@ pub(crate) async fn check_revocation_crl_remote(
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
-    let cur_cert_subject = name_to_string(&target_cert.as_ref().tbs_certificate().subject());
+    let cur_cert_subject = name_to_string(target_cert.as_ref().tbs_certificate().subject());
     let crl_dps = get_crl_dps(target_cert);
     if crl_dps.is_empty() {
         info!(
             "No CRL DPs found for {}",
-            name_to_string(&target_cert.as_ref().tbs_certificate().subject())
+            name_to_string(target_cert.as_ref().tbs_certificate().subject())
         );
     } else {
         let timeout = cps.get_crl_timeout();

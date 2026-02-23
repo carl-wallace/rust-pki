@@ -55,8 +55,8 @@ pub fn is_self_signed_with_buffer(
                 pe,
                 &defer_cert.tbs_field,
                 cert.signature().raw_bytes(),
-                &cert.tbs_certificate().signature(),
-                &cert.tbs_certificate().subject_public_key_info(),
+                cert.tbs_certificate().signature(),
+                cert.tbs_certificate().subject_public_key_info(),
             )
             .is_ok(),
         Err(e) => {
@@ -69,15 +69,15 @@ pub fn is_self_signed_with_buffer(
 /// `is_self_signed` returns true if the public key in the certificate can be used to verify the
 /// signature on the certificate.
 pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
-    is_self_signed_with_buffer(pe, &cert.as_ref(), cert.as_bytes())
+    is_self_signed_with_buffer(pe, cert.as_ref(), cert.as_bytes())
 }
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
 pub fn is_self_issued(cert: &CertificateInner<Raw>) -> bool {
     compare_names(
-        &cert.tbs_certificate().issuer(),
-        &cert.tbs_certificate().subject(),
+        cert.tbs_certificate().issuer(),
+        cert.tbs_certificate().subject(),
     )
 }
 
@@ -134,7 +134,7 @@ pub fn valid_at_time(
     let nb = validity.not_before;
     if nb > toi {
         if !stifle_log {
-            log_error_for_name(&target.subject(), "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
+            log_error_for_name(target.subject(), "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
         }
         return Err(Error::PathValidation(
             PathValidationStatus::InvalidNotBeforeDate,
@@ -145,7 +145,7 @@ pub fn valid_at_time(
     if na < toi {
         if !stifle_log {
             log_error_for_name(
-                &target.subject(),
+                target.subject(),
                 format!(
                     "certificate is expired relative to the configured time of interest: {}",
                     validity.not_after
@@ -588,12 +588,12 @@ pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
-    log_error_for_name(&ca.as_ref().tbs_certificate().subject(), msg);
+    log_error_for_name(ca.as_ref().tbs_certificate().subject(), msg);
 }
 
 /// log a message with subject name of the certificate appended
 pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
-    log_error_for_name(&ca.tbs_certificate().subject(), msg);
+    log_error_for_name(ca.tbs_certificate().subject(), msg);
 }
 
 /// `oid_lookup` takes an ObjectIdentifier and returns a string with a friendly name for the OID or
@@ -773,6 +773,13 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
         return false;
     }
 
+    #[cfg(feature = "std")]
+    let re = if let Ok(re) = Regex::new(r"\s+") {
+        re
+    } else {
+        return false;
+    };
+
     for (lrdn, rrdn) in left.iter_rdn().zip(right.iter_rdn()) {
         if lrdn.len() != rrdn.len() {
             return false;
@@ -805,12 +812,6 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l_val != r_val {
                     #[cfg(feature = "std")]
                     {
-                        let re = if let Ok(re) = Regex::new(r"\s+") {
-                            re
-                        } else {
-                            return false;
-                        };
-
                         //collapse multiple whitespace instances into one and convert to lowercase
                         let l_str_val = re.replace_all(l_val.as_str(), " ");
                         let r_str_val = re.replace_all(r_val.as_str(), " ");
@@ -844,12 +845,12 @@ pub fn ta_valid_at_time(
 ) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
-            return valid_at_time(&c.tbs_certificate(), toi, stifle_log);
+            return valid_at_time(c.tbs_certificate(), toi, stifle_log);
         }
         TrustAnchorChoice::TaInfo(tai) => {
             if let Some(cp) = &tai.cert_path {
                 if let Some(c) = &cp.certificate {
-                    return valid_at_time(&c.tbs_certificate(), toi, stifle_log);
+                    return valid_at_time(c.tbs_certificate(), toi, stifle_log);
                 }
             }
         }

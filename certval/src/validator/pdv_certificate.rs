@@ -63,7 +63,7 @@ impl PDVCertificate {
 
     /// Return the locator for the source of this certificate
     pub fn locator(&self) -> Option<&str> {
-        self.locator.as_ref().map(String::as_str)
+        self.locator.as_deref()
     }
 }
 
