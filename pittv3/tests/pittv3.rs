@@ -2,7 +2,7 @@
 
 #![cfg(feature = "std")]
 
-use assert_cmd::prelude::*;
+use assert_cmd::{cargo, prelude::*};
 use lazy_static::lazy_static;
 use predicates::prelude::*;
 use std::fs;
@@ -51,14 +51,14 @@ fn remove_files_from_downloads(f: &str) {
 #[test]
 fn list_trust_anchors() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("--list-trust-anchors");
         cmd.assert().stdout(predicate::str::contains("Index:   0"));
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("--list-trust-anchors");
         cmd.assert().stdout(predicate::str::contains("Index:   0"));
@@ -78,11 +78,11 @@ fn process_mozilla_csv() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(dp).unwrap();
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t")
             .arg("tests/examples/MozillaIntermediateCerts.csv");
         cmd.arg("-c").arg(dp.to_str().unwrap());
-        cmd.assert();
+        let _ = cmd.assert();
     }
     if Path::exists(dp) {
         fs::remove_dir_all(dp).unwrap();
@@ -94,11 +94,11 @@ fn process_mozilla_csv() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn cleanup_trust_anchors() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("--ta-cleanup");
         cmd.arg("--report-only");
-        cmd.assert();
+        let _ = cmd.assert();
     }
 
     Ok(())
@@ -107,7 +107,7 @@ fn cleanup_trust_anchors() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "std")]
 #[test]
 fn list_buffers() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("pittv3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--list-buffers");
     cmd.assert().stdout(predicate::str::contains("Index: 0"));
@@ -119,7 +119,7 @@ fn list_buffers() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn dump_cert_at_index() -> Result<(), Box<dyn std::error::Error>> {
     use std::path::PathBuf;
-    let mut cmd = Command::cargo_bin("pittv3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--dump-cert-at-index").arg("1781");
     cmd.assert().stdout(predicate::str::contains("Encountered error while processing certificate with subject CN=DOD ID SW CA-45,OU=PKI,OU=DoD,O=U.S. Government,C=US: certificate is expired relative to the configured time of interest"));
@@ -138,7 +138,7 @@ fn dump_cert_at_index() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/pitt_focused.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-aia-and-sia");
@@ -147,7 +147,7 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-aia-and-sia");
@@ -164,7 +164,7 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
         }
         fs::create_dir_all(dp).unwrap();
 
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/pitt_focused_2025.cbor");
         cmd.arg("--list-aia-and-sia");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -184,7 +184,7 @@ fn list_aia_and_sia() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "std")]
 #[test]
 fn list_name_constraints() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("pittv3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--list-name-constraints");
     cmd.arg("-i").arg("1668770981");
@@ -196,7 +196,7 @@ fn list_name_constraints() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "std")]
 #[test]
 fn list_partial_paths() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("pittv3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--list-partial-paths");
     cmd.arg("-i").arg("1674665553");
@@ -212,7 +212,7 @@ fn list_partial_paths() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-partial-paths-for-leaf-ca").arg("5");
@@ -221,7 +221,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -231,7 +231,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -241,7 +241,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -257,7 +257,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
 // #[cfg(feature = "std")]
 // #[test]
 // fn list_partial_paths_for_target() -> Result<(), Box<dyn std::error::Error>> {
-//     let mut cmd = Command::cargo_bin("pittv3")?;
+//     let mut cmd = Command::new(cargo::cargo_bin!());
 //     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
 //     cmd.arg("--list-partial-paths-for-target")
 //         .arg("tests/examples/amazon.der");
@@ -265,7 +265,7 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
 //         "* TA subject: CN=DigiCert Global Root G2 - [987]",
 //     ));
 //
-//     let mut cmd = Command::cargo_bin("pittv3")?;
+//     let mut cmd = Command::new(cargo::cargo_bin!());
 //     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
 //     cmd.arg("--list-partial-paths-for-target")
 //         .arg("tests/cert_store_with_expired/45.der");
@@ -284,7 +284,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -299,7 +299,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-buffers");
@@ -310,7 +310,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with CBOR containing only Email CA-59 to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -327,7 +327,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Same as above but with validate_all, still same result
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -345,7 +345,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Same as above without validate_all and with different target that does not chain
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-s")
@@ -366,7 +366,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(dp).unwrap();
 
         // Same as above but with dynamic build enabled.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-s")
@@ -397,7 +397,7 @@ fn regen_ignore_self_signed() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen2.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("--time-of-interest").arg("1674162034");
@@ -420,7 +420,7 @@ fn regen_ignore_self_signed() -> Result<(), Box<dyn std::error::Error>> {
 fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Try a diagnostic command with empty CBOR to affirm graceful failure
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
         cmd.assert().stdout(predicate::str::contains(
@@ -430,7 +430,7 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -452,7 +452,7 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         // Try dynamic building, which should download a ton of stuff but still only find one valid
         // path given the empty CBOR and ta_store_one. Save downloaded artifacts to downloads folder
         // to avoid polluting next generation.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -479,7 +479,7 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
 fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Try a diagnostic command with empty CBOR to affirm graceful failure
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
         cmd.assert().stdout(predicate::str::contains(
@@ -489,7 +489,7 @@ fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -515,7 +515,7 @@ fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
         // Same as above but with a blocklist that should deny the necessary URI to find path
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -539,7 +539,7 @@ fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
 fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Try a diagnostic command with empty CBOR to affirm graceful failure
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
         cmd.assert().stdout(predicate::str::contains(
@@ -549,7 +549,7 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -570,7 +570,7 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
 
         // Try dynamic building, which should download a ton of stuff and find two valid paths given
         // the empty CBOR, ta_store_two, and validate_all flag.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -599,7 +599,7 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
 fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Try a diagnostic command with empty CBOR to affirm graceful failure
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
         cmd.assert().stdout(predicate::str::contains(
@@ -609,7 +609,7 @@ fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -629,7 +629,7 @@ fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(dp).unwrap();
 
         // Same as above but without the validate_all flag, so only one path should be returned.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -657,7 +657,7 @@ fn absent_cbor1() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("--time-of-interest").arg("1749917849");
         cmd.arg("-e")
@@ -678,7 +678,7 @@ fn absent_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         // Try dynamic building, which should download a ton of stuff but still only find one valid
         // path given the empty CBOR and ta_store_one. Save downloaded artifacts to downloads folder
         // to avoid polluting next generation.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-i").arg("1749917849");
@@ -707,7 +707,7 @@ fn absent_cbor2() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("-e")
@@ -731,7 +731,7 @@ fn absent_cbor2() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap();
         // Same as above but with a blocklist that should deny the necessary URI to find path
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
@@ -757,7 +757,7 @@ fn absent_cbor3() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-e")
@@ -777,7 +777,7 @@ fn absent_cbor3() -> Result<(), Box<dyn std::error::Error>> {
 
         // Try dynamic building, which should download a ton of stuff and find two valid paths given
         // the empty CBOR, ta_store_two, and validate_all flag.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
@@ -806,7 +806,7 @@ fn absent_cbor4() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Try static building with empty CBOR to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--time-of-interest").arg("1674179800");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-e")
@@ -825,7 +825,7 @@ fn absent_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(dp).unwrap();
 
         // Same as above but without the validate_all flag, so only one path should be returned.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
@@ -854,7 +854,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -875,7 +875,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("--list-buffers");
@@ -890,7 +890,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
         fs::create_dir(&results_path)?;
 
         // Try static building with CBOR containing only Email CA-59 to affirm it fails
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -910,7 +910,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Same as above but with validate_all, still same result
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -928,7 +928,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Same as above without validate_all and with different target that does not chain
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -950,7 +950,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
         fs::create_dir_all(dp).unwrap();
 
         // Same as above but with dynamic build enabled.
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_three");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -980,7 +980,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
 //         fs::remove_file(p.to_str().unwrap())?;
 //     }
 //     {
-//         let mut cmd = Command::cargo_bin("pittv3")?;
+//         let mut cmd = Command::new(cargo::cargo_bin!());
 //         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
 //         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
 //         cmd.arg("-c").arg("tests/examples/build_test");
@@ -996,7 +996,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
 //     {
 //         // same as above but with dynamic build. same result owing to blocklist in build_test folder
 //         // that includes resources that otherwise would have been fetched
-//         let mut cmd = Command::cargo_bin("pittv3")?;
+//         let mut cmd = Command::new(cargo::cargo_bin!());
 //         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
 //         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
 //         cmd.arg("-c").arg("tests/examples/build_test");
@@ -1020,7 +1020,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
 //
 //         // same as above but with dynamic build. same result owing to blocklist in build_test folder
 //         // that includes resources that otherwise would have been fetched
-//         let mut cmd = Command::cargo_bin("pittv3")?;
+//         let mut cmd = Command::new(cargo::cargo_bin!());
 //         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
 //         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
 //         cmd.arg("-c").arg("tests/examples/build_test");
@@ -1073,7 +1073,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     // before the tests/examples/cert_store_with_expired/178.der became invalid.
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("-s")
@@ -1088,7 +1088,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("--list-buffers");
         cmd.assert().stdout(predicate::str::contains(
@@ -1098,7 +1098,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("-i").arg("1642763756");
         cmd.arg("--list-buffers");
@@ -1107,7 +1107,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -1126,7 +1126,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Try static building with time of interest to affirm it succeeds with more valid paths
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("-s")
@@ -1145,7 +1145,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Same as above but with validate_all, still same result
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -1164,7 +1164,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Try static building with time of interest to affirm it succeeds with more valid paths
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("-i").arg("1642763756");
@@ -1184,7 +1184,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
 
     {
         // Same as above without validate_all and with different target that does not chain
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
         cmd.arg("-i").arg("1642763756");
@@ -1207,7 +1207,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     //     fs::create_dir_all(dp).unwrap();
     //     {
     //         // Same as above but with dynamic build enabled.
-    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         let mut cmd = Command::new(cargo::cargo_bin!());
     //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
     //         cmd.arg("-t").arg("tests/examples/ta_store_three");
     //         cmd.arg("-s")
@@ -1227,7 +1227,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     //
     //     {
     //         // Same as above but without clearing downloads folder
-    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         let mut cmd = Command::new(cargo::cargo_bin!());
     //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
     //         cmd.arg("--time-of-interest").arg("1674162034");
     //         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -1250,7 +1250,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     //         remove_files_from_downloads(dp.to_str().unwrap());
     //
     //         // Same as above but with dynamic build enabled.
-    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         let mut cmd = Command::new(cargo::cargo_bin!());
     //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
     //         cmd.arg("-t").arg("tests/examples/ta_store_three");
     //         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -1270,7 +1270,7 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
     //
     //     {
     //         // Same as above but without clearing downloads folder
-    //         let mut cmd = Command::cargo_bin("pittv3")?;
+    //         let mut cmd = Command::new(cargo::cargo_bin!());
     //         cmd.arg("--cbor").arg("tests/examples/regen5.cbor");
     //         cmd.arg("-t").arg("tests/examples/ta_store_three");
     //         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -1307,7 +1307,7 @@ fn webpki_test() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(dp).unwrap();
 
     // Same as above but without clearing downloads folder
-    let mut cmd = Command::cargo_bin("pittv3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("--webpki-tas");
     cmd.arg("-d").arg(dp.to_str().unwrap());
     cmd.arg("-s")
@@ -1332,7 +1332,7 @@ fn webpki_test() -> Result<(), Box<dyn std::error::Error>> {
 fn bad_input() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pitt_focused.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-s")
@@ -1346,7 +1346,7 @@ fn bad_input() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pitt_focused.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-s")
@@ -1359,7 +1359,7 @@ fn bad_input() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pitt_focused.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
         cmd.arg("-s")
@@ -1386,7 +1386,7 @@ fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::
     // before the tests/examples/cert_store_with_expired/178.der became invalid.
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen4.cbor");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -1402,7 +1402,7 @@ fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::
 
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen4.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_three");
@@ -1421,7 +1421,7 @@ fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::
 
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen4.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
@@ -1440,7 +1440,7 @@ fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::
 
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen4.cbor");
         cmd.arg("--time-of-interest").arg("1674162034");
         cmd.arg("-s")
@@ -1479,7 +1479,7 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
     fs::copy(ee, cleanup_ee)?;
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-c").arg("tests/examples/cleanup_test");
         cmd.arg("--cleanup");
         cmd.arg("--report-only");
@@ -1494,7 +1494,7 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     {
-        let mut cmd2 = Command::cargo_bin("pittv3")?;
+        let mut cmd2 = Command::new(cargo::cargo_bin!());
         cmd2.arg("-c").arg("tests/examples/cleanup_test");
         cmd2.arg("--cleanup");
         // not sure why only one assert works here. the output contains all same as above where multiple checks work fine.
@@ -1511,7 +1511,7 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-c").arg("tests/examples/cleanup_test");
         cmd.arg("--cleanup");
         cmd.arg("--report-only");
@@ -1530,7 +1530,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
         cmd.arg("-c").arg("tests/examples/bettertls_ca_store");
@@ -1543,7 +1543,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
         cmd.arg("-i").arg("1674665553");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
@@ -1561,7 +1561,7 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     }
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen6.cbor");
         cmd.arg("-i").arg("1674665553");
         cmd.arg("-t").arg("tests/examples/bettertls_ta_store");
@@ -1590,7 +1590,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir(&results_path)?;
 
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1602,7 +1602,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total valid paths found: 2"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
@@ -1614,7 +1614,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total valid paths found: 1"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1626,7 +1626,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total invalid paths found: 1"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1638,7 +1638,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total invalid paths found: 1"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1650,7 +1650,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total valid paths found: 10"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1662,7 +1662,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total valid paths found: 5"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1674,7 +1674,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total valid paths found: 1"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1686,7 +1686,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total invalid paths found: 2"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1698,7 +1698,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total invalid paths found: 2"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1710,7 +1710,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains("Total invalid paths found: 1"));
     }
     {
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
         cmd.arg("-t").arg("tests/examples/pkits_ta_store");
         cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
@@ -1718,7 +1718,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("-s")
             .arg("tests/examples/pkits_settings/default.json");
         cmd.arg("-f").arg("tests/examples/SeparatedPKITS/default");
-        cmd.assert();
+        let _ = cmd.assert();
         // TODO remove targets that do not apply and get right number of valid/invalid
     }
     fs::remove_dir_all(&results_path).unwrap();
@@ -1741,7 +1741,7 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
 //         } else {
 //             continue;
 //         }
-//         let mut cmd = Command::cargo_bin("pittv3")?;
+//         let mut cmd = Command::new(cargo::cargo_bin!());
 //         cmd.arg("-e").arg(p.display().to_string());
 //         cmd.arg("--validate-self-signed");
 //         cmd.assert()
@@ -1766,7 +1766,7 @@ fn pqc_composite_verify() -> Result<(), Box<dyn std::error::Error>> {
         if !path.file_name().to_str().unwrap().ends_with(".der") {
             continue;
         }
-        let mut cmd = Command::cargo_bin("pittv3")?;
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--validate-self-signed");
         cmd.arg("-e").arg(path.path());
         cmd.assert()
