@@ -77,7 +77,9 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
 
-    let perm = cps.get_initial_permitted_subtrees_as_set(&mut pbufs).unwrap_or_default();
+    let perm = cps
+        .get_initial_permitted_subtrees_as_set(&mut pbufs)
+        .unwrap_or_default();
     if let Some(perm) = perm {
         for gs in perm.user_principal_name {
             if let GeneralName::OtherName(on) = &gs.base {
@@ -117,7 +119,9 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
     } // end if let Some(perm) = perm
     f.write_all("Initial excluded names: \n".as_bytes())
         .expect("Unable to write manifest file");
-    let excl = cps.get_initial_excluded_subtrees_as_set(&mut ebufs).unwrap_or_default();
+    let excl = cps
+        .get_initial_excluded_subtrees_as_set(&mut ebufs)
+        .unwrap_or_default();
     if let Some(excl) = excl {
         for gs in excl.user_principal_name {
             if let GeneralName::OtherName(on) = &gs.base {

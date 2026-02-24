@@ -648,8 +648,8 @@ pub fn enforce_trust_anchor_constraints(
             if let Some(nc) = pdv_ext {
                 if let PDVExtension::NameConstraints(nc) = nc {
                     if let Some(permitted) = &nc.permitted_subtrees {
-                        let mut initial_perm = cps
-                            .get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)?;
+                        let mut initial_perm =
+                            cps.get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)?;
                         initial_perm.calculate_union(permitted);
                         mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm)?;
                     }
