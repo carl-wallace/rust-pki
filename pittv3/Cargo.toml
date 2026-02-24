@@ -17,19 +17,19 @@ rust-version = "1.85"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version = "0.3.0-rc.2", default-features = false, features = ["pem"] }
-const-oid = { version = "0.10.1", default-features = false, features = ["db"] }
-cms = "0.3.0-pre.0"
+x509-cert = { version = "0.3.0-rc.4", default-features = false, features = ["pem"] }
+const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
+cms = "0.3.0-pre.2"
 der = { version="0.8.0-rc.8", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
-base64ct = { version="1.8.0", features = ["alloc"], optional=true }
+base64ct = { version="1.8.3", features = ["alloc"], optional=true }
 spki = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="1.0.0-rc.3", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
-rsa = { version = "0.10.0-rc.10", optional = true, features = ["encoding"] }
-sha1 = {version = "0.11.0-rc.3", default-features = false, features = ["oid"]}
-sha2 = {version = "0.11.0-rc.3", default-features = false, features = ["oid"] }
+rsa = { version = "0.10.0-rc.15", optional = true, features = ["encoding"] }
+sha1 = {version = "0.11.0-rc.5", default-features = false, features = ["oid"]}
+sha2 = {version = "0.11.0-rc.5", default-features = false, features = ["oid"] }
 
 async-recursion = "1.1.1"
 bytes = "1.11.1"
