@@ -18,14 +18,14 @@ rust-version = "1.85"
 
 [dependencies]
 x509-cert = { version = "0.3.0-rc.4", default-features = false, features = ["hazmat","pem"] }
-const-oid = { version = "0.10.0", default-features = false, features = ["db"] }
+const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 cms = "0.3.0-pre.2"
-der = { version="0.8.0-rc.8", features = ["alloc", "derive", "flagset", "oid"] }
+der = { version="0.8.0", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 base64ct = { version="1.8.3", features = ["alloc"], optional=true }
 spki = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"] }
 pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "kemri", optional=true }
-pem-rfc7468 = { version="1.0.0-pre.3", features = ["alloc"]}
+pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 signature = { version = "3.0.0-rc.10" }
 
 pkiprocmacros = { path = "../pkiprocmacros"}
@@ -61,14 +61,14 @@ walkdir = { version = "2.5.0", optional = true}
 # to enable no_std support, but for now std is required, so mark it optional
 regex = {version = "1.12.3", optional = true}
 
-ml-dsa = { version = "0.1.0-pre.2", optional = true }
-slh-dsa = { version = "0.2.0-pre", optional = true }
+ml-dsa = { version = "0.1.0-rc.7", optional = true }
+slh-dsa = { version = "0.2.0-rc.4", optional = true }
 
 webpki-roots = {version = "0.25.4", optional = true}
 hex-literal = "1.0.0"
 
 [dev-dependencies]
-tempfile = "3.25.0"
+tempfile = "3.26.0"
 tokio-test = "0.4.5"
 pretty_env_logger = "0.5"
 tokio = { version = "1.49.0", features = ["full", "macros", "time", "rt-multi-thread"] }
