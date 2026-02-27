@@ -22,13 +22,15 @@ macro_rules! pqverify_mldsa {
 
         let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
             .map_err(|_e| Error::PqcValidation)?;
-        let sig = ml_dsa::Signature::<$pkt>::decode(&sig_bytes);
-
-        match sig.map(|sig| vk.verify_internal($message_to_verify, &sig)) {
-            Some(_) => {
-                return Ok(());
-            }
+        match ml_dsa::Signature::<$pkt>::decode(&sig_bytes) {
+            Some(sig) => match vk.verify($message_to_verify, &sig) {
+                Ok(_) => return Ok(()),
+                Err(_e) => {
+                    return Err(Error::Unrecognized);
+                }
+            },
             None => {
+                error!("Failed to decode signature");
                 return Err(Error::Unrecognized);
             }
         }
