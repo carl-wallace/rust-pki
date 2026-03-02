@@ -151,3 +151,66 @@ pub fn get_pkits_ta5914_2048_bytes(fname: &str) -> Result<Vec<u8>> {
     let f = format!("{}{}", G_TA5914_2048_FOLDER.as_str(), fname);
     get_file_as_byte_vec(Path::new(&f))
 }
+
+// PQC PKITS artifacts use .der for certs and a different CRL naming convention
+pub fn get_pkits_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
+    let base = fname.strip_suffix(".crt").unwrap_or(fname);
+    let f = format!(
+        "{}/tests/examples/{}/certs/{}.der",
+        env!("CARGO_MANIFEST_DIR"),
+        folder,
+        base
+    );
+    get_file_as_byte_vec(Path::new(&f))
+}
+
+pub fn get_pkits_ca_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
+    let f = format!(
+        "{}/tests/examples/{}/certs/{}CACert.der",
+        env!("CARGO_MANIFEST_DIR"),
+        folder,
+        fname
+    );
+    if Path::new(f.as_str()).exists() {
+        get_file_as_byte_vec(Path::new(&f))
+    } else {
+        let f = format!(
+            "{}/tests/examples/{}/certs/{}Cert.der",
+            env!("CARGO_MANIFEST_DIR"),
+            folder,
+            fname
+        );
+        get_file_as_byte_vec(Path::new(&f))
+    }
+}
+
+pub fn get_pkits_crl_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
+    let f = format!(
+        "{}/tests/examples/{}/crls/{}",
+        env!("CARGO_MANIFEST_DIR"),
+        folder,
+        fname
+    );
+    get_file_as_byte_vec(Path::new(&f))
+}
+
+pub fn get_pkits_crl_ca_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
+    let f = format!(
+        "{}/tests/examples/{}/crls/{}CACert.crl",
+        env!("CARGO_MANIFEST_DIR"),
+        folder,
+        fname
+    );
+    let p = Path::new(f.as_str());
+    if p.exists() {
+        get_file_as_byte_vec(p)
+    } else {
+        let f = format!(
+            "{}/tests/examples/{}/crls/{}Cert.crl",
+            env!("CARGO_MANIFEST_DIR"),
+            folder,
+            fname
+        );
+        get_file_as_byte_vec(Path::new(f.as_str()))
+    }
+}

@@ -425,6 +425,328 @@ fn pkits_2048_graph() {
     }
 }
 
+#[cfg(all(feature = "pqc", not(feature = "std")))]
+pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+
+    let der_encoded_ta =
+        get_pkits_cert_bytes_pqc(folder, "TrustAnchorRootCertificate.crt").unwrap();
+    if !pool.certs.contains_key("TrustAnchorRootCertificate.crt") {
+        pool.certs.insert(
+            "TrustAnchorRootCertificate.crt".to_string(),
+            der_encoded_ta.clone(),
+        );
+    }
+
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der_encoded_ta,
+    });
+    ta_source.initialize().unwrap();
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source));
+
+    // Populate pool with all certs
+    for k in pkits_data_map.keys() {
+        let pd = pkits_data_map.get(k).unwrap();
+        for i in 0..pd.len() {
+            let case = pd.get(i).unwrap();
+            let der_encoded_ee =
+                get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
+            pool.certs
+                .insert(case.target_file_name.to_string(), der_encoded_ee);
+            for ca_file in &case.intermediate_ca_file_names {
+                let der_encoded_ca = get_pkits_ca_cert_bytes_pqc(folder, ca_file).unwrap();
+                pool.certs.insert(ca_file.to_string(), der_encoded_ca);
+            }
+        }
+    }
+
+    let mut verified_ta_as_target = false;
+
+    for k in pkits_data_map.keys() {
+        let pd = pkits_data_map.get(k).unwrap();
+        for i in 0..pd.len() {
+            let case = pd.get(i).unwrap();
+            let case_name = if let Some(alt_test_name) = case.alt_test_name {
+                alt_test_name.to_string()
+            } else {
+                format!("{}.{}", *k, i + 1)
+            };
+
+            // Skip revocation-heavy tests; no ta5914 TAs are present for PQC
+            if case_name.starts_with("4.4.")
+                || [
+                    "4.14.2", "4.14.3", "4.14.6", "4.14.8", "4.14.9", "4.7.4", "4.7.5",
+                ]
+                .contains(&case_name.as_str())
+            {
+                continue;
+            }
+
+            println!("{case_name}");
+            let mut ta = PDVTrustAnchorChoice::try_from(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
+            ta.parse_extensions(EXTS_OF_INTEREST);
+
+            let mut ee =
+                match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
+                    Ok(ee_cert) => ee_cert,
+                    Err(err) => {
+                        let k = err.kind();
+                        println!("{}: {}", k, err);
+                        continue;
+                    }
+                };
+            ee.parse_extensions(EXTS_OF_INTEREST);
+
+            let mut chain = vec![];
+            let mut cpool = vec![];
+            for ca_file in &case.intermediate_ca_file_names {
+                let mut ca = PDVCertificate::try_from(pool.certs[*ca_file].as_slice()).unwrap();
+                ca.parse_extensions(EXTS_OF_INTEREST);
+                cpool.push(ca);
+            }
+            for c in cpool.iter() {
+                chain.push(c.clone());
+            }
+
+            let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
+
+            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCertificate.crl").unwrap();
+            cert_path.crls[0] = Some(crl);
+            for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
+                if n.contains("NoCRLCA") {
+                    // no CRL for this CA
+                } else if !n.contains("Self") {
+                    let crl = get_pkits_crl_ca_bytes_pqc(folder, n).unwrap();
+                    cert_path.crls[i + 1] = Some(crl);
+                }
+            }
+
+            let mut tmp_settings = case.settings.clone();
+            tmp_settings.set_use_policy_graph(policy_graph);
+
+            let mut cpr = CertificationPathResults::new();
+            let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+
+            if (r.is_err() && case.expected_error.is_none())
+                || (r.is_ok() && case.expected_error.is_some())
+            {
+                #[cfg(not(feature = "std"))]
+                if ![
+                    "4.13.21", "4.13.23", "4.13.25", "4.13.27", "4.13.30", "4.13.32",
+                    "4.13.34", "4.13.36", "4.3.3", "4.3.11",
+                ]
+                .contains(&case_name.as_str())
+                {
+                    panic!("Unexpected result for {}", case_name);
+                }
+            }
+
+            if !verified_ta_as_target {
+                let ta_as_cert =
+                    parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt")
+                        .unwrap();
+                let mut cert_path2 =
+                    CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
+                let mut cpr = CertificationPathResults::new();
+                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                if (r.is_err() && case.expected_error.is_none())
+                    || (r.is_ok() && case.expected_error.is_some())
+                {
+                    panic!("Unexpected result for TA-as-target in {}", case_name);
+                }
+                verified_ta_as_target = true;
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "pqc", feature = "std"))]
+pub async fn pkits_guts_pqc(folder: &str, policy_graph: bool) {
+    let mut pool = CertPool {
+        certs: BTreeMap::new(),
+    };
+    let mut pkits_data_map = PkitsDataMap::new();
+    load_pkits(&mut pkits_data_map);
+
+    let der_encoded_ta =
+        get_pkits_cert_bytes_pqc(folder, "TrustAnchorRootCertificate.crt").unwrap();
+    if !pool.certs.contains_key("TrustAnchorRootCertificate.crt") {
+        pool.certs.insert(
+            "TrustAnchorRootCertificate.crt".to_string(),
+            der_encoded_ta.clone(),
+        );
+    }
+
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der_encoded_ta,
+    });
+    ta_source.initialize().unwrap();
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source));
+
+    // Populate pool with all certs
+    for k in pkits_data_map.keys() {
+        let pd = pkits_data_map.get(k).unwrap();
+        for i in 0..pd.len() {
+            let case = pd.get(i).unwrap();
+            let der_encoded_ee =
+                get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
+            pool.certs
+                .insert(case.target_file_name.to_string(), der_encoded_ee);
+            for ca_file in &case.intermediate_ca_file_names {
+                let der_encoded_ca = get_pkits_ca_cert_bytes_pqc(folder, ca_file).unwrap();
+                pool.certs.insert(ca_file.to_string(), der_encoded_ca);
+            }
+        }
+    }
+
+    let mut verified_ta_as_target = false;
+
+    for k in pkits_data_map.keys() {
+        let pd = pkits_data_map.get(k).unwrap();
+        for i in 0..pd.len() {
+            let case = pd.get(i).unwrap();
+            let case_name = if let Some(alt_test_name) = case.alt_test_name {
+                alt_test_name.to_string()
+            } else {
+                format!("{}.{}", *k, i + 1)
+            };
+
+            // Skip revocation-heavy tests; no ta5914 TAs are present for PQC
+            if case_name.starts_with("4.4.")
+                || [
+                    "4.14.2", "4.14.3", "4.14.6", "4.14.8", "4.14.9", "4.7.4", "4.7.5",
+                ]
+                .contains(&case_name.as_str())
+            {
+                continue;
+            }
+
+            println!("{case_name}");
+            let mut ta = PDVTrustAnchorChoice::try_from(
+                pool.certs["TrustAnchorRootCertificate.crt"].as_slice(),
+            )
+            .unwrap();
+            ta.parse_extensions(EXTS_OF_INTEREST);
+
+            let mut ee =
+                match PDVCertificate::try_from(pool.certs[case.target_file_name].as_slice()) {
+                    Ok(ee_cert) => ee_cert,
+                    Err(err) => {
+                        let k = err.kind();
+                        println!("{k}: {err}");
+                        continue;
+                    }
+                };
+            ee.parse_extensions(EXTS_OF_INTEREST);
+
+            let mut chain = vec![];
+            let mut cpool = vec![];
+            for ca_file in &case.intermediate_ca_file_names {
+                let mut ca = PDVCertificate::try_from(pool.certs[*ca_file].as_slice()).unwrap();
+                ca.parse_extensions(EXTS_OF_INTEREST);
+                cpool.push(ca);
+            }
+            for c in cpool.iter() {
+                chain.push(c.clone());
+            }
+
+            let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
+
+            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCertificate.crl").unwrap();
+            cert_path.crls[0] = Some(crl);
+            for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
+                if n.contains("NoCRLCA") {
+                    // no CRL for this CA
+                } else if !n.contains("Self") {
+                    let crl = get_pkits_crl_ca_bytes_pqc(folder, n).unwrap();
+                    cert_path.crls[i + 1] = Some(crl);
+                }
+            }
+
+            let mut tmp_settings = case.settings.clone();
+            tmp_settings.set_use_policy_graph(policy_graph);
+
+            let mut cpr = CertificationPathResults::new();
+            let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+
+            if (r.is_err() && case.expected_error.is_none())
+                || (r.is_ok() && case.expected_error.is_some())
+            {
+                panic!("Unexpected result for {case_name}");
+            }
+
+            if !verified_ta_as_target {
+                let ta_as_cert = parse_cert(
+                    <&[u8]>::clone(&ta.encoded_ta.as_slice()),
+                    "TrustAnchorRootCertificate.crt",
+                )
+                .unwrap();
+                let mut cert_path2 =
+                    CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
+                let mut cpr = CertificationPathResults::new();
+                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                if (r.is_err() && case.expected_error.is_none())
+                    || (r.is_ok() && case.expected_error.is_some())
+                {
+                    panic!("Unexpected result for TA-as-target in {case_name}");
+                }
+                verified_ta_as_target = true;
+            }
+        }
+    }
+}
+
+// PQC PKITS test functions - one pair (async + sync) per algorithm variant
+
+macro_rules! pkits_pqc_test {
+    ($name:ident, $folder:expr) => {
+        #[cfg(all(feature = "pqc", feature = "std"))]
+        #[tokio::test]
+        async fn $name() {
+            pkits_guts_pqc($folder, false).await;
+        }
+
+        #[cfg(all(feature = "pqc", not(feature = "std")))]
+        #[test]
+        fn $name() {
+            pkits_guts_pqc_sync($folder, false);
+        }
+    };
+}
+
+pkits_pqc_test!(pkits_ml_dsa_44, "pkits_ml_dsa_44");
+pkits_pqc_test!(pkits_ml_dsa_65, "pkits_ml_dsa_65");
+pkits_pqc_test!(pkits_ml_dsa_87, "pkits_ml_dsa_87");
+pkits_pqc_test!(pkits_slh_dsa_sha2_128f, "pkits_slh_dsa_sha2_128f");
+pkits_pqc_test!(pkits_slh_dsa_sha2_128s, "pkits_slh_dsa_sha2_128s");
+pkits_pqc_test!(pkits_slh_dsa_sha2_192f, "pkits_slh_dsa_sha2_192f");
+pkits_pqc_test!(pkits_slh_dsa_sha2_192s, "pkits_slh_dsa_sha2_192s");
+pkits_pqc_test!(pkits_slh_dsa_sha2_256f, "pkits_slh_dsa_sha2_256f");
+pkits_pqc_test!(pkits_slh_dsa_sha2_256s, "pkits_slh_dsa_sha2_256s");
+pkits_pqc_test!(pkits_slh_dsa_shake_128f, "pkits_slh_dsa_shake_128f");
+pkits_pqc_test!(pkits_slh_dsa_shake_128s, "pkits_slh_dsa_shake_128s");
+pkits_pqc_test!(pkits_slh_dsa_shake_192f, "pkits_slh_dsa_shake_192f");
+pkits_pqc_test!(pkits_slh_dsa_shake_192s, "pkits_slh_dsa_shake_192s");
+pkits_pqc_test!(pkits_slh_dsa_shake_256f, "pkits_slh_dsa_shake_256f");
+pkits_pqc_test!(pkits_slh_dsa_shake_256s, "pkits_slh_dsa_shake_256s");
+
 #[cfg(not(feature = "std"))]
 pub fn pkits_guts_sync(
     mpool: &mut CertPool,
