@@ -5,11 +5,13 @@
 use log::error;
 
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
+use sha2::{Digest, Sha512};
 use slh_dsa::signature::Verifier;
 
 use crate::{Error, PkiEnvironment};
 use const_oid::db::{
-    fips204::{ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87},
+    fips204::{ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87, ID_HASH_ML_DSA_44_WITH_SHA_512,
+              ID_HASH_ML_DSA_65_WITH_SHA_512, ID_HASH_ML_DSA_87_WITH_SHA_512},
     fips205::*,
 };
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -27,6 +29,41 @@ macro_rules! pqverify_mldsa {
                 Ok(_) => return Ok(()),
                 Err(_e) => {
                     return Err(Error::Unrecognized);
+                }
+            },
+            None => {
+                error!("Failed to decode signature");
+                return Err(Error::Unrecognized);
+            }
+        }
+    }};
+}
+
+macro_rules! pqverify_ph_mldsa {
+    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
+        let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val)
+            .map_err(|_e| Error::PqcValidation)?;
+        let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
+
+        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
+            .map_err(|_e| Error::PqcValidation)?;
+        match ml_dsa::Signature::<$pkt>::decode(&sig_bytes) {
+            Some(sig) => {
+                let ph = Sha512::digest($message_to_verify);
+                let one = [0x01];
+                let ctx_len = [0x00];
+                let oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
+                let mut message_rep = vec![];
+                message_rep.append(&mut one.to_vec());
+                message_rep.append(&mut ctx_len.to_vec());
+                message_rep.append(&mut oid.to_vec());
+                message_rep.append(&mut ph.to_vec());
+
+                match vk.verify_internal(&message_rep, &sig) {
+                    true => return Ok(()),
+                    false => {
+                        return Err(Error::Unrecognized);
+                    }
                 }
             },
             None => {
@@ -73,6 +110,12 @@ pub fn verify_signature_message_rustcrypto(
         pqverify_mldsa!(MlDsa65, message_to_verify, spki_val, signature)
     } else if ID_ML_DSA_87 == signature_alg.oid {
         pqverify_mldsa!(MlDsa87, message_to_verify, spki_val, signature)
+    } else if ID_HASH_ML_DSA_44_WITH_SHA_512 == signature_alg.oid {
+        pqverify_ph_mldsa!(MlDsa44, message_to_verify, spki_val, signature)
+    } else if ID_HASH_ML_DSA_65_WITH_SHA_512 == signature_alg.oid {
+        pqverify_ph_mldsa!(MlDsa65, message_to_verify, spki_val, signature)
+    } else if ID_HASH_ML_DSA_87_WITH_SHA_512 == signature_alg.oid {
+        pqverify_ph_mldsa!(MlDsa87, message_to_verify, spki_val, signature)
     } else if ID_SLH_DSA_SHA_2_128_F == signature_alg.oid {
         pqverify_slhdsa!(slh_dsa::Sha2_128f, message_to_verify, spki_val, signature)
     } else if ID_SLH_DSA_SHA_2_128_S == signature_alg.oid {
