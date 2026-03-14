@@ -52,7 +52,7 @@ use crate::{
 #[cfg(feature = "pqc")]
 use crate::util::{
     crypto_composite::verify_signature_message_composite_rustcrypto,
-    crypto_pqc::{verify_signature_message_rustcrypto, verify_signature_message_ctx_rustcrypto},
+    crypto_pqc::{verify_signature_message_ctx_rustcrypto, verify_signature_message_rustcrypto},
 };
 
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
@@ -256,7 +256,10 @@ impl PkiEnvironment {
     }
 
     /// add_verify_signature_digest_ctx_callback adds a [`VerifySignatureDigestWithContext`] callback to the list used by verify_signature_ctx_digest.
-    pub fn add_verify_signature_digest_ctx_callback(&mut self, c: VerifySignatureDigestWithContext) {
+    pub fn add_verify_signature_digest_ctx_callback(
+        &mut self,
+        c: VerifySignatureDigestWithContext,
+    ) {
         self.verify_signature_digest_ctx_callbacks.push(c);
     }
 
@@ -274,7 +277,7 @@ impl PkiEnvironment {
         signature: &[u8],                         // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
-        ctx: &Option<Vec<u8>>                     // context
+        ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_digest_ctx_callbacks {
             if f(pe, hash_to_verify, signature, signature_alg, spki, ctx).is_ok() {
@@ -313,7 +316,10 @@ impl PkiEnvironment {
     }
 
     /// add_verify_signature_message_ctx_callback adds a [`VerifySignatureMessageWithContext`] callback to the list used by verify_signature_message_ctx.
-    pub fn add_verify_signature_message_ctx_callback(&mut self, c: VerifySignatureMessageWithContext) {
+    pub fn add_verify_signature_message_ctx_callback(
+        &mut self,
+        c: VerifySignatureMessageWithContext,
+    ) {
         self.verify_signature_message_ctx_callbacks.push(c);
     }
 
@@ -331,7 +337,7 @@ impl PkiEnvironment {
         signature: &[u8],                         // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
-        ctx: &Option<Vec<u8>>                     // context
+        ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_message_ctx_callbacks {
             let r = f(pe, message_to_verify, signature, signature_alg, spki, ctx);

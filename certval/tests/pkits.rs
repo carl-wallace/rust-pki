@@ -458,8 +458,7 @@ pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
         let pd = pkits_data_map.get(k).unwrap();
         for i in 0..pd.len() {
             let case = pd.get(i).unwrap();
-            let der_encoded_ee =
-                get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
+            let der_encoded_ee = get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
             pool.certs
                 .insert(case.target_file_name.to_string(), der_encoded_ee);
             for ca_file in &case.intermediate_ca_file_names {
@@ -544,8 +543,8 @@ pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
             {
                 #[cfg(not(feature = "std"))]
                 if ![
-                    "4.13.21", "4.13.23", "4.13.25", "4.13.27", "4.13.30", "4.13.32",
-                    "4.13.34", "4.13.36", "4.3.3", "4.3.11",
+                    "4.13.21", "4.13.23", "4.13.25", "4.13.27", "4.13.30", "4.13.32", "4.13.34",
+                    "4.13.36", "4.3.3", "4.3.11",
                 ]
                 .contains(&case_name.as_str())
                 {
@@ -555,8 +554,7 @@ pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
 
             if !verified_ta_as_target {
                 let ta_as_cert =
-                    parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt")
-                        .unwrap();
+                    parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt").unwrap();
                 let mut cert_path2 =
                     CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                 let mut cpr = CertificationPathResults::new();
@@ -605,8 +603,7 @@ pub async fn pkits_guts_pqc(folder: &str, policy_graph: bool) {
         let pd = pkits_data_map.get(k).unwrap();
         for i in 0..pd.len() {
             let case = pd.get(i).unwrap();
-            let der_encoded_ee =
-                get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
+            let der_encoded_ee = get_pkits_cert_bytes_pqc(folder, case.target_file_name).unwrap();
             pool.certs
                 .insert(case.target_file_name.to_string(), der_encoded_ee);
             for ca_file in &case.intermediate_ca_file_names {

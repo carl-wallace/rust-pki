@@ -11,7 +11,7 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use const_oid::db::fips204::*;
 use const_oid::db::rfc5912::{
-    ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_384,  RSA_ENCRYPTION,
+    ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_384, RSA_ENCRYPTION,
 };
 #[cfg(feature = "eddsa")]
 use const_oid::db::rfc8410::ID_ED_25519;

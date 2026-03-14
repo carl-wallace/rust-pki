@@ -11,8 +11,10 @@ use slh_dsa::signature::Verifier;
 
 use crate::{Error, PkiEnvironment};
 use const_oid::db::{
-    fips204::{ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87, ID_HASH_ML_DSA_44_WITH_SHA_512,
-              ID_HASH_ML_DSA_65_WITH_SHA_512, ID_HASH_ML_DSA_87_WITH_SHA_512},
+    fips204::{
+        ID_HASH_ML_DSA_44_WITH_SHA_512, ID_HASH_ML_DSA_65_WITH_SHA_512,
+        ID_HASH_ML_DSA_87_WITH_SHA_512, ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87,
+    },
     fips205::*,
 };
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -44,7 +46,7 @@ macro_rules! pqverify_mldsa {
                         }
                     }
                 };
-            },
+            }
             None => {
                 error!("Failed to decode signature");
                 return Err(Error::Unrecognized);
@@ -66,7 +68,9 @@ macro_rules! pqverify_ph_mldsa {
                 let ph = Sha512::digest($message_to_verify);
                 let one = [0x01];
                 let ctx_len = [0x00];
-                let oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
+                let oid = [
+                    0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+                ];
                 let mut message_rep = vec![];
                 message_rep.append(&mut one.to_vec());
                 message_rep.append(&mut ctx_len.to_vec());
@@ -80,7 +84,7 @@ macro_rules! pqverify_ph_mldsa {
                         return Err(Error::Unrecognized);
                     }
                 }
-            },
+            }
             None => {
                 error!("Failed to decode signature");
                 return Err(Error::Unrecognized);
@@ -180,7 +184,14 @@ pub fn verify_signature_message_rustcrypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> crate::Result<()> {
-    verify_signature_message_ctx_rustcrypto(pe, message_to_verify, signature, signature_alg, spki, &None)
+    verify_signature_message_ctx_rustcrypto(
+        pe,
+        message_to_verify,
+        signature,
+        signature_alg,
+        spki,
+        &None,
+    )
 }
 
 /// Verify ML-DSA and SLH-DSA signatures.
@@ -230,41 +241,155 @@ pub fn verify_signature_message_ctx_rustcrypto(
     } else if ID_SLH_DSA_SHAKE_256_S == signature_alg.oid {
         pqverify_slhdsa!(slh_dsa::Shake256s, message_to_verify, spki_val, signature)
     } else if ID_HASH_SLH_DSA_SHA_2_128_S_WITH_SHA_256 == signature_alg.oid {
-        let sha256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_128s, Sha256, sha256_oid, message_to_verify, spki_val, signature)
+        let sha256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_128s,
+            Sha256,
+            sha256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHA_2_128_F_WITH_SHA_256 == signature_alg.oid {
-        let sha256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_128f, Sha256, sha256_oid, message_to_verify, spki_val, signature)
+        let sha256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_128f,
+            Sha256,
+            sha256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHA_2_192_S_WITH_SHA_512 == signature_alg.oid {
-        let sha512_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_192s, Sha512, sha512_oid, message_to_verify, spki_val, signature)
+        let sha512_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_192s,
+            Sha512,
+            sha512_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHA_2_192_F_WITH_SHA_512 == signature_alg.oid {
-        let sha512_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_192f, Sha512, sha512_oid, message_to_verify, spki_val, signature)
+        let sha512_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_192f,
+            Sha512,
+            sha512_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHA_2_256_S_WITH_SHA_512 == signature_alg.oid {
-        let sha512_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_256s, Sha512, sha512_oid, message_to_verify, spki_val, signature)
+        let sha512_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_256s,
+            Sha512,
+            sha512_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHA_2_256_F_WITH_SHA_512 == signature_alg.oid {
-        let sha512_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03];
-        pqverify_ph_slhdsa!(slh_dsa::Sha2_256f, Sha512, sha512_oid, message_to_verify, spki_val, signature)
+        let sha512_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ];
+        pqverify_ph_slhdsa!(
+            slh_dsa::Sha2_256f,
+            Sha512,
+            sha512_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_128_S_WITH_SHAKE_128 == signature_alg.oid {
-        let shake128_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake128s, sha3::Shake128, 32, shake128_oid, message_to_verify, spki_val, signature)
+        let shake128_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake128s,
+            sha3::Shake128,
+            32,
+            shake128_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_128_F_WITH_SHAKE_128 == signature_alg.oid {
-        let shake128_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake128f, sha3::Shake128, 32, shake128_oid, message_to_verify, spki_val, signature)
+        let shake128_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0B,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake128f,
+            sha3::Shake128,
+            32,
+            shake128_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_192_S_WITH_SHAKE_256 == signature_alg.oid {
-        let shake256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake192s, sha3::Shake256, 64, shake256_oid, message_to_verify, spki_val, signature)
+        let shake256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake192s,
+            sha3::Shake256,
+            64,
+            shake256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_192_F_WITH_SHAKE_256 == signature_alg.oid {
-        let shake256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake192f, sha3::Shake256, 64, shake256_oid, message_to_verify, spki_val, signature)
+        let shake256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake192f,
+            sha3::Shake256,
+            64,
+            shake256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_256_S_WITH_SHAKE_256 == signature_alg.oid {
-        let shake256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake256s, sha3::Shake256, 64, shake256_oid, message_to_verify, spki_val, signature)
+        let shake256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake256s,
+            sha3::Shake256,
+            64,
+            shake256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     } else if ID_HASH_SLH_DSA_SHAKE_256_F_WITH_SHAKE_256 == signature_alg.oid {
-        let shake256_oid = [0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C];
-        pqverify_ph_slhdsa_shake!(slh_dsa::Shake256f, sha3::Shake256, 64, shake256_oid, message_to_verify, spki_val, signature)
+        let shake256_oid = [
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0C,
+        ];
+        pqverify_ph_slhdsa_shake!(
+            slh_dsa::Shake256f,
+            sha3::Shake256,
+            64,
+            shake256_oid,
+            message_to_verify,
+            spki_val,
+            signature
+        )
     }
     Err(Error::Unrecognized)
 }

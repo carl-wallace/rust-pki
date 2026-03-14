@@ -51,7 +51,6 @@ pub type VerifySignatureDigestWithContext = fn(
     &Option<Vec<u8>>,           // Optional context
 ) -> Result<()>;
 
-
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
 pub type VerifySignatureMessage = fn(
@@ -70,7 +69,7 @@ pub type VerifySignatureMessageWithContext = fn(
     &[u8],                      // signature
     &AlgorithmIdentifierOwned,  // signature algorithm
     &SubjectPublicKeyInfoOwned, // public key
-    &Option<Vec<u8>>
+    &Option<Vec<u8>>,
 ) -> Result<()>;
 
 /// `GetTrustAnchors` provides a function signature for implementations that return a list of trust anchors
