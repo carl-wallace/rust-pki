@@ -52,7 +52,7 @@ use crate::{
 #[cfg(feature = "pqc")]
 use crate::util::{
     crypto_composite::verify_signature_message_composite_rustcrypto,
-    crypto_pqc::verify_signature_message_rustcrypto,
+    crypto_pqc::{verify_signature_message_rustcrypto, verify_signature_message_ctx_rustcrypto},
 };
 
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
@@ -69,6 +69,12 @@ pub struct PkiEnvironment {
 
     /// List of functions that provide a signature verification functionality given a message
     verify_signature_message_callbacks: Vec<VerifySignatureMessage>,
+
+    /// List of functions that provide a signature verification functionality given a digest and optional context
+    verify_signature_digest_ctx_callbacks: Vec<VerifySignatureDigestWithContext>,
+
+    /// List of functions that provide a signature verification functionality given a message and optional context
+    verify_signature_message_ctx_callbacks: Vec<VerifySignatureMessageWithContext>,
 
     //--------------------------------------------------------------------------
     //Certification path processing interfaces
@@ -109,6 +115,8 @@ impl Default for PkiEnvironment {
             calculate_hash_callbacks: vec![],
             verify_signature_digest_callbacks: vec![],
             verify_signature_message_callbacks: vec![],
+            verify_signature_digest_ctx_callbacks: vec![],
+            verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
@@ -127,6 +135,8 @@ impl PkiEnvironment {
             calculate_hash_callbacks: vec![],
             verify_signature_digest_callbacks: vec![],
             verify_signature_message_callbacks: vec![],
+            verify_signature_digest_ctx_callbacks: vec![],
+            verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
@@ -149,6 +159,8 @@ impl PkiEnvironment {
         self.clear_validate_path_callbacks();
         self.clear_verify_signature_digest_callbacks();
         self.clear_verify_signature_message_callbacks();
+        self.clear_verify_signature_digest_ctx_callbacks();
+        self.clear_verify_signature_message_ctx_callbacks();
         self.clear_check_remote_callbacks();
     }
 
@@ -243,6 +255,34 @@ impl PkiEnvironment {
         Err(Error::Unrecognized)
     }
 
+    /// add_verify_signature_digest_ctx_callback adds a [`VerifySignatureDigestWithContext`] callback to the list used by verify_signature_ctx_digest.
+    pub fn add_verify_signature_digest_ctx_callback(&mut self, c: VerifySignatureDigestWithContext) {
+        self.verify_signature_digest_ctx_callbacks.push(c);
+    }
+
+    /// clear_verify_signature_digest_ctx_callbacks clears the list of [`VerifySignatureDigestWithContext`] callbacks used by verify_signature_ctx_digest.
+    pub fn clear_verify_signature_digest_ctx_callbacks(&mut self) {
+        self.verify_signature_digest_ctx_callbacks.clear();
+    }
+
+    /// verify_signature_digest iterates over verify_signature_digest_callbacks until an authoritative answer is found
+    /// or all options have been exhausted
+    pub fn verify_signature_ctx_digest(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],                    // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
+        ctx: &Option<Vec<u8>>                     // context
+    ) -> Result<()> {
+        for f in &self.verify_signature_digest_ctx_callbacks {
+            if f(pe, hash_to_verify, signature, signature_alg, spki, ctx).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(Error::Unrecognized)
+    }
     /// add_verify_signature_message_callback adds a [`VerifySignatureMessage`] callback to the list used by verify_signature_message.
     pub fn add_verify_signature_message_callback(&mut self, c: VerifySignatureMessage) {
         self.verify_signature_message_callbacks.push(c);
@@ -265,6 +305,36 @@ impl PkiEnvironment {
     ) -> Result<()> {
         for f in &self.verify_signature_message_callbacks {
             let r = f(pe, message_to_verify, signature, signature_alg, spki);
+            if let Ok(r) = r {
+                return Ok(r);
+            }
+        }
+        Err(Error::Unrecognized)
+    }
+
+    /// add_verify_signature_message_ctx_callback adds a [`VerifySignatureMessageWithContext`] callback to the list used by verify_signature_message_ctx.
+    pub fn add_verify_signature_message_ctx_callback(&mut self, c: VerifySignatureMessageWithContext) {
+        self.verify_signature_message_ctx_callbacks.push(c);
+    }
+
+    /// clear_verify_signature_message_ctx_callbacks clears the list of [`VerifySignatureMessageWithContext`] callbacks used by verify_signature_message_ctx.
+    pub fn clear_verify_signature_message_ctx_callbacks(&mut self) {
+        self.verify_signature_message_ctx_callbacks.clear();
+    }
+
+    /// verify_signature_ctx_message iterates over verify_signature_message_ctx_callbacks until an authoritative answer is found
+    /// or all options have been exhausted
+    pub fn verify_signature_message_ctx(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],                 // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
+        ctx: &Option<Vec<u8>>                     // context
+    ) -> Result<()> {
+        for f in &self.verify_signature_message_ctx_callbacks {
+            let r = f(pe, message_to_verify, signature, signature_alg, spki, ctx);
             if let Ok(r) = r {
                 return Ok(r);
             }
@@ -609,6 +679,8 @@ impl PkiEnvironment {
 
         #[cfg(feature = "pqc")]
         self.add_verify_signature_message_callback(verify_signature_message_rustcrypto);
+        #[cfg(feature = "pqc")]
+        self.add_verify_signature_message_ctx_callback(verify_signature_message_ctx_rustcrypto);
         #[cfg(feature = "pqc")]
         self.add_verify_signature_message_callback(verify_signature_message_composite_rustcrypto);
     }

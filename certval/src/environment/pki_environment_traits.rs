@@ -30,8 +30,8 @@ pub type CalculateHash = fn(
     &[u8],                     // buffer to hash
 ) -> Result<Vec<u8>>;
 
-/// `VerifySignature` provides a function signature for implementations that perform signature verification
-/// over a message digest.
+/// `VerifySignatureDigest` provides a function signature for implementations that perform signature
+/// verification over a message digest.
 pub type VerifySignatureDigest = fn(
     &PkiEnvironment,
     &[u8],                      // buffer to verify
@@ -39,6 +39,18 @@ pub type VerifySignatureDigest = fn(
     &AlgorithmIdentifierOwned,  // signature algorithm
     &SubjectPublicKeyInfoOwned, // public key
 ) -> Result<()>;
+
+/// `VerifySignatureWithContext` provides a function signature for implementations that perform
+/// signature verification over a message digest with an optional context provided.
+pub type VerifySignatureDigestWithContext = fn(
+    &PkiEnvironment,
+    &[u8],                      // buffer to verify
+    &[u8],                      // signature
+    &AlgorithmIdentifierOwned,  // signature algorithm
+    &SubjectPublicKeyInfoOwned, // public key
+    &Option<Vec<u8>>,           // Optional context
+) -> Result<()>;
+
 
 /// `VerifySignature` provides a function signature for implementations that perform signature verification
 /// over a message digest.
@@ -48,6 +60,17 @@ pub type VerifySignatureMessage = fn(
     &[u8],                      // signature
     &AlgorithmIdentifierOwned,  // signature algorithm
     &SubjectPublicKeyInfoOwned, // public key
+) -> Result<()>;
+
+/// `VerifySignatureMessageWithContext` provides a function signature for implementations that
+/// perform signature verification over a message digest with an optional context provided.
+pub type VerifySignatureMessageWithContext = fn(
+    &PkiEnvironment,
+    &[u8],                      // message to hash and verify
+    &[u8],                      // signature
+    &AlgorithmIdentifierOwned,  // signature algorithm
+    &SubjectPublicKeyInfoOwned, // public key
+    &Option<Vec<u8>>
 ) -> Result<()>;
 
 /// `GetTrustAnchors` provides a function signature for implementations that return a list of trust anchors

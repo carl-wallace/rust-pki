@@ -11,7 +11,7 @@ use crate::{
 use alloc::{vec, vec::Vec};
 use const_oid::db::fips204::*;
 use const_oid::db::rfc5912::{
-    ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_512, RSA_ENCRYPTION,
+    ID_EC_PUBLIC_KEY, ID_MGF_1, ID_RSASSA_PSS, ID_SHA_256, ID_SHA_384,  RSA_ENCRYPTION,
 };
 #[cfg(feature = "eddsa")]
 use const_oid::db::rfc8410::ID_ED_25519;
@@ -30,8 +30,8 @@ use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 /// Returns DER encoded RSA PSS parameters for use with 2048-bit RSA keys or other as per section
 /// [7.3 of draft-ietf-lamps-pq-composite-sigs-06](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-06#section-7.3).
-fn get_rss_params(for_2048: bool) -> crate::Result<Vec<u8>> {
-    if for_2048 {
+fn get_rss_params(for_4096: bool) -> crate::Result<Vec<u8>> {
+    if !for_4096 {
         let mfg_param = AlgorithmIdentifierOwned {
             oid: ID_SHA_256,
             parameters: Some(Any::from(AnyRef::NULL)),
@@ -52,20 +52,20 @@ fn get_rss_params(for_2048: bool) -> crate::Result<Vec<u8>> {
         Ok(params.to_der()?)
     } else {
         let mfg_param = AlgorithmIdentifierOwned {
-            oid: ID_SHA_512,
+            oid: ID_SHA_384,
             parameters: Some(Any::from(AnyRef::NULL)),
         };
         let der_mfg_param = mfg_param.to_der()?;
         let params = RsaPssParams {
             hash: AlgorithmIdentifierOwned {
-                oid: ID_SHA_512,
+                oid: ID_SHA_384,
                 parameters: None,
             },
             mask_gen: AlgorithmIdentifierOwned {
                 oid: ID_MGF_1,
                 parameters: Some(Any::from_der(&der_mfg_param)?),
             },
-            salt_len: 512,
+            salt_len: 384,
             trailer_field: TrailerField::BC,
         };
         Ok(params.to_der()?)
@@ -83,7 +83,7 @@ fn is_composite(
             oid: ID_ML_DSA_44,
             parameters: None,
         };
-        let der_params = get_rss_params(true)?;
+        let der_params = get_rss_params(false)?;
         let trad = AlgorithmIdentifierOwned {
             oid: ID_RSASSA_PSS,
             parameters: Some(Any::from_der(&der_params)?),
@@ -134,7 +134,7 @@ fn is_composite(
             oid: ID_ML_DSA_65,
             parameters: None,
         };
-        let der_params = get_rss_params(false)?;
+        let der_params = get_rss_params(ID_MLDSA65_RSA4096_PSS_SHA512 == composite_oid)?;
         let trad = AlgorithmIdentifierOwned {
             oid: ID_RSASSA_PSS,
             parameters: Some(Any::from_der(&der_params)?),
@@ -219,7 +219,7 @@ fn is_composite(
             oid: ID_ML_DSA_87,
             parameters: None,
         };
-        let der_params = get_rss_params(false)?;
+        let der_params = get_rss_params(ID_MLDSA87_RSA4096_PSS_SHA512 == composite_oid)?;
         let trad = AlgorithmIdentifierOwned {
             oid: ID_RSASSA_PSS,
             parameters: Some(Any::from_der(&der_params)?),
@@ -353,6 +353,73 @@ lazy_static! {
     static ref PREFIX: [u8; 32] =
         hex!("436F6D706F73697465416C676F726974686D5369676E61747572657332303235");
 }
+/// Gets the domain separator for a given OID.
+pub fn get_domain(oid: ObjectIdentifier) -> crate::Result<Vec<u8>> {
+    if oid == ID_MLKEM768_RSA2048_SHA3_256 {
+        Ok(DS_MLKEM768_RSA2048_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_RSA3072_SHA3_256 {
+        Ok(DS_MLKEM768_RSA3072_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_RSA4096_SHA3_256 {
+        Ok(DS_MLKEM768_RSA4096_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_X25519_SHA3_256 {
+        Ok(DS_MLKEM768_X25519_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_ECDH_P256_SHA3_256 {
+        Ok(DS_MLKEM768_ECDH_P256_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_ECDH_P384_SHA3_256 {
+        Ok(DS_MLKEM768_ECDH_P384_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM768_ECDH_BRAINPOOL_P256R1_SHA3_256 {
+        Ok(DS_MLKEM768_ECDH_BRAINPOOL_P256R1_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM1024_RSA3072_SHA3_256 {
+        Ok(DS_MLKEM1024_RSA3072_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM1024_ECDH_P384_SHA3_256 {
+        Ok(DS_MLKEM1024_ECDH_P384_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM1024_ECDH_BRAINPOOL_P384R1_SHA3_256 {
+        Ok(DS_MLKEM1024_ECDH_BRAINPOOL_P384R1_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM1024_X448_SHA3_256 {
+        Ok(DS_MLKEM1024_X448_SHA3_256.to_vec())
+    } else if oid == ID_MLKEM1024_ECDH_P521_SHA3_256 {
+        Ok(DS_MLKEM1024_ECDH_P521_SHA3_256.to_vec())
+    } else if oid == ID_MLDSA44_RSA2048_PSS_SHA256 {
+        Ok(DS_MLDSA44_RSA2048_PSS_SHA256.to_vec())
+    } else if oid == ID_MLDSA44_RSA2048_PKCS15_SHA256 {
+        Ok(DS_MLDSA44_RSA2048_PKCS15_SHA256.to_vec())
+    } else if oid == ID_MLDSA44_ED25519_SHA512 {
+        Ok(DS_MLDSA44_ED25519_SHA512.to_vec())
+    } else if oid == ID_MLDSA44_ECDSA_P256_SHA256 {
+        Ok(DS_MLDSA44_ECDSA_P256_SHA256.to_vec())
+    } else if oid == ID_MLDSA65_RSA3072_PSS_SHA512 {
+        Ok(DS_MLDSA65_RSA3072_PSS_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_RSA3072_PKCS15_SHA512 {
+        Ok(DS_MLDSA65_RSA3072_PKCS15_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_RSA4096_PSS_SHA512 {
+        Ok(DS_MLDSA65_RSA4096_PSS_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_RSA4096_PKCS15_SHA512 {
+        Ok(DS_MLDSA65_RSA4096_PKCS15_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_ECDSA_P256_SHA512 {
+        Ok(DS_MLDSA65_ECDSA_P256_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_ECDSA_P384_SHA512 {
+        Ok(DS_MLDSA65_ECDSA_P384_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_ECDSA_BRAINPOOL_P256R1_SHA512 {
+        Ok(DS_MLDSA65_ECDSA_BRAINPOOL_P256R1_SHA512.to_vec())
+    } else if oid == ID_MLDSA65_ED25519_SHA512 {
+        Ok(DS_MLDSA65_ED25519_SHA512.to_vec())
+    } else if oid == ID_MLDSA87_ECDSA_P384_SHA512 {
+        Ok(DS_MLDSA87_ECDSA_P384_SHA512.to_vec())
+    } else if oid == ID_MLDSA87_ECDSA_BRAINPOOL_P384R1_SHA512 {
+        Ok(DS_MLDSA87_ECDSA_BRAINPOOL_P384R1_SHA512.to_vec())
+    } else if oid == ID_MLDSA87_ED448_SHAKE256 {
+        Ok(DS_MLDSA87_ED448_SHAKE256.to_vec())
+    } else if oid == ID_MLDSA87_RSA3072_PSS_SHA512 {
+        Ok(DS_MLDSA87_RSA3072_PSS_SHA512.to_vec())
+    } else if oid == ID_MLDSA87_RSA4096_PSS_SHA512 {
+        Ok(DS_MLDSA87_RSA4096_PSS_SHA512.to_vec())
+    } else if oid == ID_MLDSA87_ECDSA_P521_SHA512 {
+        Ok(DS_MLDSA87_ECDSA_P521_SHA512.to_vec())
+    } else {
+        Err(crate::Error::Unrecognized)
+    }
+}
+
 /// verify_signature_message_composite
 pub fn verify_signature_message_composite_rustcrypto(
     pe: &PkiEnvironment,
@@ -365,21 +432,19 @@ pub fn verify_signature_message_composite_rustcrypto(
         let (pqc_spki, trad_spki) =
             split_key(pqc.oid, trad.oid, spki.subject_public_key.raw_bytes())?;
 
-        let domain = signature_alg.oid.to_der()?;
+        let label = get_domain(signature_alg.oid)?;
         let ctx_len = [0x00];
-        let (r, sig) = signature.split_at(32);
-        let (pqc_sig, trad_sig) = split_sig(pqc.oid, sig)?;
+        let (pqc_sig, trad_sig) = split_sig(pqc.oid, signature)?;
         let hash = hash_message(signature_alg.oid, message_to_verify)?;
 
-        //Prefix || Domain || len(ctx) || ctx || r || PH( M )
+        // Prefix || Label || len(ctx) || ctx || PH( M )
         let mut message_rep = vec![];
         message_rep.append(&mut PREFIX.to_vec());
-        message_rep.append(&mut domain.to_vec());
+        message_rep.append(&mut label.to_vec());
         message_rep.append(&mut ctx_len.to_vec());
-        message_rep.append(&mut r.to_vec());
         message_rep.append(&mut hash.to_vec());
 
-        pe.verify_signature_message(pe, &message_rep, pqc_sig, &pqc, &pqc_spki)?;
+        pe.verify_signature_message_ctx(pe, &message_rep, pqc_sig, &pqc, &pqc_spki, &Some(label))?;
         pe.verify_signature_message(pe, &message_rep, trad_sig, &trad, &trad_spki)?;
         return Ok(());
     }

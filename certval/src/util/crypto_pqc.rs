@@ -18,7 +18,7 @@ use const_oid::db::{
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 
 macro_rules! pqverify_mldsa {
-    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
+    ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident, $ctx:ident) => {{
         let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val)
             .map_err(|_e| Error::PqcValidation)?;
         let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
@@ -26,12 +26,24 @@ macro_rules! pqverify_mldsa {
         let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
             .map_err(|_e| Error::PqcValidation)?;
         match ml_dsa::Signature::<$pkt>::decode(&sig_bytes) {
-            Some(sig) => match vk.verify($message_to_verify, &sig) {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    error!("Failed to verify ML DSA signature: {}", e);
-                    return Err(Error::Unrecognized);
-                }
+            Some(sig) => {
+                if let Some(ctx) = $ctx {
+                    match vk.verify_with_context($message_to_verify, ctx, &sig) {
+                        true => return Ok(()),
+                        false => {
+                            error!("Failed to verify ML DSA signature with context");
+                            return Err(Error::Unrecognized);
+                        }
+                    }
+                } else {
+                    match vk.verify($message_to_verify, &sig) {
+                        Ok(_) => return Ok(()),
+                        Err(e) => {
+                            error!("Failed to verify ML DSA signature: {}", e);
+                            return Err(Error::Unrecognized);
+                        }
+                    }
+                };
             },
             None => {
                 error!("Failed to decode signature");
@@ -162,19 +174,31 @@ macro_rules! pqverify_ph_slhdsa_shake {
 
 /// Verify ML-DSA and SLH-DSA signatures.
 pub fn verify_signature_message_rustcrypto(
-    _pe: &PkiEnvironment,
+    pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
     signature: &[u8],                         // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> crate::Result<()> {
+    verify_signature_message_ctx_rustcrypto(pe, message_to_verify, signature, signature_alg, spki, &None)
+}
+
+/// Verify ML-DSA and SLH-DSA signatures.
+pub fn verify_signature_message_ctx_rustcrypto(
+    _pe: &PkiEnvironment,
+    message_to_verify: &[u8],                 // buffer to verify
+    signature: &[u8],                         // signature
+    signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+    spki: &SubjectPublicKeyInfoOwned,         // public key
+    ctx: &Option<Vec<u8>>,
+) -> crate::Result<()> {
     let spki_val = spki.subject_public_key.raw_bytes();
     if ID_ML_DSA_44 == signature_alg.oid {
-        pqverify_mldsa!(MlDsa44, message_to_verify, spki_val, signature)
+        pqverify_mldsa!(MlDsa44, message_to_verify, spki_val, signature, ctx)
     } else if ID_ML_DSA_65 == signature_alg.oid {
-        pqverify_mldsa!(MlDsa65, message_to_verify, spki_val, signature)
+        pqverify_mldsa!(MlDsa65, message_to_verify, spki_val, signature, ctx)
     } else if ID_ML_DSA_87 == signature_alg.oid {
-        pqverify_mldsa!(MlDsa87, message_to_verify, spki_val, signature)
+        pqverify_mldsa!(MlDsa87, message_to_verify, spki_val, signature, ctx)
     } else if ID_HASH_ML_DSA_44_WITH_SHA_512 == signature_alg.oid {
         pqverify_ph_mldsa!(MlDsa44, message_to_verify, spki_val, signature)
     } else if ID_HASH_ML_DSA_65_WITH_SHA_512 == signature_alg.oid {
