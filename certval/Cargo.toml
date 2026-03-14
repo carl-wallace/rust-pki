@@ -62,6 +62,7 @@ walkdir = { version = "2.5.0", optional = true}
 regex = {version = "1.12.3", optional = true}
 
 ml-dsa = { version = "0.1.0-rc.7", optional = true }
+sha3 = { version = "0.11.0-rc.7", default-features = false, optional = true }
 slh-dsa = { version = "0.2.0-rc.4", optional = true }
 
 webpki-roots = {version = "0.25.4", optional = true}
@@ -87,7 +88,7 @@ default = ["remote", "webpki"]
 revocation = ["dep:ndarray"]
 std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "lazy_static/spin"]
-pqc = ["ml-dsa", "slh-dsa", "pqckeys"]
+pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]
 eddsa = ["dep:ed25519-dalek"]
