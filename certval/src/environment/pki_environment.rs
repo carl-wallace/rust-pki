@@ -504,21 +504,13 @@ impl PkiEnvironment {
         threshold: usize,
         time_of_interest: TimeOfInterest,
     ) -> Result<()> {
-        let mut some_valid = false;
-        let mut last_error = Error::Unrecognized;
+        let mut last_error = None;
         for f in &self.certificate_sources {
-            match f.get_paths_for_target(self, target, paths, threshold, time_of_interest) {
-                Ok(_) => some_valid = true,
-                Err(e) => {
-                    last_error = e;
-                }
-            }
+            if let Err(e) = f.get_paths_for_target(self, target, paths, threshold, time_of_interest) {
+                last_error = Some(e);
+            };
         }
-        if some_valid {
-            Ok(())
-        } else {
-            Err(last_error)
-        }
+        last_error.map_or_else(|| Ok(()), |e| Err(e))
     }
 
     /// add_oid_lookup adds a oid_lookup callback to the list used by get_trust_anchors.
