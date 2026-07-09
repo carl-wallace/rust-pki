@@ -9,7 +9,7 @@ use log::info;
 use crate::policy_tree::check_certificate_policies;
 use crate::{
     environment::pki_environment::*, get_subject_public_key_info_from_trust_anchor,
-    path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
+    hex_skid_from_ta, path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name, util::error::*, util::pdv_utilities::*,
     validator::pdv_trust_anchor::PDVTrustAnchorChoice, CertificationPath,
 };
@@ -80,6 +80,29 @@ pub fn validate_path_rfc5280(
             return Err(Error::PathValidation(
                 PathValidationStatus::MissingTrustAnchor,
             ));
+        }
+    }
+
+    // RFC 5937 trust-anchor constraint provenance. When constraint enforcement is in effect, the
+    // constraints applied to this path derive from cp.trust_anchor. If the trust store holds the
+    // anchor with this key identifier (the same identity used by the require_ta_store membership
+    // check), that stored copy is authoritative: reject a presented anchor that shares the key but
+    // carries different constraints than the store's copy (e.g. a relaxed TrustAnchorInfo substituted
+    // for a constrained one). The SPKI comparison guards against a subjectKeyIdentifier collision
+    // landing on a different key; a key identifier absent from the store carries no store opinion, so
+    // the presented anchor stands. (get_trust_anchor_by_hex_skid returns the first source's match for
+    // a SKID; distinct anchors that share a SKID across sources is a theoretical case better caught by
+    // a store-level duplicate-SKID check than by complicating this lookup.)
+    if cps.get_enforce_trust_anchor_constraints() {
+        if let Ok(stored) = pe.get_trust_anchor_by_hex_skid(&hex_skid_from_ta(&cp.trust_anchor)) {
+            let presented_spki =
+                get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
+            let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
+            if presented_spki == stored_spki && stored.encoded_ta != cp.trust_anchor.encoded_ta {
+                return Err(Error::PathValidation(
+                    PathValidationStatus::TrustAnchorConstraintsMismatch,
+                ));
+            }
         }
     }
 

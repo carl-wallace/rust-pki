@@ -250,3 +250,128 @@ fn wire_certchain_works() {
         assert_eq!(validation_status, PathValidationStatus::Valid);
     }
 }
+
+// Fix B (RFC 5937 trust-anchor constraint provenance): when constraint enforcement is in effect and
+// the trust store holds an anchor for the presented anchor's public key, the stored copy is
+// authoritative. A presented anchor that matches the stored key AND constraints validates; one that
+// shares the key but carries different constraints is rejected with TrustAnchorConstraintsMismatch.
+
+/// Success path: the path's trust anchor is byte-identical to the store's copy, so enforcement lets
+/// it through and the path validates (mirrors `pkits_test1` with enforcement enabled).
+#[cfg(feature = "rsa")]
+#[test]
+fn enforce_ta_constraints_accepts_matching_store_anchor() {
+    let der_encoded_ta = include_bytes!("examples/TrustAnchorRootCertificate.crt");
+    let der_encoded_ca = include_bytes!("examples/GoodCACert.crt");
+    let der_encoded_ee = include_bytes!("examples/ValidCertificatePathTest1EE.crt");
+
+    let mut ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    ta.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der_encoded_ta.to_vec(),
+    });
+    ta_source.initialize().unwrap();
+
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_enforce_trust_anchor_constraints(true);
+    let mut cpr = CertificationPathResults::new();
+
+    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    assert!(r.is_ok(), "expected success, got {r:?}");
+}
+
+/// Failure path: the store holds the root as a bare Certificate (no CertPathControls); the path
+/// presents a TrustAnchorInfo with the SAME public key but different constraints. With enforcement
+/// in effect the validator detects the mismatch. `require_ta_store` is left off so the constraint-
+/// provenance check is exercised in isolation from the membership check.
+#[cfg(feature = "rsa")]
+#[test]
+fn enforce_ta_constraints_rejects_same_key_different_constraints() {
+    use der::asn1::OctetString;
+    use x509_cert::anchor::{CertPathControls, TrustAnchorChoice, TrustAnchorInfo};
+
+    let der_encoded_ta = include_bytes!("examples/TrustAnchorRootCertificate.crt");
+    let der_encoded_ca = include_bytes!("examples/GoodCACert.crt");
+    let der_encoded_ee = include_bytes!("examples/ValidCertificatePathTest1EE.crt");
+
+    // Store holds the root cert in Certificate form (no TA constraints).
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der_encoded_ta.to_vec(),
+    });
+    ta_source.initialize().unwrap();
+
+    // Build a TrustAnchorInfo sharing the root's public key but carrying a different constraint set
+    // (a path-length constraint the stored bare-cert anchor does not have).
+    let root = Certificate::from_der(der_encoded_ta).unwrap();
+    let cp: CertPathControls<Raw> = CertPathControls {
+        ta_name: root.tbs_certificate().subject().clone(),
+        certificate: None,
+        policy_set: None,
+        policy_flags: None,
+        name_constr: None,
+        path_len_constraint: Some(0),
+    };
+    // key_id = the SKID the store indexes TrustAnchorRootCertificate.crt under, so the O(1)
+    // get_trust_anchor_by_hex_skid lookup in the validator resolves to the stored anchor (this is
+    // also the realistic case: an anchor reuses the real SKID to be recognized).
+    let root_skid: [u8; 20] = [
+        0xE4, 0x7D, 0x5F, 0xD1, 0x5C, 0x95, 0x86, 0x08, 0x2C, 0x05, 0xAE, 0xBE, 0x75, 0xB6, 0x65,
+        0xA7, 0xD9, 0x5D, 0xA8, 0x66,
+    ];
+    let tai: TrustAnchorInfo<Raw> = TrustAnchorInfo {
+        version: Default::default(),
+        pub_key: root.tbs_certificate().subject_public_key_info().clone(),
+        key_id: OctetString::new(root_skid.to_vec()).unwrap(),
+        ta_title: None,
+        cert_path: Some(cp),
+        extensions: None,
+        ta_title_lang_tag: None,
+    };
+    let tac: TrustAnchorChoice<Raw> = TrustAnchorChoice::TaInfo(tai);
+    let mut presented = PDVTrustAnchorChoice::try_from(tac).unwrap();
+    presented.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+
+    let mut cert_path = CertificationPath::new(presented, vec![ca], ee);
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_enforce_trust_anchor_constraints(true);
+    cps.set_require_ta_store(false);
+    // The hand-built TrustAnchorInfo has no validity dates, so skip TA-validity enforcement; the
+    // constraint-provenance check is what this test exercises.
+    cps.set_enforce_trust_anchor_validity(false);
+    let mut cpr = CertificationPathResults::new();
+
+    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    assert_eq!(
+        r.err(),
+        Some(Error::PathValidation(
+            PathValidationStatus::TrustAnchorConstraintsMismatch
+        )),
+        "expected TrustAnchorConstraintsMismatch"
+    );
+}
