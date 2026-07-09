@@ -10,7 +10,7 @@ use predicates::prelude::*;
 #[test]
 fn generate_then_validate_one_std_app() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::new(cargo_bin!());
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-e").arg("tests/examples/amazon.der");
         cmd.assert()
             .stdout(predicate::str::contains("Valid paths found: 1"));
@@ -21,7 +21,7 @@ fn generate_then_validate_one_std_app() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn generate_then_validate_one_std_app() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::new(cargo_bin!());
+        let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-e").arg("tests/examples/amazon.der");
         cmd.assert()
             .stdout(predicate::str::contains("Paths found: 1"));
@@ -33,8 +33,8 @@ fn generate_then_validate_one_std_app() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn generate_then_validate_one_no_std() -> Result<(), Box<dyn std::error::Error>> {
     {
-        let mut cmd = Command::new(cargo_bin!());
-        cmd.assert();
+        let mut cmd = Command::new(cargo::cargo_bin!());
+        let _ = cmd.assert();
     }
     Ok(())
 }

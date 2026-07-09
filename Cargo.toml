@@ -14,6 +14,8 @@ debug = true
 debug = true
 
 [patch.crates-io]
+# Temporary until RustCrypto publishes x509-ocsp RCs. The specific commit is pinned by Cargo.lock;
+# do not `cargo update` this patch until the RCs land (HEAD has drifted incompatible with x509-cert).
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
 # https://github.com/RustCrypto/signatures/pull/1259

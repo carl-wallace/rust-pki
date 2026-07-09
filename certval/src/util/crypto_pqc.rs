@@ -2,6 +2,8 @@
 
 #![cfg(feature = "pqc")]
 
+use alloc::{vec, vec::Vec};
+
 use log::error;
 
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
@@ -95,84 +97,103 @@ macro_rules! pqverify_ph_mldsa {
 
 macro_rules! pqverify_slhdsa {
     ($pkt:ty, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val)
-            .map_err(|_e| Error::PqcValidation)?;
-        let sig: slh_dsa::Signature<$pkt> = $signature
-            .to_vec()
-            .as_slice()
-            .try_into()
-            .map_err(|_e| Error::PqcValidation)?;
-        match vk.verify($message_to_verify, &sig) {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to verify SLH DSA signature: {}", e);
-                return Err(Error::Unrecognized);
+        // Isolated in an #[inline(never)] fn so the (large) SLH-DSA signature/key live in their own
+        // stack frame rather than summing with every other algorithm branch of the dispatcher (which
+        // would overflow the 2 MiB test-thread stack in debug builds).
+        #[inline(never)]
+        fn verify(message_to_verify: &[u8], spki_val: &[u8], signature: &[u8]) -> crate::Result<()> {
+            let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
+                .map_err(|_e| Error::PqcValidation)?;
+            let sig: slh_dsa::Signature<$pkt> = signature
+                .to_vec()
+                .as_slice()
+                .try_into()
+                .map_err(|_e| Error::PqcValidation)?;
+            match vk.verify(message_to_verify, &sig) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!("Failed to verify SLH DSA signature: {}", e);
+                    Err(Error::Unrecognized)
+                }
             }
         }
+        return verify($message_to_verify, $spki_val, $signature);
     }};
 }
 
 macro_rules! pqverify_ph_slhdsa {
     ($pkt:ty, $hash:ty, $oid:ident, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val)
-            .map_err(|_e| Error::PqcValidation)?;
-        let sig: slh_dsa::Signature<$pkt> = $signature
-            .to_vec()
-            .as_slice()
-            .try_into()
-            .map_err(|_e| Error::PqcValidation)?;
-        let ph = <$hash>::digest($message_to_verify);
-        let one = [0x01];
-        let ctx_len = [0x00];
-        let mut message_rep = vec![];
-        message_rep.append(&mut one.to_vec());
-        message_rep.append(&mut ctx_len.to_vec());
-        message_rep.append(&mut $oid.to_vec());
-        message_rep.append(&mut ph.to_vec());
-        match vk.slh_verify_internal(&[&message_rep], &sig) {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to verify SLH DSA signature: {}", e);
-                return Err(Error::Unrecognized);
+        #[inline(never)]
+        fn verify(
+            message_to_verify: &[u8],
+            spki_val: &[u8],
+            signature: &[u8],
+            oid: &[u8],
+        ) -> crate::Result<()> {
+            let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
+                .map_err(|_e| Error::PqcValidation)?;
+            let sig: slh_dsa::Signature<$pkt> = signature
+                .to_vec()
+                .as_slice()
+                .try_into()
+                .map_err(|_e| Error::PqcValidation)?;
+            let ph = <$hash>::digest(message_to_verify);
+            let one = [0x01];
+            let ctx_len = [0x00];
+            let mut message_rep = vec![];
+            message_rep.append(&mut one.to_vec());
+            message_rep.append(&mut ctx_len.to_vec());
+            message_rep.append(&mut oid.to_vec());
+            message_rep.append(&mut ph.to_vec());
+            match vk.slh_verify_internal(&[&message_rep], &sig) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!("Failed to verify SLH DSA signature: {}", e);
+                    Err(Error::Unrecognized)
+                }
             }
         }
+        return verify($message_to_verify, $spki_val, $signature, &$oid);
     }};
 }
 
 macro_rules! pqverify_ph_slhdsa_shake {
     ($pkt:ty, $shake:ty, $hash_len:expr, $oid:ident, $message_to_verify:ident, $spki_val:ident, $signature:ident) => {{
-        let vk = slh_dsa::VerifyingKey::<$pkt>::try_from($spki_val)
-            .map_err(|_e| Error::PqcValidation)?;
-        let sig: slh_dsa::Signature<$pkt> = $signature
-            .to_vec()
-            .as_slice()
-            .try_into()
-            .map_err(|_e| Error::PqcValidation)?;
-        let mut hasher = <$shake>::default();
-        hasher.update($message_to_verify);
-        let mut reader = hasher.finalize_xof();
-        let mut ph = [0u8; $hash_len];
-        reader.read(&mut ph);
-        let one = [0x01];
-        let ctx_len = [0x00];
-        let mut message_rep = vec![];
-        message_rep.append(&mut one.to_vec());
-        message_rep.append(&mut ctx_len.to_vec());
-        message_rep.append(&mut $oid.to_vec());
-        message_rep.append(&mut ph.to_vec());
-        match vk.slh_verify_internal(&[&message_rep], &sig) {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(e) => {
-                error!("Failed to verify SLH DSA signature: {}", e);
-                return Err(Error::Unrecognized);
+        #[inline(never)]
+        fn verify(
+            message_to_verify: &[u8],
+            spki_val: &[u8],
+            signature: &[u8],
+            oid: &[u8],
+        ) -> crate::Result<()> {
+            let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
+                .map_err(|_e| Error::PqcValidation)?;
+            let sig: slh_dsa::Signature<$pkt> = signature
+                .to_vec()
+                .as_slice()
+                .try_into()
+                .map_err(|_e| Error::PqcValidation)?;
+            let mut hasher = <$shake>::default();
+            hasher.update(message_to_verify);
+            let mut reader = hasher.finalize_xof();
+            let mut ph = [0u8; $hash_len];
+            reader.read(&mut ph);
+            let one = [0x01];
+            let ctx_len = [0x00];
+            let mut message_rep = vec![];
+            message_rep.append(&mut one.to_vec());
+            message_rep.append(&mut ctx_len.to_vec());
+            message_rep.append(&mut oid.to_vec());
+            message_rep.append(&mut ph.to_vec());
+            match vk.slh_verify_internal(&[&message_rep], &sig) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!("Failed to verify SLH DSA signature: {}", e);
+                    Err(Error::Unrecognized)
+                }
             }
         }
+        return verify($message_to_verify, $spki_val, $signature, &$oid);
     }};
 }
 

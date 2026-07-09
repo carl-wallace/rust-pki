@@ -153,6 +153,7 @@ pub fn get_pkits_ta5914_2048_bytes(fname: &str) -> Result<Vec<u8>> {
 }
 
 // PQC PKITS artifacts use .der for certs and a different CRL naming convention
+#[cfg(feature = "pqc")]
 pub fn get_pkits_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     let base = fname.strip_suffix(".crt").unwrap_or(fname);
     let f = format!(
@@ -164,6 +165,7 @@ pub fn get_pkits_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     get_file_as_byte_vec(Path::new(&f))
 }
 
+#[cfg(feature = "pqc")]
 pub fn get_pkits_ca_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     let f = format!(
         "{}/tests/examples/{}/certs/{}CACert.der",
@@ -184,6 +186,7 @@ pub fn get_pkits_ca_cert_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>>
     }
 }
 
+#[cfg(feature = "pqc")]
 pub fn get_pkits_crl_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     let f = format!(
         "{}/tests/examples/{}/crls/{}",
@@ -194,6 +197,7 @@ pub fn get_pkits_crl_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     get_file_as_byte_vec(Path::new(&f))
 }
 
+#[cfg(feature = "pqc")]
 pub fn get_pkits_crl_ca_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     let f = format!(
         "{}/tests/examples/{}/crls/{}CACert.crl",

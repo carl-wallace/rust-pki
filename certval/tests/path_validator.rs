@@ -251,7 +251,7 @@ fn wire_certchain_works() {
     }
 }
 
-// Fix B (RFC 5937 trust-anchor constraint provenance): when constraint enforcement is in effect and
+// RFC 5937 trust-anchor constraint provenance: when constraint enforcement is in effect and
 // the trust store holds an anchor for the presented anchor's public key, the stored copy is
 // authoritative. A presented anchor that matches the stored key AND constraints validates; one that
 // shares the key but carries different constraints is rejected with TrustAnchorConstraintsMismatch.

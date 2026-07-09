@@ -2887,7 +2887,7 @@ dependencies = [
 [[package]]
 name = "x509-ocsp"
 version = "0.3.0-pre"
-source = "git+https://github.com/RustCrypto/formats.git#809b1a2768532d8e62d1d06518c1d47108f1aa92"
+source = "git+https://github.com/RustCrypto/formats.git#9bad3563810ee58041fa19c65773d4e04840181f"
 dependencies = [
  "const-oid",
  "der",
