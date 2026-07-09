@@ -33,9 +33,13 @@ use core::time::Duration;
 
 #[cfg(feature = "remote")]
 use x509_cert::ext::pkix::name::GeneralName;
+#[cfg(feature = "remote")]
+use x509_cert::ext::pkix::ExtendedKeyUsage;
 
 #[cfg(feature = "remote")]
-use const_oid::db::rfc5912::{ID_AD_OCSP, ID_PE_AUTHORITY_INFO_ACCESS};
+use const_oid::db::rfc5912::{
+    ID_AD_OCSP, ID_CE_EXT_KEY_USAGE, ID_KP_OCSP_SIGNING, ID_PE_AUTHORITY_INFO_ACCESS,
+};
 
 #[cfg(feature = "revocation")]
 use const_oid::db::rfc6960::{ID_PKIX_OCSP_BASIC, ID_PKIX_OCSP_NOCHECK, ID_PKIX_OCSP_NONCE};
@@ -292,6 +296,27 @@ fn no_check_present(exts: &Option<&Extensions>) -> bool {
     false
 }
 
+/// Returns true if the certificate asserts the id-kp-OCSPSigning extended key usage.
+///
+/// RFC 6960 Section 4.2.2.2 requires a delegated OCSP responder certificate (one that is not the
+/// certificate issuer signing directly) to include id-kp-OCSPSigning in its extended key usage.
+/// A certificate with no EKU extension, an unparseable EKU, or an EKU that lacks this value is not
+/// an authorized delegated responder and is rejected (fail closed).
+#[cfg(feature = "remote")]
+fn has_ocsp_signing_eku(exts: &Option<&Extensions>) -> bool {
+    if let Some(exts) = exts {
+        for ext in exts.as_slice() {
+            if ext.extn_id == ID_CE_EXT_KEY_USAGE {
+                return match ExtendedKeyUsage::from_der(ext.extn_value.as_bytes()) {
+                    Ok(eku) => eku.0.contains(&ID_KP_OCSP_SIGNING),
+                    Err(_) => false,
+                };
+            }
+        }
+    }
+    false
+}
+
 fn verify_response_signature(
     pe: &PkiEnvironment,
     signers_cert: &CertificateInner<Raw>,
@@ -535,7 +560,7 @@ fn process_ocsp_response_internal(
                             }
 
                             let time_of_interest = cps.get_time_of_interest();
-                            if time_of_interest.is_disabled() {
+                            if !time_of_interest.is_disabled() {
                                 let target_ttl =
                                     valid_at_time(cert.tbs_certificate(), time_of_interest, false);
                                 if let Err(_e) = target_ttl {
@@ -551,6 +576,15 @@ fn process_ocsp_response_internal(
                             if !no_check_present(&cert.tbs_certificate().extensions()) {
                                 //TODO implement revocation checking of responder cert
                                 error!("no-check absent");
+                            }
+
+                            // RFC 6960 4.2.2.2: a delegated OCSP responder certificate MUST assert
+                            // the id-kp-OCSPSigning EKU; otherwise any CA-issued EE cert could sign
+                            // OCSP responses.
+                            if !has_ocsp_signing_eku(&cert.tbs_certificate().extensions()) {
+                                error!("Candidate responder cert from OCSPResponse from {uri_to_check} lacks the id-kp-OCSPSigning EKU required of a delegated OCSP responder");
+                                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+                                continue;
                             }
 
                             authorized_responder = true;
