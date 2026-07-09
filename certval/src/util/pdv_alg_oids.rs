@@ -12,6 +12,8 @@ use der::asn1::ObjectIdentifier;
 pub const PKIXALG_RSA_ENCRYPTION: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
 
+// 1.3.101.112
+
 /// id-ecPublicKey OBJECT IDENTIFIER ::= {
 ///     iso(1) member-body(2) us(840) ansi-X9-62(10045) keyType(2) 1 }
 pub const PKIXALG_EC_PUBLIC_KEY: ObjectIdentifier =

@@ -10,9 +10,12 @@ limbo-harness-support = { path = "../x509-limbo/harness-support/rust" }
 chrono = "0.4.38"
 pem = "3.0.4"
 serde_json = "1.0.116"
-certval = { path = "../../certval" }
-x509-cert = { version = "0.2.5", features = ["hazmat"] }
+certval = { path = "../../certval", features = ["rsa"] }
+x509-cert = { version = "0.3.0-rc.4", features = ["hazmat"] }
 rayon = "1.10.0"
 cidr = "0.2.2"
 
+ed25519-dalek = { version = "3.0.0-pre.6", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
 
+[patch.crates-io]
+x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }

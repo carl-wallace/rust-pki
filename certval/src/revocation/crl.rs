@@ -2,7 +2,11 @@
 //! indirect CRLs, on hold, and nameRelativeToIssuer distribution points)
 
 extern crate alloc;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use flagset::{flags, FlagSet};
 use lazy_static::lazy_static;
 use ndarray::{arr2, ArrayBase, Dim, OwnedRepr};
@@ -15,7 +19,7 @@ use const_oid::db::rfc5912::{
     ID_CE_FRESHEST_CRL, ID_CE_HOLD_INSTRUCTION_CODE, ID_CE_INVALIDITY_DATE,
     ID_CE_ISSUING_DISTRIBUTION_POINT, ID_CE_KEY_USAGE,
 };
-use der::{Decode, Encode};
+use der::{Decode, DerOrd, Encode};
 use x509_cert::ext::pkix::crl::dp::ReasonFlags;
 use x509_cert::ext::pkix::{
     crl::dp::DistributionPoint,
@@ -27,7 +31,7 @@ use x509_cert::ext::pkix::{
 };
 use x509_cert::name::Name;
 use x509_cert::{
-    certificate::CertificateInner,
+    certificate::{CertificateInner, Raw},
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
 };
@@ -37,7 +41,7 @@ use crate::Error::CrlIncompatible;
 use crate::{
     compare_names, log_error_for_subject, name_to_string, CertificationPathResults,
     CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
-    PDVExtension, PathValidationStatus, PkiEnvironment, Result,
+    PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
 #[cfg(feature = "remote")]
@@ -225,7 +229,7 @@ lazy_static! {
 }
 
 /// The CertRevType enum is used to identify certificate with regard to types of CRLs that are applicable.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CertRevType {
     /// Certificate features a distribution point name and either no basicConstraints or basicConstraints with isCA set to false
     EeDp,
@@ -239,7 +243,7 @@ pub enum CertRevType {
 
 /// The CrlScope enum is used to identify CRL scope, i.e., whether the CRL is full, partitioned, delta or
 /// delta partianed. Partitioning is performed using issuing distribution point extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlScope {
     /// CRL is not limited in scope by issuing distribution point or delta CRL indicator
     Complete,
@@ -253,7 +257,7 @@ pub enum CrlScope {
 
 /// The CrlCoverage enum is used to identify CRL coverage, i.e., whether the CRL features entries for
 /// all types of entities, only for CA entities or only for end entities.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlCoverage {
     /// CRL coverage is not limited by flags in issuing distribution point
     All,
@@ -264,7 +268,7 @@ pub enum CrlCoverage {
 }
 
 /// The CrlAuthority enum is used to identify CRL authority, i.e., whether a CRL is direct or indirect.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlAuthority {
     /// CRL only features entries that were issued by the CRL issuer
     Direct,
@@ -273,7 +277,7 @@ pub enum CrlAuthority {
 }
 
 /// The CrlReasons enum is used to identify CRL reasons.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CrlReasons {
     /// The CRL covers all CRL reasons
     AllReasons,
@@ -282,7 +286,7 @@ pub enum CrlReasons {
 }
 
 /// CrlType features a set of enum values that determine the type of CRL based on evaluation of extensions.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CrlType {
     /// Indicates scope of CRL relative to distribution point and delta CRL indicator
     pub scope: CrlScope,
@@ -294,18 +298,31 @@ pub struct CrlType {
     pub reasons: CrlReasons,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CrlInfo {
+/// Struct to represent basic information regarding a CRL, including type of CRL, issuer, next
+/// update, this update, etc.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CrlInfo {
+    /// Classification of CRL per the CrlType enum
     pub type_info: CrlType,
+    /// Time of this update as a Unix epoch value
     pub this_update: u64,
+    /// Optional time of next update as a Unix epoch value
     pub next_update: Option<u64>,
+    /// Issuer name in string form
     pub issuer_name: String,
+    /// Issuer name in DER-encoded form
     pub issuer_name_blob: Vec<u8>,
+    /// Signature algorithm in DER-encoded form
     pub sig_alg_blob: Vec<u8>,
+    /// Optional extensions in DER-encoded form
     pub exts_blob: Option<Vec<u8>>,
+    /// Optional issuing distribution point in string form
     pub idp_name: Option<String>,
+    /// Optional issuing distribution point in DER-encoded form
     pub idp_blob: Option<Vec<u8>>,
+    /// Optional subject key identifier in DER-encoded form
     pub skid: Option<Vec<u8>>,
+    /// Optional filename in DER-encoded form
     pub filename: Option<String>,
 }
 
@@ -374,24 +391,21 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
-async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Result<Vec<u8>> {
+async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
     }
 
     if pe.check_blocklist(uri) {
-        info!("{} is on the blocklist", uri);
+        info!("{uri} is on the blocklist");
         return Err(Error::UriOnBlocklist);
     }
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_in_secs))
-        .build()
-    {
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
         Ok(c) => c,
         Err(e) => {
-            debug!("Failed to prepare HTTP client to retrieve CRL: {}", e);
+            debug!("Failed to prepare HTTP client to retrieve CRL: {e}");
             return Err(Error::ResourceUnchanged);
         }
     };
@@ -422,13 +436,13 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout_in_secs: u64) -> Resu
             match &b {
                 Ok(bytes) => Ok(bytes.clone().to_vec()),
                 Err(e) => {
-                    debug!("Failed to retrieve CRL bytes from {} with {}", uri, e);
+                    debug!("Failed to retrieve CRL bytes from {uri} with {e}");
                     Err(Error::NetworkError)
                 }
             }
         }
         Err(e) => {
-            debug!("Failed to fetch CRL from {}: {:?}", uri, e);
+            debug!("Failed to fetch CRL from {uri}: {e:?}");
             pe.add_to_blocklist(uri);
             Err(Error::NetworkError)
         }
@@ -478,7 +492,8 @@ flags! {
 }
 type CrlQuestionairre = FlagSet<CrlQuestions>;
 
-pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
+/// Takes a CRL and returns a CrlInfo structure with information about the CRL.
+pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
     let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
     let next_update = crl
         .tbs_cert_list
@@ -522,13 +537,23 @@ pub(crate) fn get_crl_info(crl: &CertificateList) -> Result<CrlInfo> {
                     match &idp.distribution_point {
                         Some(DistributionPointName::FullName(gns)) => {
                             for gn in gns {
-                                if let GeneralName::DirectoryName(dn) = gn {
-                                    idp_name = Some(name_to_string(dn));
+                                match gn {
+                                    GeneralName::DirectoryName(dn) => {
+                                        idp_name.replace(name_to_string(dn));
+                                    }
+                                    GeneralName::UniformResourceIdentifier(uri) => {
+                                        let uri_str: &str = uri.as_ref();
+                                        idp_name.replace(uri_str.to_string());
+                                    }
+                                    _ => {}
+                                }
+
+                                if idp_name.is_some() {
                                     break;
                                 }
                             }
                             if idp_name.is_none() {
-                                // not supporting non-DN DPs
+                                // not supporting non-DN/URI DPs
                                 return Err(Error::Unrecognized);
                             }
                         }
@@ -646,7 +671,7 @@ fn validate_crl_issuer_name(
         Ok(Some(PDVExtension::CrlDistributionPoints(crl_dp))) => crl_dp,
         _ => match Name::from_der(&crl_info.issuer_name_blob) {
             Ok(n) => {
-                if compare_names(&cert.decoded_cert.tbs_certificate.issuer, &n) {
+                if compare_names(cert.as_ref().tbs_certificate().issuer(), &n) {
                     return Ok(None);
                 } else {
                     return Err(Error::CrlIncompatible);
@@ -674,7 +699,7 @@ fn validate_crl_issuer_name(
 
     match Name::from_der(&crl_info.issuer_name_blob) {
         Ok(n) => {
-            if compare_names(&cert.decoded_cert.tbs_certificate.issuer, &n) {
+            if compare_names(cert.as_ref().tbs_certificate().issuer(), &n) {
                 Ok(None)
             } else {
                 Err(Error::CrlIncompatible)
@@ -832,7 +857,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
     //		If the CRL issuer name does not match the cert issuer name, the indirectCRL field must be present
     //		in the IDP.
 
-    let enc_iss = match target_cert.decoded_cert.tbs_certificate.issuer.to_der() {
+    let enc_iss = match target_cert.as_ref().tbs_certificate().issuer().to_der() {
         Ok(b) => b,
         Err(_e) => return Err(Error::Unrecognized),
     };
@@ -849,12 +874,11 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
-    issuer_cert: &CertificateInner,
+    issuer_cert: &CertificateInner<Raw>,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    let defer_crl = match DeferDecodeSigned::from_der(crl_buf) {
-        Ok(crl) => crl,
-        Err(_e) => return Err(Error::Unrecognized),
+    let Ok(defer_crl) = DeferDecodeSigned::from_der(crl_buf) else {
+        return Err(Error::Unrecognized);
     };
 
     let r = pe.verify_signature_message(
@@ -862,12 +886,12 @@ fn verify_crl(
         &defer_crl.tbs_field,
         defer_crl.signature.raw_bytes(),
         &defer_crl.signature_algorithm,
-        &issuer_cert.tbs_certificate.subject_public_key_info,
+        issuer_cert.tbs_certificate().subject_public_key_info(),
     );
     if let Err(e) = r {
         log_error_for_subject(
             issuer_cert,
-            format!("CRL signature verification error: {:?}", e).as_str(),
+            format!("CRL signature verification error: {e:?}").as_str(),
         );
         cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
@@ -881,7 +905,7 @@ fn verify_crl(
 /// informational, so presence is fine. hold instruction is simply ignored with corresponding certificate
 /// treated as revoked. Presence of any other critical extension is cause to discard the CRL. The
 /// certificate issuer extension is assumed to have been checked already via  certificate_issuer_extension_present.
-fn check_entry_extensions(rc: &RevokedCert) -> Result<()> {
+fn check_entry_extensions(rc: &RevokedCert<Raw>) -> Result<()> {
     let exts_to_ignore = [
         ID_CE_INVALIDITY_DATE,
         ID_CE_CRL_REASONS,
@@ -915,7 +939,7 @@ fn check_crl_extensions(exts: &Extensions) -> Result<()> {
 
 /// certificate_issuer_extension_present returns true if a certificate issuer extension is found
 /// in the presented RevokedCert instance and false otherwise.
-fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
+fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
     if let Some(exts) = &rc.crl_entry_extensions {
         for e in exts {
             if e.extn_id == ID_CE_CERTIFICATE_ISSUER {
@@ -926,15 +950,15 @@ fn certificate_issuer_extension_present(rc: &RevokedCert) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> {
-    if 0 != toi {
-        let tu = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
+pub(crate) fn check_crl_validity(toi: TimeOfInterest, crl: &CertificateList<Raw>) -> Result<()> {
+    if !toi.is_disabled() {
+        let tu = crl.tbs_cert_list.this_update;
         if tu > toi {
             info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
             return Err(Error::CrlIncompatible);
         }
         if let Some(nu) = crl.tbs_cert_list.next_update {
-            if nu.to_unix_duration().as_secs() < toi {
+            if nu.to_unix_duration().as_secs() < toi.as_unix_secs() {
                 info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
                 return Err(Error::CrlIncompatible);
             }
@@ -943,9 +967,9 @@ pub(crate) fn check_crl_validity(toi: u64, crl: &CertificateList) -> Result<()> 
     Ok(())
 }
 
-fn check_crl_sign(cert: &CertificateInner) -> Result<()> {
-    if let Some(exts) = &cert.tbs_certificate.extensions {
-        for ext in exts {
+fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
+    if let Some(exts) = &cert.tbs_certificate().extensions() {
+        for ext in exts.as_slice() {
             if ext.extn_id == ID_CE_KEY_USAGE {
                 if let Ok(ku) = KeyUsage::from_der(ext.extn_value.as_bytes()) {
                     // (n)  If a key usage extension is present, verify that the
@@ -975,7 +999,7 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner,
+    issuer_cert: &CertificateInner<Raw>,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
@@ -984,13 +1008,13 @@ pub(crate) fn process_crl(
     verify_crl(pe, crl_buf, issuer_cert, cpr)?;
     check_crl_sign(issuer_cert)?;
 
-    let crl = match CertificateList::from_der(crl_buf) {
+    let crl = match CertificateList::<Raw>::from_der(crl_buf) {
         Ok(crl) => crl,
         Err(e) => {
             if let Some(uri) = uri {
-                error!("Failed to parse CRL from {} with {}", uri, e);
+                error!("Failed to parse CRL from {uri} with {e}");
             } else {
-                error!("Failed to parse CRL from with {}", e);
+                error!("Failed to parse CRL from with {e}");
             }
             cpr.add_failed_crl(crl_buf, result_index);
             return Err(Error::Asn1Error(e));
@@ -1000,7 +1024,7 @@ pub(crate) fn process_crl(
 
     if let Some(uri) = uri {
         if let Err(e) = pe.add_crl(crl_buf, &crl, uri) {
-            error!("Failed to save CRL with: {}", e);
+            error!("Failed to save CRL with: {e}");
         }
     }
 
@@ -1015,7 +1039,7 @@ pub(crate) fn process_crl(
     if !COMPATIBLE_SCOPE[(cert_type as usize, crl_info.type_info.scope as usize)]
         || !COMPATIBLE_COVERAGE[(cert_type as usize, crl_info.type_info.coverage as usize)]
     {
-        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject));
+        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1038,7 +1062,7 @@ pub(crate) fn process_crl(
         target_cert,
         &mut collected_reasons,
     ) {
-        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(&target_cert.decoded_cert.tbs_certificate.subject));
+        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
 
@@ -1047,7 +1071,7 @@ pub(crate) fn process_crl(
         info!(
             "Discarding CRL from {} as having incompatible authority for certificate issued to {}",
             name_to_string(&crl.tbs_cert_list.issuer),
-            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
+            name_to_string(target_cert.as_ref().tbs_certificate().subject())
         );
         return Err(Error::CrlIncompatible);
     }
@@ -1075,7 +1099,12 @@ pub(crate) fn process_crl(
                 return Err(Error::UnsupportedIndirectCrl);
             }
 
-            if rc.serial_number == target_cert.decoded_cert.tbs_certificate.serial_number {
+            if rc
+                .serial_number
+                .der_cmp(target_cert.as_ref().tbs_certificate().serial_number())
+                .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
+                .unwrap_or_default()
+            {
                 // this is probably not a useful check. will change ultimate error from revoked to
                 // status not determined, most likely.
                 if let Err(_e) = check_entry_extensions(&rc) {
@@ -1091,10 +1120,7 @@ pub(crate) fn process_crl(
                         cpr.add_crl_entry(enc_entry, result_index);
                     }
                     Err(e) => {
-                        error!(
-                            "Failed to encode CRL entry for logging purposes with: {}",
-                            e
-                        );
+                        error!("Failed to encode CRL entry for logging purposes with: {e}");
                     }
                 };
 
@@ -1127,16 +1153,16 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner,
+    issuer_cert: &CertificateInner<Raw>,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
-    let cur_cert_subject = name_to_string(&target_cert.decoded_cert.tbs_certificate.subject);
+    let cur_cert_subject = name_to_string(target_cert.as_ref().tbs_certificate().subject());
     let crl_dps = get_crl_dps(target_cert);
     if crl_dps.is_empty() {
         info!(
             "No CRL DPs found for {}",
-            name_to_string(&target_cert.decoded_cert.tbs_certificate.subject)
+            name_to_string(target_cert.as_ref().tbs_certificate().subject())
         );
     } else {
         let timeout = cps.get_crl_timeout();
@@ -1162,17 +1188,17 @@ pub(crate) async fn check_revocation_crl_remote(
                 Ok(_ok) => {
                     target_status = {
                         cpr.add_crl(crl.as_slice(), pos);
-                        info!("Determined revocation status (valid) using CRL for certificate issued to {}", cur_cert_subject);
+                        info!("Determined revocation status (valid) using CRL for certificate issued to {cur_cert_subject}");
                         PathValidationStatus::Valid
                     }
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
                         cpr.add_crl(crl.as_slice(), pos);
-                        info!("Determined revocation status (revoked) using CRL for certificate issued to {}", cur_cert_subject);
+                        info!("Determined revocation status (revoked) using CRL for certificate issued to {cur_cert_subject}");
                         return PathValidationStatus::CertificateRevoked;
                     } else {
-                        info!("Failed to determine revocation status using CRL for certificate issued to {} with {}", cur_cert_subject, e);
+                        info!("Failed to determine revocation status using CRL for certificate issued to {cur_cert_subject} with {e}");
                         cpr.add_failed_crl(crl.as_slice(), pos);
                     }
                 }
@@ -1186,53 +1212,64 @@ pub(crate) async fn check_revocation_crl_remote(
     target_status
 }
 
-#[cfg(feature = "remote")]
-#[tokio::test]
-async fn fetch_crl_test() {
-    use crate::{CrlSourceFolders, RemoteStatus, RevocationCache};
-    use std::path::PathBuf;
-    let mut pe = PkiEnvironment::default();
-    pe.clear_all_callbacks();
-    pe.populate_5280_pki_environment();
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "remote")]
+    #[tokio::test]
+    async fn fetch_crl_test() {
+        use crate::util::Error;
+        use crate::PkiEnvironment;
 
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let f = d.join("tests/examples/fetch_crl_test");
-    let crl_source = CrlSourceFolders::new(f.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
-        panic!("Failed to index CRLs")
+        use crate::{
+            crl::fetch_crl, CrlSourceFolders, RemoteStatus, RevocationCache, TimeOfInterest,
+        };
+        use std::{path::PathBuf, time::Duration};
+        let mut pe = PkiEnvironment::default();
+        pe.clear_all_callbacks();
+        pe.populate_5280_pki_environment();
+
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let f = d.join("tests/examples/fetch_crl_test");
+        let crl_source = CrlSourceFolders::new(f.as_path().to_str().unwrap());
+        if crl_source
+            .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+            .is_err()
+        {
+            panic!("Failed to index CRLs")
+        }
+        pe.add_crl_source(Box::new(crl_source));
+        pe.add_revocation_cache(Box::new(RevocationCache::new()));
+        pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
+
+        let r = fetch_crl(&pe, "ldap://ldap.scheme/", Duration::from_secs(60)).await;
+        assert!(r.is_err());
+        assert_eq!(Some(Error::InvalidUriScheme), r.err());
+        pe.add_to_blocklist("http://blocklist.test");
+        let r = fetch_crl(&pe, "http://blocklist.test", Duration::from_secs(60)).await;
+        assert!(r.is_err());
+        assert_eq!(Some(Error::UriOnBlocklist), r.err());
+
+        let f = d.join("tests/examples/fetch_crl_test/last_modified_map.json");
+        if std::path::Path::exists(&f) {
+            tokio::fs::remove_file(f.to_str().unwrap()).await.unwrap();
+        }
+
+        let r = fetch_crl(
+            &pe,
+            "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
+            Duration::from_secs(60),
+        )
+        .await;
+        assert!(r.is_ok());
+        let r = fetch_crl(
+            &pe,
+            "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
+            Duration::from_secs(60),
+        )
+        .await;
+        assert!(r.is_err());
+        assert_eq!(Some(Error::ResourceUnchanged), r.err());
+
+        let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
     }
-    pe.add_crl_source(Box::new(crl_source.clone()));
-    pe.add_revocation_cache(Box::new(RevocationCache::new()));
-    pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
-
-    let r = fetch_crl(&pe, "ldap://ldap.scheme/", 60).await;
-    assert!(r.is_err());
-    assert_eq!(Some(Error::InvalidUriScheme), r.err());
-    pe.add_to_blocklist("http://blocklist.test");
-    let r = fetch_crl(&pe, "http://blocklist.test", 60).await;
-    assert!(r.is_err());
-    assert_eq!(Some(Error::UriOnBlocklist), r.err());
-
-    let f = d.join("tests/examples/fetch_crl_test/last_modified_map.json");
-    if std::path::Path::exists(&f) {
-        tokio::fs::remove_file(f.to_str().unwrap()).await.unwrap();
-    }
-
-    let r = fetch_crl(
-        &pe,
-        "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
-        60,
-    )
-    .await;
-    assert!(r.is_ok());
-    let r = fetch_crl(
-        &pe,
-        "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
-        60,
-    )
-    .await;
-    assert!(r.is_err());
-    assert_eq!(Some(Error::ResourceUnchanged), r.err());
-
-    let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
 }

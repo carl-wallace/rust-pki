@@ -33,40 +33,34 @@ use x509_cert::name::Name;
 use x509_cert::name::RdnSequence;
 use x509_cert::{
     anchor::{CertPolicies, TrustAnchorChoice},
-    certificate::{CertificateInner, TbsCertificateInner},
+    certificate::{CertificateInner, Raw, TbsCertificateInner},
 };
 
 use crate::{
     environment::pki_environment::PkiEnvironment, name_constraints_set::UID,
     path_settings::PS_MAX_PATH_LENGTH_CONSTRAINT, pdv_certificate::*, pdv_extension::*,
-    util::error::*, util::pdv_alg_oids::*,
+    util::error::*, util::pdv_alg_oids::*, TimeOfInterest,
 };
 
 /// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
 /// used to verify the TBSCertificate field as parsed from the encoded certificate object.
 pub fn is_self_signed_with_buffer(
     pe: &PkiEnvironment,
-    cert: &CertificateInner,
+    cert: &CertificateInner<Raw>,
     enc_cert: &[u8],
 ) -> bool {
     match DeferDecodeSigned::from_der(enc_cert) {
-        Ok(defer_cert) => {
-            let r = pe.verify_signature_message(
+        Ok(defer_cert) => pe
+            .verify_signature_message(
                 pe,
                 &defer_cert.tbs_field,
-                cert.signature.raw_bytes(),
-                &cert.tbs_certificate.signature,
-                &cert.tbs_certificate.subject_public_key_info,
-            );
-            //TODO is it worth making metadata a RefCell to save the result of checks like this?
-            //If not, ditch metadata and replace with String field for locator
-            matches!(r, Ok(_e))
-        }
+                cert.signature().raw_bytes(),
+                cert.tbs_certificate().signature(),
+                cert.tbs_certificate().subject_public_key_info(),
+            )
+            .is_ok(),
         Err(e) => {
-            error!(
-                "Failed to defer decode certificate in is_self_signed with: {}",
-                e
-            );
+            error!("Failed to defer decode certificate in is_self_signed with: {e}");
             false
         }
     }
@@ -75,13 +69,16 @@ pub fn is_self_signed_with_buffer(
 /// `is_self_signed` returns true if the public key in the certificate can be used to verify the
 /// signature on the certificate.
 pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
-    is_self_signed_with_buffer(pe, &cert.decoded_cert, cert.encoded_cert.as_slice())
+    is_self_signed_with_buffer(pe, cert.as_ref(), cert.as_bytes())
 }
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
 /// field.
-pub fn is_self_issued(cert: &CertificateInner) -> bool {
-    compare_names(&cert.tbs_certificate.issuer, &cert.tbs_certificate.subject)
+pub fn is_self_issued(cert: &CertificateInner<Raw>) -> bool {
+    compare_names(
+        cert.tbs_certificate().issuer(),
+        cert.tbs_certificate().subject(),
+    )
 }
 
 /// `collect_uris_from_aia_and_sia` collects unique URIs from AIA and SIA extensions from the presented
@@ -123,30 +120,35 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<Strin
 /// evaluated first.
 ///
 /// To stifle logging output upon error, pass true for the stifle_log parameter.
-pub fn valid_at_time(target: &TbsCertificateInner, toi: u64, stifle_log: bool) -> Result<u64> {
-    if 0 == toi {
+pub fn valid_at_time(
+    target: &TbsCertificateInner<Raw>,
+    toi: TimeOfInterest,
+    stifle_log: bool,
+) -> Result<u64> {
+    if toi.is_disabled() {
         // zero is used to disable validity check
         return Ok(0);
     }
 
-    let nb = target.validity.not_before.to_unix_duration().as_secs();
+    let validity = target.validity();
+    let nb = validity.not_before;
     if nb > toi {
         if !stifle_log {
-            log_error_for_name(&target.subject, "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
+            log_error_for_name(target.subject(), "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
         }
         return Err(Error::PathValidation(
             PathValidationStatus::InvalidNotBeforeDate,
         ));
     }
 
-    let na = target.validity.not_after.to_unix_duration().as_secs();
+    let na = validity.not_after;
     if na < toi {
         if !stifle_log {
             log_error_for_name(
-                &target.subject,
+                target.subject(),
                 format!(
                     "certificate is expired relative to the configured time of interest: {}",
-                    target.validity.not_after
+                    validity.not_after
                 )
                 .as_str(),
             );
@@ -164,12 +166,13 @@ pub fn valid_at_time(target: &TbsCertificateInner, toi: u64, stifle_log: bool) -
 ///
 /// True is returned if inhibit any policy is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
+pub(crate) fn get_inhibit_any_policy_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
-                let i = extensions.iter();
-                for ext in i {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
+                for ext in extensions.as_slice() {
                     if ID_CE_INHIBIT_ANY_POLICY == ext.extn_id {
                         let iap_result = InhibitAnyPolicy::from_der(ext.extn_value.as_bytes());
                         if let Ok(_iap) = iap_result {
@@ -201,11 +204,11 @@ pub(crate) fn get_inhibit_any_policy_from_trust_anchor(ta: &TrustAnchorChoice) -
 /// True is returned if a policy constraints extension in is present in a certificate CHOICE or the value
 /// is set in CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
 pub(crate) fn get_require_explicit_policy_from_trust_anchor(
-    ta: &TrustAnchorChoice,
+    ta: &TrustAnchorChoice<Raw>,
 ) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
@@ -240,10 +243,12 @@ pub(crate) fn get_require_explicit_policy_from_trust_anchor(
 ///
 /// True is returned if inhibit policy mapping is found in an extension in TA certificate for certificate CHOICE
 /// or the value from CertPathControls.PolicyFlags for TrustAnchorInfo CHOICE. Otherwise, false is returned.
-pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<bool> {
+pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<bool> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_POLICY_CONSTRAINTS == ext.extn_id {
@@ -276,10 +281,12 @@ pub(crate) fn get_inhibit_policy_mapping_from_trust_anchor(ta: &TrustAnchorChoic
 /// `get_path_length_constraint_from_trust_anchor` returns the value from basic constraints extension in
 /// TA certificate for certificate CHOICE, the value from CertPathControls for TrustAnchorInfo CHOICE or
 /// [`PS_MAX_PATH_LENGTH_CONSTRAINT`] is no constraint is asserted.
-pub(crate) fn get_path_length_constraint_from_trust_anchor(ta: &TrustAnchorChoice) -> Result<u8> {
+pub(crate) fn get_path_length_constraint_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Result<u8> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => {
-            if let Some(extensions) = &cert.tbs_certificate.extensions {
+            if let Some(extensions) = &cert.tbs_certificate().extensions() {
                 let i = extensions.iter();
                 for ext in i {
                     if ID_CE_BASIC_CONSTRAINTS == ext.extn_id {
@@ -433,11 +440,11 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
 /// `descended_from_dn` returns true if new_name is equal to or descended from prev_name and false otherwise.
 pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Option<u32>) -> bool {
     //if descendant fewer rdns then it is not a descendant
-    if subtree.0.len() > name.0.len() {
+    if subtree.len() > name.len() {
         return false;
     }
 
-    let diff = (name.0.len() - subtree.0.len()) as u32;
+    let diff = (name.len() - subtree.len()) as u32;
     if diff < min {
         return false;
     }
@@ -447,27 +454,19 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
         }
     }
 
-    for i in 0..subtree.0.len() {
-        if subtree.0[i] != name.0[i] {
+    for (subtree_rdn, name_rdn) in subtree.iter_rdn().zip(name.iter_rdn()) {
+        if subtree_rdn != name_rdn {
             let mut let_it_slide = false;
 
             // some folks can't manage to use the same character set in a name constraint and subject name
             // allow this practice to not break stuff
-            let l = &subtree.0[i];
-            let r = &name.0[i];
-            if l.0.len() != r.0.len() {
+            if subtree_rdn.len() != name_rdn.len() {
                 // diff number of attributes
                 return false;
             }
-            for j in 0..l.0.len() {
-                let la = l.0.get(j);
-                let ra = r.0.get(j);
-                if la.is_none() || ra.is_none() {
-                    // ought not occur
-                    return false;
-                }
-                let lau = la.unwrap();
-                let rau = ra.unwrap();
+            for (subtree_attr, name_attr) in subtree.iter().zip(name_rdn.iter()) {
+                let lau = subtree_attr;
+                let rau = name_attr;
                 if lau.oid != rau.oid {
                     // if the type of attribute, i.e., c, cn, o, is different, return false
                     return false;
@@ -585,19 +584,16 @@ pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<Algorithm
 
 pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
     let name_str = name_to_string(name);
-    error!(
-        "Encountered error while processing certificate with subject {}: {}",
-        name_str, msg
-    );
+    error!("Encountered error while processing certificate with subject {name_str}: {msg}");
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
-    log_error_for_name(&ca.decoded_cert.tbs_certificate.subject, msg);
+    log_error_for_name(ca.as_ref().tbs_certificate().subject(), msg);
 }
 
 /// log a message with subject name of the certificate appended
-pub fn log_error_for_subject(ca: &CertificateInner, msg: &str) {
-    log_error_for_name(&ca.tbs_certificate.subject, msg);
+pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
+    log_error_for_name(ca.tbs_certificate().subject(), msg);
 }
 
 /// `oid_lookup` takes an ObjectIdentifier and returns a string with a friendly name for the OID or
@@ -749,7 +745,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
             match c {
                 '#' if i == 0 => s.push_str("\\#"),
                 ' ' if i == 0 || iter.peek().is_none() => s.push_str("\\ "),
-                '"' | '+' | ',' | ';' | '<' | '>' | '\\' => s.push_str(format!("\\{}", c).as_str()),
+                '"' | '+' | ',' | ';' | '<' | '>' | '\\' => s.push_str(format!("\\{c}").as_str()),
                 '\x00'..='\x1f' | '\x7f' => s.push_str(format!("\\{:02x}", c as u8).as_str()),
                 _ => s.push(c),
             }
@@ -759,7 +755,7 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
             Ok(val) => {
                 s.push_str(format!("{}=#", atav.oid).as_str());
                 for c in val {
-                    s.push_str(format!("{:02x}", c).as_str());
+                    s.push_str(format!("{c:02x}").as_str());
                 }
             }
             Err(e) => {
@@ -773,35 +769,26 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
 pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
-    if left.0.len() != right.0.len() {
+    if left.len() != right.len() {
         return false;
     }
 
-    for i in 0..left.0.len() {
-        let lrdn = &left.0[i];
-        let rrdn = &right.0[i];
+    #[cfg(feature = "std")]
+    let re = if let Ok(re) = Regex::new(r"\s+") {
+        re
+    } else {
+        return false;
+    };
 
-        if lrdn.0.len() != rrdn.0.len() {
+    for (lrdn, rrdn) in left.iter_rdn().zip(right.iter_rdn()) {
+        if lrdn.len() != rrdn.len() {
             return false;
         }
 
         if lrdn != rrdn {
             // only do the whitespace and case insensitve stuff is simpler compare fails (not full featured on no-std, hence tolerance for unused variables)
             #[allow(unused_variables)]
-            for j in 0..lrdn.0.len() {
-                let l = lrdn.0.get(j);
-                let r = rrdn.0.get(j);
-
-                if l.is_none() || r.is_none() {
-                    if l.is_none() && r.is_none() {
-                        continue;
-                    } else {
-                        return false;
-                    }
-                }
-                let l = l.unwrap();
-                let r = r.unwrap();
-
+            for (l, r) in lrdn.iter().zip(rrdn.iter()) {
                 if l.oid != r.oid {
                     return false;
                 }
@@ -825,12 +812,6 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l_val != r_val {
                     #[cfg(feature = "std")]
                     {
-                        let re = if let Ok(re) = Regex::new(r"\s+") {
-                            re
-                        } else {
-                            return false;
-                        };
-
                         //collapse multiple whitespace instances into one and convert to lowercase
                         let l_str_val = re.replace_all(l_val.as_str(), " ");
                         let r_str_val = re.replace_all(r_val.as_str(), " ");
@@ -852,20 +833,24 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
 
 /// Retrieves a string value from the first attribute of last RDN element in the presented Name.
 pub fn get_leaf_rdn(name: &Name) -> String {
-    let rdn = &name.0[name.0.len() - 1];
-    rdn.to_string()
+    let rdn = &name.iter_rdn().last();
+    rdn.map(|r| r.to_string()).unwrap_or_default()
 }
 
 /// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
-pub fn ta_valid_at_time(ta: &TrustAnchorChoice, toi: u64, stifle_log: bool) -> Result<u64> {
+pub fn ta_valid_at_time(
+    ta: &TrustAnchorChoice<Raw>,
+    toi: TimeOfInterest,
+    stifle_log: bool,
+) -> Result<u64> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
-            return valid_at_time(&c.tbs_certificate, toi, stifle_log);
+            return valid_at_time(c.tbs_certificate(), toi, stifle_log);
         }
         TrustAnchorChoice::TaInfo(tai) => {
             if let Some(cp) = &tai.cert_path {
                 if let Some(c) = &cp.certificate {
-                    return valid_at_time(&c.tbs_certificate, toi, stifle_log);
+                    return valid_at_time(c.tbs_certificate(), toi, stifle_log);
                 }
             }
         }
@@ -877,14 +862,14 @@ pub fn ta_valid_at_time(ta: &TrustAnchorChoice, toi: u64, stifle_log: bool) -> R
 pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
     match &gs.base {
         GeneralName::DirectoryName(dn) => {
-            format!("DirectoryName: {}", dn)
+            format!("DirectoryName: {dn}")
         }
         GeneralName::UniformResourceIdentifier(uri) => {
-            format!("UniformResourceIdentifier: {}", uri)
+            format!("UniformResourceIdentifier: {uri}")
         }
-        GeneralName::DnsName(dns) => format!("DnsName: {}", dns),
+        GeneralName::DnsName(dns) => format!("DnsName: {dns}"),
         GeneralName::Rfc822Name(rfc822) => {
-            format!("Rfc822Name: {}", rfc822)
+            format!("Rfc822Name: {rfc822}")
         }
         GeneralName::OtherName(_on) => format!("OtherName: {:?}", gs.base),
         GeneralName::RegisteredId(_rid) => format!("RegisteredId: {:?}", gs.base),

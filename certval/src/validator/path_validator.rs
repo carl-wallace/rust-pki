@@ -4,8 +4,6 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::vec;
 
-use flagset::FlagSet;
-
 use log::info;
 
 use crate::policy_tree::check_certificate_policies;
@@ -55,14 +53,14 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
 /// [RFC 5280 Section 6.1]. It is intended for use in the validate_path field of a [`PkiEnvironment`] structure.
 ///
 /// - The [`PkiEnvironment`] parameter provides a variety of callback functions that support certification
-/// path validation, for example, signature verification, digest generation, and logging.
+///   path validation, for example, signature verification, digest generation, and logging.
 /// - The [`CertificationPathSettings`] parameter defines values that govern path validation. This consists
-/// of a mix of standard path validation inputs from [RFC 5280 Section 6.1.1] and non-standard inputs,
-/// i.e., whether or not to validate extendedKeyUsage values across the path.
+///   of a mix of standard path validation inputs from [RFC 5280 Section 6.1.1] and non-standard inputs,
+///   i.e., whether or not to validate extendedKeyUsage values across the path.
 /// - The [`CertificationPath`] parameter provides the target certificate to validate along with a trust
-/// anchor and, if necessary, intermediate CA certificates.
+///   anchor and, if necessary, intermediate CA certificates.
 /// - The [`CertificationPathResults`] parameter is used to collect potentially useful information from the
-/// certification path validation operation.
+///   certification path validation operation.
 ///
 /// [RFC 5280 Section 6.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1>
 /// [RFC 5280 Section 6.1.1]: <https://datatracker.ietf.org/doc/html/rfc5280.html#section-6.1.1>
@@ -100,7 +98,7 @@ pub fn validate_path_rfc5280(
     cpr.set_validation_status(PathValidationStatus::Valid);
     info!(
         "Successfully completed basic path validation checks for certificate issued to {}",
-        name_to_string(&cp.target.decoded_cert.tbs_certificate.subject)
+        name_to_string(cp.target.as_ref().tbs_certificate().subject())
     );
     Ok(())
 }
@@ -114,7 +112,7 @@ pub fn validate_path_rfc5280(
 /// It uses values from the [`PS_INITIAL_PATH_LENGTH_CONSTRAINT`] item in the [`CertificationPathSettings`]
 /// and the path_len_constraint field of basicConstraints extensions.
 pub fn check_basic_constraints(
-    _pe: &PkiEnvironment,
+    pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
@@ -126,7 +124,7 @@ pub fn check_basic_constraints(
         // (l)  If the certificate was not self-issued, verify that
         //       max_path_length is greater than zero and decrement
         //       max_path_length by 1.
-        if !is_self_issued(&ca_cert.decoded_cert) {
+        if !is_self_issued(ca_cert.as_ref()) {
             if path_len_constraint == 0 {
                 log_error_for_ca(ca_cert, "path length constraint violation");
                 cpr.set_validation_status(PathValidationStatus::InvalidPathLength);
@@ -140,7 +138,7 @@ pub fn check_basic_constraints(
         // only support v3 (this is a no-op here because the decoder fails to parse non-V3 certs)
         // if any of the bad_ca_cert_version, bad_ee_cert_version, unsupported_ca_cert_version or
         // unsupported_ee_cert_version tests in tests/path_validator.rs fail this should be uncommented.
-        // if ca_cert.decoded_cert.tbs_certificate.version != Version::V3 {
+        // if ca_cert.as_ref().tbs_certificate.version != Version::V3 {
         //     log_error_for_ca(ca_cert, "unsupported x509 version");
         //     cpr.set_validation_status( PathValidationStatus::InvalidBasicConstraints);
         //     return Err(Error::PathValidation(
@@ -184,6 +182,26 @@ pub fn check_basic_constraints(
         }
     }
 
+    if cps.get_forbid_self_signed_ee() {
+        let pdv_ext: Option<&PDVExtension> = cp.target.get_extension(&ID_CE_BASIC_CONSTRAINTS)?;
+        let is_ee = if let Some(PDVExtension::BasicConstraints(bc)) = pdv_ext {
+            !bc.ca
+        } else {
+            true
+        };
+
+        if is_ee && (is_self_issued(cp.target.as_ref()) || is_self_signed(pe, &cp.target)) {
+            log_error_for_ca(
+                &cp.target,
+                "End-identity certificate is self-signed or self-issued, but it is forbidden",
+            );
+            cpr.set_validation_status(PathValidationStatus::SelfSignedEndIdentity);
+            return Err(Error::PathValidation(
+                PathValidationStatus::SelfSignedEndIdentity,
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -198,7 +216,7 @@ pub fn check_validity(
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
     // get_time_of_interest_or_now will return now or a caller specified time of interest.
     let toi = cps.get_time_of_interest();
-    if 0 == toi {
+    if toi.is_disabled() {
         info!("check_validity invoked with no time of interest; validity check disabled",);
         return Ok(());
     }
@@ -215,11 +233,11 @@ pub fn check_validity(
     };
 
     let target = &cp.target;
-    let target_ttl = valid_at_time(&target.decoded_cert.tbs_certificate, toi, false);
+    let target_ttl = valid_at_time(target.as_ref().tbs_certificate(), toi, false);
     is_valid(target_ttl)?;
 
     for ca_cert in cp.intermediates.iter() {
-        let ca_ttl = valid_at_time(&ca_cert.decoded_cert.tbs_certificate, toi, false);
+        let ca_ttl = valid_at_time(ca_cert.as_ref().tbs_certificate(), toi, false);
         is_valid(ca_ttl)?;
     }
 
@@ -255,14 +273,8 @@ pub fn check_names(
     // Read input variables from path settings
     let mut pbufs = BTreeMap::new();
     let mut ebufs = BTreeMap::new();
-    let initial_perm = match cps.get_initial_permitted_subtrees_as_set(&mut pbufs) {
-        Ok(ip) => ip,
-        Err(e) => return Err(e),
-    };
-    let initial_excl = match cps.get_initial_excluded_subtrees_as_set(&mut ebufs) {
-        Ok(ie) => ie,
-        Err(e) => return Err(e),
-    };
+    let initial_perm = cps.get_initial_permitted_subtrees_as_set(&mut pbufs)?;
+    let initial_excl = cps.get_initial_excluded_subtrees_as_set(&mut ebufs)?;
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
@@ -279,7 +291,7 @@ pub fn check_names(
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
         if !compare_names(
-            &ca_cert.decoded_cert.tbs_certificate.issuer,
+            ca_cert.as_ref().tbs_certificate().issuer(),
             &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
@@ -290,17 +302,17 @@ pub fn check_names(
         }
 
         if pos + 1 != certs_in_cert_path {
-            working_issuer_name = ca_cert.decoded_cert.tbs_certificate.subject.clone();
+            working_issuer_name = ca_cert.as_ref().tbs_certificate().subject().clone();
         }
     }
 
     // Iterate over the list of intermediate CA certificates plus target to check name constraints
     for (pos, ca_cert) in v.iter().enumerate() {
-        let self_issued = is_self_issued(&ca_cert.decoded_cert);
+        let self_issued = is_self_issued(ca_cert.as_ref());
 
         if (pos + 1) == certs_in_cert_path || !self_issued {
             if !permitted_subtrees
-                .subject_within_permitted_subtrees(&ca_cert.decoded_cert.tbs_certificate.subject)
+                .subject_within_permitted_subtrees(ca_cert.as_ref().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -313,7 +325,7 @@ pub fn check_names(
             }
 
             if excluded_subtrees
-                .subject_within_excluded_subtrees(&ca_cert.decoded_cert.tbs_certificate.subject)
+                .subject_within_excluded_subtrees(ca_cert.as_ref().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -414,14 +426,7 @@ pub fn check_key_usage(
 
     let target_ku = cp.target.get_extension(&ID_CE_KEY_USAGE)?;
     if let Some(PDVExtension::KeyUsage(target_ku_bits)) = target_ku {
-        if let Some(ku) = cps.get_target_key_usage() {
-            let nku = match FlagSet::<KeyUsages>::new(ku) {
-                Ok(ku) => ku,
-                _ => {
-                    return Err(Error::Unrecognized);
-                }
-            };
-
+        if let Some(nku) = cps.get_target_key_usage() {
             // TODO TEST THIS
             for i in nku {
                 if !target_ku_bits.0.contains(i) {
@@ -568,8 +573,8 @@ pub fn check_critical_extensions(
     let mut ensure_criticals_processed = |cert: &PDVCertificate,
                                           err_str: &'static str|
      -> Result<()> {
-        if let Some(exts) = &cert.decoded_cert.tbs_certificate.extensions {
-            for ext in exts {
+        if let Some(exts) = &cert.as_ref().tbs_certificate().extensions() {
+            for ext in exts.as_slice() {
                 if ext.critical && !processed_exts.contains(&ext.extn_id) {
                     log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
                     cpr.set_validation_status(PathValidationStatus::UnprocessedCriticalExtension);
@@ -643,12 +648,8 @@ pub fn enforce_trust_anchor_constraints(
             if let Some(nc) = pdv_ext {
                 if let PDVExtension::NameConstraints(nc) = nc {
                     if let Some(permitted) = &nc.permitted_subtrees {
-                        let mut initial_perm = match cps
-                            .get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)
-                        {
-                            Ok(ip) => ip,
-                            Err(e) => return Err(e),
-                        };
+                        let mut initial_perm =
+                            cps.get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)?;
                         initial_perm.calculate_union(permitted);
                         mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm)?;
                     }
@@ -660,10 +661,7 @@ pub fn enforce_trust_anchor_constraints(
         if let Some(PDVExtension::NameConstraints(nc)) = name_constraints {
             if let Some(excluded) = &nc.excluded_subtrees {
                 let mut initial_excl =
-                    match cps.get_initial_excluded_subtrees_with_default_as_set(&mut ebufs) {
-                        Ok(ie) => ie,
-                        Err(e) => return Err(e),
-                    };
+                    cps.get_initial_excluded_subtrees_with_default_as_set(&mut ebufs)?;
                 initial_excl.calculate_union(excluded);
                 mod_cps.set_initial_excluded_subtrees_from_set(&initial_excl)?;
             }
@@ -759,20 +757,20 @@ pub fn enforce_trust_anchor_constraints(
 
     match &ta.decoded_ta {
         TrustAnchorChoice::Certificate(c) => {
-            check_critical_extensions_from_ta(&c.tbs_certificate.extensions)?;
+            check_critical_extensions_from_ta(&c.tbs_certificate().extensions())?;
         }
         TrustAnchorChoice::TaInfo(tai) => {
-            check_critical_extensions_from_ta(&tai.extensions)?;
+            check_critical_extensions_from_ta(&tai.extensions.as_ref())?;
         }
         TrustAnchorChoice::TbsCertificate(tbs) => {
-            check_critical_extensions_from_ta(&tbs.extensions)?;
+            check_critical_extensions_from_ta(&tbs.extensions())?;
         }
     }
 
     Ok(mod_cps)
 }
 
-fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
+fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
     let recognized_oids = [
         ID_CE_BASIC_CONSTRAINTS,
         ID_CE_NAME_CONSTRAINTS,
@@ -782,7 +780,7 @@ fn check_critical_extensions_from_ta(exts: &Option<Extensions>) -> Result<()> {
         ID_CE_INHIBIT_ANY_POLICY,
     ];
     if let Some(exts) = exts {
-        for ext in exts {
+        for ext in exts.as_slice() {
             if ext.critical && !recognized_oids.contains(&ext.extn_id) {
                 return Err(Error::Unrecognized);
             }
@@ -804,28 +802,28 @@ pub fn verify_signatures(
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
 
     for cur_cert in intermediates_and_target {
-        let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
+        let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
         let defer_cert = match defer_cert {
             Ok(c) => c,
             Err(e) => {
                 log_error_for_ca(
                     cur_cert,
-                    format!("signature verification error: {:?}", e).as_str(),
+                    format!("signature verification error: {e:?}").as_str(),
                 );
                 cpr.set_validation_status(PathValidationStatus::EncodingError);
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             }
         };
 
-        if cur_cert.decoded_cert.tbs_certificate.signature
-            != cur_cert.decoded_cert.signature_algorithm
+        if cur_cert.as_ref().tbs_certificate().signature()
+            != cur_cert.as_ref().signature_algorithm()
         {
             log_error_for_ca(
                 cur_cert,
                 format!(
                     "signature algorithm mismatch: {:?} - {:?}",
-                    cur_cert.decoded_cert.tbs_certificate.signature,
-                    cur_cert.decoded_cert.signature_algorithm
+                    cur_cert.as_ref().tbs_certificate().signature(),
+                    cur_cert.as_ref().signature_algorithm()
                 )
                 .as_str(),
             );
@@ -836,14 +834,14 @@ pub fn verify_signatures(
         let r = pe.verify_signature_message(
             pe,
             &defer_cert.tbs_field,
-            cur_cert.decoded_cert.signature.raw_bytes(),
-            &cur_cert.decoded_cert.tbs_certificate.signature,
+            cur_cert.as_ref().signature().raw_bytes(),
+            cur_cert.as_ref().tbs_certificate().signature(),
             &working_spki,
         );
         if let Err(e) = r {
             log_error_for_ca(
                 cur_cert,
-                format!("signature verification error: {:?}", e).as_str(),
+                format!("signature verification error: {e:?}").as_str(),
             );
             cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
             return Err(Error::PathValidation(
@@ -852,9 +850,9 @@ pub fn verify_signatures(
         }
 
         working_spki = cur_cert
-            .decoded_cert
-            .tbs_certificate
-            .subject_public_key_info
+            .as_ref()
+            .tbs_certificate()
+            .subject_public_key_info()
             .clone();
     }
     Ok(())

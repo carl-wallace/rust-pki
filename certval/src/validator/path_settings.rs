@@ -4,6 +4,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::{vec, vec::Vec};
 use core::str::FromStr;
+use core::time::Duration;
 
 use flagset::FlagSet;
 use serde::{Deserialize, Serialize};
@@ -19,12 +20,12 @@ use crate::pdv_certificate::*;
 use crate::{
     name_constraints_set_to_name_constraints_settings,
     name_constraints_settings_to_name_constraints_set, NameConstraintsSet, NameConstraintsSettings,
-    Result,
+    Result, TimeOfInterest,
 };
 
 #[cfg(feature = "std")]
 use std::path::Path;
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "std")]
@@ -112,8 +113,8 @@ pub type KeyUsageSettings = FlagSet<KeyUsages>;
 //-----------------------------------------------------------------------------------------------
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
-#[cfg(feature = "std")]
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),
@@ -141,40 +142,12 @@ pub enum CertificationPathProcessingTypes {
     KeyUsageValue(KeyUsageSettings),
     /// Represents instruction for nonce handling in OCSP client
     OcspNonceSetting(OcspNonceSetting),
+    /// Represents duration or a timeout
+    Duration(Duration),
+    /// Represents the time when the certificate path should be checked
+    TimeOfInterest(TimeOfInterest),
 }
 
-/// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
-/// performing certification path discovery and validation.
-#[cfg(not(feature = "std"))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CertificationPathProcessingTypes {
-    /// Represents bool values
-    Bool(bool),
-    /// Represents u8 values
-    U8(u8),
-    /// Represents u16 values
-    U16(u16),
-    /// Represents u64 values
-    U64(u64),
-    /// Represents NameConstraintsSet values
-    NameConstraintsSettings(NameConstraintsSettings),
-    /// Represents String values
-    String(String),
-    /// Represents vectors of u8 values
-    Buffer(Vec<u8>),
-    /// Represents vectors of Strings
-    Strings(Strings),
-    /// Represents vectors of bools
-    Bools(Vec<bool>),
-    /// Represents vectors of buffers
-    Buffers(Vec<Vec<u8>>),
-    /// Represents vectors of vectors of buffers
-    ListOfBuffers(Vec<Vec<Vec<u8>>>),
-    /// Represents KeyUsageValues values
-    KeyUsageValue(KeyUsageSettings),
-    /// Represents instruction for nonce handling in OCSP client
-    OcspNonceSetting(OcspNonceSetting),
-}
 //-----------------------------------------------------------------------------------------------
 // Types of path settings
 //-----------------------------------------------------------------------------------------------
@@ -262,7 +235,7 @@ pub static PS_INITIAL_PATH_LENGTH_CONSTRAINT: &str = "psInitialPathLengthConstra
 pub static PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
 
 /// `PS_CRL_TIMEOUT_DEFAULT` sets the maximum amount of time to spend downloading a CRL expressed in seconds.
-pub static PS_CRL_TIMEOUT_DEFAULT: u64 = 60;
+pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
 
 /// `PS_CRL_TIMEOUT` is used to a u64 that expresses the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT: &str = "psCrlTimeout";
@@ -363,6 +336,8 @@ pub static PS_CBOR_TA_STORE: &str = "psCborTaStore";
 pub static PS_REQUIRE_TA_STORE: &str = "psRequireTaStore";
 /// PS_USE_POLICY_GRAPH is used to indicate that the validator should use policy graph-based certificate policy processing.
 pub static PS_USE_POLICY_GRAPH: &str = "psUsePolicyGraph";
+/// PS_FORBID_SELF_SIGNED_EE is used to forbid allowing self-signed end-identity certificates
+pub static PS_FORBID_SELF_SIGNED_EE: &str = "psForbidSelfSignedEE";
 
 //-----------------------------------------------------------------------------------------------
 // Getters/setters for settings
@@ -609,14 +584,8 @@ impl CertificationPathSettings {
     }
 }
 
-cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, u64, {
-    #[cfg(feature = "std")]
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => 0,
-    }
-    #[cfg(not(feature = "std"))]
-    0
+cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, TimeOfInterest, {
+    TimeOfInterest::default()
 });
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_VALIDITY, bool, true);
@@ -680,7 +649,7 @@ cps_gets_and_sets_with_default!(
     u8,
     PS_MAX_PATH_LENGTH_CONSTRAINT
 );
-cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, u64, PS_CRL_TIMEOUT_DEFAULT);
+cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, Duration, PS_CRL_TIMEOUT_DEFAULT);
 
 cps_gets_and_sets_with_default!(PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_USE_VALIDATOR_FILTER_WHEN_BUILDING, bool, true);
@@ -705,14 +674,15 @@ cps_gets_and_sets!(PS_PERM_COUNTRIES, Strings);
 cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_USE_POLICY_GRAPH, bool, false);
+cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
 
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
     /// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
-    pub fn get_target_key_usage(&self) -> Option<u16> {
+    pub fn get_target_key_usage(&self) -> Option<KeyUsageSettings> {
         if self.0.contains_key(PS_KEY_USAGE) {
             return match &self.0[PS_KEY_USAGE] {
-                CertificationPathProcessingTypes::U16(v) => Some(*v),
+                CertificationPathProcessingTypes::KeyUsageValue(v) => Some(*v),
                 _ => None,
             };
         }
@@ -720,10 +690,10 @@ impl CertificationPathSettings {
     }
 
     /// `set_target_key_usage` is used to set the [`PS_KEY_USAGE`] value in a [`CertificationPathSettings`] map.
-    pub fn set_target_key_usage(&mut self, v: u16) {
+    pub fn set_target_key_usage(&mut self, v: KeyUsageSettings) {
         self.0.insert(
             PS_KEY_USAGE.to_string(),
-            CertificationPathProcessingTypes::U16(v),
+            CertificationPathProcessingTypes::KeyUsageValue(v),
         );
     }
 }
@@ -771,17 +741,17 @@ fn test_default_gets_cps() {
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        assert!(cps.get_time_of_interest() > before.as_secs());
+        assert!(cps.get_time_of_interest().as_unix_secs() > before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        assert_eq!(cps.get_time_of_interest(), 0);
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), 0);
     }
 
     assert!(!cps.get_enforce_trust_anchor_constraints());
     assert!(cps.get_enforce_trust_anchor_validity());
     assert!(!cps.get_extended_key_usage_path());
-    assert_eq!(60, cps.get_crl_timeout());
+    assert_eq!(Duration::from_secs(60), cps.get_crl_timeout());
     assert!(!cps.get_enforce_alg_and_key_size_constraints());
 
     assert!(cps.get_use_validator_filter_when_building());
@@ -868,13 +838,13 @@ fn test_default_sets_cps() {
     #[cfg(feature = "std")]
     {
         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        cps.set_time_of_interest(before.as_secs());
-        assert_eq!(cps.get_time_of_interest(), before.as_secs());
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(before.as_secs()).unwrap());
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), before.as_secs());
     }
     #[cfg(not(feature = "std"))]
     {
-        cps.set_time_of_interest(1);
-        assert_eq!(cps.get_time_of_interest(), 1);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1).unwrap());
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), 1);
     }
 
     cps.set_enforce_trust_anchor_constraints(true);
@@ -883,8 +853,8 @@ fn test_default_sets_cps() {
     assert!(!cps.get_enforce_trust_anchor_validity());
     cps.set_extended_key_usage_path(true);
     assert!(cps.get_extended_key_usage_path());
-    cps.set_crl_timeout(120);
-    assert_eq!(120, cps.get_crl_timeout());
+    cps.set_crl_timeout(Duration::from_secs(120));
+    assert_eq!(Duration::from_secs(120), cps.get_crl_timeout());
     cps.set_enforce_alg_and_key_size_constraints(true);
     assert!(cps.get_enforce_alg_and_key_size_constraints());
 

@@ -199,7 +199,7 @@
 //     }
 // }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn stapled_crl_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -241,7 +241,7 @@ async fn stapled_crl_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1646567209);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -253,7 +253,7 @@ async fn stapled_crl_async() {
     }
     #[cfg(feature = "remote")]
     {
-        cps.set_time_of_interest(1646567209);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -265,7 +265,7 @@ async fn stapled_crl_async() {
     }
     #[cfg(not(feature = "remote"))]
     {
-        cps.set_time_of_interest(1649245609);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1649245609).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -280,7 +280,7 @@ async fn stapled_crl_async() {
     }
 }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn stapled_mix_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -325,7 +325,7 @@ async fn stapled_mix_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1646567209);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -337,7 +337,7 @@ async fn stapled_mix_async() {
     }
     #[cfg(feature = "remote")]
     {
-        cps.set_time_of_interest(1646567209);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -349,7 +349,7 @@ async fn stapled_mix_async() {
     }
     #[cfg(not(feature = "remote"))]
     {
-        cps.set_time_of_interest(1649245609);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1649245609).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -364,7 +364,7 @@ async fn stapled_mix_async() {
     }
 }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn cached_crl_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -392,7 +392,10 @@ async fn cached_crl_async() {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/makaan.com/crls");
     let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
+    if crl_source
+        .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+        .is_err()
+    {
         panic!("Failed to index CRLs")
     }
 
@@ -401,7 +404,7 @@ async fn cached_crl_async() {
 
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
-    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source));
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
@@ -415,7 +418,7 @@ async fn cached_crl_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -431,7 +434,7 @@ async fn cached_crl_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -443,7 +446,7 @@ async fn cached_crl_async() {
     }
 }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn cached_crl_revoked_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -471,13 +474,16 @@ async fn cached_crl_revoked_async() {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/intel.com/crls");
     let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
+    if crl_source
+        .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+        .is_err()
+    {
         panic!("Failed to index CRLs")
     }
 
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
-    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source));
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
@@ -491,7 +497,7 @@ async fn cached_crl_revoked_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -510,7 +516,7 @@ async fn cached_crl_revoked_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -525,7 +531,7 @@ async fn cached_crl_revoked_async() {
     }
 }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn cached_crl_revoked_remote_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -553,13 +559,16 @@ async fn cached_crl_revoked_remote_async() {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/intel.com/crls2");
     let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
+    if crl_source
+        .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+        .is_err()
+    {
         panic!("Failed to index CRLs")
     }
 
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
-    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source));
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
@@ -572,7 +581,7 @@ async fn cached_crl_revoked_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -592,7 +601,7 @@ async fn cached_crl_revoked_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -607,7 +616,7 @@ async fn cached_crl_revoked_remote_async() {
     }
 }
 
-#[cfg(all(feature = "revocation", feature = "std"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn cached_crl_remote_async() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -635,13 +644,16 @@ async fn cached_crl_remote_async() {
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/makaan.com/crls2");
     let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
-    if crl_source.index_crls(1647011592).is_err() {
+    if crl_source
+        .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+        .is_err()
+    {
         panic!("Failed to index CRLs")
     }
 
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
-    pe.add_crl_source(Box::new(crl_source.clone()));
+    pe.add_crl_source(Box::new(crl_source));
     pe.add_revocation_cache(Box::new(RevocationCache::new()));
 
     ee.parse_extensions(EXTS_OF_INTEREST);
@@ -654,7 +666,7 @@ async fn cached_crl_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
@@ -670,7 +682,7 @@ async fn cached_crl_remote_async() {
     let mut cpr = CertificationPathResults::new();
 
     {
-        cps.set_time_of_interest(1647011592);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");

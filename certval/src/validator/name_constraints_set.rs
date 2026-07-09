@@ -198,7 +198,7 @@ impl NameConstraintsSet {
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
     pub fn subject_within_permitted_subtrees(&self, subject: &Name) -> bool {
-        if subject.0.is_empty() {
+        if subject.is_empty() {
             // NULL subjects get a free pass
             return true;
         }
@@ -228,7 +228,7 @@ impl NameConstraintsSet {
             return true;
         }
 
-        for gn_san in san {
+        if let Some(gn_san) = san {
             for subtree_san in gn_san.0.iter() {
                 match subtree_san {
                     #[allow(unused_mut)]
@@ -399,7 +399,7 @@ impl NameConstraintsSet {
     /// `subject_within_excluded_subtrees` returns true if subject is within at least one excluded subtree
     /// known to self.
     pub fn subject_within_excluded_subtrees(&self, subject: &Name) -> bool {
-        if subject.0.is_empty() {
+        if subject.is_empty() {
             // NULL subjects get a free pass
             return false;
         }
@@ -429,7 +429,7 @@ impl NameConstraintsSet {
             return false;
         }
 
-        for gn_san in san {
+        if let Some(gn_san) = san {
             for subtree_san in gn_san.0.iter() {
                 match subtree_san {
                     GeneralName::DirectoryName(dn_san) => {

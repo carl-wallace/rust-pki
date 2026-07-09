@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -17,7 +17,7 @@ use limbo_harness_support::{
 };
 use rayon::prelude::*;
 use x509_cert::{
-    certificate::{Certificate},
+    certificate::{CertificateInner, Raw},
     der::{
         flagset::FlagSet,
         oid::db::rfc5280::{
@@ -30,14 +30,13 @@ use x509_cert::{
 };
 
 use certval::{
-    enforce_trust_anchor_constraints,
-    name_constraints_settings_to_name_constraints_set, CertFile,
+    enforce_trust_anchor_constraints, name_constraints_settings_to_name_constraints_set, CertFile,
     CertSource, CertVector, CertificationPath, CertificationPathResults, CertificationPathSettings,
     ExtensionProcessing, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
-    TaSource,
+    TaSource, TimeOfInterest,
 };
 
-// type Certificate = CertificateInner<Raw>;
+type Certificate = CertificateInner<Raw>;
 
 const WEAK_KEY_CHECKS: &[&str] = &[
     "webpki::forbidden-weak-rsa-key-in-root",
@@ -55,10 +54,6 @@ const PATHOLOGICAL_CHECKS: &[&str] = &[
 ];
 
 const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &["webpki::san::mismatch-apex-subdomain-san"];
-
-const BUSTED_TEST_CASES: &[&str] = &[
-    "rfc5280::ee-empty-issuer", // the issuer name in the EE is not actually empty and chains to the TA just fine
-];
 
 const LINTER_TESTS: &[&str] = &[
     "rfc5280::aki::critical-aki",
@@ -105,7 +100,6 @@ const LINTER_TESTS: &[&str] = &[
 fn expected_failure(tc: &Testcase) -> bool {
     let id = tc.id.as_str();
     if LINTER_TESTS.contains(&id)
-        || BUSTED_TEST_CASES.contains(&id)
         || UNSUPPORTED_APPLICATION_CHECK.contains(&id)
         || WEAK_KEY_CHECKS.contains(&id)
         || PATHOLOGICAL_CHECKS.contains(&id)
@@ -124,11 +118,6 @@ fn main() {
         .par_iter()
         .map(|tc| {
             let id = tc.id.as_str();
-            // Filter out computationally intensive test cases
-            // TODO(baloo): Those should be rejected by certval itself.
-            if PATHOLOGICAL_CHECKS.contains(&id) {
-                return TestcaseResult::skip(tc, "computationally intensive test case");
-            }
 
             let start = Instant::now();
             let out = evaluate_testcase(tc);
@@ -202,16 +191,8 @@ fn main() {
         BUG.len()
     );
     eprintln!(
-        "- {} were skipped as pathological cases that need attention.",
-        PATHOLOGICAL_CHECKS.len()
-    );
-    eprintln!(
         "- {} featured results that were ignored as unsupported application-level checks.",
         UNSUPPORTED_APPLICATION_CHECK.len()
-    );
-    eprintln!(
-        "- {} were skipped as a broken test case (need to pull the fix).",
-        BUSTED_TEST_CASES.len()
     );
 
     for k in skipped_rationales.keys() {
@@ -346,7 +327,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                 KeyUsage::DecipherOnly => target_ku |= KeyUsages::DecipherOnly,
             }
         }
-        cps.set_target_key_usage(target_ku.bits());
+        cps.set_target_key_usage(target_ku);
     }
 
     if !tc.extended_key_usage.is_empty() {
@@ -370,11 +351,8 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     cps.set_enforce_trust_anchor_constraints(true);
 
     let time_of_interest = match tc.validation_time {
-        Some(toi) => toi.timestamp() as u64,
-        None => SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
+        Some(toi) => TimeOfInterest::from_unix_secs(toi.timestamp() as u64).unwrap(),
+        None => TimeOfInterest::now(),
     };
     cps.set_time_of_interest(time_of_interest);
 
@@ -437,13 +415,12 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     {
         let p = Path::new("./target");
         let f = p.join(Path::new("target.der"));
-        let _ = fs::write(f, &leaf.encoded_cert);
+        let _ = fs::write(f, leaf.as_bytes());
     }
 
     // find all paths in the graph built above
     let mut paths: Vec<CertificationPath> = vec![];
-    pe.get_paths_for_target(&pe, &leaf, &mut paths, 0, time_of_interest)
-        .unwrap();
+    let _r = pe.get_paths_for_target(&leaf, &mut paths, 0, time_of_interest);
 
     let mut observed_status_values = vec![];
     let mut observed_errors = vec![];
@@ -465,7 +442,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                     if certval::PathValidationStatus::Valid == status {
                         if tc.expected_result == ExpectedResult::Failure
                             && (tc.expected_peer_name.is_some()
-                            || !tc.expected_peer_names.is_empty())
+                                || !tc.expected_peer_names.is_empty())
                         {
                             // Some test cases should fail due to name checking that would normally be performed by an application.
                             // Approximate that here.
@@ -478,7 +455,7 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
                                     let ncs = name_constraints_settings_to_name_constraints_set(
                                         &init_perm, &mut bufs,
                                     )
-                                        .unwrap();
+                                    .unwrap();
                                     if let Ok(Some(PDVExtension::SubjectAltName(san))) =
                                         path.target.get_extension(&ID_CE_SUBJECT_ALT_NAME)
                                     {

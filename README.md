@@ -4,11 +4,11 @@ Pure Rust Libraries and tools related to certification path processing.
 
 ## Crates
 
-| Name           | Description                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------- |
-| `certval`      | Certification path validation implemenetation                                               |
-| `pittv3`       | Command-line version of PITTv2 (minus some features) that uses Rust undercarriage           |
-| `pkiprocmacros`| Procedural macros that support certval and friends                                          |
+| Name           | Description                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `certval`      | Certification path validation implementation                                               |
+| `pittv3`       | Command-line version of PITTv2 (minus some features) that uses Rust undercarriage          |
+| `pkiprocmacros`| Procedural macros that support certval and friends                                         |
 
 ## License
 

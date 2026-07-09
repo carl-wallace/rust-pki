@@ -130,11 +130,7 @@ pub fn check_certificate_policies_graph(
                         let p_oid = &cp.policy_identifier;
                         let mut p_q: Option<Vec<u8>> = None;
                         if cp.policy_qualifiers.is_some() {
-                            p_q = match cp.policy_qualifiers.to_der() {
-                                Ok(encoded_qualifers) => Some(encoded_qualifers),
-                                // ignore qualifiers that don't encode
-                                Err(_e) => None,
-                            };
+                            p_q = cp.policy_qualifiers.to_der().ok();
                         }
 
                         // for i and ii, save the indices of any parents and add the nodes below to avoid
@@ -190,11 +186,7 @@ pub fn check_certificate_policies_graph(
                         //use when processing step (2) below.
                         has_any_policy = true;
                         if cp.policy_qualifiers.is_some() {
-                            ap_q = match cp.policy_qualifiers.to_der() {
-                                Ok(encoded_qualifers) => Some(encoded_qualifers),
-                                // ignore qualifiers that don't encode
-                                Err(_e) => None,
-                            }
+                            ap_q = cp.policy_qualifiers.to_der().ok();
                         }
                     }
                 }
@@ -209,8 +201,7 @@ pub fn check_certificate_policies_graph(
                 // no need to check i < n since this loop is for intermediate CAs only (so we are not at the target)
                 if has_any_policy
                     && (inhibit_any_policy > 0
-                        || (i < certs_in_cert_path as usize
-                            && is_self_issued(&ca_cert.decoded_cert)))
+                        || (i < certs_in_cert_path as usize && is_self_issued(ca_cert.as_ref())))
                 {
                     for p_index in &valid_policy_graph[i - 1] {
                         // For each policy OID P-OID (including anyPolicy) which
@@ -415,7 +406,7 @@ pub fn check_certificate_policies_graph(
                 }
             }
 
-            if !is_self_issued(&ca_cert.decoded_cert) {
+            if !is_self_issued(ca_cert.as_ref()) {
                 explicit_policy = explicit_policy.saturating_sub(1);
                 inhibit_any_policy = inhibit_any_policy.saturating_sub(1);
                 policy_mapping = policy_mapping.saturating_sub(1);

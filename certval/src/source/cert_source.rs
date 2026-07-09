@@ -28,12 +28,10 @@
 //!
 
 use alloc::{
-    borrow::ToOwned,
     collections::BTreeMap,
     string::{String, ToString},
 };
 use alloc::{format, vec, vec::Vec};
-use core::cell::RefCell;
 
 use log::{debug, error, info};
 
@@ -63,18 +61,11 @@ use crate::{
         collect_uris_from_aia_and_sia, is_self_issued, name_to_string, valid_at_time,
     },
     CertificateSource, CertificationPath, CertificationPathSettings, ExtensionProcessing,
-    NameConstraintsSet, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, EXTS_OF_INTEREST,
+    NameConstraintsSet, PDVCertificate, PkiEnvironment, TimeOfInterest,
     PS_MAX_PATH_LENGTH_CONSTRAINT,
 };
 
-#[cfg(feature = "std")]
-use core::ops::Deref;
-
-#[cfg(feature = "std")]
-use alloc::sync::Arc;
 use ciborium::from_reader;
-#[cfg(feature = "std")]
-use std::sync::Mutex;
 
 /// The CertFile struct associates a string, notionally containing a filename or URI, with a vector
 /// of bytes. The vector of bytes is assumed to contain a binary DER encoded certificate.
@@ -321,12 +312,7 @@ pub struct BuffersAndPaths {
     pub buffers: Vec<CertFile>,
 
     /// Maps skid of leaf CA (i.e., last index in each vector) to a vector of indices into buffers
-    #[cfg(feature = "std")]
-    pub partial_paths: Arc<Mutex<RefCell<PartialPaths>>>,
-
-    /// Maps skid of leaf CA (i.e., last index in each vector) to a vector of indices into buffers
-    #[cfg(not(feature = "std"))]
-    pub partial_paths: RefCell<PartialPaths>,
+    pub partial_paths: PartialPaths,
 }
 
 /// Type used to represent partial certification paths in [`BuffersAndPaths`] struct
@@ -346,10 +332,7 @@ impl BuffersAndPaths {
     pub fn new() -> BuffersAndPaths {
         BuffersAndPaths {
             buffers: Vec::new(),
-            #[cfg(feature = "std")]
-            partial_paths: Arc::new(Mutex::new(RefCell::new(Vec::new()))),
-            #[cfg(not(feature = "std"))]
-            partial_paths: RefCell::new(Vec::new()),
+            partial_paths: Vec::new(),
         }
     }
 }
@@ -480,13 +463,8 @@ impl CertSource {
 
     /// Clear list of partial paths
     #[cfg(feature = "std")]
-    pub fn clear_paths(&self) {
-        let partial_paths = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        partial_paths.deref().borrow_mut().clear();
+    pub fn clear_paths(&mut self) {
+        self.buffers_and_paths.partial_paths.clear();
     }
 
     /// Create new instance from CBOR
@@ -532,8 +510,8 @@ impl CertSource {
         for (i, c) in self.certs.iter().enumerate() {
             if let Some(cert) = c {
                 let skid = hex_skid_from_cert(cert);
-                let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
-                let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                 info!(
                     "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                     i, skid, iss, sub
@@ -567,11 +545,11 @@ impl CertSource {
                 let nc_ext = cert.get_extension(&ID_CE_NAME_CONSTRAINTS);
                 if let Ok(Some(PDVExtension::NameConstraints(nc))) = nc_ext {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
-                    let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     if let Some(perm) = &nc.permitted_subtrees {
                         logged_some = true;
-                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                         info!("Permitted Name Constraints");
                         for gs in perm {
                             info!("- {}", general_subtree_to_string(gs));
@@ -579,7 +557,7 @@ impl CertSource {
                     }
                     if let Some(excl) = &nc.excluded_subtrees {
                         logged_some = true;
-                        info!("Index: {}; SKID: {}; {}; Subject: {}", i, skid, iss, sub);
+                        info!("Index: {i}; SKID: {skid}; Issuer: {iss}; Subject: {sub}");
                         info!("Excluded Name Constraints");
                         for gs in excl {
                             info!("- {}", general_subtree_to_string(gs));
@@ -595,17 +573,7 @@ impl CertSource {
 
     /// Log partial path details to PkiEnvironment's logging mechanism at debug level.
     pub fn log_partial_paths(&self) {
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             info!("No partial paths available");
@@ -624,22 +592,22 @@ impl CertSource {
                     for c in &self.skid_map[key] {
                         let cert = &self.certs[*c];
                         if let Some(cert) = cert {
-                            label = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
+                            label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                             break;
                         }
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     let cert = &self.certs[v[0]];
                     let vlabel = if let Some(cert) = cert {
-                        get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer)
+                        get_leaf_rdn(cert.as_ref().tbs_certificate().issuer())
                     } else {
                         "".to_string()
                     };
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         }
@@ -647,41 +615,28 @@ impl CertSource {
         for _ in self.certs.iter().flatten() {
             non_null_certs += 1;
         }
-        let mut message = format!("{} certificates yielded: ", non_null_certs);
+        let mut message = format!("{non_null_certs} certificates yielded: ");
         for (i, count) in counts.iter().enumerate() {
             if 0 == i {
-                message.push_str(format!("\n - {} paths with 1 certificate", count).as_str());
+                message.push_str(format!("\n - {count} paths with 1 certificate").as_str());
             } else if counts[i] != 0 {
-                message.push_str(
-                    format!(";\n - {} paths with {} certificates", count, i + 1).as_str(),
-                );
+                message
+                    .push_str(format!(";\n - {count} paths with {} certificates", i + 1).as_str());
             }
         }
         info!("{}", message.as_str());
     }
 
     /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: u64) {
-        if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
-        {
+    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: TimeOfInterest) {
+        if let Err(_e) = valid_at_time(target.as_ref().tbs_certificate(), time_of_interest, true) {
             error!(
-                "No paths found because target is not valid at indicated time of interest ({})",
-                time_of_interest
+                "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
             return;
         }
 
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
@@ -691,7 +646,7 @@ impl CertSource {
         }
 
         let mut akid_hex = "".to_string();
-        let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
+        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
@@ -715,8 +670,7 @@ impl CertSource {
                             let skid = hex_skid_from_cert(cert);
                             if !skid.is_empty() {
                                 debug!(
-                                    "Using calculated key identifier in lieu of AKID for {}",
-                                    name_str
+                                    "Using calculated key identifier in lieu of AKID for {name_str}"
                                 );
                                 akid_hex = skid;
                                 break;
@@ -741,16 +695,16 @@ impl CertSource {
                 for c in &self.skid_map[&key] {
                     let cert = &self.certs[*c];
                     if let Some(cert) = cert {
-                        label = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
+                        label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                         break;
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     if v.is_empty() {
-                        error!("Empty partial paths vector for {}: . Skipping.", label);
+                        error!("Empty partial paths vector for {label}: . Skipping.");
                         continue;
                     }
 
@@ -763,8 +717,8 @@ impl CertSource {
                     let issuer = &self.certs[*last_index];
                     if let Some(ca) = issuer {
                         if !compare_names(
-                            &ca.decoded_cert.tbs_certificate.subject,
-                            &target.decoded_cert.tbs_certificate.issuer,
+                            ca.as_ref().tbs_certificate().subject(),
+                            target.as_ref().tbs_certificate().issuer(),
                         ) {
                             error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                             break;
@@ -780,28 +734,25 @@ impl CertSource {
                     for ii in v {
                         let cert = &self.certs[*ii];
                         if let Some(cert) = cert {
-                            vlabel = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                            vlabel = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                             break;
                         }
                     }
                     counter += 1;
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            error!(
-                "Missing AKID in target and failed to find by name - {}",
-                fname
-            );
+            error!("Missing AKID in target and failed to find by name - {fname}");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
             if indices.contains(&i) {
                 if let Some(cert) = c {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
-                    let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     info!(
                         "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                         i, skid, iss, sub
@@ -818,17 +769,7 @@ impl CertSource {
 
     /// Logs info about partial paths and corresponding buffers for a given target
     pub fn log_paths_for_leaf_ca(&self, target: &PDVCertificate) {
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         if partial_paths.is_empty() {
             if self.certs.is_empty() {
@@ -861,12 +802,12 @@ impl CertSource {
                 for c in &self.skid_map[&key] {
                     let cert = &self.certs[*c];
                     if let Some(cert) = cert {
-                        label = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
+                        label = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
                         break;
                     }
                 }
 
-                info!("{}: ", label);
+                info!("{label}: ");
 
                 for v in inner {
                     let mut vlabel = "".to_string();
@@ -878,28 +819,25 @@ impl CertSource {
                     for ii in v {
                         let cert = &self.certs[*ii];
                         if let Some(cert) = cert {
-                            vlabel = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                            vlabel = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                             break;
                         }
                     }
                     counter += 1;
-                    info!("\t* TA subject: {} - {:?}, ", vlabel, v);
+                    info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            error!(
-                "Missing SKID in leaf CA and failed to calculate one - {}",
-                fname
-            );
+            error!("Missing SKID in leaf CA and failed to calculate one - {fname}");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
             if indices.contains(&i) {
                 if let Some(cert) = c {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.subject);
-                    let iss = get_leaf_rdn(&cert.decoded_cert.tbs_certificate.issuer);
+                    let sub = get_leaf_rdn(cert.as_ref().tbs_certificate().subject());
+                    let iss = get_leaf_rdn(cert.as_ref().tbs_certificate().issuer());
                     info!(
                         "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                         i, skid, iss, sub
@@ -925,17 +863,7 @@ impl CertSource {
 
         let mut ppcounter = 0;
 
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let partial_paths = partial_paths_guard.deref().borrow();
-
-        #[cfg(not(feature = "std"))]
-        let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+        let partial_paths = &self.buffers_and_paths.partial_paths;
 
         for outer in partial_paths.iter() {
             for key in outer.keys() {
@@ -949,21 +877,12 @@ impl CertSource {
             ppcounter
         );
 
-        // drop mutex so serde can claim it
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths);
-        #[cfg(feature = "std")]
-        std::mem::drop(partial_paths_guard);
-
         let mut buffer = Vec::new();
         let r = into_writer(&self.buffers_and_paths, &mut buffer);
         match r {
             Ok(_) => Ok(buffer),
             Err(e) => {
-                error!(
-                    "Failed to generate CBOR file containing partial paths with error: {:?}",
-                    e
-                );
+                error!("Failed to generate CBOR file containing partial paths with error: {e:?}");
                 Err(Error::Unrecognized)
             }
         }
@@ -971,27 +890,12 @@ impl CertSource {
 
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
-    pub fn find_all_partial_paths(&self, pe: &'_ PkiEnvironment, cps: &CertificationPathSettings) {
-        let mut ta_vec = vec![];
-        if let Ok(tav) = pe.get_trust_anchors() {
-            ta_vec = tav;
-        }
-
-        #[cfg(feature = "std")]
-        let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut partial_paths = partial_paths_guard.deref().borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut partial_paths = self.buffers_and_paths.partial_paths.borrow_mut();
+    pub fn find_all_partial_paths(&mut self, pe: &PkiEnvironment, cps: &CertificationPathSettings) {
+        let partial_paths = &mut self.buffers_and_paths.partial_paths;
 
         partial_paths.clear();
 
-        self.find_all_partial_paths_internal(pe, ta_vec, cps, 0, &mut partial_paths);
+        self.find_all_partial_paths_internal(pe, cps, 0);
     }
 
     /// Return list of buffers
@@ -1010,10 +914,10 @@ impl CertSource {
             if let Ok(cert) =
                 CertificateInner::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
             {
-                let valid = if let 0 = time_of_interest {
+                let valid = if time_of_interest.is_disabled() {
                     true
                 } else {
-                    let r = valid_at_time(&cert.tbs_certificate, time_of_interest, false);
+                    let r = valid_at_time(cert.tbs_certificate(), time_of_interest, false);
                     if r.is_err() {
                         error!(
                             "Certificate from {} is not valid at indicated time of interest",
@@ -1024,16 +928,10 @@ impl CertSource {
                 };
 
                 if valid {
-                    let mut md = Asn1Metadata::new();
-                    md.insert(
-                        MD_LOCATOR.to_string(),
-                        Asn1MetadataTypes::String(cert_file.filename.clone()),
-                    );
-
-                    let mut pdvcert = PDVCertificate::try_from(
+                    let pdvcert = parse_cert(
                         self.buffers_and_paths.buffers[i].bytes.as_slice(),
+                        &cert_file.filename,
                     )?;
-                    pdvcert.parse_extensions(EXTS_OF_INTEREST);
                     self.certs.push(Some(pdvcert));
                 } else {
                     self.certs.push(None);
@@ -1047,7 +945,7 @@ impl CertSource {
 
     /// index_certs prepares internally used key identifier and name maps after the caller has modified
     /// the buffers_and_paths and certs fields.
-    fn index_certs(&mut self) {
+    pub fn index_certs(&mut self) {
         for (i, cert) in self.certs.iter().enumerate() {
             if let Some(cert) = cert {
                 let hex_skid = hex_skid_from_cert(cert);
@@ -1059,7 +957,7 @@ impl CertSource {
                     self.skid_map.insert(hex_skid, vec![i]);
                 }
 
-                let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
+                let name_str = name_to_string(cert.as_ref().tbs_certificate().subject());
                 if self.name_map.contains_key(&name_str) {
                     let mut v = self.name_map[&name_str].clone();
                     v.push(i);
@@ -1076,13 +974,13 @@ impl CertSource {
             let path_item = &self.certs[*i];
             if let Some(path_item) = path_item {
                 if path_item
-                    .decoded_cert
-                    .tbs_certificate
-                    .subject_public_key_info
+                    .as_ref()
+                    .tbs_certificate()
+                    .subject_public_key_info()
                     == prospective_cert
-                        .decoded_cert
-                        .tbs_certificate
-                        .subject_public_key_info
+                        .as_ref()
+                        .tbs_certificate()
+                        .subject_public_key_info()
                 {
                     return true;
                 }
@@ -1098,7 +996,7 @@ impl CertSource {
         let mut path_len_constraint = 15;
         for i in path {
             if let Some(ca_cert) = &self.certs[*i] {
-                if !is_self_issued(&ca_cert.decoded_cert) {
+                if !is_self_issued(ca_cert.as_ref()) {
                     if path_len_constraint == 0 {
                         return 0;
                     }
@@ -1148,16 +1046,14 @@ impl CertSource {
         cps: &CertificationPathSettings,
     ) -> bool {
         let time_of_interest = cps.get_time_of_interest();
-        if 0 == time_of_interest {
+        if time_of_interest.is_disabled() {
             return true;
         }
         for i in path.iter() {
             if let Some(ca_cert) = &self.certs[*i] {
-                if let Err(_e) = valid_at_time(
-                    &ca_cert.decoded_cert.tbs_certificate,
-                    time_of_interest,
-                    false,
-                ) {
+                if let Err(_e) =
+                    valid_at_time(ca_cert.as_ref().tbs_certificate(), time_of_interest, false)
+                {
                     return false;
                 }
             }
@@ -1176,17 +1072,17 @@ impl CertSource {
         // Iterate over the list of intermediate CA certificates plus target to check name chaining
         for (pos, i) in path.iter().enumerate() {
             if let Some(ca_cert) = &self.certs[*i] {
-                let self_issued = is_self_issued(&ca_cert.decoded_cert);
+                let self_issued = is_self_issued(ca_cert.as_ref());
 
                 if (pos + 1) == path.len() || !self_issued {
                     if !permitted_subtrees.subject_within_permitted_subtrees(
-                        &ca_cert.decoded_cert.tbs_certificate.subject,
+                        ca_cert.as_ref().tbs_certificate().subject(),
                     ) {
                         return false;
                     }
 
                     if excluded_subtrees.subject_within_excluded_subtrees(
-                        &ca_cert.decoded_cert.tbs_certificate.subject,
+                        ca_cert.as_ref().tbs_certificate().subject(),
                     ) {
                         return false;
                     }
@@ -1232,11 +1128,11 @@ impl CertSource {
         true
     }
 
-    fn find_prospective_issuers(&self, target: &'_ PDVCertificate) -> Vec<String> {
+    fn find_prospective_issuers(&self, target: &PDVCertificate) -> Vec<String> {
         let mut retval: Vec<String> = vec![];
 
         let mut akid_hex = "".to_string();
-        let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
+        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
@@ -1287,13 +1183,10 @@ impl CertSource {
     /// resulting set of partial paths will proceed from shortest available path to longest.
     ///
     fn find_all_partial_paths_internal(
-        &self,
-        pe: &'_ PkiEnvironment,
-        //todo remove param
-        _ta_vec: Vec<&PDVTrustAnchorChoice>,
+        &mut self,
+        pe: &PkiEnvironment,
         cps: &CertificationPathSettings,
         pass: u8,
-        partial_paths: &mut Vec<BTreeMap<String, Vec<Vec<usize>>>>,
     ) {
         // Instantiate a map that will aggregate paths built relative to the 0th or pass-1 row in
         // self.buffers_and_paths.partial_paths, if any.
@@ -1311,10 +1204,9 @@ impl CertSource {
                         // RFC 5914 TAs do not necessary have to have a name, if this is one of those, ignore it
                         let ta_name = get_trust_anchor_name(&ta.decoded_ta);
                         if let Ok(ta_name) = ta_name {
-                            if compare_names(&cur_cert.decoded_cert.tbs_certificate.issuer, ta_name)
+                            if compare_names(cur_cert.as_ref().tbs_certificate().issuer(), ta_name)
                             {
-                                let defer_cert =
-                                    DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
+                                let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
                                 if let Ok(defer_cert) = defer_cert {
                                     let spki = get_subject_public_key_info_from_trust_anchor(
                                         &ta.decoded_ta,
@@ -1322,8 +1214,8 @@ impl CertSource {
                                     let r = pe.verify_signature_message(
                                         pe,
                                         &defer_cert.tbs_field,
-                                        cur_cert.decoded_cert.signature.raw_bytes(),
-                                        &cur_cert.decoded_cert.tbs_certificate.signature,
+                                        cur_cert.as_ref().signature().raw_bytes(),
+                                        cur_cert.as_ref().tbs_certificate().signature(),
                                         spki,
                                     );
                                     if let Ok(_r) = r {
@@ -1347,10 +1239,10 @@ impl CertSource {
                         }
                     }
                 } else {
-                    let defer_cert = DeferDecodeSigned::from_der(cur_cert.encoded_cert.as_slice());
+                    let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
                     if let Ok(defer_cert) = defer_cert {
                         // look for matches in map from previous row of partial_paths
-                        let last_row = &partial_paths[(pass - 1) as usize];
+                        let last_row = &self.buffers_and_paths.partial_paths[(pass - 1) as usize];
 
                         // get list of SKIDs for possible issuers (based on AKID and name lookups)
                         let prospective_issuers = self.find_prospective_issuers(cur_cert);
@@ -1373,8 +1265,8 @@ impl CertSource {
                                     // Not doing that at present because policy and name constraints
                                     // are more variable than use of current time as time of interest
                                     if compare_names(
-                                        &cur_cert.decoded_cert.tbs_certificate.issuer,
-                                        &prospective_ca_cert.decoded_cert.tbs_certificate.subject,
+                                        cur_cert.as_ref().tbs_certificate().issuer(),
+                                        prospective_ca_cert.as_ref().tbs_certificate().subject(),
                                     ) && self.check_names_in_partial_path(prospective_path)
                                         && self
                                             .check_validity_in_partial_path(prospective_path, cps)
@@ -1382,12 +1274,12 @@ impl CertSource {
                                         let r = pe.verify_signature_message(
                                             pe,
                                             &defer_cert.tbs_field,
-                                            cur_cert.decoded_cert.signature.raw_bytes(),
-                                            &cur_cert.decoded_cert.tbs_certificate.signature,
-                                            &prospective_ca_cert
-                                                .decoded_cert
-                                                .tbs_certificate
-                                                .subject_public_key_info,
+                                            cur_cert.as_ref().signature().raw_bytes(),
+                                            cur_cert.as_ref().tbs_certificate().signature(),
+                                            prospective_ca_cert
+                                                .as_ref()
+                                                .tbs_certificate()
+                                                .subject_public_key_info(),
                                         );
                                         if let Ok(_r) = r {
                                             if !self.pub_key_in_path(cur_cert, prospective_path) {
@@ -1424,10 +1316,10 @@ impl CertSource {
         }
         if !new_additions.is_empty() {
             // error!("NEW ADDITIONS FOR PASS #{}: {:?}", pass, new_additions);
-            partial_paths.push(new_additions);
+            self.buffers_and_paths.partial_paths.push(new_additions);
             // 13 because the number of passes does not count TA or target
             if (PS_MAX_PATH_LENGTH_CONSTRAINT - 2) > pass {
-                self.find_all_partial_paths_internal(pe, _ta_vec, cps, pass + 1, partial_paths);
+                self.find_all_partial_paths_internal(pe, cps, pass + 1);
             }
         }
     }
@@ -1442,15 +1334,13 @@ impl CertificateSource for CertSource {
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
-        time_of_interest: u64,
+        time_of_interest: TimeOfInterest,
     ) -> Result<()> {
-        if let Err(_e) = valid_at_time(&target.decoded_cert.tbs_certificate, time_of_interest, true)
-        {
+        if let Err(e) = valid_at_time(target.as_ref().tbs_certificate(), time_of_interest, true) {
             error!(
-                "No paths found because target is not valid at indicated time of interest ({})",
-                time_of_interest
+                "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
-            return Ok(());
+            return Err(e);
         }
 
         let ta = pe.get_trust_anchor_for_target(target);
@@ -1460,7 +1350,7 @@ impl CertificateSource for CertSource {
         }
 
         let mut akid_hex = "".to_string();
-        let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
+        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
@@ -1480,17 +1370,7 @@ impl CertificateSource for CertSource {
         while ii < 2 {
             ii += 1;
             if !akid_hex.is_empty() {
-                #[cfg(feature = "std")]
-                let partial_paths_guard = if let Ok(g) = self.buffers_and_paths.partial_paths.lock()
-                {
-                    g
-                } else {
-                    return Err(Error::Unrecognized);
-                };
-                #[cfg(feature = "std")]
-                let partial_paths = partial_paths_guard.deref().borrow();
-                #[cfg(not(feature = "std"))]
-                let partial_paths = &self.buffers_and_paths.partial_paths.borrow();
+                let partial_paths = &self.buffers_and_paths.partial_paths;
 
                 for p in partial_paths.iter() {
                     if p.contains_key(&akid_hex) {
@@ -1509,8 +1389,8 @@ impl CertificateSource for CertSource {
                             let issuer = &self.certs[*last_index];
                             if let Some(ca) = issuer {
                                 if !compare_names(
-                                    &ca.decoded_cert.tbs_certificate.subject,
-                                    &target.decoded_cert.tbs_certificate.issuer,
+                                    ca.as_ref().tbs_certificate().subject(),
+                                    target.as_ref().tbs_certificate().issuer(),
                                 ) {
                                     error!("Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
                                     continue;
@@ -1526,7 +1406,7 @@ impl CertificateSource for CertSource {
                                     if 0 == i {
                                         let mut ta_akid_hex = "".to_string();
                                         let mut ta_name_vec =
-                                            vec![&target.decoded_cert.tbs_certificate.issuer];
+                                            vec![target.as_ref().tbs_certificate().issuer()];
                                         let ca_akid_ext =
                                             cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
                                         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(
@@ -1554,7 +1434,7 @@ impl CertificateSource for CertSource {
                                             }
                                         } else {
                                             let fname = get_filename_from_cert_metadata(cert);
-                                            error!("Missing AKID for trust anchor - {}", fname);
+                                            error!("Missing AKID for trust anchor - {fname}");
                                             if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
                                             {
                                                 error!("Found trust anchor by name");
@@ -1586,10 +1466,7 @@ impl CertificateSource for CertSource {
                 }
             } else {
                 let fname = get_filename_from_cert_metadata(target);
-                error!(
-                    "Missing AKID in target and failed to find by name - {}",
-                    fname
-                );
+                error!("Missing AKID in target and failed to find by name - {fname}");
             }
 
             if akid_hex.is_empty() || paths_count == paths.len() {
@@ -1603,8 +1480,7 @@ impl CertificateSource for CertSource {
                                 let skid = hex_skid_from_cert(cert);
                                 if !skid.is_empty() {
                                     debug!(
-                                        "Using calculated key identifier in lieu of AKID for {}",
-                                        name_str
+                                        "Using calculated key identifier in lieu of AKID for {name_str}"
                                     );
                                     akid_hex = skid;
                                     changed = true;
@@ -1623,12 +1499,12 @@ impl CertificateSource for CertSource {
         Ok(())
     }
 
-    fn get_certificates_for_skid(&'_ self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
         let hex_skid = buffer_to_hex(skid);
         let mut retval = vec![];
-        if self.skid_map.contains_key(hex_skid.as_str()) {
-            for i in &self.skid_map[&hex_skid] {
-                if let Some(cert) = &self.certs[*i] {
+        if let Some(skid_map) = self.skid_map.get(hex_skid.as_str()) {
+            for i in skid_map {
+                if let Some(Some(cert)) = &self.certs.get(*i) {
                     retval.push(cert);
                 }
             }
@@ -1641,12 +1517,12 @@ impl CertificateSource for CertSource {
         }
     }
 
-    fn get_certificates_for_name(&'_ self, name: &Name) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates_for_name(&self, name: &Name) -> Result<Vec<&PDVCertificate>> {
         let name_str = name_to_string(name);
         let mut retval = vec![];
-        if self.name_map.contains_key(name_str.as_str()) {
-            for i in &self.name_map[&name_str] {
-                if let Some(cert) = &self.certs[*i] {
+        if let Some(name_map) = self.name_map.get(name_str.as_str()) {
+            for i in name_map {
+                if let Some(Some(cert)) = &self.certs.get(*i) {
                     retval.push(cert);
                 }
             }
@@ -1659,7 +1535,7 @@ impl CertificateSource for CertSource {
         }
     }
 
-    fn get_certificates(&'_ self) -> Result<Vec<&PDVCertificate>> {
+    fn get_certificates(&self) -> Result<Vec<&PDVCertificate>> {
         let mut v = vec![];
         for ta in self.certs.iter().flatten() {
             v.push(ta);
@@ -1674,7 +1550,7 @@ impl CertificateSource for CertSource {
         if self.skid_map.contains_key(hex_skid.as_str()) {
             for i in &self.skid_map[&hex_skid] {
                 if let Some(cert) = &self.certs[*i] {
-                    retval.push(cert.encoded_cert.to_owned().to_vec());
+                    retval.push(cert.as_bytes().to_vec());
                 }
             }
         }
@@ -1692,7 +1568,7 @@ impl CertificateSource for CertSource {
         if self.name_map.contains_key(name_str.as_str()) {
             for i in &self.name_map[&name_str] {
                 if let Some(cert) = &self.certs[*i] {
-                    retval.push(cert.encoded_cert.to_owned().to_vec());
+                    retval.push(cert.as_bytes().to_vec());
                 }
             }
         }
@@ -1707,7 +1583,7 @@ impl CertificateSource for CertSource {
     fn get_encoded_certificates(&self) -> Result<Vec<Vec<u8>>> {
         let mut v = vec![];
         for cert in self.certs.iter().flatten() {
-            v.push(cert.encoded_cert.to_owned().to_vec());
+            v.push(cert.as_bytes().to_vec());
         }
         Ok(v)
     }
@@ -1734,10 +1610,10 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
         )];
     for c in &path.intermediates {
         let ca = c.clone();
-        if spki_array.contains(&&ca.decoded_cert.tbs_certificate.subject_public_key_info) {
+        if spki_array.contains(&ca.as_ref().tbs_certificate().subject_public_key_info()) {
             return true;
         } else {
-            spki_array.push(&c.decoded_cert.tbs_certificate.subject_public_key_info);
+            spki_array.push(c.as_ref().tbs_certificate().subject_public_key_info());
         }
     }
     false
@@ -1746,12 +1622,7 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
 /// get_filename_from_ta_metadata returns the string from the MD_LOCATOR in the metadata or an
 /// empty string.
 pub fn get_filename_from_cert_metadata(cert: &PDVCertificate) -> String {
-    if let Some(md) = &cert.metadata {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            return filename.to_owned();
-        }
-    }
-    "".to_string()
+    cert.locator().map(str::to_string).unwrap_or_default()
 }
 
 #[cfg(feature = "std")]
@@ -1768,7 +1639,7 @@ fn get_certificates_test() {
         &pe,
         "tests/examples/PKITS_data_2048/certs",
         &mut cert_store,
-        1647258133,
+        TimeOfInterest::from_unix_secs(1647258133).unwrap(),
     )
     .is_ok());
     let cps = CertificationPathSettings::default();
@@ -1784,7 +1655,7 @@ fn get_certificates_test() {
                 cert_store.skid_map.insert(hex_skid, vec![i]);
             }
 
-            let name_str = name_to_string(&cert.decoded_cert.tbs_certificate.subject);
+            let name_str = name_to_string(cert.as_ref().tbs_certificate().subject());
             if cert_store.name_map.contains_key(&name_str) {
                 let mut v = cert_store.name_map[&name_str].clone();
                 v.push(i);

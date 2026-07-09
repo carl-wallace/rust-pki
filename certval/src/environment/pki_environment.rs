@@ -40,13 +40,19 @@ use alloc::{vec, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
-use x509_cert::crl::CertificateList;
+use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{
     environment::pki_environment_traits::*, path_settings::*, util::crypto::*, util::error::*,
     util::pdv_utilities::oid_lookup, validate_path_rfc5280, CertificationPath,
-    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice,
+    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice, TimeOfInterest,
+};
+
+#[cfg(feature = "pqc")]
+use crate::util::{
+    crypto_composite::verify_signature_message_composite_rustcrypto,
+    crypto_pqc::{verify_signature_message_ctx_rustcrypto, verify_signature_message_rustcrypto},
 };
 
 /// [`PkiEnvironment`] provides a switchboard of callback functions that allow support to vary on
@@ -64,6 +70,12 @@ pub struct PkiEnvironment {
     /// List of functions that provide a signature verification functionality given a message
     verify_signature_message_callbacks: Vec<VerifySignatureMessage>,
 
+    /// List of functions that provide a signature verification functionality given a digest and optional context
+    verify_signature_digest_ctx_callbacks: Vec<VerifySignatureDigestWithContext>,
+
+    /// List of functions that provide a signature verification functionality given a message and optional context
+    verify_signature_message_ctx_callbacks: Vec<VerifySignatureMessageWithContext>,
+
     //--------------------------------------------------------------------------
     //Certification path processing interfaces
     //--------------------------------------------------------------------------
@@ -74,34 +86,19 @@ pub struct PkiEnvironment {
     //Storage and retrieval interfaces
     //--------------------------------------------------------------------------
     /// List of trait objects that provide access to trust anchors
-    #[cfg(feature = "std")]
-    trust_anchor_sources: Vec<Box<(dyn TrustAnchorSource + Send + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    trust_anchor_sources: Vec<Box<(dyn TrustAnchorSource)>>,
+    trust_anchor_sources: Vec<Box<dyn TrustAnchorSource + Send + Sync>>,
 
     /// List of trait objects that provide access to certificates
-    #[cfg(feature = "std")]
-    certificate_sources: Vec<Box<(dyn CertificateSource + Send + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    certificate_sources: Vec<Box<(dyn CertificateSource)>>,
+    certificate_sources: Vec<Box<dyn CertificateSource + Send + Sync>>,
 
     /// List of trait objects that provide access to CRLs
-    #[cfg(feature = "std")]
-    crl_sources: Vec<Box<(dyn CrlSource + Send + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    crl_sources: Vec<Box<(dyn CrlSource)>>,
+    crl_sources: Vec<Box<dyn CrlSource + Send + Sync>>,
 
     /// List of trait objects that provide access to cached revocation status determinations
-    #[cfg(feature = "std")]
-    revocation_cache: Vec<Box<(dyn RevocationStatusCache + Send + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    revocation_cache: Vec<Box<(dyn RevocationStatusCache)>>,
+    revocation_cache: Vec<Box<dyn RevocationStatusCache + Send + Sync>>,
 
     /// List of trait objects that provide access to blocklist and last modified info
-    #[cfg(feature = "std")]
-    check_remote: Vec<Box<(dyn CheckRemoteResource + Send + Sync)>>,
-    #[cfg(not(feature = "std"))]
-    check_remote: Vec<Box<(dyn CheckRemoteResource)>>,
+    check_remote: Vec<Box<dyn CheckRemoteResource + Send + Sync>>,
 
     //--------------------------------------------------------------------------
     //Miscellaneous interfaces
@@ -118,6 +115,8 @@ impl Default for PkiEnvironment {
             calculate_hash_callbacks: vec![],
             verify_signature_digest_callbacks: vec![],
             verify_signature_message_callbacks: vec![],
+            verify_signature_digest_ctx_callbacks: vec![],
+            verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
@@ -136,6 +135,8 @@ impl PkiEnvironment {
             calculate_hash_callbacks: vec![],
             verify_signature_digest_callbacks: vec![],
             verify_signature_message_callbacks: vec![],
+            verify_signature_digest_ctx_callbacks: vec![],
+            verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
             certificate_sources: vec![],
@@ -158,6 +159,8 @@ impl PkiEnvironment {
         self.clear_validate_path_callbacks();
         self.clear_verify_signature_digest_callbacks();
         self.clear_verify_signature_message_callbacks();
+        self.clear_verify_signature_digest_ctx_callbacks();
+        self.clear_verify_signature_message_ctx_callbacks();
         self.clear_check_remote_callbacks();
     }
 
@@ -245,14 +248,44 @@ impl PkiEnvironment {
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_digest_callbacks {
-            let r = f(pe, hash_to_verify, signature, signature_alg, spki);
-            if let Ok(r) = r {
-                return Ok(r);
+            if f(pe, hash_to_verify, signature, signature_alg, spki).is_ok() {
+                return Ok(());
             }
         }
         Err(Error::Unrecognized)
     }
 
+    /// add_verify_signature_digest_ctx_callback adds a [`VerifySignatureDigestWithContext`] callback to the list used by verify_signature_ctx_digest.
+    pub fn add_verify_signature_digest_ctx_callback(
+        &mut self,
+        c: VerifySignatureDigestWithContext,
+    ) {
+        self.verify_signature_digest_ctx_callbacks.push(c);
+    }
+
+    /// clear_verify_signature_digest_ctx_callbacks clears the list of [`VerifySignatureDigestWithContext`] callbacks used by verify_signature_ctx_digest.
+    pub fn clear_verify_signature_digest_ctx_callbacks(&mut self) {
+        self.verify_signature_digest_ctx_callbacks.clear();
+    }
+
+    /// verify_signature_digest iterates over verify_signature_digest_callbacks until an authoritative answer is found
+    /// or all options have been exhausted
+    pub fn verify_signature_ctx_digest(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],                    // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
+        ctx: &Option<Vec<u8>>,                    // context
+    ) -> Result<()> {
+        for f in &self.verify_signature_digest_ctx_callbacks {
+            if f(pe, hash_to_verify, signature, signature_alg, spki, ctx).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(Error::Unrecognized)
+    }
     /// add_verify_signature_message_callback adds a [`VerifySignatureMessage`] callback to the list used by verify_signature_message.
     pub fn add_verify_signature_message_callback(&mut self, c: VerifySignatureMessage) {
         self.verify_signature_message_callbacks.push(c);
@@ -282,15 +315,41 @@ impl PkiEnvironment {
         Err(Error::Unrecognized)
     }
 
-    /// add_trust_anchor_source adds a [`TrustAnchorSource`] object to the list used by get_trust_anchor.
-    #[cfg(feature = "std")]
-    pub fn add_trust_anchor_source(&mut self, c: Box<(dyn TrustAnchorSource + Send + Sync)>) {
-        self.trust_anchor_sources.push(c);
+    /// add_verify_signature_message_ctx_callback adds a [`VerifySignatureMessageWithContext`] callback to the list used by verify_signature_message_ctx.
+    pub fn add_verify_signature_message_ctx_callback(
+        &mut self,
+        c: VerifySignatureMessageWithContext,
+    ) {
+        self.verify_signature_message_ctx_callbacks.push(c);
+    }
+
+    /// clear_verify_signature_message_ctx_callbacks clears the list of [`VerifySignatureMessageWithContext`] callbacks used by verify_signature_message_ctx.
+    pub fn clear_verify_signature_message_ctx_callbacks(&mut self) {
+        self.verify_signature_message_ctx_callbacks.clear();
+    }
+
+    /// verify_signature_ctx_message iterates over verify_signature_message_ctx_callbacks until an authoritative answer is found
+    /// or all options have been exhausted
+    pub fn verify_signature_message_ctx(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],                 // buffer to verify
+        signature: &[u8],                         // signature
+        signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
+        spki: &SubjectPublicKeyInfoOwned,         // public key
+        ctx: &Option<Vec<u8>>,                    // context
+    ) -> Result<()> {
+        for f in &self.verify_signature_message_ctx_callbacks {
+            let r = f(pe, message_to_verify, signature, signature_alg, spki, ctx);
+            if let Ok(r) = r {
+                return Ok(r);
+            }
+        }
+        Err(Error::Unrecognized)
     }
 
     /// add_trust_anchor_source adds a [`TrustAnchorSource`] object to the list used by get_trust_anchor.
-    #[cfg(not(feature = "std"))]
-    pub fn add_trust_anchor_source(&mut self, c: Box<(dyn TrustAnchorSource)>) {
+    pub fn add_trust_anchor_source(&mut self, c: Box<dyn TrustAnchorSource + Send + Sync>) {
         self.trust_anchor_sources.push(c);
     }
 
@@ -324,7 +383,7 @@ impl PkiEnvironment {
     }
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
-    pub fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
+    pub fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_hex_skid(hex_skid);
             if let Ok(r) = r {
@@ -337,8 +396,8 @@ impl PkiEnvironment {
     /// get_trust_anchor_for_target takes a target certificate and returns a trust anchor that may
     /// be useful in verifying the certificate.
     pub fn get_trust_anchor_for_target(
-        &'_ self,
-        target: &'_ PDVCertificate,
+        &self,
+        target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_for_target(target);
@@ -349,8 +408,29 @@ impl PkiEnvironment {
         Err(Error::Unrecognized)
     }
 
+    /// Retrieves a trust anchor for a given Name
+    pub fn get_trust_anchor_by_name(&'_ self, name: &Name) -> Result<&PDVTrustAnchorChoice> {
+        for f in &self.trust_anchor_sources {
+            if let Ok(r) = f.get_trust_anchor_by_name(name) {
+                return Ok(r);
+            }
+        }
+
+        Err(Error::Unrecognized)
+    }
+
+    /// Retrieves a set of certificates from certificate sources (i.e. intermediate CAs) matching a certain name
+    pub fn get_cert_by_name(&'_ self, name: &Name) -> Vec<&PDVCertificate> {
+        self.certificate_sources.iter().fold(vec![], |mut acc, f| {
+            if let Ok(mut r) = f.get_certificates_for_name(name) {
+                acc.append(&mut r);
+            }
+            acc
+        })
+    }
+
     /// is_cert_a_trust_anchor takes a target certificate indication if cert is a trust anchor.
-    pub fn is_cert_a_trust_anchor(&'_ self, target: &'_ PDVCertificate) -> Result<()> {
+    pub fn is_cert_a_trust_anchor(&self, target: &PDVCertificate) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_cert_a_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -360,7 +440,7 @@ impl PkiEnvironment {
     }
 
     /// is_trust_anchor takes a [`PDVTrustAnchorChoice`] indication if cert is a trust anchor.
-    pub fn is_trust_anchor(&'_ self, target: &'_ PDVTrustAnchorChoice) -> Result<()> {
+    pub fn is_trust_anchor(&self, target: &PDVTrustAnchorChoice) -> Result<()> {
         for f in &self.trust_anchor_sources {
             if f.is_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -370,14 +450,7 @@ impl PkiEnvironment {
     }
 
     /// add_certificate_source adds a [`CertificateSource`] object to the list.
-    #[cfg(feature = "std")]
-    pub fn add_certificate_source(&mut self, c: Box<(dyn CertificateSource + Send + Sync)>) {
-        self.certificate_sources.push(c);
-    }
-
-    /// add_certificate_source adds a [`CertificateSource`] object to the list.
-    #[cfg(not(feature = "std"))]
-    pub fn add_certificate_source(&mut self, c: Box<(dyn CertificateSource)>) {
+    pub fn add_certificate_source(&mut self, c: Box<dyn CertificateSource + Send + Sync>) {
         self.certificate_sources.push(c);
     }
 
@@ -386,21 +459,49 @@ impl PkiEnvironment {
         self.certificate_sources.clear();
     }
 
-    /// add_crl_source adds a [`CrlSource`] object to the list.
-    #[cfg(feature = "std")]
-    pub fn add_crl_source(&mut self, c: Box<(dyn CrlSource + Send + Sync)>) {
-        self.crl_sources.push(c);
+    /// gives all the intermediate certificates
+    pub fn get_intermediates(&self) -> Result<Vec<&PDVCertificate>> {
+        for f in &self.certificate_sources {
+            let r = f.get_certificates();
+            if let Ok(r) = r {
+                return Ok(r);
+            }
+        }
+        Err(Error::Unrecognized)
+    }
+
+    /// Fetches all intermediate certs matching a particular skid
+    pub fn get_intermediates_by_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
+        for f in &self.certificate_sources {
+            let r = f.get_certificates_for_skid(skid);
+            if let Ok(r) = r {
+                return Ok(r);
+            }
+        }
+        Err(Error::Unrecognized)
     }
 
     /// add_crl_source adds a [`CrlSource`] object to the list.
-    #[cfg(not(feature = "std"))]
-    pub fn add_crl_source(&mut self, c: Box<(dyn CrlSource)>) {
+    pub fn add_crl_source(&mut self, c: Box<dyn CrlSource + Send + Sync>) {
         self.crl_sources.push(c);
     }
 
     /// clear_crl_sources clears the list of [`CrlSource`] objects.
     pub fn clear_crl_sources(&mut self) {
         self.crl_sources.clear();
+    }
+
+    /// Retrieves all the CRLs made available by the various [`CrlSource`] objects
+    pub fn get_all_crls(&self) -> Result<Vec<Vec<u8>>> {
+        let mut retval = vec![];
+        for f in &self.crl_sources {
+            let Ok(mut crls) = f.get_all_crls() else {
+                continue;
+            };
+            retval.append(&mut crls);
+        }
+        retval.dedup();
+        Ok(retval)
     }
 
     /// Retrieves CRLs for given certificate from store
@@ -420,7 +521,7 @@ impl PkiEnvironment {
     }
 
     /// Adds a CRL to the store
-    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList, uri: &str) -> Result<()> {
+    pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut at_least_one_success = false;
         for f in &self.crl_sources {
             if f.add_crl(crl_buf, crl, uri).is_ok() {
@@ -434,14 +535,7 @@ impl PkiEnvironment {
     }
 
     /// add_revocation_cache adds a [`RevocationStatusCache`] object to the list.
-    #[cfg(feature = "std")]
-    pub fn add_revocation_cache(&mut self, c: Box<(dyn RevocationStatusCache + Send + Sync)>) {
-        self.revocation_cache.push(c);
-    }
-
-    /// add_revocation_cache adds a [`RevocationStatusCache`] object to the list.
-    #[cfg(not(feature = "std"))]
-    pub fn add_revocation_cache(&mut self, c: Box<(dyn RevocationStatusCache)>) {
+    pub fn add_revocation_cache(&mut self, c: Box<dyn RevocationStatusCache + Send + Sync>) {
         self.revocation_cache.push(c);
     }
 
@@ -451,7 +545,11 @@ impl PkiEnvironment {
     }
 
     /// Retrieves cached revocation status determination for given certificate from store
-    pub fn get_status(&self, cert: &PDVCertificate, time_of_interest: u64) -> PathValidationStatus {
+    pub fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus {
         for f in &self.revocation_cache {
             let status = f.get_status(cert, time_of_interest);
             if RevocationStatusNotDetermined != status {
@@ -480,20 +578,22 @@ impl PkiEnvironment {
         target: &PDVCertificate,
         paths: &mut Vec<CertificationPath>,
         threshold: usize,
-        time_of_interest: u64,
+        time_of_interest: TimeOfInterest,
     ) -> Result<()> {
         let mut some_valid = false;
+        let mut last_error = Error::Unrecognized;
         for f in &self.certificate_sources {
-            if f.get_paths_for_target(self, target, paths, threshold, time_of_interest)
-                .is_ok()
-            {
-                some_valid = true;
+            match f.get_paths_for_target(self, target, paths, threshold, time_of_interest) {
+                Ok(_) => some_valid = true,
+                Err(e) => {
+                    last_error = e;
+                }
             }
         }
         if some_valid {
             Ok(())
         } else {
-            Err(Error::Unrecognized)
+            Err(last_error)
         }
     }
 
@@ -520,14 +620,7 @@ impl PkiEnvironment {
     }
 
     /// add_check_remote adds a [`CheckRemoteResource`] object to the list.
-    #[cfg(feature = "std")]
-    pub fn add_check_remote(&mut self, c: Box<(dyn CheckRemoteResource + Send + Sync)>) {
-        self.check_remote.push(c);
-    }
-
-    /// add_check_remote adds a [`CheckRemoteResource`] object to the list.
-    #[cfg(not(feature = "std"))]
-    pub fn add_check_remote(&mut self, c: Box<(dyn CheckRemoteResource)>) {
+    pub fn add_check_remote(&mut self, c: Box<dyn CheckRemoteResource + Send + Sync>) {
         self.check_remote.push(c);
     }
 
@@ -591,8 +684,10 @@ impl PkiEnvironment {
         }
 
         #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_pqcrypto);
+        self.add_verify_signature_message_callback(verify_signature_message_rustcrypto);
         #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_composite_pqcrypto);
+        self.add_verify_signature_message_ctx_callback(verify_signature_message_ctx_rustcrypto);
+        #[cfg(feature = "pqc")]
+        self.add_verify_signature_message_callback(verify_signature_message_composite_rustcrypto);
     }
 }

@@ -29,12 +29,7 @@ use alloc::{vec, vec::Vec};
 use core::str;
 use log::{error, info, warn};
 
-#[cfg(feature = "std")]
-use alloc::sync::Arc;
 use ciborium::from_reader;
-use core::cell::RefCell;
-#[cfg(feature = "std")]
-use std::sync::Mutex;
 
 #[cfg(feature = "webpki")]
 use webpki_roots::TLS_SERVER_ROOTS;
@@ -49,18 +44,20 @@ use sha2::{Digest, Sha256};
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::name::Name;
-use x509_cert::{anchor::TrustAnchorChoice, certificate::CertificateInner};
+use x509_cert::{
+    anchor::TrustAnchorChoice,
+    certificate::{CertificateInner, Raw},
+};
 
 use crate::{
     environment::pki_environment_traits::TrustAnchorSource,
-    pdv_certificate::*,
     pdv_extension::PDVExtension,
     pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name,
     source::cert_source::CertFile,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice, EXTS_OF_INTEREST,
+    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -70,18 +67,20 @@ use crate::{
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
 pub fn get_subject_public_key_info_from_trust_anchor(
-    ta: &TrustAnchorChoice,
+    ta: &TrustAnchorChoice<Raw>,
 ) -> &SubjectPublicKeyInfoOwned {
     match ta {
-        TrustAnchorChoice::Certificate(cert) => &cert.tbs_certificate.subject_public_key_info,
+        TrustAnchorChoice::Certificate(cert) => cert.tbs_certificate().subject_public_key_info(),
         TrustAnchorChoice::TaInfo(tai) => &tai.pub_key,
-        TrustAnchorChoice::TbsCertificate(tbs) => &tbs.subject_public_key_info,
+        TrustAnchorChoice::TbsCertificate(tbs) => tbs.subject_public_key_info(),
     }
 }
 
 /// get_certificate_from_trust_anchor returns the certificate from the TrustAnchorChoice. This will
 /// be either the Certificate choice itself or the TrustAnchorInfo.cert_path.certificate field.
-pub fn get_certificate_from_trust_anchor(ta: &TrustAnchorChoice) -> Option<&CertificateInner> {
+pub fn get_certificate_from_trust_anchor(
+    ta: &TrustAnchorChoice<Raw>,
+) -> Option<&CertificateInner<Raw>> {
     match ta {
         TrustAnchorChoice::Certificate(cert) => return Some(cert),
         TrustAnchorChoice::TaInfo(tai) => {
@@ -153,7 +152,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
         buffer_to_hex(skid.0.as_bytes())
     } else {
-        let working_spki = &cert.decoded_cert.tbs_certificate.subject_public_key_info;
+        let working_spki = &cert.as_ref().tbs_certificate().subject_public_key_info();
         //todo unwrap
         let digest = Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
         buffer_to_hex(digest.as_slice())
@@ -164,12 +163,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
 /// `get_filename_from_ta_metadata` returns the string from the `MD_LOCATOR` in the metadata or an
 /// empty string.
 pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
-    if let Some(md) = &cert.metadata {
-        if let Asn1MetadataTypes::String(filename) = &md[MD_LOCATOR] {
-            return filename.to_owned();
-        }
-    }
-    "".to_string()
+    cert.locator().map(str::to_string).unwrap_or_default()
 }
 
 /// `TrustAnchorKeyId` is a String value containing the ASCII hex representation of public key from
@@ -179,7 +173,7 @@ pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
 /// * the subjectKeyIdentifier extension in a TrustAnchorChoice::Certificate structure,
 /// * the keyID field in a TrustAnchorChoice::TrustAnchorInfo structure
 /// * the SHA256 digest of the  SubjectPublicKeyInfoOwned read from TrustAnchorChoice::Certificate or
-/// TrustAnchorChoice::TrustAnchorInfo
+///   TrustAnchorChoice::TrustAnchorInfo
 pub type TrustAnchorKeyId = String;
 
 #[derive(Clone)]
@@ -193,21 +187,11 @@ pub struct TaSource {
     /// Contains list of buffers referenced by tas field
     buffers: Vec<CertFile>,
 
-    #[cfg(feature = "std")]
     /// Maps TA SKIDs to keys in the tas map
-    skid_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
+    skid_map: BTreeMap<String, usize>,
 
-    #[cfg(feature = "std")]
     /// Maps TA Names to keys in the tas map
-    name_map: Arc<Mutex<RefCell<BTreeMap<String, usize>>>>,
-
-    #[cfg(not(feature = "std"))]
-    /// Maps TA SKIDs to keys in the tas map
-    skid_map: RefCell<BTreeMap<String, usize>>,
-
-    #[cfg(not(feature = "std"))]
-    /// Maps TA Names to keys in the tas map
-    name_map: RefCell<BTreeMap<String, usize>>,
+    name_map: BTreeMap<String, usize>,
 }
 
 impl Default for TaSource {
@@ -239,14 +223,8 @@ impl TaSource {
         TaSource {
             tas: Vec::new(),
             buffers: Vec::new(),
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         }
     }
 
@@ -256,21 +234,15 @@ impl TaSource {
         let bap: BuffersAndPaths = match from_reader(cbor) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse embedded EE CBOR with: {}", e)
+                panic!("Failed to parse embedded EE CBOR with: {e}")
             }
         };
 
         Ok(Self {
             tas: Vec::new(),
             buffers: bap.buffers,
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         })
     }
 
@@ -297,14 +269,8 @@ impl TaSource {
         let mut tas = Self {
             tas: Vec::new(),
             buffers,
-            #[cfg(feature = "std")]
-            skid_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            skid_map: RefCell::new(BTreeMap::new()),
-            #[cfg(feature = "std")]
-            name_map: Arc::new(Mutex::new(RefCell::new(BTreeMap::new()))),
-            #[cfg(not(feature = "std"))]
-            name_map: RefCell::new(BTreeMap::new()),
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
         };
         tas.initialize()?;
         Ok(tas)
@@ -324,38 +290,14 @@ impl TaSource {
 
     /// index_tas builds internally used maps based on key identifiers and names. It must be called
     /// after populating the `tas` and `buffers` fields and before use.
-    pub fn index_tas(&self) {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut skid_map = self.skid_map.borrow_mut();
-
-        #[cfg(feature = "std")]
-        let name_map_guard = if let Ok(g) = self.name_map.lock() {
-            g
-        } else {
-            return;
-        };
-        #[cfg(feature = "std")]
-        let mut name_map = name_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let mut name_map = self.name_map.borrow_mut();
-
+    pub fn index_tas(&mut self) {
         for (i, ta) in self.tas.iter().enumerate() {
             let hex_skid = hex_skid_from_ta(ta);
-            skid_map.insert(hex_skid, i);
+            self.skid_map.insert(hex_skid, i);
 
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let name_str = name_to_string(name);
-                name_map.insert(name_str, i);
+                self.name_map.insert(name_str, i);
             };
         }
     }
@@ -367,15 +309,9 @@ impl TaSource {
             let ta_filename = get_filename_from_ta_metadata(ta);
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let sub = get_leaf_rdn(name);
-                info!(
-                    "Index: {:3}; SKID: {}; Subject: {}; Filename: {}",
-                    i, hex_skid, sub, ta_filename
-                );
+                info!("Index: {i:3}; SKID: {hex_skid}; Subject: {sub}; Filename: {ta_filename}");
             } else {
-                info!(
-                    "Index: {:3}; SKID: {}; Subject: No Name; Filename: {}",
-                    i, hex_skid, ta_filename
-                );
+                info!("Index: {i:3}; SKID: {hex_skid}; Subject: No Name; Filename: {ta_filename}");
             }
         }
     }
@@ -383,15 +319,15 @@ impl TaSource {
 
 impl TrustAnchorSource for TaSource {
     fn get_trust_anchor_for_target(
-        &'_ self,
-        target: &'_ PDVCertificate,
+        &self,
+        target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
-        let mut akid_hex = "".to_string();
-        let mut name_vec = vec![&target.decoded_cert.tbs_certificate.issuer];
+        let mut akid_hex = None;
+        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
-                akid_hex = buffer_to_hex(kid.as_bytes());
+                akid_hex.replace(buffer_to_hex(kid.as_bytes()));
             } else if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
                     if let GeneralName::DirectoryName(dn) = n {
@@ -400,7 +336,8 @@ impl TrustAnchorSource for TaSource {
                 }
             }
         }
-        if !akid_hex.is_empty() {
+
+        if let Some(akid_hex) = akid_hex {
             match self.get_trust_anchor_by_hex_skid(&akid_hex) {
                 Ok(s) => return Ok(s),
                 Err(_e) => {
@@ -408,76 +345,39 @@ impl TrustAnchorSource for TaSource {
                 }
             }
         }
+
         for n in name_vec {
             let r = self.get_trust_anchor_by_name(n);
+
             if r.is_ok() {
+                info!("Found trust anchor by name: {n}");
                 return r;
             }
         }
         Err(Error::Unrecognized)
     }
 
-    fn get_trust_anchor_by_skid(&'_ self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
-
+    fn get_trust_anchor_by_skid(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
         let hex_skid = buffer_to_hex(skid);
-        if skid_map.contains_key(hex_skid.as_str()) {
-            return Ok(&self.tas[skid_map[&hex_skid]]);
-        }
-
-        Err(Error::Unrecognized)
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
     }
 
-    fn get_trust_anchor_by_hex_skid(&'_ self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
-        if skid_map.contains_key(hex_skid) {
-            return Ok(&self.tas[skid_map[hex_skid]]);
-        }
-
-        Err(Error::Unrecognized)
+    fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
+        self.skid_map
+            .get(hex_skid)
+            .ok_or(Error::Unrecognized)
+            .map(|idx| &self.tas[*idx])
     }
 
-    fn get_trust_anchor_by_name(&'_ self, name: &'_ Name) -> Result<&PDVTrustAnchorChoice> {
-        #[cfg(feature = "std")]
-        let name_map_guard = if let Ok(g) = self.name_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let name_map = name_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let name_map = &self.name_map.borrow_mut();
+    fn get_trust_anchor_by_name(&self, name: &Name) -> Result<&PDVTrustAnchorChoice> {
         let name_str = name_to_string(name);
-        if name_map.contains_key(&name_str) {
-            return Ok(&self.tas[name_map[&name_str]]);
-        }
-
-        Err(Error::Unrecognized)
+        self.name_map
+            .get(&name_str)
+            .ok_or(Error::Unrecognized)
+            .map(|idx| &self.tas[*idx])
     }
 
-    fn get_trust_anchors(&'_ self) -> Result<Vec<&PDVTrustAnchorChoice>> {
+    fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>> {
         let mut v = vec![];
         for ta in &self.tas {
             v.push(ta);
@@ -488,61 +388,21 @@ impl TrustAnchorSource for TaSource {
 
     /// is_cert_a_trust_anchor returns true if presented certificate object is a trust anchor
     fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = hex_skid_from_cert(ta);
-        match skid_map.contains_key(hex_skid.as_str()) {
-            true => Ok(()),
-            false => Err(Error::NotFound),
-        }
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|_| ())
     }
 
     fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice) -> Result<()> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = hex_skid_from_ta(ta);
-        match skid_map.contains_key(hex_skid.as_str()) {
-            true => Ok(()),
-            false => Err(Error::NotFound),
-        }
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|_| ())
     }
 
     fn get_encoded_trust_anchor(&self, skid: &[u8]) -> Result<Vec<u8>> {
-        #[cfg(feature = "std")]
-        let skid_map_guard = if let Ok(g) = self.skid_map.lock() {
-            g
-        } else {
-            return Err(Error::Unrecognized);
-        };
-        #[cfg(feature = "std")]
-        let skid_map = skid_map_guard.borrow_mut();
-
-        #[cfg(not(feature = "std"))]
-        let skid_map = &self.skid_map.borrow_mut();
         let hex_skid = buffer_to_hex(skid);
-        if skid_map.contains_key(hex_skid.as_str()) {
-            return Ok(self.tas[skid_map[&hex_skid]].encoded_ta.to_owned().to_vec());
-        }
-
-        Err(Error::Unrecognized)
+        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
+            .map(|ta| ta.encoded_ta.to_owned().to_vec())
     }
 
     fn get_encoded_trust_anchors(&self) -> Result<Vec<Vec<u8>>> {
@@ -567,22 +427,9 @@ fn populate_parsed_ta_vector(
     parsed_ta_vec: &mut Vec<PDVTrustAnchorChoice>,
 ) {
     for cf in ta_buffer_vec {
-        match PDVTrustAnchorChoice::try_from(cf.bytes.as_slice()) {
-            Ok(mut ta) => {
-                let mut md = Asn1Metadata::new();
-                md.insert(
-                    MD_LOCATOR.to_string(),
-                    Asn1MetadataTypes::String(cf.filename.clone()),
-                );
-                ta.metadata = Some(md);
-                if !parsed_ta_vec.contains(&ta) {
-                    ta.parse_extensions(EXTS_OF_INTEREST);
-                    parsed_ta_vec.push(ta);
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse TrustAnchorChoice: {:?}", e);
-            }
+        match PDVTrustAnchorChoice::create(cf.bytes.as_slice(), &cf.filename) {
+            Ok(ta) => parsed_ta_vec.push(ta),
+            Err(e) => error!("Failed to parse TrustAnchorChoice: {:?}", e),
         }
     }
 }
@@ -601,7 +448,13 @@ fn get_trust_anchor_test() {
 
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    ta_folder_to_vec(&pe, &ta_store_folder, &mut ta_store, 0).unwrap();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
     ta_store.initialize().unwrap();
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     let bad = hex!("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD");

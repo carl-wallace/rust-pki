@@ -98,6 +98,8 @@ The seven feature gates shared with certval enable varying levels of support and
   expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
 - `pqc` adds support for dilithium, falcon and sphincsplus using algorithm implementations from the [pqcrypto](https://github.com/rustpq/pqcrypto) project and object identifiers from the [IETF 115 PQC hackathon](https://github.com/IETF-Hackathon/pqc-certificates).
 - `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
+- `rsa` enables use of the RSA algorithm. RSA support is not enabled by default.
+- `eddsa` enables use of the Ed25519 algorithm. Ed25519 support is not enabled by default.
 
 The one additional feature gate is `std_app`, which builds certval as `default-features = false` but
 builds pittv3 with std support so that end entity files can be selected for validation (additional
@@ -113,7 +115,7 @@ development.
 
 ## Minimum Supported Rust Version
 
-This crate requires **Rust 1.65** at a minimum.
+This crate requires **Rust 1.85** at a minimum.
 
 The MSRV may change in the future, but it will be accompanied by a minor
 version bump.

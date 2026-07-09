@@ -8,7 +8,7 @@ use log::{error, info};
 
 use der::Decode;
 use x509_cert::anchor::TrustAnchorChoice;
-use x509_cert::certificate::CertificateInner;
+use x509_cert::certificate::{CertificateInner, Raw};
 
 use crate::source::cert_source::CertFile;
 use crate::util::pdv_utilities::*;
@@ -41,7 +41,7 @@ pub fn ta_folder_to_vec(
     pe: &PkiEnvironment,
     tas_dir: &str,
     tas_vec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, tas_dir, tas_vec, time_of_interest, true)
 }
@@ -60,7 +60,7 @@ pub fn cert_folder_to_vec(
     pe: &PkiEnvironment,
     certs_dir: &str,
     certs_vec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
 ) -> Result<usize> {
     cert_or_ta_folder_to_vec(pe, certs_dir, certs_vec, time_of_interest, false)
 }
@@ -71,11 +71,11 @@ fn cert_or_ta_folder_to_vec(
     pe: &PkiEnvironment,
     certsdir: &str,
     certsvec: &mut dyn CertVector,
-    time_of_interest: u64,
+    time_of_interest: TimeOfInterest,
     collect_tas: bool,
 ) -> Result<usize> {
     if !Path::is_dir(Path::new(certsdir)) {
-        error!("{} does not exist or is not a directory", certsdir);
+        error!("{certsdir} does not exist or is not a directory");
         return Err(Error::NotFound);
     }
 
@@ -119,9 +119,9 @@ fn cert_or_ta_folder_to_vec(
 
                     // make sure it parses before saving buffer
                     if collect_tas {
-                        let r = TrustAnchorChoice::from_der(buffer.as_slice());
+                        let r = TrustAnchorChoice::<Raw>::from_der(buffer.as_slice());
                         if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
-                            let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
+                            let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
                             if let Err(_e) = r {
                                 error!(
                                     "Ignored {} as not valid at indicated time of interest",
@@ -135,7 +135,7 @@ fn cert_or_ta_folder_to_vec(
                     } else {
                         let r = CertificateInner::from_der(buffer.as_slice());
                         if let Ok(cert) = r {
-                            let r = valid_at_time(&cert.tbs_certificate, time_of_interest, true);
+                            let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
                             if let Err(_e) = r {
                                 error!(
                                     "Ignored {} as not valid at indicated time of interest",
@@ -146,7 +146,7 @@ fn cert_or_ta_folder_to_vec(
 
                             if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
                                 if let Some(s) = path.to_str() {
-                                    info!("Ignoring {} as self-signed", s);
+                                    info!("Ignoring {s} as self-signed");
                                 }
                                 continue;
                             }
@@ -234,18 +234,18 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
                 match f.read_exact(&mut buffer) {
                     Ok(_) => Ok(buffer),
                     Err(e) => {
-                        error!("Failed to read data from {:?}: {}", filename, e);
+                        error!("Failed to read data from {filename:?}: {e}");
                         Err(Error::StdIoError(e.kind()))
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to read metadata for {:?}: {}", filename, e);
+                error!("Failed to read metadata for {filename:?}: {e}");
                 Err(Error::StdIoError(e.kind()))
             }
         },
         Err(e) => {
-            error!("Failed to read {:?}: {}", filename, e);
+            error!("Failed to read {filename:?}: {e}");
             Err(Error::StdIoError(e.kind()))
         }
     }
@@ -263,7 +263,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
                 return Ok(b.1);
             }
             Err(e) => {
-                error!("Failed to PEM decode data from {:?}: {:?}", filename, e);
+                error!("Failed to PEM decode data from {filename:?}: {e:?}");
                 return Err(Error::Unrecognized);
             }
         }
@@ -275,7 +275,7 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
 fn non_existent_dir() {
     let pe = PkiEnvironment::default();
     let mut certsvec = CertSource::default();
-    let toi = 0;
+    let toi = TimeOfInterest::disabled();
     let r = cert_or_ta_folder_to_vec(&pe, "tests/examples/nonexistent", &mut certsvec, toi, false);
     assert!(r.is_err());
     let r = r.err();
@@ -288,7 +288,7 @@ fn with_expired() {
 
     //disable validity check
     let mut certsvec = CertSource::default();
-    let toi = 0;
+    let toi = TimeOfInterest::disabled();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",
@@ -300,7 +300,7 @@ fn with_expired() {
     assert_eq!(5, r.unwrap());
 
     //enable validity check but vector is already full of what would otherwise be read
-    let toi = 1647443375;
+    let toi = TimeOfInterest::from_unix_secs(1647443375).unwrap();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",
@@ -313,7 +313,7 @@ fn with_expired() {
 
     // validity check with empty vector results in one fewer certificate being harvested
     let mut certsvec = CertSource::default();
-    let toi = 1647443375;
+    let toi = TimeOfInterest::from_unix_secs(1647443375).unwrap();
     let r = cert_or_ta_folder_to_vec(
         &pe,
         "tests/examples/cert_store_with_expired",

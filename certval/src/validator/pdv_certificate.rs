@@ -1,7 +1,6 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 
 use crate::asn1::piv_naci_indicator::PivNaciIndicator;
-use alloc::collections::BTreeMap;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -10,7 +9,7 @@ use der::{asn1::ObjectIdentifier, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::{
-    certificate::Certificate,
+    certificate::{CertificateInner, Profile, Raw},
     ext::{pkix::crl::CrlDistributionPoints, pkix::*},
 };
 
@@ -29,29 +28,6 @@ use crate::pdv_extension::*;
 use crate::util::error::*;
 use crate::EXTS_OF_INTEREST;
 
-/// [`Asn1Metadata`] is a typedef of a BTreeMap map that associates types represented by the [`Asn1MetadataTypes`]
-/// enum objects with arbitrary string values. At present this is only used to convey filenames and
-/// may be dropped in favor of a String filename member in place of current [`Asn1Metadata`] members..
-pub type Asn1Metadata = BTreeMap<String, Asn1MetadataTypes>;
-
-/// [`MD_LOCATOR`] is used to set/get a String value to/from an [`Asn1Metadata`] object. The value
-/// may represent a file name, URI or other locator for troubleshooting purposes.
-pub static MD_LOCATOR: &str = "mdLocator";
-
-/// Small assortment of types that can be used to save metadata collected during certification path
-/// processing. For example, saving whether or not a certificate is self-issued or self-signed.
-#[derive(PartialEq, Clone, Eq)]
-pub enum Asn1MetadataTypes {
-    /// Used for metadata represented as a bool
-    Bool(bool),
-    /// Used for metadata represented as a u32
-    Number(u32),
-    /// Used for metadata represented as a String
-    String(String),
-    /// Used for metadata represented as a `Vec<u8>`
-    Buffer(Vec<u8>),
-}
-
 /// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, optional metadata
 /// and optional parsed extensions in support of certification path development and validation operations.
 ///
@@ -59,51 +35,70 @@ pub enum Asn1MetadataTypes {
 #[derive(Clone, Eq, PartialEq)]
 pub struct PDVCertificate {
     /// Binary, encoded Certificate object
-    pub encoded_cert: Vec<u8>,
+    encoded_cert: Vec<u8>,
     /// Decoded Certificate object
-    pub decoded_cert: Certificate,
-    /// Optional metadata about the trust anchor
-    pub metadata: Option<Asn1Metadata>,
+    decoded_cert: CertificateInner<Raw>,
     /// Optional parsed extension from the Certificate
-    pub parsed_extensions: ParsedExtensions,
+    parsed_extensions: ParsedExtensions,
+    /// The source for the certificate
+    locator: Option<String>,
+}
+
+impl PDVCertificate {
+    fn new(cert: CertificateInner<Raw>) -> der::Result<Self> {
+        let mut pdv_cert = PDVCertificate {
+            encoded_cert: cert.to_der()?,
+            decoded_cert: cert,
+            parsed_extensions: Default::default(),
+            locator: None,
+        };
+        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
+        Ok(pdv_cert)
+    }
+
+    /// Return the byte encoding of the Certificate object
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.encoded_cert
+    }
+
+    /// Return the locator for the source of this certificate
+    pub fn locator(&self) -> Option<&str> {
+        self.locator.as_deref()
+    }
+}
+
+impl AsRef<CertificateInner<Raw>> for PDVCertificate {
+    fn as_ref(&self) -> &CertificateInner<Raw> {
+        &self.decoded_cert
+    }
 }
 
 impl TryFrom<&[u8]> for PDVCertificate {
     type Error = der::Error;
 
     fn try_from(enc_cert: &[u8]) -> der::Result<Self> {
-        let cert = Certificate::from_der(enc_cert)?;
-        let mut pdv_cert = PDVCertificate {
-            encoded_cert: enc_cert.to_vec(),
-            decoded_cert: cert,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_cert)
+        let cert = CertificateInner::from_der(enc_cert)?;
+        Self::new(cert)
     }
 }
 
-impl TryFrom<Certificate> for PDVCertificate {
+impl<P> TryFrom<CertificateInner<P>> for PDVCertificate
+where
+    P: Profile,
+{
     type Error = der::Error;
 
-    fn try_from(cert: Certificate) -> der::Result<Self> {
+    fn try_from(cert: CertificateInner<P>) -> der::Result<Self> {
         let enc_cert = cert.to_der()?;
-        let mut pdv_cert = PDVCertificate {
-            encoded_cert: enc_cert,
-            decoded_cert: cert,
-            metadata: None,
-            parsed_extensions: Default::default(),
-        };
-        pdv_cert.parse_extensions(EXTS_OF_INTEREST);
-        Ok(pdv_cert)
+        let cert = CertificateInner::from_der(&enc_cert)?;
+        Self::new(cert)
     }
 }
 
 impl ExtensionProcessing for PDVCertificate {
     /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
-    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&'_ PDVExtension>> {
+    fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
                 return Ok(Some(ext));
@@ -114,7 +109,7 @@ impl ExtensionProcessing for PDVCertificate {
 
     /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
     /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
-    fn parse_extensions(&'_ mut self, oids: &[ObjectIdentifier]) {
+    fn parse_extensions(&mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);
         }
@@ -141,7 +136,7 @@ impl ExtensionProcessing for PDVCertificate {
             return Ok(pe.get(oid));
         }
 
-        if let Some(exts) = self.decoded_cert.tbs_certificate.extensions.as_ref() {
+        if let Some(exts) = self.decoded_cert.tbs_certificate().extensions().as_ref() {
             if let Some(i) = exts.iter().find(|&ext| ext.extn_id == *oid) {
                 let v = i.extn_value.as_bytes();
                 match *oid {
@@ -250,12 +245,13 @@ impl ::der::FixedTag for DeferDecodeSigned {
 }
 
 impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
+    type Error = der::Error;
+
     fn decode_value<R: ::der::Reader<'a>>(
         reader: &mut R,
         header: ::der::Header,
     ) -> ::der::Result<Self> {
-        use ::der::Reader as _;
-        reader.read_nested(header.length, |reader| {
+        reader.read_nested(header.length(), |reader| {
             let tbs_certificate = reader.tlv_bytes()?;
             let signature_algorithm = reader.decode()?;
             let signature = reader.decode()?;
@@ -272,25 +268,15 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
 /// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
 /// parsed certificate if parsing was successful.
 pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
-    let r = Certificate::from_der(buffer);
+    let r = CertificateInner::from_der(buffer);
     match r {
         Ok(cert) => {
-            let mut md = Asn1Metadata::new();
-            md.insert(
-                MD_LOCATOR.to_string(),
-                Asn1MetadataTypes::String(filename.to_string()),
-            );
-            let mut pdvcert = PDVCertificate {
-                encoded_cert: buffer.to_vec(),
-                decoded_cert: cert,
-                metadata: Some(md),
-                parsed_extensions: ParsedExtensions::new(),
-            };
-            pdvcert.parse_extensions(EXTS_OF_INTEREST);
+            let mut pdvcert = PDVCertificate::new(cert)?;
+            pdvcert.locator = Some(filename.to_string());
             Ok(pdvcert)
         }
         Err(e) => {
-            error!("Failed to parse certificate from {}: {}", filename, e);
+            error!("Failed to parse certificate from {filename}: {e}");
             Err(Error::Asn1Error(e))
         }
     }
