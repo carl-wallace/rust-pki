@@ -18,4 +18,6 @@ cidr = "0.2.2"
 ed25519-dalek = { version = "3.0.0-pre.6", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
 
 [patch.crates-io]
+# Temporary until RustCrypto publishes x509-ocsp RCs. The specific commit is pinned by Cargo.lock;
+# do not `cargo update` this patch until the RCs land (HEAD has drifted incompatible with x509-cert).
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }

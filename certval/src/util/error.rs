@@ -87,6 +87,10 @@ pub enum PathValidationStatus {
     Misconfiguration,
     /// An End-Identity certificate was self-signed, but it is forbidden
     SelfSignedEndIdentity,
+    /// TrustAnchorConstraintsMismatch occurs when trust anchor constraint enforcement is in effect
+    /// and the presented trust anchor shares its public key with an anchor in the trust store but
+    /// carries different constraints than the stored (authoritative) copy.
+    TrustAnchorConstraintsMismatch,
 }
 
 /// Error type
@@ -200,6 +204,9 @@ impl fmt::Display for PathValidationStatus {
             }
             PathValidationStatus::Misconfiguration => write!(f, "Misconfiguration"),
             PathValidationStatus::SelfSignedEndIdentity => write!(f, "SelfSignedEndIdentity"),
+            PathValidationStatus::TrustAnchorConstraintsMismatch => {
+                write!(f, "TrustAnchorConstraintsMismatch")
+            }
         }
     }
 }

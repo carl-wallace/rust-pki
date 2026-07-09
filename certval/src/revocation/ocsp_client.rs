@@ -33,13 +33,16 @@ use core::time::Duration;
 
 #[cfg(feature = "remote")]
 use x509_cert::ext::pkix::name::GeneralName;
-#[cfg(feature = "remote")]
+#[cfg(feature = "revocation")]
 use x509_cert::ext::pkix::ExtendedKeyUsage;
 
+// Needed by the (stapling-capable) responder EKU check, so gated on `revocation`, not `remote`.
+#[cfg(feature = "revocation")]
+use const_oid::db::rfc5912::{ID_CE_EXT_KEY_USAGE, ID_KP_OCSP_SIGNING};
+
+// Used only when fetching an OCSP responder URL from AIA (network), so `remote`-only.
 #[cfg(feature = "remote")]
-use const_oid::db::rfc5912::{
-    ID_AD_OCSP, ID_CE_EXT_KEY_USAGE, ID_KP_OCSP_SIGNING, ID_PE_AUTHORITY_INFO_ACCESS,
-};
+use const_oid::db::rfc5912::{ID_AD_OCSP, ID_PE_AUTHORITY_INFO_ACCESS};
 
 #[cfg(feature = "revocation")]
 use const_oid::db::rfc6960::{ID_PKIX_OCSP_BASIC, ID_PKIX_OCSP_NOCHECK, ID_PKIX_OCSP_NONCE};
@@ -302,7 +305,7 @@ fn no_check_present(exts: &Option<&Extensions>) -> bool {
 /// certificate issuer signing directly) to include id-kp-OCSPSigning in its extended key usage.
 /// A certificate with no EKU extension, an unparseable EKU, or an EKU that lacks this value is not
 /// an authorized delegated responder and is rejected (fail closed).
-#[cfg(feature = "remote")]
+#[cfg(feature = "revocation")]
 fn has_ocsp_signing_eku(exts: &Option<&Extensions>) -> bool {
     if let Some(exts) = exts {
         for ext in exts.as_slice() {
