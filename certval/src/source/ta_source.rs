@@ -389,14 +389,32 @@ impl TrustAnchorSource for TaSource {
     /// is_cert_a_trust_anchor returns true if presented certificate object is a trust anchor
     fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()> {
         let hex_skid = hex_skid_from_cert(ta);
-        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
-            .map(|_| ())
+        let stored = self.get_trust_anchor_by_hex_skid(hex_skid.as_str())?;
+        // A subjectKeyIdentifier match is not sufficient: the SKID extension value
+        // is chosen by the certificate creator. Confirm the presented certificate carries
+        // the same public key as the stored anchor before accepting it.
+        let presented_spki = ta.as_ref().tbs_certificate().subject_public_key_info();
+        let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
+        if presented_spki == stored_spki {
+            Ok(())
+        } else {
+            Err(Error::Unrecognized)
+        }
     }
 
     fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice) -> Result<()> {
         let hex_skid = hex_skid_from_ta(ta);
-        self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
-            .map(|_| ())
+        let stored = self.get_trust_anchor_by_hex_skid(hex_skid.as_str())?;
+        // A subjectKeyIdentifier match is not sufficient: the SKID extension value is
+        // chosen by the certificate/anchor creator. Confirm the presented anchor carries the same
+        // SPKI as the stored anchor before accepting it as a member of the trust store.
+        let presented_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
+        let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
+        if presented_spki == stored_spki {
+            Ok(())
+        } else {
+            Err(Error::Unrecognized)
+        }
     }
 
     fn get_encoded_trust_anchor(&self, skid: &[u8]) -> Result<Vec<u8>> {
