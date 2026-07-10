@@ -143,6 +143,43 @@ fn is_trust_anchor_test() {
     assert!(pe.is_trust_anchor(&ta).is_ok());
 }
 
+// Regression test for issue #79: get_trust_anchors must merge anchors from every registered
+// source, not return only the first source's anchors.
+#[test]
+fn get_trust_anchors_merges_all_sources() {
+    let mut pe = PkiEnvironment::default();
+
+    let der_ta1 = include_bytes!("../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut src1 = TaSource::new();
+    src1.push(CertFile {
+        bytes: der_ta1.to_vec(),
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+    });
+    src1.initialize().unwrap();
+
+    let der_ta2 = include_bytes!("../tests/examples/GoodCACert.crt");
+    let mut src2 = TaSource::new();
+    src2.push(CertFile {
+        bytes: der_ta2.to_vec(),
+        filename: "GoodCACert.crt".to_string(),
+    });
+    src2.initialize().unwrap();
+
+    // Each source individually exposes one anchor.
+    assert_eq!(src1.get_trust_anchors().unwrap().len(), 1);
+    assert_eq!(src2.get_trust_anchors().unwrap().len(), 1);
+
+    pe.add_trust_anchor_source(Box::new(src1));
+    pe.add_trust_anchor_source(Box::new(src2));
+
+    // The environment must surface anchors from both sources (pre-#79 returned only the first).
+    assert_eq!(
+        pe.get_trust_anchors().len(),
+        2,
+        "get_trust_anchors should merge anchors from all registered sources"
+    );
+}
+
 #[test]
 fn denies_self_signed_ee() {
     let _ = pretty_env_logger::try_init();
