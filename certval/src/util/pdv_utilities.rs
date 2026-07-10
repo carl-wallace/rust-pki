@@ -332,7 +332,10 @@ pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> b
 
     let mut filter = regex::escape(base.as_str());
     filter.push('$');
-    let filter_re = Regex::new(filter.as_str());
+    // DNS names and URI hosts are case-insensitive.
+    let filter_re = regex::RegexBuilder::new(filter.as_str())
+        .case_insensitive(true)
+        .build();
     if let Ok(fe) = filter_re {
         if let Some(parts) = fe.captures(cand) {
             if cand.len() == base.len() {
@@ -375,7 +378,7 @@ pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> b
 pub(crate) fn is_email(addr: &str) -> bool {
     lazy_static! {
         static ref EMAIL_RE: Regex = Regex::new(
-            "^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([-.]{1}[a-z0-9]+)*.[a-z]{2,6})"
+            "(?i)^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([-.]{1}[a-z0-9]+)*.[a-z]{2,6})"
         )
         .unwrap();
     }
@@ -392,11 +395,20 @@ pub(crate) fn is_email(addr: &str) -> bool {
 #[cfg(feature = "std")]
 pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String) -> bool {
     let cand = new_name.to_string();
+    // A candidate rfc822Name must be a single well-formed mailbox. A malformed address such as
+    // "a@b@example.com" is not within any permitted namespace even though it ends with a permitted
+    // host, so reject anything that does not contain exactly one '@'.
+    if cand.matches('@').count() != 1 {
+        return false;
+    }
     let base = prev_name.to_string();
 
     let mut filter = regex::escape(base.as_str());
     filter.push('$');
-    let filter_re = Regex::new(filter.as_str());
+    // rfc822 name matching is case-insensitive.
+    let filter_re = regex::RegexBuilder::new(filter.as_str())
+        .case_insensitive(true)
+        .build();
     if let Ok(fe) = filter_re {
         if let Some(parts) = fe.captures(cand.as_str()) {
             if is_email(base.as_str()) && cand.len() == base.len() {
@@ -497,7 +509,7 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
                 // diff number of attributes
                 return false;
             }
-            for (subtree_attr, name_attr) in subtree.iter().zip(name_rdn.iter()) {
+            for (subtree_attr, name_attr) in subtree_rdn.iter().zip(name_rdn.iter()) {
                 let lau = subtree_attr;
                 let rau = name_attr;
                 if lau.oid != rau.oid {
@@ -1003,4 +1015,56 @@ fn get_hash_alg_from_sig_alg_test() {
         get_hash_alg_from_sig_alg(&PKIXALG_SHA512_WITH_RSA_ENCRYPTION).unwrap(),
         ai512
     );
+}
+
+// DNS name constraints match case-insensitively (RFC 1035 Section 2.3.3, RFC 4343). Positive
+// (assert!) and negative (assert!(!...)) cases cover exact, sub-domain, and non-matching hosts.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_host_case_insensitive() {
+    let base = Ia5String::new("Example.COM").unwrap();
+    assert!(descended_from_host(&base, "example.com", false)); // exact host, differing case
+    assert!(descended_from_host(&base, "HOST.Example.com", false)); // sub-domain, differing case
+    assert!(!descended_from_host(&base, "host.notexample.com", false)); // suffix trap, not descended
+}
+
+// rfc822 name constraints match case-insensitively (RFC 5280 Section 4.1.2.6:
+// "subscriber@example.com" is the same as "SUBSCRIBER@EXAMPLE.COM").
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_rfc822_case_insensitive() {
+    let ia5 = |s: &str| Ia5String::new(s).unwrap();
+    // host-part constraint
+    let host = ia5("Example.COM");
+    assert!(descended_from_rfc822(&host, &ia5("user@example.com")));
+    assert!(descended_from_rfc822(&host, &ia5("USER@EXAMPLE.COM")));
+    assert!(!descended_from_rfc822(&host, &ia5("user@notexample.com")));
+    // exact mailbox constraint
+    let mailbox = ia5("Admin@Example.COM");
+    assert!(descended_from_rfc822(&mailbox, &ia5("admin@example.com")));
+}
+
+// A malformed rfc822 name (not a single mailbox) is within no permitted namespace, even when it
+// ends with a permitted host.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_rfc822_rejects_malformed() {
+    let ia5 = |s: &str| Ia5String::new(s).unwrap();
+    let host = ia5("example.com");
+    assert!(!descended_from_rfc822(
+        &host,
+        &ia5("invalid@address@example.com")
+    )); // two '@'
+    assert!(!descended_from_rfc822(&host, &ia5("example.com"))); // no '@', not a mailbox
+}
+
+// descended_from_dn's char-set/case tolerance must compare the current subtree RDN's attributes,
+// not the whole subtree name flattened: a non-leading RDN that differs only by case must still be
+// recognized as descended.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_dn_uses_current_rdn_attributes() {
+    let subtree = Name::from_str("CN=Example,O=Org").unwrap();
+    let name = Name::from_str("CN=example,O=Org").unwrap();
+    assert!(descended_from_dn(&subtree, &name, 0, None));
 }

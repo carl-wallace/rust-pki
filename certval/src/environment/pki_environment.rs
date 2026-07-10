@@ -370,16 +370,15 @@ impl PkiEnvironment {
         Err(Error::Unrecognized)
     }
 
-    /// get_trust_anchor iterates over trust_anchor_sources until an authoritative answer is found
-    /// or all options have been exhausted
-    pub fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>> {
-        for f in &self.trust_anchor_sources {
-            let r = f.get_trust_anchors();
-            if let Ok(r) = r {
-                return Ok(r);
-            }
-        }
-        Err(Error::Unrecognized)
+    /// get_trust_anchors returns the trust anchors from every registered trust anchor source,
+    /// merged into a single collection. Sources that yield no anchors are skipped (previously only
+    /// the first source that returned successfully was consulted; see issue #79).
+    pub fn get_trust_anchors(&self) -> Vec<&PDVTrustAnchorChoice> {
+        self.trust_anchor_sources
+            .iter()
+            .filter_map(|src| src.get_trust_anchors().ok())
+            .flatten()
+            .collect()
     }
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
