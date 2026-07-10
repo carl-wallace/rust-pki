@@ -437,6 +437,39 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
     false
 }
 
+/// `emails_from_dn` returns the values of any PKCS#9 emailAddress attributes present in the given
+/// distinguished name, as `Ia5String` values. Applying rfc822 name constraints to an emailAddress
+/// attribute carried in the subject DN (in addition to rfc822Name SAN entries) is legacy RFC 3280
+/// behavior, as OpenSSL does; it is not required by RFC 5280.
+#[cfg(feature = "std")]
+pub(crate) fn emails_from_dn(name: &Name) -> Vec<Ia5String> {
+    let mut emails = Vec::new();
+    for rdn in name.iter_rdn() {
+        for atav in rdn.iter() {
+            if atav.oid != EMAIL_ADDRESS {
+                continue;
+            }
+            // PKCS#9 emailAddress is IA5String; some issuers use Utf8String ('@' is not in the
+            // PrintableString set, so no other type can hold a valid rfc822 name). Don't fail on a
+            // malformed email address in the RDN -- applying constraints to emailAddress-in-DN is
+            // non-standard anyway, so an address that isn't a valid rfc822 name is simply skipped.
+            let ia5 = match atav.value.tag() {
+                der::Tag::Ia5String => atav.value.decode_as::<Ia5String>().ok(),
+                der::Tag::Utf8String => atav
+                    .value
+                    .decode_as::<Utf8StringRef<'_>>()
+                    .ok()
+                    .and_then(|s| Ia5String::new(s.as_str()).ok()),
+                _ => None,
+            };
+            if let Some(ia5) = ia5 {
+                emails.push(ia5);
+            }
+        }
+    }
+    emails
+}
+
 /// `descended_from_dn` returns true if new_name is equal to or descended from prev_name and false otherwise.
 pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Option<u32>) -> bool {
     //if descendant fewer rdns then it is not a descendant
