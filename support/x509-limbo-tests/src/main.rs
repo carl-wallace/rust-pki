@@ -45,7 +45,7 @@ const WEAK_KEY_CHECKS: &[&str] = &[
     "webpki::forbidden-rsa-key-not-divisable-by-8-in-leaf",
 ];
 
-const BUG: &[&str] = &["rfc5280::nc::nc-permits-invalid-email-san"];
+const BUG: &[&str] = &[];
 
 const PATHOLOGICAL_CHECKS: &[&str] = &[
     "pathological::nc-dos-1",
