@@ -203,6 +203,34 @@ impl NameConstraintsSet {
             return true;
         }
 
+        // rfc822 name constraints are also applied to a PKCS#9 emailAddress attribute in the
+        // subject DN (legacy RFC 3280 behavior, as OpenSSL does), not just rfc822 SANs. Only
+        // inspect the DN when an rfc822 constraint is present.
+        #[cfg(feature = "std")]
+        {
+            if self.rfc822_name_null || !self.rfc822_name.is_empty() {
+                for email in emails_from_dn(subject) {
+                    // a NULL permitted set excludes every address
+                    if self.rfc822_name_null {
+                        return false;
+                    }
+                    // otherwise the address must fall within one of the permitted rfc822 subtrees
+                    let mut permitted = false;
+                    for gn in &self.rfc822_name {
+                        if let GeneralName::Rfc822Name(subtree) = &gn.base {
+                            if descended_from_rfc822(subtree, &email) {
+                                permitted = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !permitted {
+                        return false;
+                    }
+                }
+            }
+        }
+
         if self.directory_name_null {
             return false;
         }
@@ -402,6 +430,29 @@ impl NameConstraintsSet {
         if subject.is_empty() {
             // NULL subjects get a free pass
             return false;
+        }
+
+        // rfc822 name constraints are also applied to a PKCS#9 emailAddress attribute in the
+        // subject DN (legacy RFC 3280 behavior, as OpenSSL does), not just rfc822 SANs. If any
+        // such address falls within an excluded rfc822 subtree, reject.
+        #[cfg(feature = "std")]
+        {
+            if self.rfc822_name_null || !self.rfc822_name.is_empty() {
+                for email in emails_from_dn(subject) {
+                    // a NULL excluded set excludes every address
+                    if self.rfc822_name_null {
+                        return true;
+                    }
+                    // otherwise reject if the address falls within an excluded rfc822 subtree
+                    for gn in &self.rfc822_name {
+                        if let GeneralName::Rfc822Name(subtree) = &gn.base {
+                            if descended_from_rfc822(subtree, &email) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if self.directory_name_null {
