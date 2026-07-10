@@ -211,7 +211,9 @@ fn is_composite(
         };
         Ok((pqc, trad))
     } else if ID_MLDSA87_ED448_SHAKE256 == composite_oid {
-        todo!()
+        // ML-DSA-87 + Ed448 is not supported (no eddsa/Ed448 wiring); treat as unrecognized
+        // rather than panicking on an otherwise well-formed composite OID.
+        Err(Error::Unrecognized)
     } else if ID_MLDSA87_RSA3072_PSS_SHA512 == composite_oid
         || ID_MLDSA87_RSA4096_PSS_SHA512 == composite_oid
     {
@@ -244,16 +246,22 @@ fn is_composite(
 /// Splits a composite signature based on the OID representing the PQC algorithm component of the
 /// composite signature.
 fn split_sig(pqc_oid: ObjectIdentifier, composite: &[u8]) -> crate::Result<(&[u8], &[u8])> {
-    if ID_ML_DSA_44 == pqc_oid {
-        Ok(composite.split_at(2420))
+    let split_at = if ID_ML_DSA_44 == pqc_oid {
+        2420
     } else if ID_ML_DSA_65 == pqc_oid {
-        Ok(composite.split_at(3309))
+        3309
     } else if ID_ML_DSA_87 == pqc_oid {
-        Ok(composite.split_at(4627))
+        4627
     } else {
         error!("Unrecognized PQC OID passed to split_sig: {pqc_oid}");
-        Err(Error::Unrecognized)
-    }
+        return Err(Error::Unrecognized);
+    };
+    // split_at would panic if the composite is shorter than the expected ML-DSA component,
+    // so bound-check the caller-supplied bytes and return an error instead.
+    composite.split_at_checked(split_at).ok_or_else(|| {
+        error!("composite signature too short to split at {split_at} for PQC OID {pqc_oid}");
+        Error::Unrecognized
+    })
 }
 
 /// Returns a DER-encoded object identifier representing the named curve from the ECDSA component of
@@ -278,15 +286,23 @@ fn split_key(
     trad_oid: ObjectIdentifier,
     composite: &[u8],
 ) -> crate::Result<(SubjectPublicKeyInfoOwned, SubjectPublicKeyInfoOwned)> {
-    let (pqc_key, trad_key) = if ID_ML_DSA_44 == pqc_oid {
-        composite.split_at(1312)
+    let split_at = if ID_ML_DSA_44 == pqc_oid {
+        1312
     } else if ID_ML_DSA_65 == pqc_oid {
-        composite.split_at(1952)
+        1952
     } else if ID_ML_DSA_87 == pqc_oid {
-        composite.split_at(2592)
+        2592
     } else {
         error!("Unrecognized PQC OID passed to split_key: {pqc_oid}");
         return Err(Error::Unrecognized);
+    };
+    // Bound-check before split_at so a short composite key returns an error rather than panicking.
+    let (pqc_key, trad_key) = match composite.split_at_checked(split_at) {
+        Some(parts) => parts,
+        None => {
+            error!("composite key too short to split at {split_at} for PQC OID {pqc_oid}");
+            return Err(Error::Unrecognized);
+        }
     };
 
     let pqc_spki = SubjectPublicKeyInfoOwned {
@@ -343,7 +359,8 @@ fn hash_message(composite_oid: ObjectIdentifier, message: &[u8]) -> crate::Resul
     {
         Ok(Sha256::digest(message).as_slice().to_vec())
     } else if composite_oid == ID_MLDSA87_ED448_SHAKE256 {
-        todo!()
+        // ML-DSA-87 + Ed448 (SHAKE256) is unsupported; return an error instead of panicking.
+        Err(Error::Unrecognized)
     } else {
         Ok(Sha512::digest(message).as_slice().to_vec())
     }
