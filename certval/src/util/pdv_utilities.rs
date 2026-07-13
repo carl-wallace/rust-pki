@@ -362,7 +362,14 @@ pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> b
 /// compared case-insensitively.
 #[cfg(feature = "std")]
 pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String) -> bool {
-    let cand = new_name.to_string();
+    descended_from_rfc822_str(prev_name.as_ref(), new_name.as_ref())
+}
+
+/// `descended_from_rfc822_str` is the string-valued core of [`descended_from_rfc822`]. It is shared
+/// with UPN (otherName) name-constraint processing, whose values are structured as email addresses
+/// but are not necessarily carried as IA5String.
+#[cfg(feature = "std")]
+pub(crate) fn descended_from_rfc822_str(base: &str, cand: &str) -> bool {
     // A candidate rfc822Name must be a single well-formed mailbox. A malformed address such as
     // "a@b@example.com" is not within any permitted namespace even though it ends with a permitted
     // host, so reject anything that does not contain exactly one '@'.
@@ -374,7 +381,6 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
         None => return false,
     };
 
-    let base = prev_name.to_string();
     // a constraint with more than one '@' matches nothing
     if base.matches('@').count() > 1 {
         return false;

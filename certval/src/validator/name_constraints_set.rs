@@ -45,6 +45,69 @@ pub const MSFT_USER_PRINCIPAL_NAME: ObjectIdentifier =
 /// OID for uid attribute from RFC4519: 0.9.2342.19200300.100.1.1
 pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.19200300.100.1.1");
 
+/// `upn_from_other_name` returns the string value of a UPN (Microsoft user principal name)
+/// otherName, or None for any other otherName. The value is commonly a UTF8String but IA5String
+/// and PrintableString are also accepted.
+#[cfg(feature = "std")]
+fn upn_from_other_name(on: &OtherName) -> Option<String> {
+    if on.type_id != MSFT_USER_PRINCIPAL_NAME {
+        return None;
+    }
+    match on.value.tag() {
+        Tag::Ia5String => on
+            .value
+            .decode_as::<Ia5String>()
+            .ok()
+            .map(|s| s.to_string()),
+        Tag::Utf8String => on
+            .value
+            .decode_as::<Utf8StringRef<'_>>()
+            .ok()
+            .map(|s| s.to_string()),
+        Tag::PrintableString => on
+            .value
+            .decode_as::<PrintableString>()
+            .ok()
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+/// `upn_within_subtree` returns true if the candidate UPN string falls within the UPN constraint
+/// held in the given subtree base. UPN values are structured as email addresses, so rfc822 name
+/// constraint semantics are applied (mailbox, host, or leading-period domain).
+#[cfg(feature = "std")]
+fn upn_within_subtree(subtree_base: &GeneralName, cand_upn: &str) -> bool {
+    if let GeneralName::OtherName(on) = subtree_base {
+        if let Some(base_upn) = upn_from_other_name(on) {
+            return descended_from_rfc822_str(&base_upn, cand_upn);
+        }
+    }
+    false
+}
+
+/// `upn_of_subtree` returns the UPN string held in a subtree whose base is a UPN otherName.
+#[cfg(feature = "std")]
+fn upn_of_subtree(subtree: &GeneralSubtree) -> Option<String> {
+    if let GeneralName::OtherName(on) = &subtree.base {
+        upn_from_other_name(on)
+    } else {
+        None
+    }
+}
+
+/// `has_upn` returns true if the given GeneralSubtrees contains at least one UPN otherName.
+fn has_upn(subtrees: &GeneralSubtrees) -> bool {
+    for subtree in subtrees {
+        if let GeneralName::OtherName(on) = &subtree.base {
+            if on.type_id == MSFT_USER_PRINCIPAL_NAME {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The `NameConstraintsSet` structure is used to define inputs for path validation, i.e.,
 /// initial-excluded-subtrees and initial-permitted-subtrees, as well as to track processing
 /// permitted_subtrees and excluded_subtrees during path validation.
@@ -99,6 +162,7 @@ impl NameConstraintsSet {
         self.calculate_intersection_dns_name(ext);
         self.calculate_intersection_uri(ext);
         self.calculate_intersection_ip(ext);
+        self.calculate_intersection_upn(ext);
 
         // collect all unsupported instances (not intersection)
         for gs in ext {
@@ -106,8 +170,12 @@ impl NameConstraintsSet {
                 GeneralName::EdiPartyName(_) => {
                     self.not_supported.push(gs.clone());
                 }
-                GeneralName::OtherName(_) => {
-                    self.not_supported.push(gs.clone());
+                GeneralName::OtherName(on) => {
+                    // UPN otherNames are handled by calculate_intersection_upn above; every other
+                    // otherName form is unsupported.
+                    if on.type_id != MSFT_USER_PRINCIPAL_NAME {
+                        self.not_supported.push(gs.clone());
+                    }
                 }
                 GeneralName::RegisteredId(_) => {
                     self.not_supported.push(gs.clone());
@@ -172,7 +240,17 @@ impl NameConstraintsSet {
                         self.ip_address_null = true;
                     }
                 }
-                // not supporting name constraints for otherName, x400Address, ediPartyName, or registeredID
+                GeneralName::OtherName(on) => {
+                    // UPN otherNames accumulate in the user_principal_name bucket; other otherName
+                    // forms remain unsupported.
+                    let is_upn = on.type_id == MSFT_USER_PRINCIPAL_NAME;
+                    if is_upn && !self.user_principal_name_null {
+                        self.user_principal_name.push(subtree.clone());
+                    } else if !is_upn {
+                        self.not_supported.push(subtree.clone());
+                    }
+                }
+                // not supporting name constraints for x400Address, ediPartyName, or registeredID
                 _ => {
                     self.not_supported.push(subtree.clone());
                 }
@@ -409,10 +487,31 @@ impl NameConstraintsSet {
                             return false;
                         }
                     }
-                    GeneralName::OtherName(_) => {
-                        for ns in &self.not_supported {
-                            if let GeneralName::OtherName(_) = ns.base {
+                    GeneralName::OtherName(on_san) => {
+                        // UPN otherNames are constrained via the user_principal_name bucket using
+                        // rfc822 semantics; every other otherName form remains unsupported and is
+                        // handled coarsely (any unsupported otherName constraint excludes it).
+                        if let Some(upn_san) = upn_from_other_name(on_san) {
+                            if self.user_principal_name_null {
                                 return false;
+                            }
+                            if !self.user_principal_name.is_empty() {
+                                let mut upn_ok = false;
+                                for gn_state in &self.user_principal_name {
+                                    if upn_within_subtree(&gn_state.base, &upn_san) {
+                                        upn_ok = true;
+                                        break;
+                                    }
+                                }
+                                if !upn_ok {
+                                    return false;
+                                }
+                            }
+                        } else {
+                            for ns in &self.not_supported {
+                                if let GeneralName::OtherName(_) = ns.base {
+                                    return false;
+                                }
                             }
                         }
                     }
@@ -602,10 +701,23 @@ impl NameConstraintsSet {
                             }
                         }
                     }
-                    GeneralName::OtherName(_) => {
-                        for ns in &self.not_supported {
-                            if let GeneralName::OtherName(_) = ns.base {
+                    GeneralName::OtherName(on_san) => {
+                        // UPN otherNames are matched against excluded UPN subtrees via rfc822
+                        // semantics; other otherName forms remain coarsely handled.
+                        if let Some(upn_san) = upn_from_other_name(on_san) {
+                            if self.user_principal_name_null {
                                 return true;
+                            }
+                            for gn_state in &self.user_principal_name {
+                                if upn_within_subtree(&gn_state.base, &upn_san) {
+                                    return true;
+                                }
+                            }
+                        } else {
+                            for ns in &self.not_supported {
+                                if let GeneralName::OtherName(_) = ns.base {
+                                    return true;
+                                }
                             }
                         }
                     }
@@ -858,7 +970,50 @@ impl NameConstraintsSet {
             }
         }
     }
-    // TODO support UPN name constraints
+    fn calculate_intersection_upn(&mut self, new_names: &GeneralSubtrees) {
+        if self.user_principal_name_null || !has_upn(new_names) {
+            // nothing to intersect (either state has become NULL or there are no names to add)
+            return;
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            self.user_principal_name_null = true;
+        }
+
+        #[cfg(feature = "std")]
+        {
+            let mut new_set = Vec::new();
+
+            for new_name in new_names {
+                let new_upn = match upn_of_subtree(new_name) {
+                    Some(upn) => upn,
+                    None => continue,
+                };
+                if self.user_principal_name.is_empty() {
+                    new_set.push(new_name.clone());
+                } else {
+                    for prev_name in &self.user_principal_name {
+                        let prev_upn = match upn_of_subtree(prev_name) {
+                            Some(upn) => upn,
+                            None => continue,
+                        };
+                        if new_name == prev_name || descended_from_rfc822_str(&prev_upn, &new_upn) {
+                            new_set.push(new_name.clone());
+                        } else if descended_from_rfc822_str(&new_upn, &prev_upn) {
+                            new_set.push(prev_name.clone());
+                        }
+                    }
+                }
+            }
+
+            if !new_set.is_empty() {
+                self.user_principal_name = new_set;
+            } else {
+                self.user_principal_name_null = true;
+            }
+        }
+    }
 
     pub(crate) fn len(&self) -> usize {
         self.user_principal_name.len()
