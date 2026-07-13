@@ -1,0 +1,31 @@
+[package]
+name = "pittv3-gui"
+version = "0.1.3"
+description = """
+Desktop GUI frontend for the PKI Interoperability Test Tool v3 (PITTv3), which can be used to build
+and validate certification paths using different sets of trust anchors, intermediate CA certificates
+and end entity certificates.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.85"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# Unlike the CLI, the desktop GUI is not feature-gated: it always builds with the most encompassing
+# feature set (i.e., remote, webpki). WASM frontends get their own crate with a trimmed feature set.
+[dependencies]
+pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
+pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
+
+der = { version = "0.8.0", default-features = false, features = ["alloc"] }
+dioxus = { version = "0.7.9", features = ["desktop"] }
+home = "0.5.11"
+log = "0.4.29"
+log4rs = "1.4.0"
+rfd = "0.17.2"

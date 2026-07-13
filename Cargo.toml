@@ -5,6 +5,10 @@ members = [
     "certval",
     "pkiprocmacros",
     "pittv3",
+    "pittv3-gui",
+    "pittv3-gui-lib",
+    "pittv3-lib",
+    "pittv3-wasm",
 ]
 
 [profile.bench]
@@ -12,6 +16,15 @@ debug = true
 
 [profile.release]
 debug = true
+
+# Used by trunk for pittv3-wasm browser builds (trunk build --release --cargo-profile wasm-release):
+# strips the debug info the native release profile carries and optimizes for size.
+[profile.wasm-release]
+inherits = "release"
+debug = false
+strip = "debuginfo"
+opt-level = "z"
+lto = true
 
 [patch.crates-io]
 # Temporary until RustCrypto publishes x509-ocsp RCs. The specific commit is pinned by Cargo.lock;

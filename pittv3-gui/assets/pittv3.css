@@ -1,0 +1,81 @@
+:root {
+  color-scheme: light dark;
+  --muted: #6b7280;
+  --border: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --muted: #9ca3af;
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+
+form {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0 0 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+}
+
+legend {
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 0.4rem;
+}
+
+table {
+  border: none;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+td {
+  padding: 0.15rem 0.25rem;
+}
+
+/* fixed-width label column so fields align across fieldsets */
+td:first-child {
+  width: 230px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+label {
+  font-weight: 600;
+}
+
+input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="checkbox"] {
+  vertical-align: middle;
+}
+
+.hint {
+  color: var(--muted);
+  white-space: nowrap;
+  padding-left: 0.5rem;
+}
+
+button[type="submit"] {
+  font-size: 1rem;
+  padding: 0.35rem 1.5rem;
+  margin-top: 0.25rem;
+}

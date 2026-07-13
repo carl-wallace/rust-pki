@@ -1,0 +1,106 @@
+:root {
+  color-scheme: light dark;
+  --ok: #15803d;
+  --err: #b91c1c;
+  --muted: #6b7280;
+  --border: color-mix(in srgb, currentColor 20%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ok: #4ade80;
+    --err: #f87171;
+    --muted: #9ca3af;
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+}
+
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.25rem 0;
+}
+
+.tagline {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.controls label {
+  font-weight: 600;
+  text-align: right;
+}
+
+.controls input[type="text"] {
+  width: 12rem;
+}
+
+.controls button {
+  margin-left: 0.5rem;
+}
+
+.hint {
+  color: var(--muted);
+  grid-column: 2;
+}
+
+.results {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.results-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.results-body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.results-body p {
+  margin: 0.15rem 0;
+  overflow-wrap: anywhere;
+}
+
+.results-body .ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.results-body .err {
+  color: var(--err);
+}
+
+.results-body .info {
+  color: var(--muted);
+}
