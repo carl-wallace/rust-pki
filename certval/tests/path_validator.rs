@@ -242,7 +242,7 @@ fn wire_certchain_works() {
         x509_cert::Certificate::from_pem(include_bytes!("examples/wire_certchain/ta.pem")).unwrap();
 
     trust_anchors.push(certval::CertFile {
-        filename: format!("TrustAnchor #1"),
+        filename: "TrustAnchor #1".to_string(),
         bytes: root.to_der().unwrap(),
     });
 
@@ -282,7 +282,7 @@ fn wire_certchain_works() {
 
     for path in &mut paths {
         let mut cpr = CertificationPathResults::new();
-        let _ = validate_path_rfc5280(&pe, &cps, path, &mut cpr).unwrap();
+        validate_path_rfc5280(&pe, &cps, path, &mut cpr).unwrap();
         let validation_status = cpr.get_validation_status().unwrap();
         assert_eq!(validation_status, PathValidationStatus::Valid);
     }
