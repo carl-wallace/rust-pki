@@ -18,6 +18,7 @@ use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
+use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::ext::pkix::KeyUsages;
 use x509_cert::ext::Extensions;
 
@@ -283,6 +284,25 @@ fn has_min_or_max(subtrees: &Option<GeneralSubtrees>) -> bool {
         .is_some_and(|s| s.iter().any(|gs| gs.minimum != 0 || gs.maximum.is_some()))
 }
 
+/// `general_name_has_trailing_dot` returns true for a dNSName, or the host portion of an
+/// rfc822Name, that ends with a period. RFC 5280 4.2.1.6 requires the preferred name syntax of
+/// RFC 1034 3.5 (as modified by RFC 1123 2.1), which does not admit the absolute (rooted) form.
+fn general_name_has_trailing_dot(gn: &GeneralName) -> bool {
+    match gn {
+        GeneralName::DnsName(dns) => dns.as_str().ends_with('.'),
+        GeneralName::Rfc822Name(rfc822) => rfc822.as_str().ends_with('.'),
+        _ => false,
+    }
+}
+
+/// `has_trailing_dot` returns true if any subtree base is a name for which
+/// [`general_name_has_trailing_dot`] returns true.
+fn has_trailing_dot(subtrees: &Option<GeneralSubtrees>) -> bool {
+    subtrees
+        .as_ref()
+        .is_some_and(|s| s.iter().any(|gs| general_name_has_trailing_dot(&gs.base)))
+}
+
 /// `check_names` ensures that subject and issuer names chain appropriately throughout the certification
 /// path and that no names violate any operative name constraints.
 ///
@@ -383,6 +403,20 @@ pub fn check_names(
                 ));
             }
 
+            // RFC 5280 4.2.1.6: dNSName and the host portion of rfc822Name use the preferred
+            // name syntax, which does not admit a trailing period. Reject rather than risk a
+            // name that other consumers regard as equal to a constrained name evading a
+            // constraint via the absolute form.
+            if let Some(san) = san {
+                if san.0.iter().any(general_name_has_trailing_dot) {
+                    log_error_for_ca(ca_cert, "trailing period in SAN dNSName or rfc822Name");
+                    cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    return Err(Error::PathValidation(
+                        PathValidationStatus::NameConstraintsViolation,
+                    ));
+                }
+            }
+
             if !permitted_subtrees.san_within_permitted_subtrees(&san) {
                 log_error_for_ca(ca_cert, "permitted name constraints violation for SAN");
                 cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
@@ -410,6 +444,18 @@ pub fn check_names(
                 // certificate.
                 if has_min_or_max(&nc.permitted_subtrees) || has_min_or_max(&nc.excluded_subtrees) {
                     log_error_for_ca(ca_cert, "unsupported minimum/maximum in name constraints");
+                    cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    return Err(Error::PathValidation(
+                        PathValidationStatus::NameConstraintsViolation,
+                    ));
+                }
+
+                // Constraints are held to the same preferred name syntax as SAN values; a
+                // trailing period would otherwise render a constraint unenforceable.
+                if has_trailing_dot(&nc.permitted_subtrees)
+                    || has_trailing_dot(&nc.excluded_subtrees)
+                {
+                    log_error_for_ca(ca_cert, "trailing period in name constraints");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                     return Err(Error::PathValidation(
                         PathValidationStatus::NameConstraintsViolation,

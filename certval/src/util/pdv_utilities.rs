@@ -1019,6 +1019,18 @@ fn descended_from_host_boundaries() {
         "example.com",
         true
     ));
+    // trailing periods (absolute FQDN form) never match; certificates presenting
+    // such names or constraints are rejected during path validation instead
+    assert!(!descended_from_host(
+        &host("example.com"),
+        "sub.example.com.",
+        false
+    ));
+    assert!(!descended_from_host(
+        &host("example.com."),
+        "sub.example.com",
+        false
+    ));
 }
 
 // rfc822 host parts match case-insensitively while local parts match exactly (RFC 5280
@@ -1041,6 +1053,13 @@ fn descended_from_rfc822_case_sensitivity() {
     let domain = ia5(".Example.COM");
     assert!(descended_from_rfc822(&domain, &ia5("user@sub.example.com")));
     assert!(!descended_from_rfc822(&domain, &ia5("user@example.com")));
+    // trailing periods (absolute FQDN form) never match; certificates presenting
+    // such names or constraints are rejected during path validation instead
+    assert!(!descended_from_rfc822(&host, &ia5("user@example.com.")));
+    assert!(!descended_from_rfc822(
+        &domain,
+        &ia5("user@sub.example.com.")
+    ));
 }
 
 // A mailbox constraint whose local part uses legal-but-uncommon characters must still match
