@@ -1198,11 +1198,26 @@ fn count_bits(buf: &[u8]) -> u8 {
 #[cfg(feature = "std")]
 fn set_bits(buf: &[u8], num_bits: u8) -> Vec<u8> {
     use bitvec::prelude::*;
-    let mut bv = BitVec::<_, Lsb0>::from_slice(buf);
+    // Msb0 so bit 0 is the high-order bit of the first byte, matching the
+    // CIDR prefix semantics count_bits reads back
+    let mut bv = BitVec::<_, Msb0>::from_slice(buf);
     for ii in 0..num_bits {
         bv.set(ii as usize, true);
     }
     bv.to_bitvec().into()
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn set_bits_count_bits_round_trip() {
+    // Non-byte-aligned prefixes must survive the round trip. With Lsb0 ordering
+    // (as before this test existed), a /15 mask read back as /8, widening the
+    // permitted IP set.
+    for prefix in [0u8, 1, 7, 8, 9, 15, 16, 24, 31, 32] {
+        assert_eq!(count_bits(&set_bits(&[0u8; 4], prefix)), prefix);
+    }
+    assert_eq!(set_bits(&[0u8; 4], 15), vec![0xFF, 0xFE, 0x00, 0x00]);
+    assert_eq!(set_bits(&[0u8; 4], 9), vec![0xFF, 0x80, 0x00, 0x00]);
 }
 
 pub(crate) fn name_constraints_set_to_name_constraints_settings(
