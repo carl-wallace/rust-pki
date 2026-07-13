@@ -48,7 +48,6 @@ pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.1920030
 /// `upn_from_other_name` returns the string value of a UPN (Microsoft user principal name)
 /// otherName, or None for any other otherName. The value is commonly a UTF8String but IA5String
 /// and PrintableString are also accepted.
-#[cfg(feature = "std")]
 fn upn_from_other_name(on: &OtherName) -> Option<String> {
     if on.type_id != MSFT_USER_PRINCIPAL_NAME {
         return None;
@@ -76,7 +75,6 @@ fn upn_from_other_name(on: &OtherName) -> Option<String> {
 /// `upn_within_subtree` returns true if the candidate UPN string falls within the UPN constraint
 /// held in the given subtree base. UPN values are structured as email addresses, so rfc822 name
 /// constraint semantics are applied (mailbox, host, or leading-period domain).
-#[cfg(feature = "std")]
 fn upn_within_subtree(subtree_base: &GeneralName, cand_upn: &str) -> bool {
     if let GeneralName::OtherName(on) = subtree_base {
         if let Some(base_upn) = upn_from_other_name(on) {

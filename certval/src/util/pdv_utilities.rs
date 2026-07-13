@@ -367,8 +367,7 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
 
 /// `descended_from_rfc822_str` is the string-valued core of [`descended_from_rfc822`]. It is shared
 /// with UPN (otherName) name-constraint processing, whose values are structured as email addresses
-/// but are not necessarily carried as IA5String.
-#[cfg(feature = "std")]
+/// but are not necessarily carried as IA5String. Pure string comparison, so it needs no std.
 pub(crate) fn descended_from_rfc822_str(base: &str, cand: &str) -> bool {
     // A candidate rfc822Name must be a single well-formed mailbox. A malformed address such as
     // "a@b@example.com" is not within any permitted namespace even though it ends with a permitted
