@@ -1024,6 +1024,23 @@ pub(crate) fn process_crl(
             return Err(Error::Asn1Error(e));
         }
     };
+
+    // RFC 5280 5.1.1.2/5.1.2: the signatureAlgorithm in the CRL must match the signature field
+    // of the tbsCertList it protects, else the algorithm is subject to substitution (the cert
+    // path performs the equivalent check in path_validator).
+    if crl.signature_algorithm != crl.tbs_cert_list.signature {
+        error!(
+            "Discarding CRL from {} due to signatureAlgorithm ({:?}) / tbsCertList.signature ({:?}) mismatch",
+            name_to_string(&crl.tbs_cert_list.issuer),
+            crl.signature_algorithm,
+            crl.tbs_cert_list.signature
+        );
+        cpr.add_failed_crl(crl_buf, result_index);
+        return Err(Error::PathValidation(
+            PathValidationStatus::SignatureVerificationFailure,
+        ));
+    }
+
     let crl_info = get_crl_info(&crl)?;
 
     if let Some(uri) = uri {
