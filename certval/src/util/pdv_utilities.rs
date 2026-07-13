@@ -355,25 +355,11 @@ pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> b
 }
 
 // TODO implement to support name constraints for no-std
-/// `is_email` returns true if addr matches the regular expression defined by [`EMAIL_PATTERN`].
-#[cfg(feature = "std")]
-pub(crate) fn is_email(addr: &str) -> bool {
-    lazy_static! {
-        static ref EMAIL_RE: Regex = Regex::new(
-            "(?i)^([a-z0-9_+]([a-z0-9_+.]*[a-z0-9_+])?)@([a-z0-9]+([-.]{1}[a-z0-9]+)*.[a-z]{2,6})"
-        )
-        .unwrap();
-    }
-
-    if let Some(_parts) = EMAIL_RE.captures(addr) {
-        return true;
-    }
-
-    false
-}
-
-// TODO implement to support name constraints for no-std
-/// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
+/// `descended_from_rfc822` returns true if new_name falls within the constraint expressed by
+/// prev_name. Per RFC 5280 4.2.1.10, the constraint is a mailbox (a particular mailbox), a host
+/// (all mailboxes on that host) or a domain indicated by a leading period (all mailboxes on hosts
+/// within that domain). Per RFC 5280 7.5, local parts are compared exactly and host parts are
+/// compared case-insensitively.
 #[cfg(feature = "std")]
 pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String) -> bool {
     let cand = new_name.to_string();
@@ -383,43 +369,37 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
     if cand.matches('@').count() != 1 {
         return false;
     }
-    let base = prev_name.to_string();
-    let base_bytes = base.as_bytes();
-    let cand_bytes = cand.as_bytes();
-    if base_bytes.is_empty() || cand_bytes.len() < base_bytes.len() {
-        return false;
-    }
-
-    // rfc822 name matching is case-insensitive.
-    let match_start = cand_bytes.len() - base_bytes.len();
-    if !cand_bytes[match_start..].eq_ignore_ascii_case(base_bytes) {
-        return false;
-    }
-
-    if is_email(base.as_str()) && cand.len() == base.len() {
-        return true;
-    }
-
-    let base_first_char = base_bytes[0];
-
-    let cand_last_char = if match_start != 0 {
-        cand_bytes[match_start - 1]
-    } else {
-        b' '
+    let (cand_local, cand_host) = match cand.split_once('@') {
+        Some(parts) => parts,
+        None => return false,
     };
 
-    if base_first_char != b'.' {
-        if base_first_char == b'@' {
-            return true;
-        }
-
-        if b'@' == cand_last_char {
-            return true;
-        }
-    } else if b'@' != cand_last_char {
-        return true;
+    let base = prev_name.to_string();
+    // a constraint with more than one '@' matches nothing
+    if base.matches('@').count() > 1 {
+        return false;
     }
-    false
+    match base.split_once('@') {
+        // mailbox constraint
+        Some((base_local, base_host)) => {
+            cand_local == base_local && cand_host.eq_ignore_ascii_case(base_host)
+        }
+        None => {
+            let base_bytes = base.as_bytes();
+            let cand_host_bytes = cand_host.as_bytes();
+            if base_bytes.is_empty() {
+                false
+            } else if b'.' == base_bytes[0] {
+                // domain constraint: the candidate host must lie within the domain
+                cand_host_bytes.len() > base_bytes.len()
+                    && cand_host_bytes[cand_host_bytes.len() - base_bytes.len()..]
+                        .eq_ignore_ascii_case(base_bytes)
+            } else {
+                // host constraint: the candidate host must match exactly
+                cand_host_bytes.eq_ignore_ascii_case(base_bytes)
+            }
+        }
+    }
 }
 
 /// `emails_from_dn` returns the values of any PKCS#9 emailAddress attributes present in the given
@@ -1041,20 +1021,46 @@ fn descended_from_host_boundaries() {
     ));
 }
 
-// rfc822 name constraints match case-insensitively (RFC 5280 Section 4.1.2.6:
-// "subscriber@example.com" is the same as "SUBSCRIBER@EXAMPLE.COM").
+// rfc822 host parts match case-insensitively while local parts match exactly (RFC 5280
+// Section 7.5).
 #[cfg(feature = "std")]
 #[test]
-fn descended_from_rfc822_case_insensitive() {
+fn descended_from_rfc822_case_sensitivity() {
     let ia5 = |s: &str| Ia5String::new(s).unwrap();
-    // host-part constraint
+    // host constraint: all mailboxes on the host, any local-part case
     let host = ia5("Example.COM");
     assert!(descended_from_rfc822(&host, &ia5("user@example.com")));
     assert!(descended_from_rfc822(&host, &ia5("USER@EXAMPLE.COM")));
     assert!(!descended_from_rfc822(&host, &ia5("user@notexample.com")));
-    // exact mailbox constraint
+    assert!(!descended_from_rfc822(&host, &ia5("user@sub.example.com"))); // host form is exact
+                                                                          // mailbox constraint: host case-insensitive, local part exact
     let mailbox = ia5("Admin@Example.COM");
-    assert!(descended_from_rfc822(&mailbox, &ia5("admin@example.com")));
+    assert!(descended_from_rfc822(&mailbox, &ia5("Admin@example.com")));
+    assert!(!descended_from_rfc822(&mailbox, &ia5("admin@example.com")));
+    // domain constraint: mailboxes on hosts within the domain, not the bare domain host
+    let domain = ia5(".Example.COM");
+    assert!(descended_from_rfc822(&domain, &ia5("user@sub.example.com")));
+    assert!(!descended_from_rfc822(&domain, &ia5("user@example.com")));
+}
+
+// A mailbox constraint whose local part uses legal-but-uncommon characters must still match
+// (formerly gated behind an email regex that rejected such local parts).
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_rfc822_special_local_parts() {
+    let ia5 = |s: &str| Ia5String::new(s).unwrap();
+    for addr in [
+        "us-er@example.com",
+        "user%x@example.com",
+        "u!ser@example.com",
+        "us~er@example.com",
+    ] {
+        assert!(descended_from_rfc822(&ia5(addr), &ia5(addr)));
+    }
+    assert!(!descended_from_rfc822(
+        &ia5("us-er@example.com"),
+        &ia5("user@example.com")
+    ));
 }
 
 // A malformed rfc822 name (not a single mailbox) is within no permitted namespace, even when it
