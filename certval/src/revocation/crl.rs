@@ -208,12 +208,16 @@ lazy_static! {
     // Certificate types are rows, CRL scopes are columns.
     // enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
     // enum CrlScope { CsComplete, CsDp, CsDelta, CsDeltaDp, CsUnsupported}
+    //
+    // Delta scopes are marked incompatible for all certificate types: absent base+delta
+    // merge support, a lone delta CRL only lists changes since its base, so processing
+    // one as if complete would report a base-revoked certificate as good.
     static ref COMPATIBLE_SCOPE : ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>> = arr2(&[
         // CsComplete,  CsDp, CsDelta, CsDeltaDp
-        [        true,  true,    true,     true], // CtEeDp
-        [        true, false,    true,    false], // CtEe
-        [        true,  true,    true,     true], // CtCaDp
-        [        true, false,    true,    false]  // CtCa
+        [        true,  true,   false,    false], // CtEeDp
+        [        true, false,   false,    false], // CtEe
+        [        true,  true,   false,    false], // CtCaDp
+        [        true, false,   false,    false]  // CtCa
     ]);
 
     // Certificate types are rows, CRL coverages are columns.

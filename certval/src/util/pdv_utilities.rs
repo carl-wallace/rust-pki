@@ -501,14 +501,14 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
 
     for (subtree_rdn, name_rdn) in subtree.iter_rdn().zip(name.iter_rdn()) {
         if subtree_rdn != name_rdn {
-            let mut let_it_slide = false;
-
             // some folks can't manage to use the same character set in a name constraint and subject name
             // allow this practice to not break stuff
             if subtree_rdn.len() != name_rdn.len() {
                 // diff number of attributes
                 return false;
             }
+            // every attribute in the RDN must match, either exactly or via one of the
+            // tolerances below; a single mismatched attribute fails the whole RDN
             for (subtree_attr, name_attr) in subtree_rdn.iter().zip(name_rdn.iter()) {
                 let lau = subtree_attr;
                 let rau = name_attr;
@@ -522,20 +522,16 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
                 if lav.value() == rav.value() {
                     if lav.tag() != rav.tag() {
                         debug!("Permitting a DN name constraint match despite different character sets");
-                        let_it_slide = true;
                     }
                 } else {
                     let llav = lau.to_string();
                     let rlav = rau.to_string();
                     if llav.to_lowercase() == rlav.to_lowercase() {
                         debug!( "Permitting a DN name constraint match despite different capitalization");
-                        let_it_slide = true;
+                    } else {
+                        return false;
                     }
                 }
-            }
-
-            if !let_it_slide {
-                return false;
             }
         }
     }
@@ -1067,4 +1063,17 @@ fn descended_from_dn_uses_current_rdn_attributes() {
     let subtree = Name::from_str("CN=Example,O=Org").unwrap();
     let name = Name::from_str("CN=example,O=Org").unwrap();
     assert!(descended_from_dn(&subtree, &name, 0, None));
+}
+
+// In a multivalued RDN every attribute must match, exactly or via the case/char-set
+// tolerance; one attribute matching case-insensitively must not excuse a different
+// attribute that does not match at all.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_dn_multivalued_rdn_requires_all_attributes() {
+    let subtree = Name::from_str("CN=Example+OU=Unit,O=Org").unwrap();
+    let case_only = Name::from_str("CN=example+OU=Unit,O=Org").unwrap();
+    let one_differs = Name::from_str("CN=example+OU=Other,O=Org").unwrap();
+    assert!(descended_from_dn(&subtree, &case_only, 0, None));
+    assert!(!descended_from_dn(&subtree, &one_differs, 0, None));
 }
