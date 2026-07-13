@@ -17,6 +17,7 @@ use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
 use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::anchor::TrustAnchorChoice;
+use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
 use x509_cert::ext::pkix::KeyUsages;
 use x509_cert::ext::Extensions;
 
@@ -275,6 +276,13 @@ pub fn check_validity(
     Ok(())
 }
 
+/// `has_min_or_max` returns true if any subtree asserts a nonzero minimum or a maximum.
+fn has_min_or_max(subtrees: &Option<GeneralSubtrees>) -> bool {
+    subtrees
+        .as_ref()
+        .is_some_and(|s| s.iter().any(|gs| gs.minimum != 0 || gs.maximum.is_some()))
+}
+
 /// `check_names` ensures that subject and issuer names chain appropriately throughout the certification
 /// path and that no names violate any operative name constraints.
 ///
@@ -396,6 +404,17 @@ pub fn check_names(
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_NAME_CONSTRAINTS)?;
             if let Some(PDVExtension::NameConstraints(nc)) = pdv_ext {
                 cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
+
+                // RFC 5280 4.2.1.10: minimum MUST be zero and maximum MUST be absent; an
+                // application encountering other values MUST process them or reject the
+                // certificate.
+                if has_min_or_max(&nc.permitted_subtrees) || has_min_or_max(&nc.excluded_subtrees) {
+                    log_error_for_ca(ca_cert, "unsupported minimum/maximum in name constraints");
+                    cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    return Err(Error::PathValidation(
+                        PathValidationStatus::NameConstraintsViolation,
+                    ));
+                }
 
                 if let Some(excl) = &nc.excluded_subtrees {
                     excluded_subtrees.calculate_union(excl);

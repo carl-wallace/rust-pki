@@ -644,6 +644,8 @@ impl NameConstraintsSet {
                                 if new_name == prev_name
                                     || descended_from_rfc822(prev_rfc822, new_rfc822)
                                 {
+                                    new_set.push(new_name.clone());
+                                } else if descended_from_rfc822(new_rfc822, prev_rfc822) {
                                     new_set.push(prev_name.clone());
                                 }
                             }
@@ -685,6 +687,8 @@ impl NameConstraintsSet {
                                 if new_name == prev_name
                                     || descended_from_host(prev_dns, new_dns.as_str(), false)
                                 {
+                                    new_set.push(new_name.clone());
+                                } else if descended_from_host(new_dns, prev_dns.as_str(), false) {
                                     new_set.push(prev_name.clone());
                                 }
                             }
@@ -725,6 +729,13 @@ impl NameConstraintsSet {
                                 prev_name.maximum,
                             ) {
                                 new_set.push(new_name.clone());
+                            } else if descended_from_dn(
+                                new_dn,
+                                prev_dn,
+                                new_name.minimum,
+                                new_name.maximum,
+                            ) {
+                                new_set.push(prev_name.clone());
                             }
                         }
                     }
@@ -766,6 +777,8 @@ impl NameConstraintsSet {
                                 if new_name == prev_name
                                     || descended_from_host(prev_uri, new_uri.as_str(), true)
                                 {
+                                    new_set.push(new_name.clone());
+                                } else if descended_from_host(new_uri, prev_uri.as_str(), true) {
                                     new_set.push(prev_name.clone());
                                 }
                             }
@@ -825,6 +838,11 @@ impl NameConstraintsSet {
                                     {
                                         // if the new constraint falls within the old, use the new one
                                         new_set.push(new_name.clone());
+                                    } else if new_cidr.contains(&prev_cidr.first_address())
+                                        && new_cidr.contains(&prev_cidr.last_address())
+                                    {
+                                        // if the old constraint falls within the new, keep the old one
+                                        new_set.push(prev_name.clone());
                                     }
                                 }
                             }
@@ -1369,6 +1387,91 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
     });
 }
 
+// Intersecting permitted subtrees must retain the narrower subtree for rfc822/dNSName/URI
+// (RFC 5280 6.1.4(g)), regardless of which side is narrower. Keeping the broader subtree
+// silently widens a subordinate CA's name constraint.
+#[cfg(feature = "std")]
+#[test]
+fn intersection_keeps_narrower_subtree() {
+    use crate::path_settings::*;
+
+    let broad = NameConstraintsSettings {
+        directory_name: Some(vec!["OU=Org Unit,O=Org,C=US".to_string()]),
+        rfc822_name: Some(vec!["example.com".to_string()]),
+        user_principal_name: None,
+        dns_name: Some(vec!["example.com".to_string()]),
+        uniform_resource_identifier: Some(vec![".example.com".to_string()]),
+        ip_address: Some(vec!["192.168.0.0/16".to_string()]),
+        not_supported: None,
+    };
+    let narrow = NameConstraintsSettings {
+        directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
+        rfc822_name: Some(vec!["x@example.com".to_string()]),
+        user_principal_name: None,
+        dns_name: Some(vec!["sub.example.com".to_string()]),
+        uniform_resource_identifier: Some(vec!["sub.example.com".to_string()]),
+        ip_address: Some(vec!["192.168.10.0/24".to_string()]),
+        not_supported: None,
+    };
+
+    let mut cps_broad = CertificationPathSettings::default();
+    cps_broad.set_initial_permitted_subtrees(broad.clone());
+    let mut cps_narrow = CertificationPathSettings::default();
+    cps_narrow.set_initial_permitted_subtrees(narrow.clone());
+
+    // broad state intersected with narrower constraint -> narrower constraint survives
+    let mut bufs1 = BTreeMap::new();
+    let mut set_broad = cps_broad
+        .get_initial_permitted_subtrees_as_set(&mut bufs1)
+        .unwrap()
+        .unwrap();
+    let mut bufs2 = BTreeMap::new();
+    let set_narrow = cps_narrow
+        .get_initial_permitted_subtrees_as_set(&mut bufs2)
+        .unwrap()
+        .unwrap();
+    set_broad.calculate_intersection(&set_narrow.rfc822_name);
+    set_broad.calculate_intersection(&set_narrow.dns_name);
+    set_broad.calculate_intersection(&set_narrow.uniform_resource_identifier);
+    set_broad.calculate_intersection(&set_narrow.directory_name);
+    set_broad.calculate_intersection(&set_narrow.ip_address);
+    let result = name_constraints_set_to_name_constraints_settings(&set_broad).unwrap();
+    assert_eq!(result.rfc822_name, narrow.rfc822_name);
+    assert_eq!(result.dns_name, narrow.dns_name);
+    assert_eq!(
+        result.uniform_resource_identifier,
+        narrow.uniform_resource_identifier
+    );
+    assert_eq!(result.directory_name, narrow.directory_name);
+    assert_eq!(result.ip_address, narrow.ip_address);
+
+    // narrow state intersected with broader constraint -> narrower state survives
+    let mut bufs3 = BTreeMap::new();
+    let mut set_narrow2 = cps_narrow
+        .get_initial_permitted_subtrees_as_set(&mut bufs3)
+        .unwrap()
+        .unwrap();
+    let mut bufs4 = BTreeMap::new();
+    let set_broad2 = cps_broad
+        .get_initial_permitted_subtrees_as_set(&mut bufs4)
+        .unwrap()
+        .unwrap();
+    set_narrow2.calculate_intersection(&set_broad2.rfc822_name);
+    set_narrow2.calculate_intersection(&set_broad2.dns_name);
+    set_narrow2.calculate_intersection(&set_broad2.uniform_resource_identifier);
+    set_narrow2.calculate_intersection(&set_broad2.directory_name);
+    set_narrow2.calculate_intersection(&set_broad2.ip_address);
+    let result2 = name_constraints_set_to_name_constraints_settings(&set_narrow2).unwrap();
+    assert_eq!(result2.rfc822_name, narrow.rfc822_name);
+    assert_eq!(result2.dns_name, narrow.dns_name);
+    assert_eq!(
+        result2.uniform_resource_identifier,
+        narrow.uniform_resource_identifier
+    );
+    assert_eq!(result2.directory_name, narrow.directory_name);
+    assert_eq!(result2.ip_address, narrow.ip_address);
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn intersection_tests() {
@@ -1565,9 +1668,11 @@ fn intersection_tests() {
         assert_eq!(1, perm_set4.ip_address.len());
         assert_eq!(perm_set4.ip_address, perm_set5.ip_address);
 
+        // intersecting the /24 state with the broader /15 retains the narrower /24
         assert!(!perm_set4.ip_address_null);
         perm_set4.calculate_intersection(&perm_set6.ip_address);
-        assert!(perm_set4.ip_address_null);
+        assert_eq!(1, perm_set4.ip_address.len());
+        assert_eq!(perm_set4.ip_address, perm_set5.ip_address);
     }
 
     let mut cps_set = CertificationPathSettings::default();
