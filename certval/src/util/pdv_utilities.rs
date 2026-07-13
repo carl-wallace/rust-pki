@@ -328,48 +328,30 @@ pub(crate) const EMAIL_PATTERN: &str =
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 #[cfg(feature = "std")]
 pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
-    let base = prev_name.to_string();
-
-    let mut filter = regex::escape(base.as_str());
-    filter.push('$');
-    // DNS names and URI hosts are case-insensitive.
-    let filter_re = regex::RegexBuilder::new(filter.as_str())
-        .case_insensitive(true)
-        .build();
-    if let Ok(fe) = filter_re {
-        if let Some(parts) = fe.captures(cand) {
-            if cand.len() == base.len() {
-                return true;
-            }
-
-            let match_start = if let Some(part) = parts.get(0) {
-                part.start()
-            } else {
-                return false;
-            };
-
-            if !is_uri {
-                let cand_next_to_last_char = if match_start != 0 {
-                    cand.chars().nth(match_start - 1).unwrap_or(' ')
-                } else {
-                    ' '
-                };
-                if cand_next_to_last_char == '.' {
-                    return true;
-                }
-            } else {
-                let cand_last_char = if match_start != 0 {
-                    cand.chars().nth(match_start).unwrap_or(' ')
-                } else {
-                    ' '
-                };
-                if cand_last_char == '.' {
-                    return true;
-                }
-            }
-        }
+    let base = prev_name.as_bytes();
+    let cand = cand.as_bytes();
+    if base.is_empty() || cand.len() < base.len() {
+        return false;
     }
-    false
+
+    // DNS names and URI hosts are case-insensitive (ASCII fold per RFC 4343).
+    let match_start = cand.len() - base.len();
+    if !cand[match_start..].eq_ignore_ascii_case(base) {
+        return false;
+    }
+
+    if match_start == 0 {
+        return true;
+    }
+
+    if !is_uri {
+        // the matched base must sit on a label boundary
+        b'.' == cand[match_start - 1]
+    } else {
+        // a URI constraint matches a proper suffix only when it is a domain
+        // constraint, i.e., when the base begins with a period
+        b'.' == cand[match_start]
+    }
 }
 
 // TODO implement to support name constraints for no-std
@@ -402,49 +384,40 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
         return false;
     }
     let base = prev_name.to_string();
+    let base_bytes = base.as_bytes();
+    let cand_bytes = cand.as_bytes();
+    if base_bytes.is_empty() || cand_bytes.len() < base_bytes.len() {
+        return false;
+    }
 
-    let mut filter = regex::escape(base.as_str());
-    filter.push('$');
     // rfc822 name matching is case-insensitive.
-    let filter_re = regex::RegexBuilder::new(filter.as_str())
-        .case_insensitive(true)
-        .build();
-    if let Ok(fe) = filter_re {
-        if let Some(parts) = fe.captures(cand.as_str()) {
-            if is_email(base.as_str()) && cand.len() == base.len() {
-                return true;
-            }
+    let match_start = cand_bytes.len() - base_bytes.len();
+    if !cand_bytes[match_start..].eq_ignore_ascii_case(base_bytes) {
+        return false;
+    }
 
-            let match_start = if let Some(part) = parts.get(0) {
-                part.start()
-            } else {
-                return false;
-            };
+    if is_email(base.as_str()) && cand.len() == base.len() {
+        return true;
+    }
 
-            let base_first_char = if let Some(part) = base.chars().next() {
-                part
-            } else {
-                return false;
-            };
+    let base_first_char = base_bytes[0];
 
-            let cand_last_char = if match_start != 0 {
-                cand.chars().nth(match_start - 1).unwrap_or(' ')
-            } else {
-                ' '
-            };
+    let cand_last_char = if match_start != 0 {
+        cand_bytes[match_start - 1]
+    } else {
+        b' '
+    };
 
-            if base_first_char != '.' {
-                if base_first_char == '@' {
-                    return true;
-                }
-
-                if '@' == cand_last_char {
-                    return true;
-                }
-            } else if '@' != cand_last_char {
-                return true;
-            }
+    if base_first_char != b'.' {
+        if base_first_char == b'@' {
+            return true;
         }
+
+        if b'@' == cand_last_char {
+            return true;
+        }
+    } else if b'@' != cand_last_char {
+        return true;
     }
     false
 }
@@ -814,13 +787,6 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
         return false;
     }
 
-    #[cfg(feature = "std")]
-    let re = if let Ok(re) = Regex::new(r"\s+") {
-        re
-    } else {
-        return false;
-    };
-
     for (lrdn, rrdn) in left.iter_rdn().zip(right.iter_rdn()) {
         if lrdn.len() != rrdn.len() {
             return false;
@@ -853,9 +819,12 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l_val != r_val {
                     #[cfg(feature = "std")]
                     {
+                        lazy_static! {
+                            static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
+                        }
                         //collapse multiple whitespace instances into one and convert to lowercase
-                        let l_str_val = re.replace_all(l_val.as_str(), " ");
-                        let r_str_val = re.replace_all(r_val.as_str(), " ");
+                        let l_str_val = WHITESPACE_RE.replace_all(l_val.as_str(), " ");
+                        let r_str_val = WHITESPACE_RE.replace_all(r_val.as_str(), " ");
                         if l_str_val != r_str_val {
                             return false;
                         }
@@ -1022,6 +991,54 @@ fn descended_from_host_case_insensitive() {
     assert!(descended_from_host(&base, "example.com", false)); // exact host, differing case
     assert!(descended_from_host(&base, "HOST.Example.com", false)); // sub-domain, differing case
     assert!(!descended_from_host(&base, "host.notexample.com", false)); // suffix trap, not descended
+}
+
+// Label-boundary behavior for host constraints: a DNS constraint covers the host and its
+// sub-domains; a URI constraint covers only the exact host unless it begins with a period,
+// in which case it covers sub-domains only.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_host_boundaries() {
+    let host = |s: &str| Ia5String::new(s).unwrap();
+    // DNS form
+    assert!(descended_from_host(
+        &host("example.com"),
+        "example.com",
+        false
+    ));
+    assert!(descended_from_host(
+        &host("example.com"),
+        "sub.example.com",
+        false
+    ));
+    assert!(!descended_from_host(
+        &host("example.com"),
+        "evil-example.com",
+        false
+    ));
+    assert!(!descended_from_host(&host("example.com"), "com", false));
+    // URI host form: exact only
+    assert!(descended_from_host(
+        &host("example.com"),
+        "example.com",
+        true
+    ));
+    assert!(!descended_from_host(
+        &host("example.com"),
+        "sub.example.com",
+        true
+    ));
+    // URI domain form: sub-domains only
+    assert!(descended_from_host(
+        &host(".example.com"),
+        "sub.example.com",
+        true
+    ));
+    assert!(!descended_from_host(
+        &host(".example.com"),
+        "example.com",
+        true
+    ));
 }
 
 // rfc822 name constraints match case-insensitively (RFC 5280 Section 4.1.2.6:
