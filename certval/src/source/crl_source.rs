@@ -369,8 +369,7 @@ fn get_dps_from_cert(cert: &PDVCertificate) -> Option<Vec<Vec<u8>>> {
             Some(retval)
         }
         _ => None,
-    };
-    None
+    }
 }
 
 fn get_dp_from_crl(crl: &CertificateList<Raw>) -> Option<Vec<u8>> {
