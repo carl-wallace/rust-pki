@@ -403,6 +403,13 @@ fn add_crl_info(
         let ti = cur_crl_info.type_info;
         crl_info.push(cur_crl_info.clone());
         let index = crl_info.len() - 1;
+
+        // delta CRLs are not supported (no base+delta merge); leave them unindexed so a
+        // lone delta is never served for processing as if it were a complete CRL
+        if CrlScope::Delta == ti.scope || CrlScope::DeltaDp == ti.scope {
+            return;
+        }
+
         if let Some(dp) = get_dp_from_crl(crl) {
             // assuming that partitions are managed such that key rollover does not occur
             //  within a partition
