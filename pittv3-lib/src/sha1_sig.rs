@@ -1,3 +1,6 @@
+//! Support for verifying certificates signed with sha1WithRsaEncryption, which is not supported
+//! by the RustCrypto formats library used by certval
+
 #![cfg(feature = "sha1_sig")]
 
 use certval::{PathValidationStatus, PkiEnvironment};
