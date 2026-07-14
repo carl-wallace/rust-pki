@@ -238,12 +238,16 @@ pub(crate) fn App() -> Element {
     let s_list_name_constraints = use_signal(|| sa.list_name_constraints);
     let s_list_trust_anchors = use_signal(|| sa.list_trust_anchors);
     let s_dump_cert_at_index = use_signal(|| {
-        sa.dump_cert_at_index.map(|u| u.to_string()).unwrap_or_default()
+        sa.dump_cert_at_index
+            .map(|u| u.to_string())
+            .unwrap_or_default()
     });
     let s_list_partial_paths_for_target =
         use_signal(|| sa.list_partial_paths_for_target.clone().unwrap_or_default());
     let s_list_partial_paths_for_leaf_ca = use_signal(|| {
-        sa.list_partial_paths_for_leaf_ca.map(|u| u.to_string()).unwrap_or_default()
+        sa.list_partial_paths_for_leaf_ca
+            .map(|u| u.to_string())
+            .unwrap_or_default()
     });
     let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
 

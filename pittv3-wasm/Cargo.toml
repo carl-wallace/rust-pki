@@ -27,3 +27,4 @@ dioxus = { version = "0.7.9", features = ["web"] }
 log = "0.4.29"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
 web-time = "1.1.0"
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }

@@ -82,15 +82,26 @@ pub(crate) async fn validate_cert_file(
         );
         let mut cpr = CertificationPathResults::new();
 
+        // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
+        // clone when enforcement is disabled, and validate_path does not perform it itself
+        let path_cps = match enforce_trust_anchor_constraints(cps, &path.trust_anchor) {
+            Ok(path_cps) => path_cps,
+            Err(e) => {
+                error!("Failed to enforce trust anchor constraints for {cert_filename} with {e:?}");
+                stats.invalid_paths_per_target += 1;
+                continue;
+            }
+        };
+
         #[cfg(not(feature = "remote"))]
-        let r = pe.validate_path(pe, cps, path, &mut cpr);
+        let r = pe.validate_path(pe, &path_cps, path, &mut cpr);
 
         #[cfg(feature = "remote")]
-        let mut r = pe.validate_path(pe, cps, path, &mut cpr);
+        let mut r = pe.validate_path(pe, &path_cps, path, &mut cpr);
 
         #[cfg(feature = "remote")]
-        if r.is_ok() && cps.get_check_revocation_status() {
-            r = check_revocation(pe, cps, path, &mut cpr).await;
+        if r.is_ok() && path_cps.get_check_revocation_status() {
+            r = check_revocation(pe, &path_cps, path, &mut cpr).await;
         }
 
         log_path(
@@ -99,7 +110,7 @@ pub(crate) async fn validate_cert_file(
             path,
             stats.paths_per_target + i,
             Some(&cpr),
-            Some(cps),
+            Some(&path_cps),
         );
         stats.results.push(cpr);
         match r {

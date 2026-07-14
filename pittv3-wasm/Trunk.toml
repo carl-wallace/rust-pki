@@ -1,0 +1,6 @@
+# Trunk configuration for pittv3-wasm; see https://trunkrs.dev/guide/configuration/
+[build]
+# Reference assets relative to index.html so the deployed site works from any mount point,
+# e.g., https://downloads.redhoundsoftware.com/pittv3/. Trunk's default is "/", which breaks
+# deployments that are not at the site root.
+public_url = "./"

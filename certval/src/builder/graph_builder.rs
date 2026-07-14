@@ -52,7 +52,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     if let Err(e) = r {
         error!(
             "Failed to read certificates from {} with error {:?}",
-            &ca_folder, e
+            ca_folder, e
         );
     }
 

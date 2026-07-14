@@ -224,7 +224,7 @@ pub async fn fetch_to_buffer(
                     .url()
                     .path_segments()
                     .and_then(|mut segments| segments.next_back())
-                    .and_then(|name| if name.is_empty() { None } else { Some(name) })
+                    .filter(|&name| !name.is_empty())
                     .unwrap_or("tmp.bin");
 
                 // seen it before, skip it now

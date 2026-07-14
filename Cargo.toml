@@ -14,15 +14,16 @@ members = [
 [profile.bench]
 debug = true
 
-[profile.release]
+# Opt-in release build with debug info for profiling and symbolicated backtraces from the native
+# tools: cargo build --profile release-dbg
+[profile.release-dbg]
+inherits = "release"
 debug = true
 
 # Used by trunk for pittv3-wasm browser builds (trunk build --release --cargo-profile wasm-release):
-# strips the debug info the native release profile carries and optimizes for size.
+# optimizes for size rather than the speed the native release profile favors.
 [profile.wasm-release]
 inherits = "release"
-debug = false
-strip = "debuginfo"
 opt-level = "z"
 lto = true
 

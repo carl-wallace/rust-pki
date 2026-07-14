@@ -1020,7 +1020,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
             for ekey in ec {
                 info!(
                     "\t\t - {:?}: {} - Result folder indices: {:?}",
-                    ekey.0, ekey.1, &error_indices[k][ekey.0]
+                    ekey.0, ekey.1, error_indices[k][ekey.0]
                 );
             }
         }

@@ -34,6 +34,34 @@ h1 {
   margin-top: 0;
 }
 
+details.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+details.panel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+details.panel .controls {
+  border: none;
+  margin-bottom: 0.25rem;
+  padding: 0.5rem 0 0 0;
+}
+
+details.notes ul {
+  margin: 0.5rem 0 0.25rem 0;
+  padding-left: 1.25rem;
+}
+
+details.notes li {
+  margin: 0.3rem 0;
+  color: var(--muted);
+}
+
 .controls {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -73,6 +101,10 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.results-header button {
+  margin-left: 0.5rem;
 }
 
 .results-header h2 {

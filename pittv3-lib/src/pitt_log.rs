@@ -217,12 +217,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Not Before: {}\n",
-            &cert
-                .as_ref()
-                .tbs_certificate()
-                .validity()
-                .not_before
-                .to_string()
+            cert.as_ref().tbs_certificate().validity().not_before
         )
         .as_bytes(),
     )
@@ -230,12 +225,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Not After: {}\n",
-            &cert
-                .as_ref()
-                .tbs_certificate()
-                .validity()
-                .not_after
-                .to_string()
+            cert.as_ref().tbs_certificate().validity().not_after
         )
         .as_bytes(),
     )
@@ -392,10 +382,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             }
         }
         if let Some(iss) = &akid.authority_cert_serial_number {
-            f.write_all(
-                format!("\t\t* Authority certificate serial number: {:?}\n", &iss).as_bytes(),
-            )
-            .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t* Authority certificate serial number: {iss:?}\n").as_bytes())
+                .expect("Unable to write manifest file");
         }
     }
 
