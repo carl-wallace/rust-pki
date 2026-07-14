@@ -9,7 +9,6 @@ pub mod pdv_certificate;
 pub mod pdv_extension;
 pub mod pdv_trust_anchor;
 pub mod policy_graph;
-pub mod policy_tree;
 mod policy_utilities;
 
 pub use crate::{

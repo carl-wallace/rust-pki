@@ -6,7 +6,6 @@ use alloc::vec;
 
 use log::info;
 
-use crate::policy_tree::check_certificate_policies;
 use crate::{
     environment::pki_environment::*, get_subject_public_key_info_from_trust_anchor,
     hex_skid_from_ta, path_results::*, path_settings::*, pdv_certificate::*, pdv_extension::*,
@@ -111,11 +110,9 @@ pub fn validate_path_rfc5280(
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
     //check_country_codes(pe, cps, cp, cpr)?;
-    if cps.get_use_policy_graph() {
-        check_certificate_policies_graph(pe, cps, cp, cpr)?;
-    } else {
-        check_certificate_policies(pe, cps, cp, cpr)?;
-    }
+    // Certificate policy processing is always graph-based (RFC 9618); PS_USE_POLICY_GRAPH is
+    // retained for backward compatibility but no longer selects an implementation.
+    check_certificate_policies_graph(pe, cps, cp, cpr)?;
     check_key_usage(pe, cps, cp, cpr)?;
     check_extended_key_usage(pe, cps, cp, cpr)?;
     check_critical_extensions(pe, cps, cp, cpr)?;
