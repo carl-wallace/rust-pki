@@ -13,7 +13,7 @@ categories = ["cryptography", "pki"]
 keywords = ["crypto", "x.509", "OCSP"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
