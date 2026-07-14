@@ -659,8 +659,18 @@ pub fn check_critical_extensions(
                                           err_str: &'static str|
      -> Result<()> {
         if let Some(exts) = &cert.as_ref().tbs_certificate().extensions() {
-            for ext in exts.as_slice() {
-                if ext.critical && !processed_exts.contains(&ext.extn_id) {
+            let exts = exts.as_slice();
+            for ext in exts {
+                // A critical extension is satisfied only if its OID was processed AND it is the
+                // sole instance of that OID. Extension processing is keyed by OID (processed_exts
+                // is a set), so when a critical extension OID appears more than once only one
+                // instance is processed; without the count check the duplicate instance would be
+                // silently waved off as processed. RFC 5280 4.2 forbids the issuer from emitting
+                // duplicate extensions, so such a certificate is malformed regardless.
+                if ext.critical
+                    && (!processed_exts.contains(&ext.extn_id)
+                        || exts.iter().filter(|e| e.extn_id == ext.extn_id).count() > 1)
+                {
                     log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
                     cpr.set_validation_status(PathValidationStatus::UnprocessedCriticalExtension);
                     return Err(Error::PathValidation(
