@@ -95,7 +95,6 @@ fn pkits_p256() {
         &pe,
         PkitsFlavor::PkitsP256,
         true,
-        false,
     );
 }
 
@@ -131,7 +130,6 @@ async fn pkits_p256() {
         &pe,
         PkitsFlavor::PkitsP256,
         true,
-        false,
     )
     .await;
 }
@@ -169,7 +167,6 @@ async fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             false,
-            false,
         )
         .await;
         pe.clear_all_callbacks();
@@ -185,7 +182,6 @@ async fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             true,
-            false,
         )
         .await;
         pe.clear_all_callbacks();
@@ -225,7 +221,6 @@ fn pkits_2048() {
             &pe,
             PkitsFlavor::PkitsRsa2048,
             false,
-            false,
         );
     }
     #[cfg(not(feature = "revocation"))]
@@ -238,195 +233,13 @@ fn pkits_2048() {
             &pkits_data_map,
             &pe,
             PkitsFlavor::PkitsRsa2048,
-            true,
-            false,
-        );
-    }
-}
-
-#[cfg(not(feature = "std"))]
-#[test]
-fn pkits_p256_graph() {
-    let mut pool = CertPool {
-        certs: BTreeMap::new(),
-    };
-
-    let mut pkits_data_map = PkitsDataMap::new();
-    load_pkits(&mut pkits_data_map);
-    let mut ta_source2 = TaSource::new();
-    {
-        // all tests share common trust anchor so add it to the pool
-        let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
-        if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.push(CertFile {
-                filename: "TrustAnchorRootCertificate.crt".to_string(),
-                bytes: der_encoded_ta,
-            });
-        }
-    }
-
-    ta_source2.initialize().unwrap();
-
-    let mut pe = PkiEnvironment::new();
-    pe.populate_5280_pki_environment();
-    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-    pkits_guts_sync(
-        &mut pool,
-        &pkits_data_map,
-        &pe,
-        PkitsFlavor::PkitsP256,
-        true,
-        true,
-    );
-}
-
-#[cfg(feature = "std")]
-#[tokio::test]
-async fn pkits_p256_graph() {
-    let mut pool = CertPool {
-        certs: BTreeMap::new(),
-    };
-
-    let mut pkits_data_map = PkitsDataMap::new();
-    load_pkits(&mut pkits_data_map);
-    let mut ta_source2 = TaSource::new();
-    {
-        // all tests share common trust anchor so add it to the pool
-        let der_encoded_ta = get_pkits_cert_bytes_p256("TrustAnchorRootCertificate.crt");
-        if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.push(CertFile {
-                filename: "TrustAnchorRootCertificate.crt".to_string(),
-                bytes: der_encoded_ta,
-            });
-        }
-    }
-
-    ta_source2.initialize().unwrap();
-
-    let mut pe = PkiEnvironment::new();
-    pe.populate_5280_pki_environment();
-    pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-    pkits_guts(
-        &mut pool,
-        &pkits_data_map,
-        &pe,
-        PkitsFlavor::PkitsP256,
-        true,
-        true,
-    )
-    .await;
-}
-
-#[cfg(all(feature = "std", feature = "rsa"))]
-#[tokio::test]
-async fn pkits_2048_graph() {
-    let mut pool = CertPool {
-        certs: BTreeMap::new(),
-    };
-    let mut pkits_data_map = PkitsDataMap::new();
-    load_pkits(&mut pkits_data_map);
-    let mut ta_source2 = TaSource::new();
-    {
-        // all tests share common trust anchor so add it to the pool
-        let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
-        if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.push(CertFile {
-                filename: "TrustAnchorRootCertificate.crt".to_string(),
-                bytes: der_encoded_ta,
-            });
-        }
-    }
-
-    ta_source2.initialize().unwrap();
-
-    #[cfg(feature = "revocation")]
-    {
-        let mut pe = PkiEnvironment::new();
-        pe.populate_5280_pki_environment();
-        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-        pkits_guts(
-            &mut pool,
-            &pkits_data_map,
-            &pe,
-            PkitsFlavor::PkitsRsa2048,
-            false,
-            true,
-        )
-        .await;
-        pe.clear_all_callbacks();
-    }
-    #[cfg(not(feature = "revocation"))]
-    {
-        let mut pe = PkiEnvironment::new();
-        pe.populate_5280_pki_environment();
-        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-        pkits_guts(
-            &mut pool,
-            &pkits_data_map,
-            &pe,
-            PkitsFlavor::PkitsRsa2048,
-            true,
-            true,
-        )
-        .await;
-        pe.clear_all_callbacks();
-    }
-}
-
-#[cfg(all(not(feature = "std"), feature = "rsa"))]
-#[test]
-fn pkits_2048_graph() {
-    let mut pool = CertPool {
-        certs: BTreeMap::new(),
-    };
-    let mut pkits_data_map = PkitsDataMap::new();
-    load_pkits(&mut pkits_data_map);
-    let mut ta_source2 = TaSource::new();
-    {
-        // all tests share common trust anchor so add it to the pool
-        let der_encoded_ta = get_pkits_cert_bytes("TrustAnchorRootCertificate.crt");
-        if let Ok(der_encoded_ta) = der_encoded_ta {
-            ta_source2.push(CertFile {
-                filename: "TrustAnchorRootCertificate.crt".to_string(),
-                bytes: der_encoded_ta,
-            });
-        }
-    }
-
-    ta_source2.initialize().unwrap();
-
-    #[cfg(feature = "revocation")]
-    {
-        let mut pe = PkiEnvironment::new();
-        pe.populate_5280_pki_environment();
-        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-        pkits_guts_sync(
-            &mut pool,
-            &pkits_data_map,
-            &pe,
-            PkitsFlavor::PkitsRsa2048,
-            false,
-            true,
-        );
-    }
-    #[cfg(not(feature = "revocation"))]
-    {
-        let mut pe = PkiEnvironment::new();
-        pe.populate_5280_pki_environment();
-        pe.add_trust_anchor_source(Box::new(ta_source2.clone()));
-        pkits_guts_sync(
-            &mut pool,
-            &pkits_data_map,
-            &pe,
-            PkitsFlavor::PkitsRsa2048,
-            true,
             true,
         );
     }
 }
 
 #[cfg(all(feature = "pqc", not(feature = "std")))]
-pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
+pub fn pkits_guts_pqc_sync(folder: &str) {
     let mut pool = CertPool {
         certs: BTreeMap::new(),
     };
@@ -532,8 +345,7 @@ pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
                 }
             }
 
-            let mut tmp_settings = case.settings.clone();
-            tmp_settings.set_use_policy_graph(policy_graph);
+            let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
             let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
@@ -571,7 +383,7 @@ pub fn pkits_guts_pqc_sync(folder: &str, policy_graph: bool) {
 }
 
 #[cfg(all(feature = "pqc", feature = "std"))]
-pub async fn pkits_guts_pqc(folder: &str, policy_graph: bool) {
+pub async fn pkits_guts_pqc(folder: &str) {
     let mut pool = CertPool {
         certs: BTreeMap::new(),
     };
@@ -677,8 +489,7 @@ pub async fn pkits_guts_pqc(folder: &str, policy_graph: bool) {
                 }
             }
 
-            let mut tmp_settings = case.settings.clone();
-            tmp_settings.set_use_policy_graph(policy_graph);
+            let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
             let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
@@ -717,13 +528,13 @@ macro_rules! pkits_pqc_test {
         #[cfg(all(feature = "pqc", feature = "std"))]
         #[tokio::test]
         async fn $name() {
-            pkits_guts_pqc($folder, false).await;
+            pkits_guts_pqc($folder).await;
         }
 
         #[cfg(all(feature = "pqc", not(feature = "std")))]
         #[test]
         fn $name() {
-            pkits_guts_pqc_sync($folder, false);
+            pkits_guts_pqc_sync($folder);
         }
     };
 }
@@ -751,7 +562,6 @@ pub fn pkits_guts_sync(
     pe: &PkiEnvironment,
     flavor: PkitsFlavor,
     skip_revocation: bool,
-    policy_graph: bool,
 ) {
     // all tests share common trust anchor so add it to the pool
     let der_encoded_ta = match flavor {
@@ -929,8 +739,7 @@ pub fn pkits_guts_sync(
                     println!("break");
                 }
 
-                let mut tmp_settings = case.settings.clone();
-                tmp_settings.set_use_policy_graph(policy_graph);
+                let tmp_settings = case.settings.clone();
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
@@ -1041,7 +850,6 @@ pub async fn pkits_guts(
     pe: &PkiEnvironment,
     flavor: PkitsFlavor,
     skip_revocation: bool,
-    policy_graph: bool,
 ) {
     // all tests share common trust anchor so add it to the pool
     let der_encoded_ta = match flavor {
@@ -1218,8 +1026,7 @@ pub async fn pkits_guts(
                     }
                 }
 
-                let mut tmp_settings = case.settings.clone();
-                tmp_settings.set_use_policy_graph(policy_graph);
+                let tmp_settings = case.settings.clone();
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]

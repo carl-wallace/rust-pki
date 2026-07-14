@@ -69,15 +69,9 @@ pub(crate) fn add_child_if_not_present(
     children: &RefCell<Vec<usize>>,
     new_child_index: usize,
 ) {
-    let new_child = &pool[new_child_index];
-    let mut found = false;
-    for ps in pool.iter().take(children.borrow().len()) {
-        if ps.valid_policy == new_child.valid_policy {
-            found = true;
-            break;
-        }
-    }
-    if !found {
+    // Dedup against the parent's actual children (indices into the pool), keyed by valid_policy.
+    let new_child_policy = pool[new_child_index].valid_policy;
+    if !has_child_node(pool, children, &new_child_policy) {
         children.borrow_mut().push(new_child_index);
     }
 }
@@ -113,6 +107,48 @@ pub(crate) fn num_kids_is_zero(pool: &PolicyPool, index: usize) -> bool {
         return retval == 0;
     }
     true
+}
+
+/// Prunes childless nodes from rows `0..=max_depth` of `valid_policy_graph`, cascading upward.
+///
+/// Implements the "delete each node of depth i-1 (or n-1) or less without any child nodes; repeat
+/// until there are no such nodes" step of RFC 5280 §6.1.3(d)(3), §6.1.4(b)(2)(ii), and §6.1.5. A
+/// removed node is also stripped from each of its parents' `children` lists, so a parent left with
+/// no children is pruned on a later pass (the cascade). The outer loop repeats full passes over the
+/// rows until one removes nothing, so every newly-childless parent is caught regardless of the
+/// order in which rows are visited.
+pub(crate) fn prune_childless_nodes(
+    pool: &PolicyPool,
+    valid_policy_graph: &mut [PolicyTreeRow],
+    max_depth: usize,
+) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for row in valid_policy_graph.iter_mut().take(max_depth + 1) {
+            let before = row.len();
+            row.retain(|node_index| {
+                if num_kids_is_zero(pool, *node_index) {
+                    // strip this childless node from each parent so the parent's child count
+                    // reflects the removal, enabling the upward cascade
+                    if let Some(parents) = &pool[*node_index].parent {
+                        for parent_index in parents.borrow().iter() {
+                            pool[*parent_index]
+                                .children
+                                .borrow_mut()
+                                .retain(|c| c != node_index);
+                        }
+                    }
+                    false
+                } else {
+                    true
+                }
+            });
+            if row.len() != before {
+                changed = true;
+            }
+        }
+    }
 }
 
 pub(crate) fn make_new_policy_node_add_to_pool2(
@@ -203,4 +239,99 @@ pub(crate) fn remove_node_and_children(
     }
     node.children.borrow_mut().clear();
     valid_policy_tree[node.depth as usize].retain(|x| *x != *node_index);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use core::cell::RefCell;
+    use der::asn1::ObjectIdentifier;
+
+    fn node(
+        policy: ObjectIdentifier,
+        depth: u8,
+        parent: Option<Vec<usize>>,
+        children: Vec<usize>,
+    ) -> PolicyProcessingData {
+        PolicyProcessingData {
+            valid_policy: policy,
+            qualifier_set: None,
+            expected_policy_set: ObjectIdentifierSet::new(),
+            depth,
+            parent: parent.map(RefCell::new),
+            children: RefCell::new(children),
+        }
+    }
+
+    // Dedup keys on the parent's actual children: pool[0] shares policy X with the candidate but is
+    // not one of the parent's children, so the candidate must still be added.
+    #[test]
+    fn add_child_if_not_present_scans_actual_children() {
+        let x = ObjectIdentifier::new_unwrap("1.2.3.1");
+        let a = ObjectIdentifier::new_unwrap("1.2.3.2");
+        let pool: PolicyPool = vec![
+            node(x, 1, Some(vec![]), vec![]),  // 0: pool-prefix decoy, policy X
+            node(a, 1, Some(vec![]), vec![]),  // 1: the parent's sole real child, policy A
+            node(x, 2, Some(vec![1]), vec![]), // 2: candidate, policy X (not among children)
+            node(a, 2, Some(vec![1]), vec![]), // 3: candidate, policy A (already a child)
+        ];
+        let children = RefCell::new(vec![1usize]);
+
+        add_child_if_not_present(&pool, &children, 2);
+        assert_eq!(
+            *children.borrow(),
+            vec![1, 2],
+            "policy X is not a child yet; must be added"
+        );
+
+        add_child_if_not_present(&pool, &children, 3);
+        assert_eq!(
+            *children.borrow(),
+            vec![1, 2],
+            "policy A already a child; must be a no-op"
+        );
+    }
+
+    // Pruning a childless node strips it from its parent's `children`, so a parent left childless
+    // is itself pruned on a later pass (the cascade).
+    #[test]
+    fn prune_childless_nodes_strips_parent_and_cascades() {
+        let root = ObjectIdentifier::new_unwrap("2.5.29.32.0");
+        let p = ObjectIdentifier::new_unwrap("1.2.3.10");
+        let q = ObjectIdentifier::new_unwrap("1.2.3.11");
+
+        // root(0) -> {dead(1) childless, live(2) -> leaf(3)}. Prune rows 0..=1; the leaf's row 2 is
+        // the anchor (not pruned). The dead node goes and is stripped from root's children.
+        let pool: PolicyPool = vec![
+            node(root, 0, None, vec![1, 2]),
+            node(p, 1, Some(vec![0]), vec![]),
+            node(q, 1, Some(vec![0]), vec![3]),
+            node(p, 2, Some(vec![2]), vec![]),
+        ];
+        let mut graph = vec![vec![0usize], vec![1, 2], vec![3]];
+        prune_childless_nodes(&pool, &mut graph, 1);
+        assert_eq!(graph[1], vec![2], "childless node pruned from its row");
+        assert_eq!(
+            *pool[0].children.borrow(),
+            vec![2],
+            "pruned node stripped from parent"
+        );
+        assert_eq!(graph[0], vec![0]);
+        assert_eq!(graph[2], vec![3], "anchor row untouched");
+
+        // Full upward collapse: a lone childless leaf at the deepest pruned row must cascade all the
+        // way to the root. A single shallow-first pass (old behavior) would stop after the leaf.
+        let chain: PolicyPool = vec![
+            node(root, 0, None, vec![1]),
+            node(p, 1, Some(vec![0]), vec![2]),
+            node(q, 2, Some(vec![1]), vec![]),
+        ];
+        let mut cg = vec![vec![0usize], vec![1], vec![2]];
+        prune_childless_nodes(&chain, &mut cg, 2);
+        assert!(
+            cg[0].is_empty() && cg[1].is_empty() && cg[2].is_empty(),
+            "childless leaf must cascade-prune its entire ancestry, got {cg:?}"
+        );
+    }
 }

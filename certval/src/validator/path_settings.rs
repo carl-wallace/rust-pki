@@ -7,6 +7,7 @@ use core::str::FromStr;
 use core::time::Duration;
 
 use flagset::FlagSet;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 use const_oid::db::rfc5280::ANY_POLICY;
@@ -101,7 +102,7 @@ pub struct ValidPolicyTreeNode {
     pub expected_policy_set: ObjectIdentifierSet,
 }
 
-/// Define a type to serve as the final value of the valid_policy_tree returned from [`check_certificate_policies`](../path_validator/fn.check_certificate_policies.html)
+/// Define a type to serve as the final value of the valid_policy_tree returned from [`check_certificate_policies_graph`](../policy_graph/fn.check_certificate_policies_graph.html)
 /// (or similar implementation).
 pub type FinalValidPolicyTree = Vec<Vec<ValidPolicyTreeNode>>;
 
@@ -673,8 +674,26 @@ cps_gets_and_sets_with_default!(PS_REQUIRE_COUNTRY_CODE_INDICATOR, bool, false);
 cps_gets_and_sets!(PS_PERM_COUNTRIES, Strings);
 cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
-cps_gets_and_sets_with_default!(PS_USE_POLICY_GRAPH, bool, false);
 cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
+
+impl CertificationPathSettings {
+    /// Returns `true`: certificate policy processing is always graph-based (RFC 9618).
+    /// `PS_USE_POLICY_GRAPH` is retained for backward compatibility with serialized settings.
+    pub fn get_use_policy_graph(&self) -> bool {
+        true
+    }
+
+    /// Retained for backward compatibility. Graph-based policy processing (RFC 9618) is the only
+    /// implementation, so `true` is a no-op and `false` is ignored with a warning.
+    pub fn set_use_policy_graph(&mut self, value: bool) {
+        if !value {
+            warn!(
+                "PS_USE_POLICY_GRAPH=false is not supported; certificate policy processing is \
+                 always graph-based (RFC 9618)"
+            );
+        }
+    }
+}
 
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a

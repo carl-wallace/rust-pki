@@ -101,8 +101,7 @@ pub(crate) async fn validate_cert_file(
 
         // Revocation checking rides the `revocation` feature, not `remote`: the async
         // `check_revocation` does local-CRL/cached/stapled checks and gates only the
-        // network fetch on `remote` internally. Gating this on `remote` was H-6 (a
-        // `revocation,std` build loaded CRLs, then validated with no revocation check).
+        // network fetch on `remote` internally.
         #[cfg(feature = "revocation")]
         if r.is_ok() && path_cps.get_check_revocation_status() {
             r = check_revocation(pe, &path_cps, path, &mut cpr).await;

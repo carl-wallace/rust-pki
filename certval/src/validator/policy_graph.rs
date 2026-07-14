@@ -16,7 +16,8 @@ use der::{asn1::ObjectIdentifier, Encode};
 #[cfg(doc)]
 use crate::enforce_trust_anchor_constraints;
 
-/// `check_certificate_policies_graph` implements certificate policy processing per draft-davidben-x509-policy-graph-01.
+/// `check_certificate_policies_graph` implements certificate policy processing per RFC 9618
+/// (originally draft-davidben-x509-policy-graph).
 ///
 /// It references the following certificate extensions:
 /// - ID_CE_CERTIFICATE_POLICIES,
@@ -249,21 +250,19 @@ pub fn check_certificate_policies_graph(
                     valid_policy_graph[i].push(node_index);
                 }
 
-                for r in &mut valid_policy_graph[0..i] {
-                    // (3)  If there is a node in the valid_policy_tree of depth i-1
-                    //       or less without any child nodes, delete that node.  Repeat
-                    //       this step until there are no nodes of depth i-1 or less
-                    //       without children.
-                    //
-                    //       For example, consider the valid_policy_tree shown in
-                    //       Figure 7 below.  The two nodes at depth i-1 that are
-                    //       marked with an 'X' have no children, and they are deleted.
-                    //       Applying this rule to the resulting tree will cause the
-                    //       node at depth i-2 that is marked with a 'Y' to be deleted.
-                    //       In the resulting tree, there are no nodes of depth i-1 or
-                    //       less without children, and this step is complete.
-                    r.retain(|x| !num_kids_is_zero(pm, *x));
-                }
+                // (3)  If there is a node in the valid_policy_tree of depth i-1
+                //       or less without any child nodes, delete that node.  Repeat
+                //       this step until there are no nodes of depth i-1 or less
+                //       without children.
+                //
+                //       For example, consider the valid_policy_tree shown in
+                //       Figure 7 below.  The two nodes at depth i-1 that are
+                //       marked with an 'X' have no children, and they are deleted.
+                //       Applying this rule to the resulting tree will cause the
+                //       node at depth i-2 that is marked with a 'Y' to be deleted.
+                //       In the resulting tree, there are no nodes of depth i-1 or
+                //       less without children, and this step is complete.
+                prune_childless_nodes(pm, &mut valid_policy_graph, i - 1);
                 if valid_policy_graph[i].is_empty() {
                     valid_policy_graph_is_null = true;
                 }
@@ -329,20 +328,25 @@ pub fn check_certificate_policies_graph(
                     // specified as equivalent to ID-P by the policy mappings
                     // extension.
                     let mut ap: Option<usize> = None;
+                    // Update every depth-i node whose valid_policy is a mapped issuerDomainPolicy
+                    // (with multiple depth-(i-1) parents a valid_policy can appear on more than one
+                    // depth-i node), per RFC 5280 §6.1.4(b)(1). Collect the matched
+                    // issuerDomainPolicies and drop them after the loop, so `mappings` is left
+                    // holding only those matched by no node (consumed by step (ii) below).
+                    let mut matched_idps: Vec<ObjectIdentifier> = Vec::new();
                     for p_index in &valid_policy_graph[i] {
-                        let p = &mut pm[*p_index];
-                        if mappings.contains_key(&p.valid_policy) {
-                            p.expected_policy_set.clear();
-
-                            for s in &mappings[&p.valid_policy] {
-                                p.expected_policy_set.insert(*s);
-                            }
-                            // remove the mappings that we actually process
-                            mappings.remove(&p.valid_policy);
+                        let valid_policy = pm[*p_index].valid_policy;
+                        if let Some(subject_domain_policies) = mappings.get(&valid_policy) {
+                            pm[*p_index].expected_policy_set =
+                                subject_domain_policies.iter().copied().collect();
+                            matched_idps.push(valid_policy);
                         }
-                        if ANY_POLICY == p.valid_policy {
+                        if ANY_POLICY == valid_policy {
                             ap = Some(*p_index);
                         }
+                    }
+                    for idp in matched_idps {
+                        mappings.remove(&idp);
                     }
 
                     // If no node of depth i in the valid_policy_tree has a
@@ -396,13 +400,11 @@ pub fn check_certificate_policies_graph(
                         valid_policy_graph[i].retain(|x| !row_elem_is_policy(pm, x, m.0))
                     }
 
-                    for r in &mut valid_policy_graph[0..i - 1] {
-                        //     (ii)   If there is a node in the valid_policy_tree of depth
-                        //            i-1 or less without any child nodes, delete that
-                        //            node.  Repeat this step until there are no nodes of
-                        //            depth i-1 or less without children.
-                        r.retain(|x| !num_kids_is_zero(pm, *x));
-                    }
+                    //     (ii)   If there is a node in the valid_policy_tree of depth
+                    //            i-1 or less without any child nodes, delete that
+                    //            node.  Repeat this step until there are no nodes of
+                    //            depth i-1 or less without children.
+                    prune_childless_nodes(pm, &mut valid_policy_graph, i - 1);
                 }
             }
 
@@ -486,13 +488,11 @@ pub fn check_certificate_policies_graph(
                     &mut valid_policy_graph,
                 );
 
-                for r in &mut valid_policy_graph[0..i - 1] {
-                    //4.  If there is a node in the valid_policy_tree of depth
-                    //n-1 or less without any child nodes, delete that node.
-                    //Repeat this step until there are no nodes of depth n-1
-                    //or less without children.
-                    r.retain(|x| !num_kids_is_zero(pm, *x));
-                }
+                //4.  If there is a node in the valid_policy_tree of depth
+                //n-1 or less without any child nodes, delete that node.
+                //Repeat this step until there are no nodes of depth n-1
+                //or less without children.
+                prune_childless_nodes(pm, &mut valid_policy_graph, i - 1);
 
                 // 3.  If the valid_policy_tree includes a node of depth n
                 //     with the valid_policy anyPolicy and the user-initial-
@@ -521,7 +521,17 @@ pub fn check_certificate_policies_graph(
                         let parent = &pm[parent_index];
                         let p_q = &parent.qualifier_set;
 
+                        // Step 3(b): synthesize a child only for each P-OID in the
+                        // user-initial-policy-set that is not already the valid_policy of a node in
+                        // the valid_policy_node_set, so a policy already present is not duplicated.
+                        let existing_policies: ObjectIdentifierSet = valid_policy_node_set
+                            .iter()
+                            .map(|idx| pm[*idx].valid_policy)
+                            .collect();
                         for p in &initial_policy_set {
+                            if existing_policies.contains(p) {
+                                continue;
+                            }
                             let parent_index = parent.parent.as_ref().map(|pi| pi.borrow()[0]);
 
                             let new_node = make_new_policy_node(
