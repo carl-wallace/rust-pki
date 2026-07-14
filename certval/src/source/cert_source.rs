@@ -949,12 +949,16 @@ impl CertSource {
         for (i, cert) in self.certs.iter().enumerate() {
             if let Some(cert) = cert {
                 let hex_skid = hex_skid_from_cert(cert);
-                if self.skid_map.contains_key(&hex_skid) {
-                    let mut v = self.skid_map[&hex_skid].clone();
-                    v.push(i);
-                    self.skid_map.insert(hex_skid, v);
-                } else {
-                    self.skid_map.insert(hex_skid, vec![i]);
+                // a cert whose key identifier cannot be computed (e.g. malformed public key) is
+                // left out of the SKID index rather than bucketed under an empty key
+                if !hex_skid.is_empty() {
+                    if self.skid_map.contains_key(&hex_skid) {
+                        let mut v = self.skid_map[&hex_skid].clone();
+                        v.push(i);
+                        self.skid_map.insert(hex_skid, v);
+                    } else {
+                        self.skid_map.insert(hex_skid, vec![i]);
+                    }
                 }
 
                 let name_str = name_to_string(cert.as_ref().tbs_certificate().subject());
