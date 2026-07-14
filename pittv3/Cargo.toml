@@ -17,43 +17,19 @@ rust-version = "1.85"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-x509-cert = { version = "0.3.0-rc.4", default-features = false, features = ["pem"] }
-const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
-cms = "0.3.0-pre.2"
-der = { version="0.8.0", features = ["alloc", "derive", "flagset", "oid"] }
-x509-ocsp = { version = "0.3.0-pre" }
-base64ct = { version="1.8.3", features = ["alloc"], optional=true }
-spki = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"] }
-pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
+pittv3_lib = { path = "../pittv3-lib", default-features = false }
 
-certval = { path = "../certval", default-features = false}
-rsa = { version = "0.10.0-rc.15", optional = true, features = ["encoding"] }
-sha1 = {version = "0.11.0-rc.5", default-features = false, features = ["oid"]}
-sha2 = {version = "0.11.0-rc.5", default-features = false, features = ["oid"] }
-
-async-recursion = "1.1.1"
-bytes = "1.11.1"
 cfg-if = "1.0.4"
-ciborium = {version = "0.2.2", default-features = false }
 clap = {version = "4.5.60", features=["std", "derive"]}
-flagset = { version = "0.4.7", default-features = false }
-lazy_static = "1.5.0"
-serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
-serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
-
-csv = {version = "1.4.0", optional = true, default-features = false}
 log = {version = "0.4.29"}
 log4rs = {version = "1.4.0", optional = true}
-
-ndarray = {version = "0.17.2", optional = true}
-reqwest = { version = "0.13.2", features = ["blocking"], optional = true}
 tokio = { version = "1.49.0", features = ["full", "time", "rt-multi-thread"], optional = true }
-walkdir = { version = "2.5.0", optional = true}
 
 [dev-dependencies]
 assert_cmd = "2.1.2"
 predicates = "3.1.4"
 hex-literal = "1.1.0"
+lazy_static = "1.5.0"
 tempfile = "3.26.0"
 tokio-test = "0.4.5"
 
@@ -68,15 +44,15 @@ tokio-test = "0.4.5"
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki"]
-revocation = ["certval/revocation"]
-std_app = ["certval/revocation", "ndarray", "tokio", "base64ct", "walkdir", "log4rs", "csv"]
-std = ["std_app", "certval/std", "revocation"]
-remote = ["certval/remote", "revocation", "std"]
-pqc = ["certval/pqc"]
-webpki = ["certval/webpki"]
-sha1_sig = ["rsa"]
-rsa = ["certval/rsa", "dep:rsa"]
-eddsa = ["certval/eddsa"]
+revocation = ["pittv3_lib/revocation"]
+std_app = ["pittv3_lib/std_app", "tokio", "log4rs"]
+std = ["std_app", "revocation", "pittv3_lib/std"]
+remote = ["revocation", "std", "pittv3_lib/remote"]
+pqc = ["pittv3_lib/pqc"]
+webpki = ["pittv3_lib/webpki"]
+sha1_sig = ["pittv3_lib/sha1_sig"]
+rsa = ["pittv3_lib/rsa"]
+eddsa = ["pittv3_lib/eddsa"]
 
 [package.metadata.docs.rs]
 all-features = true

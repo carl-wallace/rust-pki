@@ -1024,6 +1024,9 @@ pub fn pkits_guts_sync(
                                 println!("Unexpected result for {} with TA enforcement", case_name);
                             }
                         }
+                    } else if case.expected_error.is_none() {
+                        // enforcement failure counts as an invalid path; do not skip silently
+                        panic!("Unexpected TA constraint enforcement failure for {case_name}");
                     }
                 }
             }
@@ -1289,6 +1292,9 @@ pub async fn pkits_guts(
                         {
                             println!("Unexpected result for {case_name} with TA enforcement");
                         }
+                    } else if case.expected_error.is_none() {
+                        // enforcement failure counts as an invalid path; do not skip silently
+                        panic!("Unexpected TA constraint enforcement failure for {case_name}");
                     }
                 }
             }

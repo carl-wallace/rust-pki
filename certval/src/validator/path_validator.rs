@@ -862,6 +862,11 @@ pub fn enforce_trust_anchor_constraints(
 }
 
 fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
+    // id-pe-cmsContentConstraints from RFC 6010; tolerated because CCC constrains CMS content
+    // processing, not certification path validation (TAMP-era trust anchors commonly carry it
+    // as a critical extension)
+    const ID_PE_CMS_CONTENT_CONSTRAINTS: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.1.18");
     let recognized_oids = [
         ID_CE_BASIC_CONSTRAINTS,
         ID_CE_NAME_CONSTRAINTS,
@@ -869,6 +874,7 @@ fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
         ID_CE_POLICY_CONSTRAINTS,
         ID_CE_KEY_USAGE,
         ID_CE_INHIBIT_ANY_POLICY,
+        ID_PE_CMS_CONTENT_CONSTRAINTS,
     ];
     if let Some(exts) = exts {
         for ext in exts.as_slice() {

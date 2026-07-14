@@ -23,7 +23,11 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: cargo hack build --each-feature
+      # the UI crates are excluded: the dioxus 0.7 dependency tree requires rustc >= 1.88
+      # (home/built/image/time), above the 1.85 MSRV here, and pittv3-gui additionally needs
+      # Linux system packages (libwebkit2gtk-4.1-dev, libgtk-3-dev, libxdo-dev) absent from
+      # the runner; re-include as the desktop work stabilizes
+      - run: cargo hack build --each-feature --workspace --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm
 
   test:
     runs-on: ubuntu-latest
@@ -38,7 +42,8 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: cargo hack test --each-feature
+      # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
+      - run: cargo hack test --each-feature --workspace --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm
 
   x509-limbo:
     runs-on: ubuntu-latest

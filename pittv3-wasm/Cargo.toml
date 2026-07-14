@@ -1,0 +1,30 @@
+[package]
+name = "pittv3-wasm"
+version = "0.1.3"
+description = """
+Browser-based frontend for the PKI Interoperability Test Tool v3 (PITTv3) that performs
+certification path validation in a WASM context, including validation of certificates signed
+using post-quantum algorithms, i.e., ML-DSA and SLH-DSA.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "wasm"]
+keywords = ["crypto", "x.509", "PQC"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.88"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# The browser frontend builds certval with no-default-features (no filesystem, network or thread
+# support) plus pqc. Trust anchor and CA stores are baked in as CBOR at build time or supplied by
+# the user via file upload.
+[dependencies]
+certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "rsa"] }
+
+dioxus = { version = "0.7.9", features = ["web"] }
+log = "0.4.29"
+pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
+web-time = "1.1.0"
+zip = { version = "7.2.0", default-features = false, features = ["deflate"] }

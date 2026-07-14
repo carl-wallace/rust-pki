@@ -5,13 +5,27 @@ members = [
     "certval",
     "pkiprocmacros",
     "pittv3",
+    "pittv3-gui",
+    "pittv3-gui-lib",
+    "pittv3-lib",
+    "pittv3-wasm",
 ]
 
 [profile.bench]
 debug = true
 
-[profile.release]
+# Opt-in release build with debug info for profiling and symbolicated backtraces from the native
+# tools: cargo build --profile release-dbg
+[profile.release-dbg]
+inherits = "release"
 debug = true
+
+# Used by trunk for pittv3-wasm browser builds (trunk build --release --cargo-profile wasm-release):
+# optimizes for size rather than the speed the native release profile favors.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
 
 [patch.crates-io]
 # Temporary until RustCrypto publishes x509-ocsp RCs. The specific commit is pinned by Cargo.lock;

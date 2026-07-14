@@ -2,23 +2,14 @@
 #![forbid(unsafe_code)] // removed due to issue with Clap derive, clippy::unwrap_used)]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
-extern crate alloc;
-mod args;
-mod options_std;
-mod pitt_log;
-mod stats;
-mod std_utils;
-
-mod no_std_utils;
-mod options_no_std;
-mod options_std_app;
-#[cfg(feature = "sha1_sig")]
-mod sha1_sig;
+mod cliargs;
 
 use clap::Parser;
 use log::debug;
 
-use crate::args::*;
+use pittv3_lib::args::Pittv3Args;
+
+use crate::cliargs::Pittv3CliArgs;
 
 #[cfg(feature = "std_app")]
 use log::LevelFilter;
@@ -34,11 +25,11 @@ extern crate cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "std")] {
-        use options_std::*;
+        use pittv3_lib::options_std::*;
     } else if #[cfg(feature = "std_app")] {
-        use options_std_app::*;
+        use pittv3_lib::options_std_app::*;
     } else if #[cfg(not(feature = "std_app"))] {
-        use options_no_std::*;
+        use pittv3_lib::options_no_std::*;
     }
 }
 
@@ -47,7 +38,7 @@ cfg_if! {
         /// Point of entry for PITTv3 application.
         #[tokio::main]
         async fn main() {
-            let args = Pittv3Args::parse();
+            let args: Pittv3Args = Pittv3CliArgs::parse().into();
 
             let mut logging_configured = false;
 
@@ -97,19 +88,12 @@ cfg_if! {
     else if #[cfg(not(feature = "std_app"))] {
         /// Point of entry for PITTv3 application.
         fn main() {
-            let args = Pittv3Args::parse();
+            let args: Pittv3Args = Pittv3CliArgs::parse().into();
 
             debug!("PITTv3 start");
 
-            // process options available under std, revocation,std and remote features
-            #[cfg(feature = "std")]
-            options_std(&args).await;
-
-            #[cfg(not(feature = "std"))]
-            {
-                // process options available under no-default features and revocation feature
-                options_no_std(&args);
-            }
+            // process options available under no-default features and revocation feature
+            options_no_std(&args);
 
             debug!("PITTv3 end");
         }
