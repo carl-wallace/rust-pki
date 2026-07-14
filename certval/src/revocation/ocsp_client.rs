@@ -15,8 +15,8 @@ use log::error;
 use log::{debug, info};
 
 use crate::{
-    valid_at_time, CertificationPathResults, CertificationPathSettings, DeferDecodeSigned, Error,
-    PDVCertificate, PathValidationStatus, PkiEnvironment, Result,
+    crl::process_crl, valid_at_time, CertificationPathResults, CertificationPathSettings,
+    DeferDecodeSigned, Error, PDVCertificate, PathValidationStatus, PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
@@ -576,9 +576,44 @@ fn process_ocsp_response_internal(
                                 }
                             }
 
+                            // The responder cert lacks id-pkix-ocsp-nocheck, so its own revocation
+                            // status is not waived (RFC 6960 4.2.2.2.1). Check it against locally
+                            // available CRLs (issued by the same CA as the responder) and reject the
+                            // response if the responder is revoked. Remote retrieval is not attempted
+                            // here: this path is synchronous, and responder certs that omit nocheck
+                            // are rare in practice.
                             if !no_check_present(&cert.tbs_certificate().extensions()) {
-                                //TODO implement revocation checking of responder cert
-                                error!("no-check absent");
+                                let mut responder_revoked = false;
+                                if let Ok(responder) = PDVCertificate::try_from(certbuf.as_slice())
+                                {
+                                    if let Ok(crls) = pe.get_crls(&responder) {
+                                        for crl in &crls {
+                                            if let Err(Error::PathValidation(
+                                                PathValidationStatus::CertificateRevoked,
+                                            )) = process_crl(
+                                                pe,
+                                                cps,
+                                                cpr,
+                                                &responder,
+                                                issuers_cert,
+                                                result_index,
+                                                crl.as_slice(),
+                                                None,
+                                            ) {
+                                                responder_revoked = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if responder_revoked {
+                                    error!("Delegated OCSP responder cert from {uri_to_check} is revoked per a locally available CRL; rejecting response");
+                                    cpr.add_failed_ocsp_response(
+                                        enc_ocsp_resp.to_vec(),
+                                        result_index,
+                                    );
+                                    continue;
+                                }
                             }
 
                             // RFC 6960 4.2.2.2: a delegated OCSP responder certificate MUST assert
