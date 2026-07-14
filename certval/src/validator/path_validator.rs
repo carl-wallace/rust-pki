@@ -736,9 +736,12 @@ pub fn enforce_trust_anchor_constraints(
             if let Some(nc) = pdv_ext {
                 if let PDVExtension::NameConstraints(nc) = nc {
                     if let Some(permitted) = &nc.permitted_subtrees {
+                        // RFC 5937: initial-permitted-subtrees is the INTERSECTION of the TA's
+                        // permitted subtrees and the user-provided set (an absent user set defaults
+                        // to the infinite set, so the intersection yields the TA's subtrees).
                         let mut initial_perm =
                             cps.get_initial_permitted_subtrees_with_default_as_set(&mut pbufs)?;
-                        initial_perm.calculate_union(permitted);
+                        initial_perm.calculate_intersection(permitted);
                         mod_cps.set_initial_permitted_subtrees_from_set(&initial_perm)?;
                     }
                 }
@@ -783,9 +786,9 @@ pub fn enforce_trust_anchor_constraints(
     if !ta_policy_set.is_empty() && !user_policy_set.is_empty() {
         let mut new_policy_set = ObjectIdentifierSet::new();
         if ta_accepts_any_policy {
-            // union
+            // TA asserts anyPolicy, so the intersection with the user set is the user set;
+            // the TA's ANY_POLICY (and any TA-specific policies it subsumes) are not added.
             new_policy_set = user_policy_set;
-            new_policy_set.append(&mut ta_policy_set);
         } else {
             let user_accepts_any_policy = user_policy_set.contains(&ANY_POLICY);
 

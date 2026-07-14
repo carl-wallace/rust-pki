@@ -130,10 +130,13 @@ pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice) -> String {
                 buffer_to_hex(skid.0.as_bytes())
             } else {
                 let working_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
-                //todo unwrap
-                let digest =
-                    Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
-                buffer_to_hex(digest.as_slice())
+                // A public key BIT STRING is byte-aligned; a nonzero unused-bits count is
+                // malformed, so decline to compute a key identifier rather than panic or digest a
+                // non-byte-aligned value (empty string is the no-identifier sentinel here).
+                match working_spki.subject_public_key.as_bytes() {
+                    Some(b) => buffer_to_hex(Sha256::digest(b).to_vec().as_slice()),
+                    None => String::new(),
+                }
             };
             hex_skid
         }
@@ -153,9 +156,13 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
         buffer_to_hex(skid.0.as_bytes())
     } else {
         let working_spki = &cert.as_ref().tbs_certificate().subject_public_key_info();
-        //todo unwrap
-        let digest = Sha256::digest(working_spki.subject_public_key.as_bytes().unwrap()).to_vec();
-        buffer_to_hex(digest.as_slice())
+        // A public key BIT STRING is byte-aligned; a nonzero unused-bits count is malformed, so
+        // decline to compute a key identifier rather than panic or digest a non-byte-aligned value
+        // (empty string is the no-identifier sentinel here).
+        match working_spki.subject_public_key.as_bytes() {
+            Some(b) => buffer_to_hex(Sha256::digest(b).to_vec().as_slice()),
+            None => String::new(),
+        }
     };
     hex_skid
 }
@@ -293,7 +300,11 @@ impl TaSource {
     pub fn index_tas(&mut self) {
         for (i, ta) in self.tas.iter().enumerate() {
             let hex_skid = hex_skid_from_ta(ta);
-            self.skid_map.insert(hex_skid, i);
+            // a TA whose key identifier cannot be computed (e.g. malformed public key) is left out
+            // of the SKID index rather than bucketed under an empty key
+            if !hex_skid.is_empty() {
+                self.skid_map.insert(hex_skid, i);
+            }
 
             if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
                 let name_str = name_to_string(name);
