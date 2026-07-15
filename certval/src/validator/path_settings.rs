@@ -233,7 +233,7 @@ pub static PS_EXTENDED_KEY_USAGE_PATH: &str = "psExtendedKeyUsagePath";
 pub static PS_INITIAL_PATH_LENGTH_CONSTRAINT: &str = "psInitialPathLengthConstraint";
 
 /// `PS_MAX_PATH_LENGTH_CONSTRAINT` sets the maximum length path accepted by validation implementation
-pub static PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
+pub const PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
 
 /// `PS_CRL_TIMEOUT_DEFAULT` sets the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
@@ -314,6 +314,19 @@ pub static PS_REVOCATION_MAX_AGE: &str = "psRevocationMaxAge";
 
 /// Default value for [`PS_REVOCATION_MAX_AGE`]: zero, i.e., fail closed when `nextUpdate` is absent.
 pub static PS_REVOCATION_MAX_AGE_DEFAULT: Duration = Duration::from_secs(0);
+
+/// `PS_MAX_AIA_SIA_CERTS` is used to retrieve a u64 value from a [`CertificationPathSettings`] object.
+/// It bounds the number of certificates the graph builder will accumulate while iteratively fetching
+/// AIA and SIA URIs. A hostile or misconfigured responder can serve a fresh certificate on every hop
+/// (each pointing at another URI), so the fetch loop would otherwise never reach a fixed point and
+/// would grow the certificate store without bound (which in turn feeds partial-path enumeration).
+/// When the store reaches this many certificates, collection halts and graph building proceeds with
+/// what has been gathered. The default is [`PS_MAX_AIA_SIA_CERTS_DEFAULT`].
+pub static PS_MAX_AIA_SIA_CERTS: &str = "psMaxAiaSiaCerts";
+
+/// Default value for [`PS_MAX_AIA_SIA_CERTS`]: 2000, well above any realistic store while still
+/// bounding an AIA/SIA fetch loop that never converges.
+pub static PS_MAX_AIA_SIA_CERTS_DEFAULT: u64 = 2000;
 
 /// `PS_CERTIFICATES` is used to retrieve a set of potentially useful certificates from a [`CertificationPathSettings`]
 /// object.
@@ -686,6 +699,7 @@ cps_gets_and_sets_with_default!(
     Duration,
     PS_REVOCATION_MAX_AGE_DEFAULT
 );
+cps_gets_and_sets_with_default!(PS_MAX_AIA_SIA_CERTS, u64, PS_MAX_AIA_SIA_CERTS_DEFAULT);
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
 // PS_CERTIFICATES (will need lifetime aware macro)
 cps_gets_and_sets_with_default!(PS_REQUIRE_COUNTRY_CODE_INDICATOR, bool, false);
@@ -805,6 +819,8 @@ fn test_default_gets_cps() {
         OcspNonceSetting::DoNotSendNonce,
         cps.get_ocsp_aia_nonce_setting()
     );
+    assert_eq!(Duration::from_secs(0), cps.get_revocation_max_age());
+    assert_eq!(2000, cps.get_max_aia_sia_certs());
     assert!(!cps.get_require_country_code_indicator());
 
     assert_eq!(vec![ANY_POLICY.to_string()], cps.get_initial_policy_set());
@@ -926,6 +942,11 @@ fn test_default_sets_cps() {
         OcspNonceSetting::SendNonceRequireMatch,
         cps.get_ocsp_aia_nonce_setting()
     );
+
+    cps.set_revocation_max_age(Duration::from_secs(3600));
+    assert_eq!(Duration::from_secs(3600), cps.get_revocation_max_age());
+    cps.set_max_aia_sia_certs(500);
+    assert_eq!(500, cps.get_max_aia_sia_certs());
 
     cps.set_require_country_code_indicator(true);
     assert!(cps.get_require_country_code_indicator());

@@ -240,9 +240,8 @@ pub fn check_certificate_policies_graph(
                 }
 
                 for node in nodes_to_add {
-                    let node_index = pm.len();
                     let valid_policy = node.valid_policy;
-                    pm.push(node);
+                    let node_index = push_policy_node(pm, node)?;
                     for p in &parent_nodes[&valid_policy] {
                         let parent = &pm[*p];
                         add_child_if_not_present(pm, &parent.children, node_index);
@@ -381,8 +380,7 @@ pub fn check_certificate_policies_graph(
                             for node in nodes_to_add {
                                 let parent_index = node.parent.as_ref().map(|p| p.borrow()[0]);
 
-                                let node_index = pm.len();
-                                pm.push(node);
+                                let node_index = push_policy_node(pm, node)?;
                                 if let Some(parent_index) = parent_index {
                                     let parent = &pm[parent_index];
                                     add_child_if_not_present(pm, &parent.children, node_index);
@@ -550,8 +548,7 @@ pub fn check_certificate_policies_graph(
                 for node in nodes_to_add {
                     let parent_index = node.parent.as_ref().map(|p| p.borrow()[0]);
 
-                    let node_index = pm.len();
-                    pm.push(node);
+                    let node_index = push_policy_node(pm, node)?;
                     if let Some(parent_index) = parent_index {
                         let parent = &pm[parent_index];
                         add_child_if_not_present(pm, &parent.children, node_index);
@@ -626,8 +623,7 @@ fn make_new_policy_node_add_to_pool2_graph(
         parent: Some(RefCell::new(parents.clone())),
         children: RefCell::new(vec![]),
     };
-    let cur_index = pm.len();
-    pm.push(node);
+    let cur_index = push_policy_node(pm, node)?;
 
     for p in parents {
         let parent = &pm[p];
