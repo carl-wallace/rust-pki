@@ -300,6 +300,22 @@ fn has_trailing_dot(subtrees: &Option<GeneralSubtrees>) -> bool {
         .is_some_and(|s| s.iter().any(|gs| general_name_has_trailing_dot(&gs.base)))
 }
 
+/// Ceiling on the work performed matching one certificate's subjectAltName against the operative
+/// name-constraints state. Matching visits every SAN entry against every accumulated constraint, so
+/// the cost scales with the product of the two counts. A path of certificate authorities that each
+/// contribute many constraints, terminating in a certificate bearing many SAN entries, could
+/// otherwise drive that product arbitrarily high. Certificates exceeding the budget are rejected.
+const MAX_NAME_CONSTRAINT_MATCH_WORK: usize = 1_048_576;
+
+/// Returns true when matching a subjectAltName of `san_len` entries against `constraint_count`
+/// accumulated name constraints would exceed [`MAX_NAME_CONSTRAINT_MATCH_WORK`]. The count of
+/// operative constraints grows as excluded subtrees are unioned in at each certificate authority, so
+/// callers must supply the current combined count rather than a value captured before processing the
+/// path.
+fn name_constraint_matching_budget_exceeded(constraint_count: usize, san_len: usize) -> bool {
+    san_len > 0 && constraint_count > MAX_NAME_CONSTRAINT_MATCH_WORK / san_len
+}
+
 /// `check_names` ensures that subject and issuer names chain appropriately throughout the certification
 /// path and that no names violate any operative name constraints.
 ///
@@ -332,7 +348,6 @@ pub fn check_names(
     let mut perm_names_set = initial_perm.is_some();
     let mut permitted_subtrees = initial_perm.unwrap_or_default();
     let mut excluded_subtrees = initial_excl.unwrap_or_default();
-    let constraint_count = permitted_subtrees.len() + excluded_subtrees.len();
 
     let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?.clone();
 
@@ -393,8 +408,12 @@ pub fn check_names(
                 None
             };
 
+            // Bound name-constraints matching for this certificate against the constraints
+            // accumulated from the certificate authorities processed so far, read live rather
+            // than from the initial (typically empty) subtree state.
+            let constraint_count = permitted_subtrees.len() + excluded_subtrees.len();
             let san_len = san.map(|s| s.0.len()).unwrap_or(0);
-            if san_len > 0 && constraint_count > 1048576 / san_len {
+            if name_constraint_matching_budget_exceeded(constraint_count, san_len) {
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -986,3 +1005,66 @@ pub fn check_country_codes(
     Ok(())
 }
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::validator::name_constraints_set::NameConstraintsSet;
+    use der::asn1::Ia5String;
+    use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
+
+    /// Builds `n` distinct excluded dNSName subtrees, as a certificate authority contributes when it
+    /// unions name constraints into the operative state.
+    fn dns_subtrees(n: usize) -> GeneralSubtrees {
+        (0..n)
+            .map(|i| GeneralSubtree {
+                base: GeneralName::DnsName(Ia5String::new(&format!("x{i}.invalid")).unwrap()),
+                minimum: 0,
+                maximum: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn budget_predicate_boundary() {
+        // No subjectAltName entries: nothing to match, so no bound applies regardless of the count.
+        assert!(!name_constraint_matching_budget_exceeded(usize::MAX, 0));
+
+        // A product exactly at the ceiling is allowed; one constraint beyond it is rejected.
+        let ceiling = MAX_NAME_CONSTRAINT_MATCH_WORK / 1024;
+        assert!(!name_constraint_matching_budget_exceeded(ceiling, 1024));
+        assert!(name_constraint_matching_budget_exceeded(ceiling + 1, 1024));
+    }
+
+    // The budget guard must consume the constraint count that accrues as certificate authorities
+    // union their excluded subtrees into the operative state, not a count captured from the initial
+    // (typically empty) subtree state. A count read before accumulation is zero and never trips the
+    // budget no matter how large the subjectAltName; the count read after accumulation does.
+    #[test]
+    fn budget_tracks_accumulated_constraints() {
+        let san_len = 1024;
+
+        // The initial state, as at the top of check_names for a path with no initial subtrees. A
+        // count captured here is what the earlier (dead) guard used, and it bounds nothing.
+        let permitted = NameConstraintsSet::default();
+        let mut excluded = NameConstraintsSet::default();
+        let stale_count = permitted.len() + excluded.len();
+        assert_eq!(stale_count, 0);
+        assert!(
+            !name_constraint_matching_budget_exceeded(stale_count, san_len),
+            "a count captured before accumulation cannot bound the matching work"
+        );
+
+        // A certificate authority unions in enough excluded subtrees to blow the budget.
+        let needed = MAX_NAME_CONSTRAINT_MATCH_WORK / san_len + 1;
+        excluded.calculate_union(&dns_subtrees(needed));
+
+        // The count read live from the current state reflects the accumulation and trips the budget.
+        let live_count = permitted.len() + excluded.len();
+        assert!(live_count >= needed);
+        assert!(
+            name_constraint_matching_budget_exceeded(live_count, san_len),
+            "the live count must trip the budget once constraints accumulate"
+        );
+    }
+}
