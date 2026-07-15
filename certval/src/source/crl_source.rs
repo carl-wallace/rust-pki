@@ -499,7 +499,12 @@ fn index_crls_internal(
                                 cur_crl_info.filename = Some(filename.to_string());
                             }
 
-                            if check_crl_validity(toi, &crl).is_ok() {
+                            // Store indexing is lenient about an absent nextUpdate (Duration::MAX):
+                            // the fail-closed staleness decision belongs to path validation, which
+                            // reads the operator's PS_REVOCATION_MAX_AGE. Deleting a nextUpdate-less
+                            // CRL here would discard one that a validation configured with a tolerance
+                            // could still use. A CRL with an expired nextUpdate is still pruned below.
+                            if check_crl_validity(toi, core::time::Duration::MAX, &crl).is_ok() {
                                 add_crl_info(
                                     crl_info,
                                     issuer_map,

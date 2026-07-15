@@ -302,6 +302,19 @@ pub static PS_IGNORE_EXPIRED: &str = "psIgnoreExpired";
 /// should include a nonce value.
 pub static PS_OCSP_AIA_NONCE_SETTING: &str = "psOcspAiaNonceSetting";
 
+/// `PS_REVOCATION_MAX_AGE` is used to retrieve a [`Duration`] value from a [`CertificationPathSettings`]
+/// object. It bounds how old a CRL or OCSP response that omits `nextUpdate` may be, measured from its
+/// `thisUpdate` relative to the time of interest. RFC 5280 Section 5.1.2.5 requires conforming CRL
+/// issuers to include `nextUpdate`, and RFC 6960 Section 4.2.2.1 lets an OCSP responder omit it to
+/// signal that newer information is always available; either way, an absent `nextUpdate` otherwise
+/// leaves the revocation information with no upper time bound, so an arbitrarily old artifact would be
+/// treated as fresh. The default is zero, which fails closed: revocation information that lacks
+/// `nextUpdate` is rejected as stale unless an operator configures a non-zero tolerance here.
+pub static PS_REVOCATION_MAX_AGE: &str = "psRevocationMaxAge";
+
+/// Default value for [`PS_REVOCATION_MAX_AGE`]: zero, i.e., fail closed when `nextUpdate` is absent.
+pub static PS_REVOCATION_MAX_AGE_DEFAULT: Duration = Duration::from_secs(0);
+
 /// `PS_CERTIFICATES` is used to retrieve a set of potentially useful certificates from a [`CertificationPathSettings`]
 /// object.
 pub static PS_CERTIFICATES: &str = "psCertificates";
@@ -667,6 +680,11 @@ cps_gets_and_sets_with_default!(
     PS_OCSP_AIA_NONCE_SETTING,
     OcspNonceSetting,
     OcspNonceSetting::DoNotSendNonce
+);
+cps_gets_and_sets_with_default!(
+    PS_REVOCATION_MAX_AGE,
+    Duration,
+    PS_REVOCATION_MAX_AGE_DEFAULT
 );
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
 // PS_CERTIFICATES (will need lifetime aware macro)
