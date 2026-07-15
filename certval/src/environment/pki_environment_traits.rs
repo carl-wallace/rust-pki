@@ -206,3 +206,19 @@ pub trait RevocationStatusCache {
     fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus);
 }
 // TODO add allowlist and blocklist as RevocationStatusCache implementations
+
+/// The [`SignatureVerificationCache`] trait defines an interface for caching successful certificate
+/// signature verifications so a signature verified once (for example while building the partial-path
+/// graph) need not be re-verified on every subsequent path validation. Entries are keyed by a hash
+/// of the certificate and a hash of the issuer's subject public key, which together fully determine
+/// the verification, so a positive result is always sound to trust. An absent entry means the
+/// signature is verified as usual, so correctness never depends on the cache being present or
+/// populated.
+pub trait SignatureVerificationCache {
+    /// Returns true if a signature over the certificate identified by `cert_hash` by the key
+    /// identified by `issuer_spki_hash` has already been verified successfully.
+    fn is_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) -> bool;
+
+    /// Records a successful signature verification.
+    fn add_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]);
+}

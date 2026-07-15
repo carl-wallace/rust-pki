@@ -42,7 +42,7 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_NAME_CONSTRAINTS,
     ID_CE_SUBJECT_ALT_NAME, ID_CE_SUBJECT_KEY_IDENTIFIER,
 };
-use der::Decode;
+use der::{Decode, Encode};
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -50,6 +50,7 @@ use x509_cert::name::Name;
 
 use crate::{
     compare_names,
+    environment::pki_environment::signature_cache_hash,
     environment::pki_environment_traits::*,
     general_subtree_to_string, get_leaf_rdn,
     pdv_certificate::*,
@@ -1221,6 +1222,16 @@ impl CertSource {
                                         spki,
                                     );
                                     if let Ok(_r) = r {
+                                        // Cache this trust-anchor-to-CA signature so path
+                                        // validation need not re-verify it (skipped without a cache).
+                                        if pe.has_signature_cache() {
+                                            if let Ok(spki_der) = spki.to_der() {
+                                                pe.add_verified_signature(
+                                                    &signature_cache_hash(cur_cert.as_bytes()),
+                                                    &signature_cache_hash(&spki_der),
+                                                );
+                                            }
+                                        }
                                         let new_path = vec![cur_cert_index];
                                         if new_additions.contains_key(&cur_cert_hex_skid) {
                                             if !new_additions[&cur_cert_hex_skid]
@@ -1284,6 +1295,21 @@ impl CertSource {
                                                 .subject_public_key_info(),
                                         );
                                         if let Ok(_r) = r {
+                                            // Cache this CA-to-CA signature so path validation need
+                                            // not re-verify it (skipped without a cache).
+                                            if pe.has_signature_cache() {
+                                                if let Ok(spki_der) = prospective_ca_cert
+                                                    .as_ref()
+                                                    .tbs_certificate()
+                                                    .subject_public_key_info()
+                                                    .to_der()
+                                                {
+                                                    pe.add_verified_signature(
+                                                        &signature_cache_hash(cur_cert.as_bytes()),
+                                                        &signature_cache_hash(&spki_der),
+                                                    );
+                                                }
+                                            }
                                             if !self.pub_key_in_path(cur_cert, prospective_path) {
                                                 let mut new_path = prospective_path.clone();
                                                 new_path.push(cur_cert_index);
@@ -1708,4 +1734,143 @@ fn get_certificates_test() {
 
     let v = cert_store.get_encoded_certificates().unwrap();
     assert_eq!(399, v.len());
+}
+
+// Building the partial-path graph records the trust-anchor-to-CA signature it verifies into a
+// configured signature cache, so path validation can later skip re-verifying it. The cache is added
+// through a retained Arc handle so the recorded edge can be inspected afterward.
+#[cfg(all(feature = "std", feature = "rsa"))]
+#[test]
+fn build_records_verified_signatures() {
+    use crate::environment::pki_environment::{
+        signature_cache_hash, DefaultSignatureVerificationCache,
+    };
+    use crate::PDVTrustAnchorChoice;
+    use alloc::sync::Arc;
+
+    let ta_der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let ca_der =
+        include_bytes!("../../tests/examples/rfc822_dn_nc/nameConstraintsRFC822CA1Cert.crt");
+
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "ta".to_string(),
+        bytes: ta_der.to_vec(),
+    });
+    ta_source.initialize().unwrap();
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source));
+
+    // Keep a shared handle to the cache so it can be inspected after the build.
+    let cache = Arc::new(DefaultSignatureVerificationCache::new());
+    pe.add_signature_cache(Box::new(cache.clone()));
+
+    let cps = CertificationPathSettings::new();
+    let mut cert_source = CertSource::new();
+    cert_source.push(CertFile {
+        filename: "ca".to_string(),
+        bytes: ca_der.to_vec(),
+    });
+    cert_source.initialize(&cps).unwrap();
+    cert_source.find_all_partial_paths(&pe, &cps);
+
+    // The build verified the trust-anchor-to-CA signature, so the cache holds that edge keyed by the
+    // CA certificate hash and the trust anchor's subject-public-key-info hash.
+    let ta = PDVTrustAnchorChoice::try_from(ta_der.as_slice()).unwrap();
+    let ta_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
+    let cert_hash = signature_cache_hash(ca_der);
+    let spki_hash = signature_cache_hash(&ta_spki.to_der().unwrap());
+    assert!(
+        cache.is_verified(&cert_hash, &spki_hash),
+        "graph build should record the trust-anchor-to-CA signature"
+    );
+}
+
+// Building the partial-path graph over the PKITS certificates records every verified edge into a
+// configured cache; re-verifying all of those paths is then measurably faster with the cache (the
+// expensive signature verifications are skipped) than without it (every signature is verified).
+#[cfg(all(feature = "std", feature = "rsa"))]
+#[test]
+fn signature_cache_speeds_up_verification() {
+    use crate::environment::pki_environment::DefaultSignatureVerificationCache;
+    use crate::file_utils::cert_folder_to_vec;
+    use crate::validator::path_validator::verify_signatures;
+    use crate::CertificationPathResults;
+    use std::time::Instant;
+
+    let toi = TimeOfInterest::disabled();
+
+    let ta_der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut ta_source = TaSource::new();
+    ta_source.push(CertFile {
+        filename: "ta".to_string(),
+        bytes: ta_der.to_vec(),
+    });
+    ta_source.initialize().unwrap();
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_source));
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::with_capacity(
+        usize::MAX,
+    )));
+
+    // Load all PKITS certificates and build the partial-path graph, recording the verified edges.
+    let cps = CertificationPathSettings::new();
+    let mut cert_source = CertSource::new();
+    cert_folder_to_vec(
+        &pe,
+        "tests/examples/PKITS_data_2048/certs",
+        &mut cert_source,
+        toi,
+    )
+    .unwrap();
+    cert_source.initialize(&cps).unwrap();
+    cert_source.find_all_partial_paths(&pe, &cps);
+
+    // Collect every path the builder found across all certificates.
+    let mut paths: Vec<CertificationPath> = vec![];
+    for cert in cert_source.get_certificates().unwrap() {
+        let _ = cert_source.get_paths_for_target(&pe, cert, &mut paths, 0, toi);
+    }
+    assert!(!paths.is_empty(), "expected the PKITS graph to yield paths");
+
+    let verify_all = |pe: &PkiEnvironment, paths: &mut [CertificationPath]| {
+        for cp in paths.iter_mut() {
+            let mut cpr = CertificationPathResults::new();
+            let _ = verify_signatures(pe, &cps, cp, &mut cpr);
+        }
+    };
+
+    // A few iterations suffice: the cache skips essentially all verifications, so the gap is large
+    // (well over 10x) and the assertion is not sensitive to timing noise.
+    let iters = 3;
+
+    // With the cache populated the intermediate signatures are skipped.
+    verify_all(&pe, &mut paths);
+    let start = Instant::now();
+    for _ in 0..iters {
+        verify_all(&pe, &mut paths);
+    }
+    let cached = start.elapsed();
+
+    // Drop the cache; every signature is verified again.
+    pe.clear_signature_cache();
+    verify_all(&pe, &mut paths);
+    let start = Instant::now();
+    for _ in 0..iters {
+        verify_all(&pe, &mut paths);
+    }
+    let uncached = start.elapsed();
+
+    println!(
+        "verify_signatures over {} PKITS paths x{iters}: cached={cached:?} uncached={uncached:?}",
+        paths.len()
+    );
+    assert!(
+        cached < uncached,
+        "cached ({cached:?}) should be faster than uncached ({uncached:?})"
+    );
 }

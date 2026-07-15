@@ -14,7 +14,7 @@ use crate::{
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
-use der::{asn1::ObjectIdentifier, Decode};
+use der::{asn1::ObjectIdentifier, Decode, Encode};
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -960,22 +960,40 @@ pub fn verify_signatures(
             return Err(Error::PathValidation(PathValidationStatus::EncodingError));
         }
 
-        let r = pe.verify_signature_message(
-            pe,
-            &defer_cert.tbs_field,
-            cur_cert.as_ref().signature().raw_bytes(),
-            cur_cert.as_ref().tbs_certificate().signature(),
-            &working_spki,
-        );
-        if let Err(e) = r {
-            log_error_for_ca(
-                cur_cert,
-                format!("signature verification error: {e:?}").as_str(),
+        // Skip the (expensive) signature verification when a configured signature cache reports this
+        // exact certificate-and-issuer-key pair as already verified, e.g. by the path builder. The
+        // cheap structural checks above still run, and with no cache configured this is always false,
+        // so the signature is verified as usual.
+        let verified_from_cache = pe.has_signature_cache()
+            && working_spki
+                .to_der()
+                .ok()
+                .map(|spki_der| {
+                    pe.is_signature_verified(
+                        &signature_cache_hash(cur_cert.as_bytes()),
+                        &signature_cache_hash(&spki_der),
+                    )
+                })
+                .unwrap_or(false);
+
+        if !verified_from_cache {
+            let r = pe.verify_signature_message(
+                pe,
+                &defer_cert.tbs_field,
+                cur_cert.as_ref().signature().raw_bytes(),
+                cur_cert.as_ref().tbs_certificate().signature(),
+                &working_spki,
             );
-            cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
-            return Err(Error::PathValidation(
-                PathValidationStatus::SignatureVerificationFailure,
-            ));
+            if let Err(e) = r {
+                log_error_for_ca(
+                    cur_cert,
+                    format!("signature verification error: {e:?}").as_str(),
+                );
+                cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ));
+            }
         }
 
         working_spki = cur_cert
@@ -1015,6 +1033,53 @@ pub fn check_country_codes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A configured signature cache that reports a signature as verified causes verify_signatures to
+    // skip the (expensive) verification. Using a target that is not signed by the trust anchor, the
+    // check fails without a cache and passes once an always-verified cache is added.
+    #[cfg(all(feature = "std", feature = "rsa"))]
+    #[test]
+    fn signature_cache_bypasses_verification() {
+        use crate::environment::pki_environment_traits::SignatureVerificationCache;
+
+        struct AlwaysVerified;
+        impl SignatureVerificationCache for AlwaysVerified {
+            fn is_verified(&self, _: &[u8], _: &[u8]) -> bool {
+                true
+            }
+            fn add_verified(&self, _: &[u8], _: &[u8]) {}
+        }
+
+        let ta_der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+        let target_der = include_bytes!("../../tests/examples/ocsp_dod/ca63.der");
+
+        let build_path = || {
+            let mut ta = PDVTrustAnchorChoice::try_from(ta_der.as_slice()).unwrap();
+            ta.parse_extensions(EXTS_OF_INTEREST);
+            let target = PDVCertificate::try_from(target_der.as_slice()).unwrap();
+            CertificationPath::new(ta, vec![], target)
+        };
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        let cps = CertificationPathSettings::new();
+
+        // Without a cache, the mismatched signature is rejected.
+        let mut cp = build_path();
+        let mut cpr = CertificationPathResults::new();
+        assert_eq!(
+            verify_signatures(&pe, &cps, &mut cp, &mut cpr),
+            Err(Error::PathValidation(
+                PathValidationStatus::SignatureVerificationFailure
+            ))
+        );
+
+        // With an always-verified cache, the signature check is skipped.
+        pe.add_signature_cache(Box::new(AlwaysVerified));
+        let mut cp = build_path();
+        let mut cpr = CertificationPathResults::new();
+        assert!(verify_signatures(&pe, &cps, &mut cp, &mut cpr).is_ok());
+    }
 
     #[test]
     fn budget_predicate_boundary() {
