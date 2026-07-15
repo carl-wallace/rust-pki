@@ -44,8 +44,7 @@ use crate::{
     PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
-#[cfg(feature = "remote")]
-use std::time::Duration;
+use core::time::Duration;
 
 #[cfg(feature = "remote")]
 use log::debug;
@@ -954,17 +953,36 @@ fn certificate_issuer_extension_present(rc: &RevokedCert<Raw>) -> bool {
     false
 }
 
-pub(crate) fn check_crl_validity(toi: TimeOfInterest, crl: &CertificateList<Raw>) -> Result<()> {
+pub(crate) fn check_crl_validity(
+    toi: TimeOfInterest,
+    max_age: Duration,
+    crl: &CertificateList<Raw>,
+) -> Result<()> {
     if !toi.is_disabled() {
         let tu = crl.tbs_cert_list.this_update;
         if tu > toi {
             info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
             return Err(Error::CrlIncompatible);
         }
-        if let Some(nu) = crl.tbs_cert_list.next_update {
-            if nu.to_unix_duration().as_secs() < toi.as_unix_secs() {
-                info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
-                return Err(Error::CrlIncompatible);
+        match crl.tbs_cert_list.next_update {
+            Some(nu) => {
+                if nu.to_unix_duration().as_secs() < toi.as_unix_secs() {
+                    info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
+                    return Err(Error::CrlIncompatible);
+                }
+            }
+            None => {
+                // RFC 5280 5.1.2.5 requires conforming CRL issuers to include nextUpdate. Without it
+                // the CRL has no upper time bound and an ancient copy would be treated as fresh. Bound
+                // its age from thisUpdate by max_age (default 0 => reject as stale; a non-zero value
+                // opts into a tolerance window).
+                let age = toi
+                    .as_unix_secs()
+                    .saturating_sub(tu.to_unix_duration().as_secs());
+                if age > max_age.as_secs() {
+                    info!("Discarding CRL from {} as lacking a next update time and older than the configured maximum age", name_to_string(&crl.tbs_cert_list.issuer));
+                    return Err(Error::CrlIncompatible);
+                }
             }
         }
     }
@@ -1098,7 +1116,7 @@ pub(crate) fn process_crl(
     }
 
     let toi = cps.get_time_of_interest();
-    check_crl_validity(toi, &crl)?;
+    check_crl_validity(toi, cps.get_revocation_max_age(), &crl)?;
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
         if let Err(_e) = check_crl_extensions(exts) {
@@ -1292,5 +1310,51 @@ mod tests {
         assert_eq!(Some(Error::ResourceUnchanged), r.err());
 
         let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
+    }
+
+    // A CRL that omits nextUpdate has no upper time bound. check_crl_validity caps its age
+    // from thisUpdate by the supplied max age (0 => fail closed). A CRL that carries nextUpdate is
+    // unaffected. Store indexing passes Duration::MAX here to stay lenient; path validation passes
+    // PS_REVOCATION_MAX_AGE.
+    #[cfg(feature = "std")]
+    #[test]
+    fn check_crl_validity_missing_next_update_honours_max_age() {
+        use super::check_crl_validity;
+        use crate::TimeOfInterest;
+        use core::time::Duration;
+        use der::Decode;
+        use x509_cert::{certificate::Raw, crl::CertificateList};
+
+        let mut crl = CertificateList::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/PKITS_data_2048/crls/GoodCACRL.crl"
+        ))
+        .unwrap();
+        let tu_secs = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
+        // 10 days after thisUpdate (2010), well inside the original nextUpdate (2030).
+        let toi = TimeOfInterest::from_unix_secs(tu_secs + 10 * 86400).unwrap();
+
+        // nextUpdate present: valid regardless of max age (unchanged path).
+        assert!(check_crl_validity(toi, Duration::from_secs(0), &crl).is_ok());
+
+        // nextUpdate absent: fail closed by default, tolerated under a wide window, rejected once the
+        // window is shorter than the CRL's age (~10 days).
+        crl.tbs_cert_list.next_update = None;
+        assert!(
+            check_crl_validity(toi, Duration::from_secs(0), &crl).is_err(),
+            "absent nextUpdate must fail closed by default"
+        );
+        assert!(
+            check_crl_validity(toi, Duration::from_secs(30 * 86400), &crl).is_ok(),
+            "a wide max age tolerates an absent nextUpdate"
+        );
+        assert!(
+            check_crl_validity(toi, Duration::from_secs(5 * 86400), &crl).is_err(),
+            "a max age shorter than the CRL age rejects it"
+        );
+
+        // A time of interest before thisUpdate is still rejected as incompatible even with a wide
+        // max age (the future-CRL guard is independent of the nextUpdate handling).
+        let before = TimeOfInterest::from_unix_secs(tu_secs - 86400).unwrap();
+        assert!(check_crl_validity(before, Duration::MAX, &crl).is_err());
     }
 }

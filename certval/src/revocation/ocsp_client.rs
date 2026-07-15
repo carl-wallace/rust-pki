@@ -142,19 +142,31 @@ fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> 
         return true;
     }
 
-    // TODO support grace periods?
-
     let tu = sr.this_update.0;
     if tu > time_of_interest {
         //future request
         return false;
     }
 
-    if let Some(next_update) = sr.next_update {
-        let nu = next_update.0;
-        if nu < time_of_interest {
-            //stale
-            return false;
+    match sr.next_update {
+        Some(next_update) => {
+            if next_update.0 < time_of_interest {
+                //stale
+                return false;
+            }
+        }
+        None => {
+            // No nextUpdate. RFC 6960 4.2.2.1 permits this, but without it the response carries no
+            // upper time bound and could be replayed indefinitely. Bound its age from thisUpdate by
+            // PS_REVOCATION_MAX_AGE (default 0 => reject as stale; a non-zero value opts into a
+            // tolerance window).
+            let max_age = cps.get_revocation_max_age().as_secs();
+            let age = time_of_interest
+                .as_unix_secs()
+                .saturating_sub(tu.to_unix_duration().as_secs());
+            if age > max_age {
+                return false;
+            }
         }
     }
     true
@@ -615,7 +627,18 @@ fn process_ocsp_response_internal(
         ));
     }
 
-    // Nonce is enforced below, after signature verification. TODO: producedAt freshness.
+    // Nonce is enforced below, after signature verification.
+
+    // Reject a response whose producedAt post-dates the time of interest. producedAt is when the
+    // responder signed the response; like a future thisUpdate (rejected in check_response_time), a
+    // producedAt after the time of interest indicates a clock or replay anomaly. thisUpdate/nextUpdate
+    // remain the primary freshness anchors, checked per SingleResponse below.
+    let time_of_interest = cps.get_time_of_interest();
+    if !time_of_interest.is_disabled() && bor.tbs_response_data.produced_at.0 > time_of_interest {
+        error!("OCSPResponse from {uri_to_check} carries a producedAt later than the time of interest; rejecting response as not yet valid");
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+        return Err(Error::OcspResponseError);
+    }
 
     let mut sigverified = false;
     let mut authorized_responder = false;
@@ -1242,6 +1265,69 @@ mod tests {
             )
             .is_err(),
             "response past nextUpdate should not be accepted"
+        );
+
+        // (5) producedAt freshness. producedAt is 2026-07-15T09:07:34Z. With the time of
+        // interest at 2026-07-15T05:00:00Z, thisUpdate (00:00:01Z) and nextUpdate (07-22) still
+        // bracket it, so the response is otherwise fresh - only the future producedAt rejects it.
+        let producedat_future = crate::TimeOfInterest::from_unix_secs(1784091600).unwrap();
+        assert_eq!(
+            run(
+                producedat_future,
+                Some(&sent_nonce),
+                OcspNonceSetting::SendNonceRequireMatch
+            ),
+            Err(Error::OcspResponseError),
+            "producedAt later than the time of interest should be rejected"
+        );
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Freshness of a response that omits nextUpdate. RFC 6960 permits an absent nextUpdate,
+    // but without a bound an ancient response would be treated as fresh; PS_REVOCATION_MAX_AGE caps
+    // its age from thisUpdate (default 0 => fail closed).
+    // ------------------------------------------------------------------------------------------
+
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[test]
+    fn check_response_time_missing_next_update_honours_max_age() {
+        use x509_ocsp::{BasicOcspResponse, OcspResponse};
+
+        let enc_resp = include_bytes!("../../tests/examples/ocsp_dod/47-ocsp-resp.der").as_slice();
+        let or = OcspResponse::from_der(enc_resp).unwrap();
+        let rb = or.response_bytes.unwrap();
+        let bor = BasicOcspResponse::from_der(rb.response.as_bytes()).unwrap();
+        // A real SingleResponse (thisUpdate 2026-07-15T00:00:01Z, nextUpdate 2026-07-22T01:00:00Z),
+        // so the CertId and thisUpdate are well formed; the test varies only nextUpdate and max age.
+        let base = bor.tbs_response_data.responses.into_iter().next().unwrap();
+
+        // ~1.5 days after thisUpdate (still inside the original nextUpdate window).
+        let toi = crate::TimeOfInterest::from_unix_secs(1784203200).unwrap(); // 2026-07-16T12:00:00Z
+        let cps_with = |max_age_secs: u64| {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(toi);
+            cps.set_revocation_max_age(core::time::Duration::from_secs(max_age_secs));
+            cps
+        };
+
+        // nextUpdate present: fresh regardless of max age (unchanged path).
+        assert!(check_response_time(&cps_with(0), &base));
+
+        // nextUpdate absent: fail closed by default, tolerated under a wide window, and rejected
+        // again once the window is shorter than the response's age (~1.5 days).
+        let mut no_nu = base.clone();
+        no_nu.next_update = None;
+        assert!(
+            !check_response_time(&cps_with(0), &no_nu),
+            "absent nextUpdate must fail closed by default"
+        );
+        assert!(
+            check_response_time(&cps_with(30 * 86400), &no_nu),
+            "a wide max age tolerates an absent nextUpdate"
+        );
+        assert!(
+            !check_response_time(&cps_with(3600), &no_nu),
+            "a max age shorter than the response age rejects it"
         );
     }
 }
