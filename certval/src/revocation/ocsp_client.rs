@@ -9,14 +9,15 @@ use x509_cert::certificate::{CertificateInner, Raw};
 use x509_cert::ext::Extensions;
 use x509_ocsp::*;
 
-use log::error;
+use log::{error, warn};
 
 #[cfg(feature = "remote")]
 use log::{debug, info};
 
 use crate::{
     crl::process_crl, valid_at_time, CertificationPathResults, CertificationPathSettings,
-    DeferDecodeSigned, Error, PDVCertificate, PathValidationStatus, PkiEnvironment, Result,
+    DeferDecodeSigned, Error, OcspNonceSetting, PDVCertificate, PathValidationStatus,
+    PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
@@ -55,10 +56,13 @@ use x509_cert::serial_number::SerialNumber;
 use x509_ocsp::Version::V1;
 
 #[cfg(feature = "remote")]
-use crate::{
-    name_to_string, pdv_extension::ExtensionProcessing, OcspNonceSetting, PDVExtension,
-    PKIXALG_SHA1,
-};
+use crate::{name_to_string, pdv_extension::ExtensionProcessing, PDVExtension, PKIXALG_SHA1};
+
+#[cfg(feature = "remote")]
+use x509_cert::ext::Extension;
+
+#[cfg(feature = "remote")]
+use x509_ocsp::ext::Nonce;
 
 fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
     Ok(Sha1::digest(
@@ -156,6 +160,50 @@ fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> 
     true
 }
 
+/// nonce_acceptable enforces the OCSP nonce policy from `PS_OCSP_AIA_NONCE_SETTING`.
+///
+/// `expected` is the nonce that was sent in the request (None when no nonce was sent, e.g. for a
+/// stapled response) and `got` is the nonce echoed by the response (None when the responder omitted
+/// it).
+///
+/// - `DoNotSendNonce`: no nonce was requested, so any response is acceptable.
+/// - `SendNonceRequireMatch`: the response MUST echo the exact nonce that was sent; an absent or
+///   mismatched nonce is rejected (fail closed).
+/// - `SendNonceTolerateMismatchAbsence`: the nonce is best-effort; a missing or mismatched nonce is
+///   tolerated.
+fn nonce_acceptable(
+    setting: OcspNonceSetting,
+    expected: Option<&[u8]>,
+    got: Option<&[u8]>,
+) -> bool {
+    match setting {
+        OcspNonceSetting::DoNotSendNonce | OcspNonceSetting::SendNonceTolerateMismatchAbsence => {
+            true
+        }
+        OcspNonceSetting::SendNonceRequireMatch => match (expected, got) {
+            (Some(e), Some(g)) => e == g,
+            _ => false,
+        },
+    }
+}
+
+/// Generates an OCSP nonce using the platform CSPRNG.
+#[cfg(feature = "remote")]
+fn generate_nonce() -> Result<Vec<u8>> {
+    // RFC 8954 recommends a 32-octet nonce and requires responders to accept 1..=32 octets, but
+    // widely deployed RFC 6960-era responders (e.g. the DoD PKI responder) silently drop nonces
+    // longer than 16 octets — the response then carries no nonce and SendNonceRequireMatch fails
+    // against an otherwise healthy responder. 16 octets is the de facto interoperable value
+    // (OpenSSL's default) and remains within RFC 8954's permitted range.
+    const OCSP_NONCE_LEN: usize = 16;
+    let mut bytes = [0u8; OCSP_NONCE_LEN];
+    if getrandom::fill(&mut bytes).is_err() {
+        error!("Failed to generate a random OCSP nonce");
+        return Err(Error::Unrecognized);
+    }
+    Ok(bytes.to_vec())
+}
+
 #[cfg(feature = "remote")]
 async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
     let client = if let Ok(client) = reqwest::Client::builder()
@@ -199,7 +247,7 @@ fn prepare_ocsp_request(
     target_cert: &CertificateInner<Raw>,
     name_hash: &[u8],
     key_hash: &[u8],
-    _nonce: Option<&[u8]>,
+    nonce: Option<&[u8]>,
 ) -> Result<Vec<u8>> {
     // let hash_algorithm = AlgorithmIdentifier {
     //     oid: PKIXALG_SHA1,
@@ -224,16 +272,41 @@ fn prepare_ocsp_request(
         issuer_key_hash,
         serial_number: target_cert.tbs_certificate().serial_number().clone(),
     };
-    //TODO add nonce support
     let request_list = vec![Request {
         req_cert,
         single_request_extensions: None,
     }];
+
+    // When a nonce is supplied (per PS_OCSP_AIA_NONCE_SETTING), carry it as a non-critical
+    // id-pkix-ocsp-nonce request extension. The extension value is the DER encoding of the Nonce
+    // (itself an OCTET STRING), matching how responders echo it back and how the response is read.
+    let request_extensions = match nonce {
+        Some(n) => {
+            let nonce = match Nonce::new(n.to_vec()) {
+                Ok(nonce) => nonce,
+                Err(e) => return Err(Error::Asn1Error(e)),
+            };
+            let extn_value = match nonce.to_der() {
+                Ok(der) => match OctetString::new(der) {
+                    Ok(ev) => ev,
+                    Err(e) => return Err(Error::Asn1Error(e)),
+                },
+                Err(e) => return Err(Error::Asn1Error(e)),
+            };
+            Some(vec![Extension {
+                extn_id: ID_PKIX_OCSP_NONCE,
+                critical: false,
+                extn_value,
+            }])
+        }
+        None => None,
+    };
+
     let tbs_request = TbsRequest {
         version: V1,
         requestor_name: None,
         request_list,
-        request_extensions: None,
+        request_extensions,
     };
     let ocsp_req = OcspRequest {
         tbs_request,
@@ -375,11 +448,10 @@ pub async fn send_ocsp_request(
 
     let nonce_setting = cps.get_ocsp_aia_nonce_setting();
 
-    let nonce = if nonce_setting != OcspNonceSetting::DoNotSendNonce {
-        //TODO implement me
-        todo!()
-    } else {
-        None
+    let nonce = match nonce_setting {
+        OcspNonceSetting::DoNotSendNonce => None,
+        OcspNonceSetting::SendNonceRequireMatch
+        | OcspNonceSetting::SendNonceTolerateMismatchAbsence => Some(generate_nonce()?),
     };
 
     // Prepare info for request
@@ -390,7 +462,7 @@ pub async fn send_ocsp_request(
         target_cert.as_ref(),
         name_hash.as_slice(),
         key_hash.as_slice(),
-        nonce,
+        nonce.as_deref(),
     )?;
 
     let enc_ocsp_resp = match post_ocsp(uri_to_check, enc_ocsp_req.as_slice()).await {
@@ -413,6 +485,8 @@ pub async fn send_ocsp_request(
         target_cert,
         name_hash.as_slice(),
         key_hash.as_slice(),
+        nonce.as_deref(),
+        nonce_setting,
     ) {
         Ok(_) => {
             cpr.add_ocsp_request(enc_ocsp_req, result_index);
@@ -453,6 +527,8 @@ pub fn process_ocsp_response(
 ) -> Result<()> {
     let key_hash = get_key_hash(issuers_cert)?;
     let name_hash = get_subject_name_hash(issuers_cert)?;
+    // A stapled/externally-supplied response was not solicited by this library, so no nonce was
+    // sent and none is enforced.
     process_ocsp_response_internal(
         pe,
         cps,
@@ -464,6 +540,8 @@ pub fn process_ocsp_response(
         target_cert,
         name_hash.as_slice(),
         key_hash.as_slice(),
+        None,
+        OcspNonceSetting::DoNotSendNonce,
     )
 }
 
@@ -479,6 +557,8 @@ fn process_ocsp_response_internal(
     target_cert: &PDVCertificate,
     name_hash: &[u8],
     key_hash: &[u8],
+    expected_nonce: Option<&[u8]>,
+    nonce_setting: OcspNonceSetting,
 ) -> Result<()> {
     let or = match OcspResponse::from_der(enc_ocsp_resp) {
         Ok(or) => or,
@@ -535,7 +615,7 @@ fn process_ocsp_response_internal(
         ));
     }
 
-    // TODO nonce, produced at
+    // Nonce is enforced below, after signature verification. TODO: producedAt freshness.
 
     let mut sigverified = false;
     let mut authorized_responder = false;
@@ -663,6 +743,27 @@ fn process_ocsp_response_internal(
         error!("Signature on OCSPResponse from {uri_to_check} was not verified.");
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::Unrecognized);
+    }
+
+    // Enforce the nonce policy on the (now signature-verified) response. `expected_nonce` is set
+    // only when this library sent the request with a nonce; stapled responses pass None with
+    // DoNotSendNonce and are unaffected.
+    let response_nonce = bor.nonce();
+    let response_nonce = response_nonce.as_ref().map(|n| n.0.as_bytes());
+    if !nonce_acceptable(nonce_setting, expected_nonce, response_nonce) {
+        error!("OCSPResponse from {uri_to_check} did not echo the expected nonce and PS_OCSP_AIA_NONCE_SETTING requires a match.");
+        cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+        return Err(Error::OcspResponseError);
+    }
+    // Under SendNonceTolerateMismatchAbsence a nonce we chose not to fail on is still worth
+    // surfacing: a response echoing a *different* nonce than we sent is more suspect (replay/MITM or
+    // a broken responder) than a plain omission, which is common with RFC 6960-era responders.
+    if nonce_setting == OcspNonceSetting::SendNonceTolerateMismatchAbsence {
+        if let (Some(sent), Some(got)) = (expected_nonce, response_nonce) {
+            if sent != got {
+                warn!("OCSPResponse from {uri_to_check} echoed a nonce that does not match the one sent; tolerated per PS_OCSP_AIA_NONCE_SETTING.");
+            }
+        }
     }
 
     let mut retval = PathValidationStatus::RevocationStatusNotDetermined;
@@ -966,3 +1067,181 @@ pub(crate) async fn check_revocation_ocsp(
 //     assert!(r.is_err());
 //     assert_eq!(Some(Error::OcspResponseError), r.err());
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------------------------------
+    // Nonce policy (nonce_acceptable) - fully deterministic, no network.
+    // ------------------------------------------------------------------------------------------
+
+    #[test]
+    fn nonce_acceptable_do_not_send_never_enforces() {
+        let s = OcspNonceSetting::DoNotSendNonce;
+        assert!(nonce_acceptable(s, None, None));
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), None));
+        assert!(nonce_acceptable(s, None, Some(&[9, 9])));
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), Some(&[4, 5, 6])));
+    }
+
+    #[test]
+    fn nonce_acceptable_require_match_is_strict() {
+        let s = OcspNonceSetting::SendNonceRequireMatch;
+        // exact echo of the sent nonce is the only acceptance
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), Some(&[1, 2, 3])));
+        // mismatch, absence, or a never-sent nonce all fail closed
+        assert!(!nonce_acceptable(s, Some(&[1, 2, 3]), Some(&[1, 2, 4])));
+        assert!(!nonce_acceptable(s, Some(&[1, 2, 3]), None));
+        assert!(!nonce_acceptable(s, None, Some(&[1, 2, 3])));
+        assert!(!nonce_acceptable(s, None, None));
+    }
+
+    #[test]
+    fn nonce_acceptable_tolerate_never_fails_on_nonce() {
+        let s = OcspNonceSetting::SendNonceTolerateMismatchAbsence;
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), Some(&[1, 2, 3])));
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), Some(&[9, 9]))); // mismatch tolerated
+        assert!(nonce_acceptable(s, Some(&[1, 2, 3]), None)); // absence tolerated
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Request encoding carries the nonce (deterministic; fixed nonce in -> extension out).
+    // ------------------------------------------------------------------------------------------
+
+    #[cfg(feature = "remote")]
+    #[test]
+    fn prepare_ocsp_request_round_trips_nonce() {
+        use x509_ocsp::OcspRequest;
+
+        let target = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/ocsp_dod/47.der"
+        ))
+        .unwrap();
+        let name_hash = [0u8; 20];
+        let key_hash = [0u8; 20];
+        let nonce = [0xABu8; 32];
+
+        // With a nonce: the encoded request carries an id-pkix-ocsp-nonce extension echoing it.
+        let enc = prepare_ocsp_request(&target, &name_hash, &key_hash, Some(&nonce)).unwrap();
+        let req: OcspRequest = OcspRequest::from_der(&enc).unwrap();
+        let got = req
+            .tbs_request
+            .nonce()
+            .expect("request should carry a nonce extension");
+        assert_eq!(got.0.as_bytes(), &nonce);
+
+        // Without a nonce: no request extensions are present.
+        let enc = prepare_ocsp_request(&target, &name_hash, &key_hash, None).unwrap();
+        let req: OcspRequest = OcspRequest::from_der(&enc).unwrap();
+        assert!(req.tbs_request.request_extensions.is_none());
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Offline replay of a live-harvested DoD OCSP response (delegated responder + echoed nonce).
+    //
+    // Fixtures were harvested from ocsp.disa.mil for cert 47 (issued by DOD EMAIL CA-63) on
+    // 2026-07-15. The response is signed by a delegated responder (DOD NIPRNET OCSP ..., asserting
+    // id-kp-OCSPSigning + id-pkix-ocsp-nocheck) issued by CA-63, and echoes the request nonce. Time
+    // of interest is pinned into the freshness window (thisUpdate 2026-07-15T00:00:01Z, nextUpdate
+    // 2026-07-22T01:00:00Z) which also lies within the responder cert validity (2026-07-04 ..
+    // 2026-08-18), so the replay is stable despite the leaf/responder eventually expiring.
+    // ------------------------------------------------------------------------------------------
+
+    #[cfg(all(feature = "std", feature = "rsa"))]
+    #[test]
+    fn ocsp_offline_replay_delegated_responder_with_nonce() {
+        use hex_literal::hex;
+
+        let enc_resp = include_bytes!("../../tests/examples/ocsp_dod/47-ocsp-resp.der").as_slice();
+        let ca63 = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/ocsp_dod/ca63.der"
+        ))
+        .unwrap();
+        let mut target = PDVCertificate::try_from(
+            include_bytes!("../../tests/examples/ocsp_dod/47.der").as_slice(),
+        )
+        .unwrap();
+        target.parse_extensions(crate::EXTS_OF_INTEREST);
+
+        // The nonce carried in the harvested request and echoed by the response.
+        let sent_nonce = hex!("54992C9A49DBE95781C3B8B41456A4B8");
+
+        let name_hash = get_subject_name_hash(&ca63).unwrap();
+        let key_hash = get_key_hash(&ca63).unwrap();
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+
+        let fresh = crate::TimeOfInterest::from_unix_secs(1784203200).unwrap(); // 2026-07-16T12:00:00Z
+        let stale = crate::TimeOfInterest::from_unix_secs(1784980800).unwrap(); // 2026-07-25T12:00:00Z
+
+        let run = |toi, expected_nonce: Option<&[u8]>, setting| {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(toi);
+            let mut cpr = CertificationPathResults::new();
+            cpr.prepare_revocation_results(2).unwrap();
+            process_ocsp_response_internal(
+                &pe,
+                &cps,
+                &mut cpr,
+                enc_resp,
+                &ca63,
+                0,
+                "offline",
+                &target,
+                name_hash.as_slice(),
+                key_hash.as_slice(),
+                expected_nonce,
+                setting,
+            )
+        };
+
+        // (1) Fresh, correct nonce, RequireMatch -> Valid. Exercises delegated-responder signature
+        // verification against CA-63, the id-kp-OCSPSigning EKU gate, and the positive nonce match.
+        assert!(
+            run(
+                fresh,
+                Some(&sent_nonce),
+                OcspNonceSetting::SendNonceRequireMatch
+            )
+            .is_ok(),
+            "fresh response with matching nonce should be Valid"
+        );
+
+        // (2) Fresh, wrong nonce, RequireMatch -> rejected.
+        assert_eq!(
+            run(
+                fresh,
+                Some(&[0u8; 16]),
+                OcspNonceSetting::SendNonceRequireMatch
+            ),
+            Err(Error::OcspResponseError)
+        );
+
+        // (3) The stapled/public entrypoint (DoNotSendNonce) accepts it regardless of nonce.
+        {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(fresh);
+            let mut cpr = CertificationPathResults::new();
+            cpr.prepare_revocation_results(2).unwrap();
+            let r =
+                process_ocsp_response(&pe, &cps, &mut cpr, enc_resp, &ca63, 0, "offline", &target);
+            assert!(
+                r.is_ok(),
+                "public process_ocsp_response should be Valid, got {r:?}"
+            );
+        }
+
+        // (4) Stale (past nextUpdate), correct nonce, RequireMatch -> not accepted.
+        assert!(
+            run(
+                stale,
+                Some(&sent_nonce),
+                OcspNonceSetting::SendNonceRequireMatch
+            )
+            .is_err(),
+            "response past nextUpdate should not be accepted"
+        );
+    }
+}

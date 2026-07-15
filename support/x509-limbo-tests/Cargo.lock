@@ -191,6 +191,7 @@ dependencies = [
  "der",
  "ecdsa",
  "flagset",
+ "getrandom 0.3.4",
  "hex-literal",
  "lazy_static",
  "log",
