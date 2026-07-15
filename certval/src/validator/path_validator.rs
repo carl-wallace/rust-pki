@@ -140,6 +140,11 @@ pub fn check_basic_constraints(
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_BASIC_CONSTRAINTS);
+
+    // Seeds RFC 5280's max_path_length state variable. PS_INITIAL_PATH_LENGTH_CONSTRAINT defaults to
+    // the PS_MAX_PATH_LENGTH_CONSTRAINT ceiling rather than to the path length as in RFC 5280 6.1.2,
+    // so a path with more non-self-issued certificates than the ceiling is rejected below even absent
+    // any certificate-asserted pathLenConstraint. That fixed ceiling is a deliberate resource bound.
     let mut path_len_constraint = cps.get_initial_path_length_constraint();
 
     for ca_cert in cp.intermediates.iter() {
