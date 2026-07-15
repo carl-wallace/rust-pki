@@ -1625,6 +1625,40 @@ fn intersection_keeps_narrower_subtree() {
     assert_eq!(result2.ip_address, narrow.ip_address);
 }
 
+// A permitted subtree set whose bucket for one name form has intersected to empty (NULL) must
+// reject only certificates that actually present a name of that form; a certificate carrying names
+// of other forms is unaffected. This per-form gating is what lets path validation drop the whole
+// certificate once a permitted bucket empties: an empty form no certificate uses is vacuously
+// satisfied, and an empty form a certificate does use is still rejected here.
+#[cfg(feature = "std")]
+#[test]
+fn null_permitted_bucket_gates_only_its_own_name_form() {
+    // Model an intermediate whose permitted dNSName subtree intersected to empty.
+    let set = NameConstraintsSet {
+        dns_name_null: true,
+        ..Default::default()
+    };
+
+    // A SAN of a different form (rfc822, with no operative rfc822 constraint) is unconstrained and
+    // therefore permitted, even though the dNSName bucket is NULL.
+    let rfc822_san = SubjectAltName(vec![GeneralName::Rfc822Name(
+        Ia5String::new("user@example.test").unwrap(),
+    )]);
+    assert!(
+        set.san_within_permitted_subtrees(&Some(&rfc822_san)),
+        "a NULL dNSName bucket must not reject an rfc822 name"
+    );
+
+    // A SAN that does present a dNSName is still rejected by the NULL bucket.
+    let dns_san = SubjectAltName(vec![GeneralName::DnsName(
+        Ia5String::new("host.example.test").unwrap(),
+    )]);
+    assert!(
+        !set.san_within_permitted_subtrees(&Some(&dns_san)),
+        "a NULL dNSName bucket must still reject a dNSName"
+    );
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn intersection_tests() {

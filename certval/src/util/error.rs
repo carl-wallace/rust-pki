@@ -91,6 +91,10 @@ pub enum PathValidationStatus {
     /// and the presented trust anchor shares its public key with an anchor in the trust store but
     /// carries different constraints than the stored (authoritative) copy.
     TrustAnchorConstraintsMismatch,
+    /// ProcessingLimitExceeded occurs when path processing exceeds an internal resource limit, for
+    /// example when a certificate presents a policies-by-mappings graph large enough to exhaust the
+    /// policy node pool. It is raised to fail closed rather than allow unbounded resource use.
+    ProcessingLimitExceeded,
 }
 
 /// Error type
@@ -206,6 +210,9 @@ impl fmt::Display for PathValidationStatus {
             PathValidationStatus::SelfSignedEndIdentity => write!(f, "SelfSignedEndIdentity"),
             PathValidationStatus::TrustAnchorConstraintsMismatch => {
                 write!(f, "TrustAnchorConstraintsMismatch")
+            }
+            PathValidationStatus::ProcessingLimitExceeded => {
+                write!(f, "ProcessingLimitExceeded")
             }
         }
     }

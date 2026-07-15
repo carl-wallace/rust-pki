@@ -8,7 +8,7 @@ use const_oid::db::rfc5280::ANY_POLICY;
 use der::asn1::ObjectIdentifier;
 
 use crate::util::error::*;
-use crate::ObjectIdentifierSet;
+use crate::{ObjectIdentifierSet, PS_MAX_PATH_LENGTH_CONSTRAINT};
 
 /// PolicyProcessingData is internally used by check_certificate_policies to perform certificate
 /// policy-related checks in support of certification path validation. This struct is used as the
@@ -45,6 +45,30 @@ impl PartialEq for PolicyProcessingData {
 /// The PolicyPool type is used to maintain a list of PolicyProcessingData instances that are used
 /// to represent a valid_policy_tree.
 pub(crate) type PolicyPool = Vec<PolicyProcessingData>;
+
+/// Upper bound on the number of nodes retained in a PolicyPool during a single path validation.
+/// Certificate policies combined with policy mappings can drive multiplicative growth of the policy
+/// graph; without a bound a crafted certificate could exhaust memory/CPU. The pool is per path, so
+/// the bound scales with the maximum path length rather than the certificate store: allow a generous
+/// high-end 20 policies per certificate across a maximum-length path. With the RFC 9618 childless-node
+/// pruning in effect a legitimate path holds on the order of tens of nodes, so this ceiling is far
+/// above any real value and only trips on abuse. Reaching it fails the validation (fail closed).
+pub(crate) const MAX_POLICY_POOL_NODES: usize = 20 * PS_MAX_PATH_LENGTH_CONSTRAINT as usize;
+
+/// push_policy_node appends a node to the policy pool, failing closed with
+/// [`PathValidationStatus::ProcessingLimitExceeded`] once the pool has reached
+/// [`MAX_POLICY_POOL_NODES`]. It returns the index of the newly added node. All policy-graph node
+/// insertions route through here so the bound cannot be bypassed.
+pub(crate) fn push_policy_node(pm: &mut PolicyPool, node: PolicyProcessingData) -> Result<usize> {
+    if pm.len() >= MAX_POLICY_POOL_NODES {
+        return Err(Error::PathValidation(
+            PathValidationStatus::ProcessingLimitExceeded,
+        ));
+    }
+    let cur_index = pm.len();
+    pm.push(node);
+    Ok(cur_index)
+}
 
 /// The PolicyTreeRow type is used to represent rows in the valid_policy_tree. Each element is an
 /// index into the PolicyPool instance that supports the valid_policy_tree.
@@ -168,9 +192,7 @@ pub(crate) fn make_new_policy_node_add_to_pool2(
         parent: parent_opt,
         children: RefCell::new(vec![]),
     };
-    let cur_index = pm.len();
-    pm.push(node);
-    Ok(cur_index)
+    push_policy_node(pm, node)
 }
 
 pub(crate) fn make_new_policy_node(
@@ -262,6 +284,35 @@ mod tests {
             parent: parent.map(RefCell::new),
             children: RefCell::new(children),
         }
+    }
+
+    // push_policy_node fails closed once the pool reaches MAX_POLICY_POOL_NODES, bounding the policy
+    // graph against a certificate crafted to drive multiplicative node growth.
+    #[test]
+    fn push_policy_node_fails_closed_at_pool_cap() {
+        let x = ObjectIdentifier::new_unwrap("1.2.3.1");
+        let mut pool: PolicyPool = Vec::new();
+
+        // Fill the pool to exactly the cap; every insert succeeds and returns the running index.
+        for expected_index in 0..MAX_POLICY_POOL_NODES {
+            let idx = push_policy_node(&mut pool, node(x, 0, None, vec![])).unwrap();
+            assert_eq!(idx, expected_index);
+        }
+        assert_eq!(pool.len(), MAX_POLICY_POOL_NODES);
+
+        // The next insert is refused: the pool is full, so it fails closed and does not grow.
+        let r = push_policy_node(&mut pool, node(x, 0, None, vec![]));
+        assert_eq!(
+            r,
+            Err(Error::PathValidation(
+                PathValidationStatus::ProcessingLimitExceeded
+            ))
+        );
+        assert_eq!(
+            pool.len(),
+            MAX_POLICY_POOL_NODES,
+            "pool must not grow past the cap"
+        );
     }
 
     // Dedup keys on the parent's actual children: pool[0] shares policy X with the candidate but is

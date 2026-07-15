@@ -61,6 +61,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         let mut uris = Vec::new();
         let mut certs_count = 0;
         let mut uris_count = 0;
+        let max_certs = cps.get_max_aia_sia_certs();
 
         let p = Path::new(&download_folder);
         let blp = p.join("last_modified_map.json");
@@ -123,6 +124,15 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
             }
 
             if certs_count == cert_store.num_buffers() {
+                break;
+            }
+            // Bound the AIA/SIA fetch loop: a responder that serves a fresh certificate on every hop
+            // never lets the store converge. Stop collecting once the store reaches the configured
+            // ceiling and build the graph from what has been gathered.
+            if cert_store.num_buffers() as u64 >= max_certs {
+                error!(
+                    "AIA/SIA collection reached the configured maximum certificate count ({max_certs}); halting collection to bound resource use"
+                );
                 break;
             }
             certs_count = cert_store.num_buffers();

@@ -1071,7 +1071,6 @@ impl CertSource {
     fn check_names_in_partial_path(&self, path: &[usize]) -> bool {
         let mut permitted_subtrees = NameConstraintsSet::default();
         let mut excluded_subtrees = NameConstraintsSet::default();
-        let mut perm_names_set = false;
 
         // Iterate over the list of intermediate CA certificates plus target to check name chaining
         for (pos, i) in path.iter().enumerate() {
@@ -1119,11 +1118,10 @@ impl CertSource {
                             permitted_subtrees.calculate_intersection(perm);
                         }
 
-                        if perm_names_set && permitted_subtrees.are_any_empty() {
-                            return false;
-                        } else if !perm_names_set && permitted_subtrees.are_any_empty() {
-                            perm_names_set = true;
-                        }
+                        // An empty permitted subtree for some name form does not prune the partial
+                        // path: names are checked per form against the operative subtrees above, so
+                        // a form no certificate in the path presents is vacuously satisfied. This
+                        // filter is approximate and never rejects a path the full validator accepts.
                     }
                 }
             }

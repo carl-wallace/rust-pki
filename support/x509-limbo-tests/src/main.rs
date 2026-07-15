@@ -47,11 +47,10 @@ const WEAK_KEY_CHECKS: &[&str] = &[
 
 const BUG: &[&str] = &[];
 
-const PATHOLOGICAL_CHECKS: &[&str] = &[
-    "pathological::nc-dos-1",
-    "pathological::nc-dos-2",
-    "pathological::nc-dos-3",
-];
+// The name-constraints denial-of-service cases (pathological::nc-dos-1/2/3) are no longer listed
+// here: the validator now bounds name-constraints matching work and rejects them as the corpus
+// expects, so they must fail rather than be treated as a known-permissive result.
+const PATHOLOGICAL_CHECKS: &[&str] = &[];
 
 const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &["webpki::san::mismatch-apex-subdomain-san"];
 
