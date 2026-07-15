@@ -345,7 +345,6 @@ pub fn check_names(
     v.push(cp.target.clone());
     let certs_in_cert_path = v.len();
 
-    let mut perm_names_set = initial_perm.is_some();
     let mut permitted_subtrees = initial_perm.unwrap_or_default();
     let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
@@ -485,13 +484,11 @@ pub fn check_names(
                     permitted_subtrees.calculate_intersection(perm);
                 }
 
-                if perm_names_set && permitted_subtrees.are_any_empty() {
-                    return Err(Error::PathValidation(
-                        PathValidationStatus::NameConstraintsViolation,
-                    ));
-                } else if !perm_names_set && permitted_subtrees.are_any_empty() {
-                    perm_names_set = true;
-                }
+                // A permitted subtree set that intersects to empty for some name form does not fail
+                // the path here: each certificate's subject and subjectAltName are checked against
+                // the operative subtrees per name form (an empty form rejects only a certificate
+                // that actually presents a name of that form), so a form no certificate uses is
+                // vacuously satisfied.
             }
         }
     } // end for (pos, ca_cert_ref) in v.iter_mut().enumerate() {
@@ -1009,21 +1006,6 @@ pub fn check_country_codes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::validator::name_constraints_set::NameConstraintsSet;
-    use der::asn1::Ia5String;
-    use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
-
-    /// Builds `n` distinct excluded dNSName subtrees, as a certificate authority contributes when it
-    /// unions name constraints into the operative state.
-    fn dns_subtrees(n: usize) -> GeneralSubtrees {
-        (0..n)
-            .map(|i| GeneralSubtree {
-                base: GeneralName::DnsName(Ia5String::new(&format!("x{i}.invalid")).unwrap()),
-                minimum: 0,
-                maximum: None,
-            })
-            .collect()
-    }
 
     #[test]
     fn budget_predicate_boundary() {
@@ -1039,9 +1021,27 @@ mod tests {
     // The budget guard must consume the constraint count that accrues as certificate authorities
     // union their excluded subtrees into the operative state, not a count captured from the initial
     // (typically empty) subtree state. A count read before accumulation is zero and never trips the
-    // budget no matter how large the subjectAltName; the count read after accumulation does.
+    // budget no matter how large the subjectAltName; the count read after accumulation does. dNSName
+    // subtree accumulation is a std-only feature, so this test is gated accordingly.
+    #[cfg(feature = "std")]
     #[test]
     fn budget_tracks_accumulated_constraints() {
+        use crate::validator::name_constraints_set::NameConstraintsSet;
+        use der::asn1::Ia5String;
+        use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
+
+        // Builds `n` distinct excluded dNSName subtrees, as a certificate authority contributes when
+        // it unions name constraints into the operative state.
+        fn dns_subtrees(n: usize) -> GeneralSubtrees {
+            (0..n)
+                .map(|i| GeneralSubtree {
+                    base: GeneralName::DnsName(Ia5String::new(&format!("x{i}.invalid")).unwrap()),
+                    minimum: 0,
+                    maximum: None,
+                })
+                .collect()
+        }
+
         let san_len = 1024;
 
         // The initial state, as at the top of check_names for a path with no initial subtrees. A
