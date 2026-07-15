@@ -515,6 +515,10 @@ pub fn check_key_usage(
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
         let ku = match pdv_ext {
             Some(PDVExtension::KeyUsage(ku)) => ku,
+            // RFC 5280 6.1.4(n) gates the keyCertSign check on the key usage extension being
+            // present, so an intermediate lacking one is not a conformance failure; rejecting it is
+            // a deliberate fail-closed choice, since a modern CA certificate always carries key
+            // usage asserting keyCertSign.
             _ => {
                 log_error_for_ca(ca_cert, "key usage extension is missing");
                 cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);

@@ -994,8 +994,8 @@ fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
         for ext in exts.as_slice() {
             if ext.extn_id == ID_CE_KEY_USAGE {
                 if let Ok(ku) = KeyUsage::from_der(ext.extn_value.as_bytes()) {
-                    // (n)  If a key usage extension is present, verify that the
-                    //      keyCertSign bit is set.
+                    // RFC 5280 6.3.3(f): if a key usage extension is present, the cRLSign bit must
+                    // be set for the certificate to be a valid CRL issuer.
                     if !ku.0.contains(KeyUsages::CRLSign) {
                         error!("crlSign is not set in key usage extension");
                         return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
@@ -1009,6 +1009,9 @@ fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
             }
         }
     }
+    // RFC 5280 6.3.3(f) gates the cRLSign check on the key usage extension being present, so a CRL
+    // issuer lacking one is not a conformance failure; rejecting it is a deliberate fail-closed
+    // choice, since a modern CRL issuer always carries key usage asserting cRLSign.
     error!("key usage extension is missing");
     Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
