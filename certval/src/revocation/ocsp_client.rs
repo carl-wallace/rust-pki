@@ -15,9 +15,9 @@ use log::{error, warn};
 use log::{debug, info};
 
 use crate::{
-    crl::process_crl, valid_at_time, CertificationPathResults, CertificationPathSettings,
-    DeferDecodeSigned, Error, OcspNonceSetting, PDVCertificate, PathValidationStatus,
-    PkiEnvironment, Result,
+    crl::process_crl, util::pdv_utilities::compare_names, valid_at_time, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, OcspNonceSetting, PDVCertificate,
+    PathValidationStatus, PkiEnvironment, Result,
 };
 
 #[cfg(feature = "remote")]
@@ -648,100 +648,122 @@ fn process_ocsp_response_internal(
     // by the same CA that issued the target cert (i.e., key rollover certs do not apply here presently)
     if let Some(certs) = &bor.certs {
         for a in certs {
-            if let Ok(certbuf) = a.to_der() {
-                if let Ok(defer_cert) = DeferDecodeSigned::from_der(certbuf.as_slice()) {
-                    if let Ok(_r) = pe.verify_signature_message(
-                        pe,
-                        &defer_cert.tbs_field,
-                        defer_cert.signature.raw_bytes(),
-                        &defer_cert.signature_algorithm,
-                        issuers_cert.tbs_certificate().subject_public_key_info(),
-                    ) {
-                        if let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) {
-                            if *cert.tbs_certificate().signature() != defer_cert.signature_algorithm
-                            {
-                                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but signature algorithm match failed");
-                                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
-                                continue;
-                            }
+            let Ok(certbuf) = a.to_der() else {
+                continue;
+            };
+            let Ok(cert) = CertificateInner::<Raw>::from_der(certbuf.as_slice()) else {
+                continue;
+            };
 
-                            let time_of_interest = cps.get_time_of_interest();
-                            if !time_of_interest.is_disabled() {
-                                let target_ttl =
-                                    valid_at_time(cert.tbs_certificate(), time_of_interest, false);
-                                if let Err(_e) = target_ttl {
-                                    error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but certificate has expired");
-                                    cpr.add_failed_ocsp_response(
-                                        enc_ocsp_resp.to_vec(),
-                                        result_index,
-                                    );
-                                    continue;
-                                }
-                            }
+            // Order the checks cheapest-first so an echoed certificate that cannot be a valid
+            // delegated responder is discarded before any signature verification is attempted. This
+            // both reads more clearly and bounds the work a response with many echoed certificates
+            // can impose.
 
-                            // The responder cert lacks id-pkix-ocsp-nocheck, so its own revocation
-                            // status is not waived (RFC 6960 4.2.2.2.1). Check it against locally
-                            // available CRLs (issued by the same CA as the responder) and reject the
-                            // response if the responder is revoked. Remote retrieval is not attempted
-                            // here: this path is synchronous, and responder certs that omit nocheck
-                            // are rare in practice.
-                            if !no_check_present(&cert.tbs_certificate().extensions()) {
-                                let mut responder_revoked = false;
-                                if let Ok(responder) = PDVCertificate::try_from(certbuf.as_slice())
-                                {
-                                    if let Ok(crls) = pe.get_crls(&responder) {
-                                        for crl in &crls {
-                                            if let Err(Error::PathValidation(
-                                                PathValidationStatus::CertificateRevoked,
-                                            )) = process_crl(
-                                                pe,
-                                                cps,
-                                                cpr,
-                                                &responder,
-                                                issuers_cert,
-                                                result_index,
-                                                crl.as_slice(),
-                                                None,
-                                            ) {
-                                                responder_revoked = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if responder_revoked {
-                                    error!("Delegated OCSP responder cert from {uri_to_check} is revoked per a locally available CRL; rejecting response");
-                                    cpr.add_failed_ocsp_response(
-                                        enc_ocsp_resp.to_vec(),
-                                        result_index,
-                                    );
-                                    continue;
-                                }
-                            }
+            // A delegated responder is issued by the same CA as the target, so its issuer must match
+            // that CA's subject. This is a necessary condition for the signature verification below,
+            // so a name mismatch lets us skip that verification entirely.
+            if !compare_names(
+                cert.tbs_certificate().issuer(),
+                issuers_cert.tbs_certificate().subject(),
+            ) {
+                continue;
+            }
 
-                            // RFC 6960 4.2.2.2: a delegated OCSP responder certificate MUST assert
-                            // the id-kp-OCSPSigning EKU; otherwise any CA-issued EE cert could sign
-                            // OCSP responses.
-                            if !has_ocsp_signing_eku(&cert.tbs_certificate().extensions()) {
-                                error!("Candidate responder cert from OCSPResponse from {uri_to_check} lacks the id-kp-OCSPSigning EKU required of a delegated OCSP responder");
-                                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
-                                continue;
-                            }
+            // RFC 6960 4.2.2.2: a delegated OCSP responder certificate MUST assert the
+            // id-kp-OCSPSigning EKU; otherwise any CA-issued EE cert could sign OCSP responses.
+            if !has_ocsp_signing_eku(&cert.tbs_certificate().extensions()) {
+                error!("Candidate responder cert from OCSPResponse from {uri_to_check} lacks the id-kp-OCSPSigning EKU required of a delegated OCSP responder");
+                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+                continue;
+            }
 
-                            authorized_responder = true;
+            let time_of_interest = cps.get_time_of_interest();
+            if !time_of_interest.is_disabled()
+                && valid_at_time(cert.tbs_certificate(), time_of_interest, false).is_err()
+            {
+                error!(
+                    "Candidate responder cert from OCSPResponse from {uri_to_check} has expired"
+                );
+                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+                continue;
+            }
 
-                            let r =
-                                verify_response_signature(pe, &cert, rb.response.as_bytes(), &bor);
-                            if r.is_err() {
-                                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but response signature verification failed");
-                                continue;
-                            } else {
-                                sigverified = true;
+            // Verify the candidate was signed by the issuing CA.
+            let Ok(defer_cert) = DeferDecodeSigned::from_der(certbuf.as_slice()) else {
+                continue;
+            };
+            if pe
+                .verify_signature_message(
+                    pe,
+                    &defer_cert.tbs_field,
+                    defer_cert.signature.raw_bytes(),
+                    &defer_cert.signature_algorithm,
+                    issuers_cert.tbs_certificate().subject_public_key_info(),
+                )
+                .is_err()
+            {
+                continue;
+            }
+            if *cert.tbs_certificate().signature() != defer_cert.signature_algorithm {
+                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but signature algorithm match failed");
+                cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+                continue;
+            }
+
+            // The responder cert lacks id-pkix-ocsp-nocheck, so its own revocation status is not
+            // waived (RFC 6960 4.2.2.2.1). Check it against locally available CRLs (issued by the
+            // same CA as the responder) and reject the response if the responder is revoked. Remote
+            // retrieval is not attempted here: this path is synchronous, and responder certs that
+            // omit nocheck are rare in practice.
+            if !no_check_present(&cert.tbs_certificate().extensions()) {
+                let mut responder_revoked = false;
+                if let Ok(responder) = PDVCertificate::try_from(certbuf.as_slice()) {
+                    if let Ok(crls) = pe.get_crls(&responder) {
+                        for crl in &crls {
+                            if let Err(Error::PathValidation(
+                                PathValidationStatus::CertificateRevoked,
+                            )) = process_crl(
+                                pe,
+                                cps,
+                                cpr,
+                                &responder,
+                                issuers_cert,
+                                result_index,
+                                crl.as_slice(),
+                                None,
+                            ) {
+                                responder_revoked = true;
+                                break;
                             }
                         }
                     }
                 }
+                if responder_revoked {
+                    error!("Delegated OCSP responder cert from {uri_to_check} is revoked per a locally available CRL; rejecting response");
+                    cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
+                    continue;
+                }
             }
+
+            authorized_responder = true;
+
+            if verify_response_signature(pe, &cert, rb.response.as_bytes(), &bor).is_err() {
+                error!("Verified candidate responder cert from OCSPResponse from {uri_to_check} but response signature verification failed");
+                continue;
+            }
+            sigverified = true;
+        }
+
+        // Direct CA signing (RFC 6960 4.2.2.2): a CA that issued the target certificate may sign
+        // its own OCSP responses while still echoing its certificate in `certs`. Such a certificate
+        // is not a delegated responder (it does not assert the id-kp-OCSPSigning EKU), so if none of
+        // the echoed certificates authorized the response, fall back to the issuing CA's own key.
+        if !sigverified
+            && verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor).is_ok()
+        {
+            authorized_responder = true;
+            sigverified = true;
         }
     } else {
         // try the issuer's cert
@@ -1279,6 +1301,64 @@ mod tests {
             ),
             Err(Error::OcspResponseError),
             "producedAt later than the time of interest should be rejected"
+        );
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Direct CA signing with the CA certificate echoed in `certs`. A CA that issued the target
+    // signs its own OCSP responses (RFC 6960 4.2.2.2) and may still populate `certs` with its own
+    // certificate. That certificate is not a delegated responder (no id-kp-OCSPSigning EKU), so the
+    // delegated path rejects it; acceptance depends on falling back to the issuing CA's own key.
+    //
+    // Fixtures (examples/ocsp_direct_ca) were generated with openssl: a self-signed CA (CA:TRUE,
+    // keyCertSign+cRLSign, no OCSP-signing EKU), an EE it issued (serial 0x1234), and an OCSP
+    // response produced with the CA itself as the responder (-rsigner ca -rkey ca-key), so the
+    // response is signed by the CA key and echoes the CA certificate. thisUpdate 2026-07-15,
+    // nextUpdate 2036-07-12; the time of interest is pinned into that window and the cert validity.
+    // ------------------------------------------------------------------------------------------
+
+    #[cfg(all(feature = "std", feature = "rsa"))]
+    #[test]
+    fn ocsp_direct_ca_signed_response_echoing_ca_cert() {
+        let enc_resp = include_bytes!("../../tests/examples/ocsp_direct_ca/resp.der").as_slice();
+        let ca = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/ocsp_direct_ca/ca.der"
+        ))
+        .unwrap();
+        let mut target = PDVCertificate::try_from(
+            include_bytes!("../../tests/examples/ocsp_direct_ca/ee.der").as_slice(),
+        )
+        .unwrap();
+        target.parse_extensions(crate::EXTS_OF_INTEREST);
+
+        let name_hash = get_subject_name_hash(&ca).unwrap();
+        let key_hash = get_key_hash(&ca).unwrap();
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+
+        let mut cps = CertificationPathSettings::new();
+        cps.set_time_of_interest(crate::TimeOfInterest::from_unix_secs(1785542400).unwrap()); // 2026-08-01
+        let mut cpr = CertificationPathResults::new();
+        cpr.prepare_revocation_results(2).unwrap();
+
+        let r = process_ocsp_response_internal(
+            &pe,
+            &cps,
+            &mut cpr,
+            enc_resp,
+            &ca,
+            0,
+            "offline-direct-ca",
+            &target,
+            name_hash.as_slice(),
+            key_hash.as_slice(),
+            None,
+            OcspNonceSetting::DoNotSendNonce,
+        );
+        assert!(
+            r.is_ok(),
+            "a CA-signed response echoing the CA cert must be accepted via the direct-CA fallback, got {r:?}"
         );
     }
 
