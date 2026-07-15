@@ -240,9 +240,7 @@ impl TaSource {
         // todo - change serialization?
         let bap: BuffersAndPaths = match from_reader(cbor) {
             Ok(cbor_data) => cbor_data,
-            Err(e) => {
-                panic!("Failed to parse embedded EE CBOR with: {e}")
-            }
+            Err(_e) => return Err(Error::ParseError),
         };
 
         Ok(Self {
@@ -490,4 +488,15 @@ fn get_trust_anchor_test() {
     let good = hex!("6C8A94A277B180721D817A16AAF2DCCE66EE45C0");
     assert!(pe.get_trust_anchor(&bad).is_err());
     assert!(pe.get_trust_anchor(&good).is_ok());
+}
+
+// Malformed CBOR must be reported as an error rather than panicking, matching
+// CertSource::new_from_cbor. Here 0x00 is well-formed CBOR (the integer 0) but not a serialized
+// BuffersAndPaths, so deserialization fails.
+#[test]
+fn new_from_cbor_rejects_malformed_input() {
+    assert_eq!(
+        TaSource::new_from_cbor(&[0x00]).err(),
+        Some(Error::ParseError)
+    );
 }
