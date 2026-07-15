@@ -427,21 +427,20 @@ impl NameConstraintsSet {
 
                         let mut uri_ok = false;
 
+                        // Parse the SAN URI's host once; it does not vary across the permitted
+                        // subtrees compared below.
                         #[cfg(feature = "std")]
-                        for gn_state in &self.uniform_resource_identifier {
-                            if let GeneralName::UniformResourceIdentifier(uri_state) =
-                                &gn_state.base
-                            {
-                                if let Ok(url) = Url::parse(uri_san.as_str()) {
-                                    if let Some(host) = url.host() {
-                                        if descended_from_host(
-                                            uri_state,
-                                            host.to_string().as_str(),
-                                            true,
-                                        ) {
-                                            uri_ok = true;
-                                            break;
-                                        }
+                        if let Some(host) = Url::parse(uri_san.as_str())
+                            .ok()
+                            .and_then(|url| url.host().map(|h| h.to_string()))
+                        {
+                            for gn_state in &self.uniform_resource_identifier {
+                                if let GeneralName::UniformResourceIdentifier(uri_state) =
+                                    &gn_state.base
+                                {
+                                    if descended_from_host(uri_state, host.as_str(), true) {
+                                        uri_ok = true;
+                                        break;
                                     }
                                 }
                             }
@@ -651,20 +650,19 @@ impl NameConstraintsSet {
                             continue;
                         }
 
+                        // Parse the SAN URI's host once; it does not vary across the excluded
+                        // subtrees compared below.
                         #[cfg(feature = "std")]
-                        for gn_state in &self.uniform_resource_identifier {
-                            if let GeneralName::UniformResourceIdentifier(uri_state) =
-                                &gn_state.base
-                            {
-                                if let Ok(url) = Url::parse(uri_san.as_str()) {
-                                    if let Some(host) = url.host() {
-                                        if descended_from_host(
-                                            uri_state,
-                                            host.to_string().as_str(),
-                                            true,
-                                        ) {
-                                            return true;
-                                        }
+                        if let Some(host) = Url::parse(uri_san.as_str())
+                            .ok()
+                            .and_then(|url| url.host().map(|h| h.to_string()))
+                        {
+                            for gn_state in &self.uniform_resource_identifier {
+                                if let GeneralName::UniformResourceIdentifier(uri_state) =
+                                    &gn_state.base
+                                {
+                                    if descended_from_host(uri_state, host.as_str(), true) {
+                                        return true;
                                     }
                                 }
                             }

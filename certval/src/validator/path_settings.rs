@@ -227,12 +227,22 @@ pub static PS_EXTENDED_KEY_USAGE: &str = "psExtendedKeyUsage";
 pub static PS_EXTENDED_KEY_USAGE_PATH: &str = "psExtendedKeyUsagePath";
 
 /// `PS_INITIAL_PATH_LENGTH_CONSTRAINT` is used to retrieve a u8 value from a [`CertificationPathSettings`]
-/// object. This value is used in concert with BasicConstraints extensions during certification
-/// path validation by establishing the maximum path length that will be accepted. By default, the
-/// value is set to 15, as defined by `PS_MAX_PATH_LENGTH_CONSTRAINT`.
+/// object. It seeds RFC 5280's `max_path_length` state variable, which is decremented for each
+/// non-self-issued certificate in the path and further reduced by any basicConstraints
+/// `pathLenConstraint`. RFC 5280 6.1.2 initializes that variable to the path length itself; this
+/// implementation instead defaults it to the fixed ceiling [`PS_MAX_PATH_LENGTH_CONSTRAINT`] (15), so
+/// a path with more than that many non-self-issued certificates is rejected with `InvalidPathLength`
+/// even when no certificate asserts a `pathLenConstraint`. Raise this value to validate a longer
+/// caller-supplied path; note that dynamically built paths are additionally limited by the builder's
+/// search depth, which is bounded by [`PS_MAX_PATH_LENGTH_CONSTRAINT`] independently of this setting.
 pub static PS_INITIAL_PATH_LENGTH_CONSTRAINT: &str = "psInitialPathLengthConstraint";
 
-/// `PS_MAX_PATH_LENGTH_CONSTRAINT` sets the maximum length path accepted by validation implementation
+/// `PS_MAX_PATH_LENGTH_CONSTRAINT` is the maximum number of non-self-issued certificates accepted in a
+/// certification path. It is a deliberate system-wide resource ceiling rather than merely the default
+/// for [`PS_INITIAL_PATH_LENGTH_CONSTRAINT`]: it also bounds the depth to which the path builder
+/// searches for candidate paths and scales the per-validation policy-node pool. Paths exceeding it are
+/// rejected with `InvalidPathLength` even absent any certificate-asserted `pathLenConstraint`, which
+/// RFC 5280 permits as local policy.
 pub const PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
 
 /// `PS_CRL_TIMEOUT_DEFAULT` sets the maximum amount of time to spend downloading a CRL expressed in seconds.
