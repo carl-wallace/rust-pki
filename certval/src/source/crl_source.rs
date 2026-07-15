@@ -201,38 +201,49 @@ impl RemoteStatus {
 impl CheckRemoteResource for RemoteStatus {
     /// get_last_modified takes a URI and returns stored last modified value or None.
     fn get_last_modified(&self, uri: &str) -> Option<String> {
+        // Fast path: once the map has been loaded a shared read lock suffices.
+        {
+            let last_modified_map = self.last_modified_map.read().ok()?;
+            if !last_modified_map.is_empty() {
+                return last_modified_map.get(uri).cloned();
+            }
+        }
+        // The map has not been loaded yet; take the write lock to populate it, then read.
         let mut last_modified_map = self.last_modified_map.write().ok()?;
         if last_modified_map.is_empty() {
             self.load_lmm(&mut last_modified_map);
         }
-        if last_modified_map.contains_key(uri) {
-            Some(last_modified_map[uri].clone())
-        } else {
-            None
-        }
+        last_modified_map.get(uri).cloned()
     }
     /// Save last modified value, if desired
     fn set_last_modified(&self, uri: &str, last_modified: &str) {
-        let mut last_modified_map = if let Ok(l) = self.last_modified_map.write() {
-            l
-        } else {
-            return;
+        // Update the in-memory map and serialize it (both in-memory operations) under the write
+        // lock, but release the lock before writing to disk so the slow filesystem I/O does not
+        // block other readers and writers.
+        let json_lmm = {
+            let mut last_modified_map = if let Ok(l) = self.last_modified_map.write() {
+                l
+            } else {
+                return;
+            };
+            if last_modified_map.is_empty() {
+                self.load_lmm(&mut last_modified_map);
+            }
+            if let std::collections::btree_map::Entry::Vacant(e) =
+                last_modified_map.entry(uri.to_string())
+            {
+                e.insert(last_modified.to_string());
+                serde_json::to_string(&last_modified_map.deref()).ok()
+            } else {
+                None
+            }
         };
-        if last_modified_map.is_empty() {
-            self.load_lmm(&mut last_modified_map);
-        }
-        if let std::collections::btree_map::Entry::Vacant(e) =
-            last_modified_map.entry(uri.to_string())
-        {
-            e.insert(last_modified.to_string());
 
-            let json_lmm = serde_json::to_string(&last_modified_map.deref());
+        if let Some(json_lmm) = json_lmm {
             let p = Path::new(&self.lmm_folder);
             let lmmp = p.join("last_modified_map.json");
-            if let Ok(json_lmm) = &json_lmm {
-                if fs::write(lmmp, json_lmm).is_err() {
-                    error!("Unable to write last modified map file",);
-                }
+            if fs::write(lmmp, json_lmm).is_err() {
+                error!("Unable to write last modified map file",);
             }
         }
     }
@@ -589,5 +600,30 @@ impl RevocationStatusCache for RevocationCache {
             debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.1, key.0);
             cache_map.insert(key, status_and_time);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CheckRemoteResource;
+
+    // A stored last-modified value must be readable both in memory and, after the write released the
+    // lock and persisted the map, from a fresh instance over the same folder.
+    #[test]
+    fn last_modified_round_trips_through_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let uri = "http://example.test/crl";
+        let value = "Mon, 01 Jan 2035 00:00:00 GMT";
+
+        let rs = RemoteStatus::new(folder);
+        rs.set_last_modified(uri, value);
+        assert_eq!(rs.get_last_modified(uri), Some(value.to_string()));
+
+        // A fresh instance loads the value written to disk, confirming the out-of-lock write persisted.
+        let rs2 = RemoteStatus::new(folder);
+        assert_eq!(rs2.get_last_modified(uri), Some(value.to_string()));
+        assert_eq!(rs2.get_last_modified("http://example.test/other"), None);
     }
 }
