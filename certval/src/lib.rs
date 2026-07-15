@@ -31,6 +31,6 @@ pub use crate::environment::*;
 pub use crate::revocation::*;
 
 #[cfg(feature = "pqc")]
-pub use crate::util::{crypto_composite::*, crypto_pqc::*};
+pub use crate::util::{crypto_composite::*, crypto_fndsa::*, crypto_pqc::*};
 
 pub use crate::{source::*, util::*, validator::*};
