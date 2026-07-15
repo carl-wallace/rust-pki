@@ -693,3 +693,51 @@ async fn cached_crl_remote_async() {
         }
     }
 }
+
+// Live end-to-end OCSP nonce round-trip against the DoD responder (ocsp.disa.mil), which honors
+// nonces. Ignored by default: it needs live network access and an unexpired DoD leaf. The offline
+// counterpart (deterministic, always run) is `ocsp_offline_replay_delegated_responder_with_nonce`
+// in src/revocation/ocsp_client.rs, which replays a response harvested from this same responder.
+// When cert 47 (exp 2026-11-21) or the responder cert rotates, re-harvest examples/ocsp_dod/.
+// Run with: cargo test -p certval --features rsa -- --ignored live_ocsp_nonce_disa
+#[cfg(all(feature = "remote", feature = "rsa"))]
+#[ignore = "requires live network to ocsp.disa.mil and an unexpired DoD leaf (cert 47)"]
+#[tokio::test]
+async fn live_ocsp_nonce_disa() {
+    use certval::*;
+    use der::Decode;
+    use x509_cert::certificate::{CertificateInner, Raw};
+
+    let _ = pretty_env_logger::try_init();
+
+    let issuer =
+        CertificateInner::<Raw>::from_der(include_bytes!("examples/ocsp_dod/ca63.der")).unwrap();
+    let mut target =
+        PDVCertificate::try_from(include_bytes!("examples/ocsp_dod/47.der").as_slice()).unwrap();
+    target.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cps = CertificationPathSettings::new();
+    // Require the responder to echo the nonce we send; DoD's responder honors nonces.
+    cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::SendNonceRequireMatch);
+
+    let mut cpr = CertificationPathResults::new();
+    cpr.prepare_revocation_results(1).unwrap();
+
+    let r = send_ocsp_request(
+        &pe,
+        &cps,
+        "http://ocsp.disa.mil",
+        &target,
+        &issuer,
+        &mut cpr,
+        0,
+    )
+    .await;
+    assert!(
+        r.is_ok(),
+        "live DoD OCSP with SendNonceRequireMatch should succeed (nonce echoed), got {r:?}"
+    );
+}
