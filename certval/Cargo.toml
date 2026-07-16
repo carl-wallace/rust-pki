@@ -24,7 +24,7 @@ der = { version="0.8.1", features = ["alloc", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 base64ct = { version="1.8.3", features = ["alloc"], optional=true }
 spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
-pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "pre-release", optional=true }
+pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "main", optional=true }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 signature = { version = "3.0.0" }
 

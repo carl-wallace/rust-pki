@@ -4782,7 +4782,7 @@ dependencies = [
 [[package]]
 name = "pqckeys"
 version = "0.1.1"
-source = "git+https://github.com/carl-wallace/pqckeys?branch=pre-release#8d4e09ed8d11d517f6c9be5283cea2826508f830"
+source = "git+https://github.com/carl-wallace/pqckeys?branch=main#e3a6948976a74905684c632e90f65849df7e73ed"
 dependencies = [
  "const-oid",
  "der",
