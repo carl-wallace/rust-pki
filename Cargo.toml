@@ -28,10 +28,7 @@ opt-level = "z"
 lto = true
 
 [patch.crates-io]
-# Temporary until RustCrypto publishes x509-ocsp RCs. The specific commit is pinned by Cargo.lock;
-# do not `cargo update` this patch until the RCs land (HEAD has drifted incompatible with x509-cert).
+# x509-ocsp has no 0.3 crates.io release yet (max published 0.2.1), so pull it from formats.git to
+# match the now-published x509-cert 0.3.0. Drop this patch once x509-ocsp 0.3 publishes.
+# (ml-dsa dropped 2026-07-16 — 0.1.1 is now on crates.io.)
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
-
-# https://github.com/RustCrypto/signatures/pull/1259
-# https://github.com/RustCrypto/signatures/pull/1261
-ml-dsa = { git = "https://github.com/RustCrypto/signatures.git" }

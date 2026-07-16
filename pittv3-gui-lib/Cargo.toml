@@ -23,11 +23,11 @@ certval = { path = "../certval", default-features = false }
 
 dioxus = "0.7.9"
 
-log = {version = "0.4.29"}
-serde_json = { version = "1.0.149", default-features = false, features = ["alloc"] }
+log = {version = "0.4.33"}
+serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 
-anyhow = {version = "1.0.100", optional = true}
-home = {version = "0.5.11", optional = true}
+anyhow = {version = "1.0.103", optional = true}
+home = {version = "0.5.12", optional = true}
 log4rs = {version = "1.4.0", default-features = false, optional = true}
 
 # Feature gates mirror certval where applicable:

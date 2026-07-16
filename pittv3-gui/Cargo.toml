@@ -23,9 +23,9 @@ rust-version = "1.88"
 pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
 pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
 
-der = { version = "0.8.0", default-features = false, features = ["alloc"] }
+der = { version = "0.8.1", default-features = false, features = ["alloc"] }
 dioxus = { version = "0.7.9", features = ["desktop"] }
-home = "0.5.11"
-log = "0.4.29"
+home = "0.5.12"
+log = "0.4.33"
 log4rs = "1.4.0"
 rfd = "0.17.2"
