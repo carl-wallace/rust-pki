@@ -42,7 +42,6 @@ sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 cfg-if = "1.0.4"
 # serde feature is added to std, revocation,std and remote
 flagset = { version = "0.4.7", package = "flagset", default-features = false }
-lazy_static = {version = "1.5.0", features = ["spin_no_std"]}
 readonly = "0.2.13"
 serde = {version = "1.0.228", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
@@ -51,7 +50,6 @@ bitvec = { version = "1.1.1", optional = true }
 ciborium = {version = "0.2.2", default-features = false }
 cidr = { version = "0.3.2", optional = true }
 log = {version = "0.4.33", default-features = false}
-ndarray = {version = "0.17.2", optional = true, default-features = false}
 reqwest = { version = "0.13.4", features = ["blocking"], optional = true}
 getrandom = { version = "0.3", optional = true}
 serde_json = {version = "1.0.150", optional = true, default-features = false, features = ["alloc"] }
@@ -86,9 +84,9 @@ tokio = { version = "1.52.3", features = ["full", "macros", "time", "rt-multi-th
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki"]
-revocation = ["dep:ndarray"]
-std = ["dep:ndarray", "dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "lazy_static/spin", "dep:bitvec", "dep:cidr", "der/std"]
-remote = ["revocation", "std", "reqwest", "dep:getrandom", "lazy_static/spin"]
+revocation = []
+std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "dep:bitvec", "dep:cidr", "der/std"]
+remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]

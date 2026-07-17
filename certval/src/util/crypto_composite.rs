@@ -21,7 +21,6 @@ use der::Decode;
 use der::Encode;
 use der::{Any, AnyRef};
 use hex_literal::hex;
-use lazy_static::lazy_static;
 use log::error;
 use pqckeys::pqc_oids::*;
 use sha2::Digest;
@@ -366,10 +365,8 @@ fn hash_message(composite_oid: ObjectIdentifier, message: &[u8]) -> crate::Resul
     }
 }
 
-lazy_static! {
-    static ref PREFIX: [u8; 32] =
-        hex!("436F6D706F73697465416C676F726974686D5369676E61747572657332303235");
-}
+const PREFIX: [u8; 32] = hex!("436F6D706F73697465416C676F726974686D5369676E61747572657332303235");
+
 /// Gets the domain separator for a given OID.
 pub fn get_domain(oid: ObjectIdentifier) -> crate::Result<Vec<u8>> {
     if oid == ID_MLKEM768_RSA2048_SHA3_256 {

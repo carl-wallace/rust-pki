@@ -3,16 +3,15 @@
 #![cfg(feature = "std")]
 
 use assert_cmd::{cargo, prelude::*};
-use lazy_static::lazy_static;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
-lazy_static! {
-    static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
-}
+// used only by the remote-gated tests below (to serialize network access)
+#[allow(dead_code)]
+static TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 // allowing dead code here since adding rsa gate feels wrong
 #[allow(dead_code)]

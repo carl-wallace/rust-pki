@@ -8,9 +8,6 @@ use core::str::FromStr;
 use log::{debug, error};
 
 #[cfg(feature = "std")]
-use lazy_static::lazy_static;
-
-#[cfg(feature = "std")]
 use regex::Regex;
 
 use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
@@ -804,9 +801,11 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l_val != r_val {
                     #[cfg(feature = "std")]
                     {
-                        lazy_static! {
-                            static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
-                        }
+                        use std::sync::LazyLock;
+
+                        static WHITESPACE_RE: LazyLock<Regex> =
+                            LazyLock::new(|| Regex::new(r"\s+").unwrap());
+
                         //collapse multiple whitespace instances into one and convert to lowercase
                         let l_str_val = WHITESPACE_RE.replace_all(l_val.as_str(), " ");
                         let r_str_val = WHITESPACE_RE.replace_all(r_val.as_str(), " ");
