@@ -9,6 +9,8 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
+// used only by the remote-gated tests below (to serialize network access)
+#[allow(dead_code)]
 static TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 // allowing dead code here since adding rsa gate feels wrong
