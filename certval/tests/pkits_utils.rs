@@ -13,30 +13,30 @@ pub static G_CERTS_FOLDER: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/examples/PKITS_data_2048/certs/"
 );
-pub static G_CERTS_FOLDER_4096: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/examples/PKITS_data_4096/certs/"
-);
-pub static G_CRLS_FOLDER_4096: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/examples/PKITS_data_4096/crls/"
-);
+// pub static G_CERTS_FOLDER_4096: &str = concat!(
+//     env!("CARGO_MANIFEST_DIR"),
+//     "/tests/examples/PKITS_data_4096/certs/"
+// );
+// pub static G_CRLS_FOLDER_4096: &str = concat!(
+//     env!("CARGO_MANIFEST_DIR"),
+//     "/tests/examples/PKITS_data_4096/crls/"
+// );
 pub static G_CERTS_FOLDER_P256: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/examples/PKITS_data_p256/certs/"
 );
-pub static G_CRLS_FOLDER_P256: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/examples/PKITS_data_p256/crls/"
-);
-pub static G_CERTS_FOLDER_P384: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/examples/PKITS_data_p384/certs/"
-);
-pub static G_CRLS_FOLDER_P384: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/examples/PKITS_data_p384/crls/"
-);
+// pub static G_CRLS_FOLDER_P256: &str = concat!(
+//     env!("CARGO_MANIFEST_DIR"),
+//     "/tests/examples/PKITS_data_p256/crls/"
+// );
+// pub static G_CERTS_FOLDER_P384: &str = concat!(
+//     env!("CARGO_MANIFEST_DIR"),
+//     "/tests/examples/PKITS_data_p384/certs/"
+// );
+// pub static G_CRLS_FOLDER_P384: &str = concat!(
+//     env!("CARGO_MANIFEST_DIR"),
+//     "/tests/examples/PKITS_data_p384/crls/"
+// );
 pub static G_TA5914_2048_FOLDER: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/examples/PKITS_data_2048/5914_tas/"

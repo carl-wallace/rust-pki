@@ -8,8 +8,6 @@ use alloc::{
     vec::Vec,
 };
 use flagset::{flags, FlagSet};
-use ndarray::{arr2, ArrayBase, Dim, OwnedRepr};
-use std::sync::LazyLock;
 
 use log::{error, info};
 
@@ -210,30 +208,24 @@ use alloc::vec;
 // Delta scopes are marked incompatible for all certificate types: absent base+delta
 // merge support, a lone delta CRL only lists changes since its base, so processing
 // one as if complete would report a base-revoked certificate as good.
-static COMPATIBLE_SCOPE: LazyLock<ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>>> =
-    LazyLock::new(|| {
-        arr2(&[
-            // CsComplete,  CsDp, CsDelta, CsDeltaDp
-            [true, true, false, false],  // CtEeDp
-            [true, false, false, false], // CtEe
-            [true, true, false, false],  // CtCaDp
-            [true, false, false, false], // CtCa
-        ])
-    });
+const COMPATIBLE_SCOPE: [[bool; 4]; 4] = [
+    // CsComplete,  CsDp, CsDelta, CsDeltaDp
+    [true, true, false, false],  // CtEeDp
+    [true, false, false, false], // CtEe
+    [true, true, false, false],  // CtCaDp
+    [true, false, false, false], // CtCa
+];
 
 // Certificate types are rows, CRL coverages are columns.
 // enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
 // enum CrlCoverage {CcAll, CcEeOnly, CcCaOnly, CcUnsupported}
-static COMPATIBLE_COVERAGE: LazyLock<ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>>> =
-    LazyLock::new(|| {
-        arr2(&[
-            //CcAll, CcEeOnly, CcCaOnly
-            [true, true, false], // CtEeDp
-            [true, true, false], // CtEe
-            [true, false, true], // CtCaDp
-            [true, false, true], // CtCa
-        ])
-    });
+const COMPATIBLE_COVERAGE: [[bool; 3]; 4] = [
+    //CcAll, CcEeOnly, CcCaOnly
+    [true, true, false], // CtEeDp
+    [true, true, false], // CtEe
+    [true, false, true], // CtCaDp
+    [true, false, true], // CtCa
+];
 
 /// The CertRevType enum is used to identify certificate with regard to types of CRLs that are applicable.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1082,9 +1074,17 @@ pub(crate) fn process_crl(
     };
 
     //4-a) confirm that the CRL type and cert type are compatible
-    if !COMPATIBLE_SCOPE[(cert_type as usize, crl_info.type_info.scope as usize)]
-        || !COMPATIBLE_COVERAGE[(cert_type as usize, crl_info.type_info.coverage as usize)]
-    {
+    let scope_ok = COMPATIBLE_SCOPE
+        .get(cert_type as usize)
+        .and_then(|row| row.get(crl_info.type_info.scope as usize))
+        .copied()
+        .unwrap_or(false);
+    let coverage_ok = COMPATIBLE_COVERAGE
+        .get(cert_type as usize)
+        .and_then(|row| row.get(crl_info.type_info.coverage as usize))
+        .copied()
+        .unwrap_or(false);
+    if !scope_ok || !coverage_ok {
         info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.as_ref().tbs_certificate().subject()));
         return Err(Error::CrlIncompatible);
     }
