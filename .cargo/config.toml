@@ -6,3 +6,12 @@
 # which moved to a rustc-1.86 floor) and turning the 1.85 CI leg red.
 [resolver]
 incompatible-rust-versions = "fallback"
+
+# The wasm32-unknown-unknown default stack size is 1MB, which slh-dsa signature decoding
+# exceeds for the 256-bit parameter sets (hybrid_array builds the hypertree/XMSS signature
+# through large stack temporaries, and the size-optimized wasm-release profile does little
+# inlining or copy elision). Overflow surfaces in the browser as "RuntimeError: memory access
+# out of bounds" and poisons the wasm instance. 8MB matches the native main-thread stack and
+# only reserves linear-memory pages.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]

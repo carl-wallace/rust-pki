@@ -301,6 +301,21 @@ fn validate_target(
         }
     };
 
+    // validate_path treats a target found in the TA store as trusted and returns success without
+    // verifying its signature (and TA store membership requires only a subjectKeyIdentifier and
+    // public key match, not an exact certificate match), so when the target is a trust anchor
+    // check its signature here to keep bad signatures and unsupported algorithms from being
+    // reported as valid
+    if pe.is_cert_a_trust_anchor(&target).is_ok() {
+        if is_self_signed(pe, &target) {
+            out.push(ok(format!("{ee_name} is a trust anchor and is self-signed")));
+        } else {
+            out.push(err(format!(
+                "{ee_name} matches a trust anchor by key but is not self-signed (bad signature or unsupported algorithm)"
+            )));
+        }
+    }
+
     out.push(info(format!(
         "Building and validating path(s) for {} ({})",
         ee_name,
@@ -375,23 +390,15 @@ fn validate_target(
     out
 }
 
-/// Validates a self-signed certificate as a target anchored at itself, i.e., as done for trust
-/// anchors from hackathon archives (path building declines self-signed targets, so the path is
-/// constructed directly)
-fn validate_self_signed(
-    pe: &PkiEnvironment,
-    cps: &CertificationPathSettings,
-    name: &str,
-    der: &[u8],
-) -> Vec<ResultLine> {
+/// Checks whether a certificate is self-signed, i.e., whether its signature verifies using its
+/// own public key, as done for trust anchors from hackathon archives. This mirrors the hackathon
+/// compatibility matrices and the CLI --validate-self-signed option, which check self-signed-ness
+/// only. Full path validation is deliberately not used here: with the trust anchors loaded into
+/// the TA store, validate_path treats a target found in the store as trusted and returns success
+/// without verifying the signature, reporting certificates signed with unsupported algorithms as
+/// valid.
+fn validate_self_signed(pe: &PkiEnvironment, name: &str, der: &[u8]) -> Vec<ResultLine> {
     let mut out = vec![];
-    let ta_choice = match PDVTrustAnchorChoice::create(der, name) {
-        Ok(t) => t,
-        Err(e) => {
-            out.push(err(format!("Failed to parse trust anchor {name}: {e:?}")));
-            return out;
-        }
-    };
     let target = match parse_cert(der, name) {
         Ok(t) => t,
         Err(e) => {
@@ -399,23 +406,12 @@ fn validate_self_signed(
             return out;
         }
     };
-    let mut path = CertificationPath::new(ta_choice, Default::default(), target);
-
-    // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
-    // clone when enforcement is disabled, and validate_path does not perform it itself
-    let path_cps = match enforce_trust_anchor_constraints(cps, &path.trust_anchor) {
-        Ok(c) => c,
-        Err(e) => {
-            out.push(err(format!(
-                "Self-signed {name}: failed to apply trust anchor constraints: {e:?}"
-            )));
-            return out;
-        }
-    };
-    let mut cpr = CertificationPathResults::new();
-    match pe.validate_path(pe, &path_cps, &mut path, &mut cpr) {
-        Ok(_) => out.push(ok(format!("Self-signed {name}: VALID"))),
-        Err(e) => out.push(err(format!("Self-signed {name}: INVALID with {e:?}"))),
+    if is_self_signed(pe, &target) {
+        out.push(ok(format!("{name} is self-signed")));
+    } else {
+        out.push(err(format!(
+            "{name} is not self-signed (bad signature or unsupported algorithm)"
+        )));
     }
     out
 }
@@ -514,10 +510,10 @@ pub fn validate_hackathon_zip(
     }
     pe.add_certificate_source(Box::new(cert_source));
 
-    // trust anchors are self-signed certificates per the R5 format, so each is also validated
-    // as a target anchored at itself
+    // trust anchors are self-signed certificates per the R5 format, so each is checked for
+    // self-signed-ness (signature verifies with the certificate's own key)
     for (name, der) in &tas {
-        out.extend(validate_self_signed(&pe, &cps, name, der));
+        out.extend(validate_self_signed(&pe, name, der));
     }
     for (name, der) in &ees {
         out.extend(validate_target(&pe, &cps, name, der, vs.validate_all));

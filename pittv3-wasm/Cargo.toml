@@ -28,3 +28,9 @@ log = "0.4.33"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
 web-time = "1.1.0"
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+
+# getrandom 0.4 (pulled in transitively via the RustCrypto 0.3/0.8 wave, e.g. crypto-common) has no
+# default backend on wasm32-unknown-unknown; the wasm_js feature opts into the JS (wasm-bindgen)
+# backend. Target-gated so native builds (e.g. the ziptest bin) do not pull in wasm-bindgen/js-sys.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
