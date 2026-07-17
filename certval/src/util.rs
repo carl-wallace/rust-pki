@@ -2,6 +2,7 @@
 
 pub mod crypto;
 pub mod crypto_composite;
+pub mod crypto_fndsa;
 pub mod crypto_pqc;
 pub mod error;
 pub mod pdv_alg_oids;

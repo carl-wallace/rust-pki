@@ -63,6 +63,9 @@ regex = {version = "1.13.1", optional = true}
 ml-dsa = { version = "0.1.1", optional = true }
 sha3 = { version = "0.11.0", default-features = false, optional = true }
 slh-dsa = { version = "0.2.0-rc.5", optional = true }
+# Thomas Pornin's FN-DSA (Falcon) implementation. RustCrypto does not implement Falcon.
+# The verify-only sub-crate keeps signing/keygen (and their float emulation) out of the build.
+fn-dsa-vrfy = { version = "0.3.0", default-features = false, optional = true }
 
 webpki-roots = {version = "0.25.4", optional = true}
 hex-literal = "1.1.0"
@@ -87,7 +90,7 @@ default = ["remote", "webpki"]
 revocation = []
 std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
-pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys"]
+pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys", "fn-dsa-vrfy"]
 webpki = ["webpki-roots"]
 rsa = ["dep:rsa"]
 eddsa = ["dep:ed25519-dalek"]
