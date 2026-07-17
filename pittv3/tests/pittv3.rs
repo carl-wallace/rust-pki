@@ -1732,6 +1732,55 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// FN-DSA (Falcon) self-signed trust anchors from the IETF hackathon pqc-certificates project
+// (BouncyCastle provider), covering the round-5 padded OIDs 1.3.9999.3.11 (512) and .14 (1024).
+// These drive pittv3's --validate-self-signed path, which verifies the cert's own signature via
+// the FN-DSA callback registered by populate_5280_pki_environment under the `pqc` feature.
+// See certval/tests/fndsa.rs for the callback-level counterparts.
+#[cfg(feature = "pqc")]
+#[test]
+fn fndsa_falcon_512_self_signed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("--validate-self-signed");
+    cmd.arg("-e")
+        .arg("tests/examples/fndsa/falcon-512-1.3.9999.3.11_ta.der");
+    cmd.assert()
+        .stdout(predicate::str::contains("is self-signed"));
+    Ok(())
+}
+
+#[cfg(feature = "pqc")]
+#[test]
+fn fndsa_falcon_1024_self_signed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("--validate-self-signed");
+    cmd.arg("-e")
+        .arg("tests/examples/fndsa/falcon-1024-1.3.9999.3.14_ta.der");
+    cmd.assert()
+        .stdout(predicate::str::contains("is self-signed"));
+    Ok(())
+}
+
+// Flip a byte in the FN-DSA signature and confirm the self-signature no longer verifies.
+#[cfg(feature = "pqc")]
+#[test]
+fn fndsa_falcon_512_broken_signature_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let mut der = fs::read("tests/examples/fndsa/falcon-512-1.3.9999.3.11_ta.der")?;
+    let last = der.len() - 1;
+    der[last] ^= 0x01; // corrupt the trailing signature byte
+    let broken = Path::new(env!("CARGO_TARGET_TMPDIR")).join("falcon-512-broken_ta.der");
+    fs::write(&broken, &der)?;
+
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("--validate-self-signed");
+    cmd.arg("-e").arg(&broken);
+    cmd.assert()
+        .stdout(predicate::str::contains("is not self-signed"));
+
+    fs::remove_file(&broken)?;
+    Ok(())
+}
+
 // #[cfg(feature = "pqc")]
 // #[test]
 // fn pqc_hackathon_r3_ipd() -> Result<(), Box<dyn std::error::Error>> {
