@@ -562,7 +562,6 @@ dependencies = [
  "flagset",
  "getrandom 0.3.4",
  "hex-literal",
- "lazy_static",
  "log",
  "ml-dsa",
  "ndarray",
@@ -3468,9 +3467,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-dependencies = [
- "spin",
-]
 
 [[package]]
 name = "lebe"
@@ -4598,7 +4594,6 @@ dependencies = [
  "cfg-if",
  "clap",
  "hex-literal",
- "lazy_static",
  "log",
  "log4rs",
  "pittv3_lib",
