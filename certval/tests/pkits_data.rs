@@ -2,12 +2,11 @@ use certval::*;
 use certval::{CertificationPathSettings, Error};
 use der::asn1::ObjectIdentifier;
 
-use lazy_static::lazy_static;
-
 use alloc::collections::BTreeMap;
 extern crate alloc;
 
 use certval::PathValidationStatus::{CertificateRevoked, RevocationStatusNotDetermined};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct PkitsTestCase {
@@ -111,160 +110,185 @@ fn serialize_pkits_settings() {
 }
 
 // Define static CertificationPathSettings objects and populate per PKITS test descriptions.
-lazy_static! {
-    // default settings used by most test cases
-    pub static ref G_DEFAULT_SETTINGS: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs
+// default settings used by most test cases
+pub static G_DEFAULT_SETTINGS: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_DEFAULT_SETTINGS_TA: String = {
-        String::from("default.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs
+});
+pub static G_DEFAULT_SETTINGS_TA: &str = "default.ta";
 
-    // same as above but with TA constaint enforcement enabled (and TAs used to supply other settings)
-    pub static ref G_DEFAULT_SETTINGS_5914: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_enforce_trust_anchor_constraints( true);
-        cs
+// same as above but with TA constaint enforcement enabled (and TAs used to supply other settings)
+pub static G_DEFAULT_SETTINGS_5914: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_enforce_trust_anchor_constraints(true);
+    cs
+});
 
-    //these four sets of settings are defined in section 4.8.1
-    pub static ref G_SETTINGS1: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_explicit_policy_indicator(true);
-        cs
+//these four sets of settings are defined in section 4.8.1
+pub static G_SETTINGS1: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS1_TA: String = {
-        String::from("settings1.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_explicit_policy_indicator(true);
+    cs
+});
 
-    pub static ref G_SETTINGS2: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_explicit_policy_indicator( true);
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_1);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
-    };
-    pub static ref G_SETTINGS2_TA: String = {
-        String::from("settings2.ta")
-    };
+pub static G_SETTINGS1_TA: &str = "settings1.ta";
 
-    pub static ref G_SETTINGS3: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_explicit_policy_indicator(true);
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_2);
-        cs.set_initial_policy_set_from_oid_set(oids);
-        cs
+pub static G_SETTINGS2: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS3_TA: String = {
-        String::from("settings3.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_explicit_policy_indicator(true);
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_1);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS2_TA: &str = "settings2.ta";
 
-    pub static ref G_SETTINGS4: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_explicit_policy_indicator( true);
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_1);
-        oids.insert(PKITS_TEST_POLICY_2);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
+pub static G_SETTINGS3: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS4_TA: String = {
-        String::from("settings4.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_explicit_policy_indicator(true);
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_2);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS3_TA: &str = "settings3.ta";
 
-    //from 4.8.6, 4.8.10, 4.8.13
-    pub static ref G_SETTINGS5: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_1);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
+pub static G_SETTINGS4: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS5_TA: String = {
-        String::from("settings5.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_explicit_policy_indicator(true);
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_1);
+    oids.insert(PKITS_TEST_POLICY_2);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS4_TA: &str = "settings4.ta";
 
-    pub static ref G_SETTINGS6: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_2);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
+//from 4.8.6, 4.8.10, 4.8.13
+pub static G_SETTINGS5: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS6_TA: String = {
-        String::from("settings6.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_1);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS5_TA: &str = "settings5.ta";
 
-    pub static ref G_SETTINGS7: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_3);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
+pub static G_SETTINGS6: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS7_TA: String = {
-        String::from("settings7.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_2);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS6_TA: &str = "settings6.ta";
 
-    //from 4.10.1
-    pub static ref G_SETTINGS8: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_policy_mapping_inhibit_indicator( true);
-        cs
+pub static G_SETTINGS7: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS8_TA: String = {
-        String::from("settings8.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_3);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS7_TA: &str = "settings7.ta";
 
-    //from 4.10.5
-    pub static ref G_SETTINGS9: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        let mut oids = ObjectIdentifierSet::new();
-        oids.insert(PKITS_TEST_POLICY_6);
-        cs.set_initial_policy_set_from_oid_set( oids);
-        cs
+//from 4.10.1
+pub static G_SETTINGS8: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS9_TA: String = {
-        String::from("settings9.ta")
-    };
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_policy_mapping_inhibit_indicator(true);
+    cs
+});
+pub static G_SETTINGS8_TA: &str = "settings8.ta";
 
-    //from 4.12.3
-    pub static ref G_SETTINGS10: CertificationPathSettings = {
-        let mut cs = CertificationPathSettings::new();
-        let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {n.as_secs()} else {0};
-        cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
-        cs.set_initial_inhibit_any_policy_indicator(true);
-        cs
+//from 4.10.5
+pub static G_SETTINGS9: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-    pub static ref G_SETTINGS10_TA: String = {
-        String::from("settings10.ta")
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    let mut oids = ObjectIdentifierSet::new();
+    oids.insert(PKITS_TEST_POLICY_6);
+    cs.set_initial_policy_set_from_oid_set(oids);
+    cs
+});
+pub static G_SETTINGS9_TA: &str = "settings9.ta";
+
+//from 4.12.3
+pub static G_SETTINGS10: LazyLock<CertificationPathSettings> = LazyLock::new(|| {
+    let mut cs = CertificationPathSettings::new();
+    let t = if let Ok(n) = SystemTime::now().duration_since(UNIX_EPOCH) {
+        n.as_secs()
+    } else {
+        0
     };
-}
+    cs.set_time_of_interest(TimeOfInterest::from_unix_secs(t).unwrap());
+    cs.set_initial_inhibit_any_policy_indicator(true);
+    cs
+});
+pub static G_SETTINGS10_TA: &str = "settings10.ta";
 
 pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
     //-----------------------------------------------------------------------------
@@ -280,7 +304,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -295,7 +319,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::SignatureVerificationFailure,
@@ -312,7 +336,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::SignatureVerificationFailure,
@@ -352,7 +376,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidNotBeforeDate,
@@ -369,7 +393,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidNotBeforeDate,
@@ -401,7 +425,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.2.4"),
                 expected_error: None,
             });
@@ -416,7 +440,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.2.5"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidNotAfterDate,
@@ -433,7 +457,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.2.6"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidNotAfterDate,
@@ -450,7 +474,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.2.7"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidNotAfterDate,
@@ -467,7 +491,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.2.8"),
                 expected_error: None,
             });
@@ -486,7 +510,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameChainingFailure,
@@ -503,7 +527,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameChainingFailure,
@@ -520,7 +544,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -535,7 +559,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.5"),
                 expected_error: None,
             });
@@ -550,7 +574,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.6"),
                 expected_error: None,
             });
@@ -565,7 +589,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.7"),
                 expected_error: None,
             });
@@ -580,7 +604,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.8"),
                 expected_error: None,
             });
@@ -595,7 +619,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.9"),
                 expected_error: None,
             });
@@ -610,7 +634,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.10"),
                 expected_error: None,
             });
@@ -625,7 +649,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.3.11"),
                 expected_error: None,
             });
@@ -644,7 +668,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -659,7 +683,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -674,7 +698,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -689,7 +713,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -704,7 +728,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -719,7 +743,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -734,7 +758,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -749,7 +773,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -764,7 +788,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -779,7 +803,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -795,7 +819,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -810,7 +834,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -825,7 +849,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -871,7 +895,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.16"),
                 expected_error: None,
             });
@@ -886,7 +910,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.17"),
                 expected_error: None,
             });
@@ -901,7 +925,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.18"),
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -916,7 +940,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.19"),
                 expected_error: None,
             });
@@ -931,7 +955,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.20"),
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -947,7 +971,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.21"),
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -962,7 +986,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.4.7-2"),
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -982,7 +1006,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -998,7 +1022,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.5.2"),
                 expected_error: None,
                 // altered error owing to lack of support for separate CA and CRL signing keys
@@ -1018,7 +1042,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.5.3"),
                 expected_error: None,
             });
@@ -1033,7 +1057,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.5.4"),
                 expected_error: None,
             });
@@ -1048,7 +1072,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.5.5"),
                 expected_error: None,
                 // altered error owing to lack of support for separate CA and CRL signing keys
@@ -1067,7 +1091,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.5.6"),
                 expected_error: None,
             });
@@ -1087,7 +1111,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::MissingBasicConstraints,
@@ -1104,7 +1128,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidBasicConstraints,
@@ -1121,7 +1145,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidBasicConstraints,
@@ -1138,7 +1162,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1153,7 +1177,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1174,7 +1198,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1191,7 +1215,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1206,7 +1230,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1225,7 +1249,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1246,7 +1270,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1268,7 +1292,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1290,7 +1314,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1312,7 +1336,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1332,7 +1356,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1347,7 +1371,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1366,7 +1390,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
@@ -1388,7 +1412,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1407,7 +1431,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::InvalidKeyUsage)),
             });
@@ -1422,7 +1446,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::InvalidKeyUsage)),
             });
@@ -1437,7 +1461,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -1452,7 +1476,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::InvalidKeyUsage)),
             });
@@ -1467,7 +1491,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::InvalidKeyUsage)),
             });
@@ -1486,7 +1510,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS1,
-                ta5914_filename: &G_SETTINGS1_TA,
+                ta5914_filename: G_SETTINGS1_TA,
                 alt_test_name: Some("4.8.1.1"),
                 expected_error: None,
             });
@@ -1501,7 +1525,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS2,
-                ta5914_filename: &G_SETTINGS2_TA,
+                ta5914_filename: G_SETTINGS2_TA,
                 alt_test_name: Some("4.8.1.2"),
                 expected_error: None,
             });
@@ -1516,7 +1540,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS3,
-                ta5914_filename: &G_SETTINGS3_TA,
+                ta5914_filename: G_SETTINGS3_TA,
                 alt_test_name: Some("4.8.1.3"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1531,7 +1555,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS4,
-                ta5914_filename: &G_SETTINGS4_TA,
+                ta5914_filename: G_SETTINGS4_TA,
                 alt_test_name: Some("4.8.1.4"),
                 expected_error: None,
             });
@@ -1547,7 +1571,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.2.1"),
                 expected_error: None,
             });
@@ -1562,7 +1586,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS1,
-                ta5914_filename: &G_SETTINGS1_TA,
+                ta5914_filename: G_SETTINGS1_TA,
                 alt_test_name: Some("4.8.2.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1578,7 +1602,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.3.1"),
                 expected_error: None,
             });
@@ -1593,7 +1617,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS1,
-                ta5914_filename: &G_SETTINGS1_TA,
+                ta5914_filename: G_SETTINGS1_TA,
                 alt_test_name: Some("4.8.3.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1608,7 +1632,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS4,
-                ta5914_filename: &G_SETTINGS4_TA,
+                ta5914_filename: G_SETTINGS4_TA,
                 alt_test_name: Some("4.8.3.3"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1624,7 +1648,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.4"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1640,7 +1664,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.5"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1660,7 +1684,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.6.1"),
                 expected_error: None,
             });
@@ -1679,7 +1703,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.6.2"),
                 expected_error: None,
             });
@@ -1698,7 +1722,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.8.6.3"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1718,7 +1742,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.7"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1738,7 +1762,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.8"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1759,7 +1783,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.9"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1775,7 +1799,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.10.1"),
                 expected_error: None,
             });
@@ -1790,7 +1814,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.10.2"),
                 expected_error: None,
             });
@@ -1805,7 +1829,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.10.3"),
                 expected_error: None,
             });
@@ -1821,7 +1845,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.11.1"),
                 expected_error: None,
             });
@@ -1836,7 +1860,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.11.2"),
                 expected_error: None,
             });
@@ -1852,7 +1876,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.12"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1868,7 +1892,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.13.1"),
                 expected_error: None,
             });
@@ -1883,7 +1907,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.8.13.2"),
                 expected_error: None,
             });
@@ -1898,7 +1922,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS7,
-                ta5914_filename: &G_SETTINGS7_TA,
+                ta5914_filename: G_SETTINGS7_TA,
                 alt_test_name: Some("4.8.13.3"),
                 expected_error: None,
             });
@@ -1914,7 +1938,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.14.1"),
                 expected_error: None,
             });
@@ -1929,7 +1953,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.8.14.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -1945,7 +1969,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.15"),
                 expected_error: None,
             });
@@ -1961,7 +1985,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.16"),
                 expected_error: None,
             });
@@ -1977,7 +2001,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.17"),
                 expected_error: None,
             });
@@ -1993,7 +2017,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.8.18.1"),
                 expected_error: None,
             });
@@ -2008,7 +2032,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.8.18.2"),
                 expected_error: None,
             });
@@ -2024,7 +2048,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.8.19"),
                 expected_error: None,
             });
@@ -2040,7 +2064,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.8.20.1"),
                 expected_error: None,
             });
@@ -2055,7 +2079,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS1,
-                ta5914_filename: &G_SETTINGS1_TA,
+                ta5914_filename: G_SETTINGS1_TA,
                 alt_test_name: Some("4.8.20.2"),
                 expected_error: None,
             });
@@ -2079,7 +2103,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2099,7 +2123,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2119,7 +2143,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2139,7 +2163,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2159,7 +2183,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2175,7 +2199,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2194,7 +2218,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2214,7 +2238,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2233,7 +2257,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.1.1"),
                 expected_error: None,
             });
@@ -2248,7 +2272,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.10.1.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2263,7 +2287,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS8,
-                ta5914_filename: &G_SETTINGS8_TA,
+                ta5914_filename: G_SETTINGS8_TA,
                 alt_test_name: Some("4.10.1.3"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2279,7 +2303,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.2.1"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2294,7 +2318,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS8,
-                ta5914_filename: &G_SETTINGS8_TA,
+                ta5914_filename: G_SETTINGS8_TA,
                 alt_test_name: Some("4.10.2.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2314,7 +2338,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.3.1"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2333,7 +2357,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.10.3.2"),
                 expected_error: None,
             });
@@ -2353,7 +2377,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.4"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2369,7 +2393,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.5.1"),
                 expected_error: None,
             });
@@ -2384,7 +2408,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS9,
-                ta5914_filename: &G_SETTINGS9_TA,
+                ta5914_filename: G_SETTINGS9_TA,
                 alt_test_name: Some("4.10.5.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2400,7 +2424,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.6.1"),
                 expected_error: None,
             });
@@ -2415,7 +2439,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS9,
-                ta5914_filename: &G_SETTINGS9_TA,
+                ta5914_filename: G_SETTINGS9_TA,
                 alt_test_name: Some("4.10.6.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2432,7 +2456,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.7"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2448,7 +2472,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.8"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2464,7 +2488,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.9"),
                 expected_error: None,
             });
@@ -2480,7 +2504,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.10"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2496,7 +2520,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS5,
-                ta5914_filename: &G_SETTINGS5_TA,
+                ta5914_filename: G_SETTINGS5_TA,
                 alt_test_name: Some("4.10.12.1"),
                 expected_error: None,
             });
@@ -2511,7 +2535,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS6,
-                ta5914_filename: &G_SETTINGS6_TA,
+                ta5914_filename: G_SETTINGS6_TA,
                 alt_test_name: Some("4.10.12.2"),
                 expected_error: None,
             });
@@ -2527,7 +2551,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.13"),
                 expected_error: None,
             });
@@ -2543,7 +2567,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.10.14"),
                 expected_error: None,
             });
@@ -2563,7 +2587,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2579,7 +2603,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2598,7 +2622,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2617,7 +2641,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2637,7 +2661,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2656,7 +2680,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2675,7 +2699,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2695,7 +2719,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2715,7 +2739,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2735,7 +2759,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2755,7 +2779,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2774,7 +2798,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2789,7 +2813,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -2804,7 +2828,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.3.1"),
                 expected_error: None,
             });
@@ -2819,7 +2843,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_SETTINGS10,
-                ta5914_filename: &G_SETTINGS10_TA,
+                ta5914_filename: G_SETTINGS10_TA,
                 alt_test_name: Some("4.12.3.2"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2834,7 +2858,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.4"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2853,7 +2877,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.5"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2868,7 +2892,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.6"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2887,7 +2911,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.7"),
                 expected_error: None,
             });
@@ -2907,7 +2931,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.8"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2927,7 +2951,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.9"),
                 expected_error: None,
             });
@@ -2946,7 +2970,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.12.10"),
                 expected_error: Some(Error::PathValidation(PathValidationStatus::NullPolicySet)),
             });
@@ -2965,7 +2989,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.1"),
                 expected_error: None,
             });
@@ -2980,7 +3004,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.2"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -2997,7 +3021,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.3"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3014,7 +3038,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.4"),
                 expected_error: None,
             });
@@ -3029,7 +3053,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.5"),
                 expected_error: None,
             });
@@ -3044,7 +3068,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.6"),
                 expected_error: None,
             });
@@ -3059,7 +3083,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.7"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3076,7 +3100,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.8"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3093,7 +3117,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.9"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3110,7 +3134,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.10"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3127,7 +3151,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.11"),
                 expected_error: None,
             });
@@ -3142,7 +3166,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.12"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3159,7 +3183,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.13"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3176,7 +3200,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.14"),
                 expected_error: None,
             });
@@ -3191,7 +3215,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.15"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3208,7 +3232,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.16"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3225,7 +3249,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.17"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3242,7 +3266,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.18"),
                 expected_error: None,
             });
@@ -3257,7 +3281,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.19"),
                 expected_error: None,
             });
@@ -3272,7 +3296,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.20"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3290,7 +3314,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.21"),
                 expected_error: None,
             });
@@ -3305,7 +3329,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.22"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3322,7 +3346,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.23"),
                 expected_error: None,
             });
@@ -3337,7 +3361,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.24"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3354,7 +3378,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.25"),
                 expected_error: None,
             });
@@ -3369,7 +3393,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.26"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3386,7 +3410,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.27"),
                 expected_error: None,
             });
@@ -3401,7 +3425,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.28"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3434,7 +3458,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.30"),
                 expected_error: None,
             });
@@ -3449,7 +3473,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.31"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3466,7 +3490,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.32"),
                 expected_error: None,
             });
@@ -3481,7 +3505,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.33"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3498,7 +3522,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.34"),
                 expected_error: None,
             });
@@ -3513,7 +3537,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.35"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3530,7 +3554,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.36"),
                 expected_error: None,
             });
@@ -3545,7 +3569,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.37"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3562,7 +3586,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.13.38"),
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
@@ -3584,7 +3608,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.1"),
                 expected_error: None,
             });
@@ -3599,7 +3623,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.2"),
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -3614,7 +3638,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.3"),
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -3660,7 +3684,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.6"),
                 expected_error: Some(Error::PathValidation(CertificateRevoked)),
             });
@@ -3690,7 +3714,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.8"),
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -3705,7 +3729,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.9"),
                 expected_error: Some(Error::PathValidation(RevocationStatusNotDetermined)),
             });
@@ -3720,7 +3744,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: Some("4.14.10"),
                 expected_error: None,
             });
@@ -4123,7 +4147,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: None,
             });
@@ -4138,7 +4162,7 @@ pub fn load_pkits(pkits_data_map: &mut PkitsDataMap) {
                 target_file_name,
                 intermediate_ca_file_names,
                 settings: &G_DEFAULT_SETTINGS,
-                ta5914_filename: &G_DEFAULT_SETTINGS_TA,
+                ta5914_filename: G_DEFAULT_SETTINGS_TA,
                 alt_test_name: None,
                 expected_error: Some(Error::PathValidation(
                     PathValidationStatus::UnprocessedCriticalExtension,
