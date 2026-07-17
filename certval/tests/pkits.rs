@@ -47,8 +47,6 @@ use crate::pkits_data::*;
 mod pkits_utils;
 use crate::pkits_utils::*;
 
-extern crate lazy_static;
-
 #[derive(Clone)]
 pub struct CertPool {
     pub certs: BTreeMap<String, Vec<u8>>,

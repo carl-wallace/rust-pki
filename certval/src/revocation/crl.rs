@@ -8,8 +8,8 @@ use alloc::{
     vec::Vec,
 };
 use flagset::{flags, FlagSet};
-use lazy_static::lazy_static;
 use ndarray::{arr2, ArrayBase, Dim, OwnedRepr};
+use std::sync::LazyLock;
 
 use log::{error, info};
 
@@ -203,33 +203,37 @@ use alloc::vec;
 //	- CrlScope		: Complete, Delta
 //	- CrlCoverage	: All, CaOnly
 
-lazy_static! {
-    // Certificate types are rows, CRL scopes are columns.
-    // enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
-    // enum CrlScope { CsComplete, CsDp, CsDelta, CsDeltaDp, CsUnsupported}
-    //
-    // Delta scopes are marked incompatible for all certificate types: absent base+delta
-    // merge support, a lone delta CRL only lists changes since its base, so processing
-    // one as if complete would report a base-revoked certificate as good.
-    static ref COMPATIBLE_SCOPE : ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>> = arr2(&[
-        // CsComplete,  CsDp, CsDelta, CsDeltaDp
-        [        true,  true,   false,    false], // CtEeDp
-        [        true, false,   false,    false], // CtEe
-        [        true,  true,   false,    false], // CtCaDp
-        [        true, false,   false,    false]  // CtCa
-    ]);
+// Certificate types are rows, CRL scopes are columns.
+// enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
+// enum CrlScope { CsComplete, CsDp, CsDelta, CsDeltaDp, CsUnsupported}
+//
+// Delta scopes are marked incompatible for all certificate types: absent base+delta
+// merge support, a lone delta CRL only lists changes since its base, so processing
+// one as if complete would report a base-revoked certificate as good.
+static COMPATIBLE_SCOPE: LazyLock<ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>>> =
+    LazyLock::new(|| {
+        arr2(&[
+            // CsComplete,  CsDp, CsDelta, CsDeltaDp
+            [true, true, false, false],  // CtEeDp
+            [true, false, false, false], // CtEe
+            [true, true, false, false],  // CtCaDp
+            [true, false, false, false], // CtCa
+        ])
+    });
 
-    // Certificate types are rows, CRL coverages are columns.
-    // enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
-    // enum CrlCoverage {CcAll, CcEeOnly, CcCaOnly, CcUnsupported}
-    static ref COMPATIBLE_COVERAGE : ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>> = arr2(&[
-        //CcAll, CcEeOnly, CcCaOnly
-        [  true,     true,  false], // CtEeDp
-        [  true,     true,  false], // CtEe
-        [  true,    false,   true], // CtCaDp
-        [  true,    false,   true]  // CtCa
-    ]);
-}
+// Certificate types are rows, CRL coverages are columns.
+// enum CertRevType { CtEeDp, CtEe, CtCaDp, CtCa, CtUnsupported }
+// enum CrlCoverage {CcAll, CcEeOnly, CcCaOnly, CcUnsupported}
+static COMPATIBLE_COVERAGE: LazyLock<ArrayBase<OwnedRepr<bool>, Dim<[usize; 2]>>> =
+    LazyLock::new(|| {
+        arr2(&[
+            //CcAll, CcEeOnly, CcCaOnly
+            [true, true, false], // CtEeDp
+            [true, true, false], // CtEe
+            [true, false, true], // CtCaDp
+            [true, false, true], // CtCa
+        ])
+    });
 
 /// The CertRevType enum is used to identify certificate with regard to types of CRLs that are applicable.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
