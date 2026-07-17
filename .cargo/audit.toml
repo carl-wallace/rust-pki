@@ -1,0 +1,12 @@
+# cargo-audit configuration for the certval workspace.
+#
+# RUSTSEC-2023-0071 — `rsa` "Marvin Attack" (potential key recovery via timing
+# side-channels). No fixed release exists. certval's `rsa` usage is signature
+# VERIFICATION ONLY: `RsaPublicKey::verify` and `rsa::pss::VerifyingKey` in
+# certval/src/util/crypto.rs (the `Pkcs1v15Sign` there is the verify padding
+# scheme, not a signing key). There are no RSA private-key, decryption, or
+# signing operations in certval. The Marvin timing oracle requires private-key
+# (decrypt/sign) operations, so it is not applicable to certval's public-key-
+# only threat model. Revisit if a fixed `rsa` release ships.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]
