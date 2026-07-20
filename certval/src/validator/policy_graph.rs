@@ -284,6 +284,7 @@ pub fn check_certificate_policies_graph(
                 "NULL policy set while processing intermediate CA certificate",
             );
             cpr.set_validation_status(PathValidationStatus::NullPolicySet);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
         }
 
@@ -566,10 +567,16 @@ pub fn check_certificate_policies_graph(
                     "NULL policy set while processing intermediate CA certificate",
                 );
                 cpr.set_validation_status(PathValidationStatus::NullPolicySet);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
             }
         }
     } // end for (pos, ca_cert) in cp.intermediates.iter_mut().enumerate() {
+
+    // record the final values of the RFC 5280 6.1 policy-related state variables
+    cpr.set_final_explicit_policy(explicit_policy);
+    cpr.set_final_policy_mapping(policy_mapping);
+    cpr.set_final_inhibit_any_policy(inhibit_any_policy);
 
     let mut final_valid_policy_tree: FinalValidPolicyTree = FinalValidPolicyTree::new();
     for row in valid_policy_graph {

@@ -2,11 +2,13 @@
 
 use core::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Result type
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Error type
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PathValidationStatus {
     /// No errors were encountered while validating certification path
     Valid,

@@ -147,7 +147,7 @@ pub fn check_basic_constraints(
     // any certificate-asserted pathLenConstraint. That fixed ceiling is a deliberate resource bound.
     let mut path_len_constraint = cps.get_initial_path_length_constraint();
 
-    for ca_cert in cp.intermediates.iter() {
+    for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
         // (l)  If the certificate was not self-issued, verify that
         //       max_path_length is greater than zero and decrement
         //       max_path_length by 1.
@@ -155,6 +155,7 @@ pub fn check_basic_constraints(
             if path_len_constraint == 0 {
                 log_error_for_ca(ca_cert, "path length constraint violation");
                 cpr.set_validation_status(PathValidationStatus::InvalidPathLength);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::InvalidPathLength,
                 ));
@@ -179,6 +180,7 @@ pub fn check_basic_constraints(
             _ => {
                 log_error_for_ca(ca_cert, "missing basic constraints");
                 cpr.set_validation_status(PathValidationStatus::MissingBasicConstraints);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::MissingBasicConstraints,
                 ));
@@ -196,6 +198,7 @@ pub fn check_basic_constraints(
         if !bc.ca {
             log_error_for_ca(ca_cert, "invalid basic constraints");
             cpr.set_validation_status(PathValidationStatus::InvalidBasicConstraints);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(
                 PathValidationStatus::InvalidBasicConstraints,
             ));
@@ -223,6 +226,7 @@ pub fn check_basic_constraints(
                 "End-identity certificate is self-signed or self-issued, but it is forbidden",
             );
             cpr.set_validation_status(PathValidationStatus::SelfSignedEndIdentity);
+            cpr.set_failure_index(cp.intermediates.len() as u32 + 1);
             return Err(Error::PathValidation(
                 PathValidationStatus::SelfSignedEndIdentity,
             ));
@@ -248,10 +252,12 @@ pub fn check_validity(
         return Ok(());
     }
 
-    let mut is_valid = |time_check_res: Result<u64>| -> Result<()> {
+    // failure_index uses the trust-anchor-first convention of PR_FAILURE_INDEX
+    let mut is_valid = |time_check_res: Result<u64>, failure_index: u32| -> Result<()> {
         match time_check_res {
             Err(Error::PathValidation(pvs)) => {
                 cpr.set_validation_status(pvs);
+                cpr.set_failure_index(failure_index);
                 Err(Error::PathValidation(pvs))
             }
             Err(e) => Err(e),
@@ -261,11 +267,11 @@ pub fn check_validity(
 
     let target = &cp.target;
     let target_ttl = valid_at_time(target.as_ref().tbs_certificate(), toi, false);
-    is_valid(target_ttl)?;
+    is_valid(target_ttl, cp.intermediates.len() as u32 + 1)?;
 
-    for ca_cert in cp.intermediates.iter() {
+    for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
         let ca_ttl = valid_at_time(ca_cert.as_ref().tbs_certificate(), toi, false);
-        is_valid(ca_ttl)?;
+        is_valid(ca_ttl, pos as u32 + 1)?;
     }
 
     if cps.get_enforce_trust_anchor_validity() {
@@ -273,7 +279,7 @@ pub fn check_validity(
         // validity, i.e., if it's a TA Info without a certificate, just carry on.
 
         let ta_ttl = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false);
-        is_valid(ta_ttl)?;
+        is_valid(ta_ttl, 0)?;
     }
 
     Ok(())
@@ -363,6 +369,7 @@ pub fn check_names(
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
             cpr.set_validation_status(PathValidationStatus::NameChainingFailure);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(
                 PathValidationStatus::NameChainingFailure,
             ));
@@ -386,6 +393,7 @@ pub fn check_names(
                     "permitted name constraints violation for subject name",
                 );
                 cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -399,6 +407,7 @@ pub fn check_names(
                     "excluded name constraints violation for subject name",
                 );
                 cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -418,6 +427,7 @@ pub fn check_names(
             let constraint_count = permitted_subtrees.len() + excluded_subtrees.len();
             let san_len = san.map(|s| s.0.len()).unwrap_or(0);
             if name_constraint_matching_budget_exceeded(constraint_count, san_len) {
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -431,6 +441,7 @@ pub fn check_names(
                 if san.0.iter().any(general_name_has_trailing_dot) {
                     log_error_for_ca(ca_cert, "trailing period in SAN dNSName or rfc822Name");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    cpr.set_failure_index(pos as u32 + 1);
                     return Err(Error::PathValidation(
                         PathValidationStatus::NameConstraintsViolation,
                     ));
@@ -440,6 +451,7 @@ pub fn check_names(
             if !permitted_subtrees.san_within_permitted_subtrees(&san) {
                 log_error_for_ca(ca_cert, "permitted name constraints violation for SAN");
                 cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -448,6 +460,7 @@ pub fn check_names(
             if excluded_subtrees.san_within_excluded_subtrees(&san) {
                 log_error_for_ca(ca_cert, "excluded name constraints violation for SAN");
                 cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::NameConstraintsViolation,
                 ));
@@ -465,6 +478,7 @@ pub fn check_names(
                 if has_min_or_max(&nc.permitted_subtrees) || has_min_or_max(&nc.excluded_subtrees) {
                     log_error_for_ca(ca_cert, "unsupported minimum/maximum in name constraints");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    cpr.set_failure_index(pos as u32 + 1);
                     return Err(Error::PathValidation(
                         PathValidationStatus::NameConstraintsViolation,
                     ));
@@ -477,6 +491,7 @@ pub fn check_names(
                 {
                     log_error_for_ca(ca_cert, "trailing period in name constraints");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    cpr.set_failure_index(pos as u32 + 1);
                     return Err(Error::PathValidation(
                         PathValidationStatus::NameConstraintsViolation,
                     ));
@@ -511,7 +526,7 @@ pub fn check_key_usage(
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_KEY_USAGE);
-    for ca_cert in cp.intermediates.iter() {
+    for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
         let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_KEY_USAGE)?;
         let ku = match pdv_ext {
             Some(PDVExtension::KeyUsage(ku)) => ku,
@@ -522,6 +537,7 @@ pub fn check_key_usage(
             _ => {
                 log_error_for_ca(ca_cert, "key usage extension is missing");
                 cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
             }
         };
@@ -530,6 +546,7 @@ pub fn check_key_usage(
         if !ku.0.contains(KeyUsages::KeyCertSign) {
             log_error_for_ca(ca_cert, "keyCertSign is not set in key usage extension");
             cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
         }
     }
@@ -542,6 +559,7 @@ pub fn check_key_usage(
                 if !target_ku_bits.0.contains(i) {
                     log_error_for_ca(&cp.target, "key usage violation for target certificate");
                     cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
+                    cpr.set_failure_index(cp.intermediates.len() as u32 + 1);
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
             }
@@ -591,7 +609,7 @@ pub fn check_extended_key_usage(
 
         let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
-        for ca_cert in intermediates_and_target {
+        for (pos, ca_cert) in intermediates_and_target.enumerate() {
             let pdv_ext: Option<&PDVExtension> = ca_cert.get_extension(&ID_CE_EXT_KEY_USAGE)?;
             if let Some(PDVExtension::ExtendedKeyUsage(eku_from_ca)) = pdv_ext {
                 let any_in_path = ekus_from_path.contains(&ANY_EXTENDED_KEY_USAGE);
@@ -615,6 +633,7 @@ pub fn check_extended_key_usage(
                 if ekus_from_path.is_empty() {
                     log_error_for_ca(ca_cert, "Extended key usage violation");
                     cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
+                    cpr.set_failure_index(pos as u32 + 1);
                     return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
                 }
             }
@@ -662,6 +681,7 @@ pub fn check_extended_key_usage(
         "extended key usage violation when processing target certificate",
     );
     cpr.set_validation_status(PathValidationStatus::InvalidKeyUsage);
+    cpr.set_failure_index(cp.intermediates.len() as u32 + 1);
     Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
@@ -680,8 +700,10 @@ pub fn check_critical_extensions(
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = cpr.get_processed_extensions();
 
+    // failure_index uses the trust-anchor-first convention of PR_FAILURE_INDEX
     let mut ensure_criticals_processed = |cert: &PDVCertificate,
-                                          err_str: &'static str|
+                                          err_str: &'static str,
+                                          failure_index: u32|
      -> Result<()> {
         if let Some(exts) = &cert.as_ref().tbs_certificate().extensions() {
             let exts = exts.as_slice();
@@ -698,6 +720,7 @@ pub fn check_critical_extensions(
                 {
                     log_error_for_ca(cert, format!("{}: {}", err_str, ext.extn_id).as_str());
                     cpr.set_validation_status(PathValidationStatus::UnprocessedCriticalExtension);
+                    cpr.set_failure_index(failure_index);
                     return Err(Error::PathValidation(
                         PathValidationStatus::UnprocessedCriticalExtension,
                     ));
@@ -707,12 +730,13 @@ pub fn check_critical_extensions(
         Ok(())
     };
 
-    for ca_cert in &cp.intermediates {
-        ensure_criticals_processed(ca_cert, "unprocessed critical extension")?;
+    for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
+        ensure_criticals_processed(ca_cert, "unprocessed critical extension", pos as u32 + 1)?;
     }
     ensure_criticals_processed(
         &cp.target,
         "unprocessed critical extension in target certificate",
+        cp.intermediates.len() as u32 + 1,
     )?;
 
     Ok(())
@@ -930,7 +954,7 @@ pub fn verify_signatures(
     let mut working_spki =
         get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
 
-    for cur_cert in intermediates_and_target {
+    for (pos, cur_cert) in intermediates_and_target.enumerate() {
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
         let defer_cert = match defer_cert {
             Ok(c) => c,
@@ -940,6 +964,7 @@ pub fn verify_signatures(
                     format!("signature verification error: {e:?}").as_str(),
                 );
                 cpr.set_validation_status(PathValidationStatus::EncodingError);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             }
         };
@@ -957,6 +982,7 @@ pub fn verify_signatures(
                 .as_str(),
             );
             cpr.set_validation_status(PathValidationStatus::EncodingError);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(PathValidationStatus::EncodingError));
         }
 
@@ -990,6 +1016,7 @@ pub fn verify_signatures(
                     format!("signature verification error: {e:?}").as_str(),
                 );
                 cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(
                     PathValidationStatus::SignatureVerificationFailure,
                 ));

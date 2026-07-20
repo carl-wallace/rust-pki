@@ -30,6 +30,8 @@ pub enum CertificationPathResultsTypes {
     PathValidationStatus(PathValidationStatus),
     /// Represents error
     Error(Error),
+    /// Represents u32 values
+    U32(u32),
 }
 
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
@@ -93,6 +95,25 @@ pub static PR_ALLOWLIST_USAGE: &str = "cprAllowListUsage";
 /// `PR_NOCHECK_USAGE` is used to retrieve indicator of no check usage for each item in certification path.
 pub static PR_NOCHECK_USAGE: &str = "cprNoCheckUsage";
 
+/// `PR_FAILURE_INDEX` is used to retrieve the index of the certificate at which certification path
+/// validation or revocation status determination failed. Indexing is trust-anchor-first: 0 denotes
+/// the trust anchor, 1 denotes the intermediate CA certificate issued by the trust anchor (if any),
+/// and so on through intermediates.len() + 1, which denotes the target certificate. Absent when
+/// validation succeeded or when a failure is not attributable to a single certificate.
+pub static PR_FAILURE_INDEX: &str = "cprFailureIndex";
+
+/// `PR_FINAL_EXPLICIT_POLICY` is used to retrieve the final value of the explicit_policy state
+/// variable from RFC 5280 section 6.1 upon completion of certificate policy processing.
+pub static PR_FINAL_EXPLICIT_POLICY: &str = "cprFinalExplicitPolicy";
+
+/// `PR_FINAL_POLICY_MAPPING` is used to retrieve the final value of the policy_mapping state
+/// variable from RFC 5280 section 6.1 upon completion of certificate policy processing.
+pub static PR_FINAL_POLICY_MAPPING: &str = "cprFinalPolicyMapping";
+
+/// `PR_FINAL_INHIBIT_ANY_POLICY` is used to retrieve the final value of the inhibit_anyPolicy state
+/// variable from RFC 5280 section 6.1 upon completion of certificate policy processing.
+pub static PR_FINAL_INHIBIT_ANY_POLICY: &str = "cprFinalInhibitAnyPolicy";
+
 //-----------------------------------------------------------------------------------------------
 // Getters/setters for results
 //-----------------------------------------------------------------------------------------------
@@ -102,6 +123,10 @@ cpr_gets_and_sets_with_default!(PR_PROCESSED_EXTENSIONS, ObjectIdentifierSet, {
 cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_TREE, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_GRAPH, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_VALIDATION_STATUS, PathValidationStatus);
+cpr_gets_and_sets!(PR_FAILURE_INDEX, u32);
+cpr_gets_and_sets!(PR_FINAL_EXPLICIT_POLICY, u32);
+cpr_gets_and_sets!(PR_FINAL_POLICY_MAPPING, u32);
+cpr_gets_and_sets!(PR_FINAL_INHIBIT_ANY_POLICY, u32);
 cpr_gets_and_sets!(PR_FAILED_OCSP_REQUESTS, ListOfBuffers);
 impl CertificationPathResults {
     /// Add a failed OCSP request to list maintained by CertificationPathResults

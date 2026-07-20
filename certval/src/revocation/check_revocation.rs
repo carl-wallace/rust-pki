@@ -113,6 +113,7 @@ pub async fn check_revocation(
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {cur_cert_subject}");
             cpr.set_validation_status(revoked_error);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(revoked_error));
         }
 
@@ -143,6 +144,7 @@ pub async fn check_revocation(
                     Err(Error::PathValidation(CertificateRevoked)) => {
                         info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {cur_cert_subject}");
                         cpr.set_validation_status(revoked_error);
+                        cpr.set_failure_index(pos as u32 + 1);
                         return Err(Error::PathValidation(revoked_error));
                     }
                     Err(e) => {
@@ -161,6 +163,7 @@ pub async fn check_revocation(
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {cur_cert_subject}");
                             cpr.set_validation_status(revoked_error);
+                            cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled CRL for certificate issued to {cur_cert_subject} with {e}");
@@ -193,6 +196,7 @@ pub async fn check_revocation(
                             cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (revoked) using cached CRL for certificate issued to {cur_cert_subject}");
                             cpr.set_validation_status(revoked_error);
+                            cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
                         }
                         Err(e) => {
@@ -210,6 +214,7 @@ pub async fn check_revocation(
             cur_status = check_revocation_ocsp(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
                 cpr.set_validation_status(revoked_error);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(revoked_error));
             }
         }
@@ -220,6 +225,7 @@ pub async fn check_revocation(
                 check_revocation_crl_remote(pe, cps, cpr, cur_cert, &issuer_cert, pos).await;
             if CertificateRevoked == cur_status {
                 cpr.set_validation_status(revoked_error);
+                cpr.set_failure_index(pos as u32 + 1);
                 return Err(Error::PathValidation(revoked_error));
             }
         }
@@ -234,6 +240,12 @@ pub async fn check_revocation(
 
     if statuses.contains(&RevocationStatusNotDetermined) {
         cpr.set_validation_status(RevocationStatusNotDetermined);
+        if let Some(pos) = statuses
+            .iter()
+            .position(|s| *s == RevocationStatusNotDetermined)
+        {
+            cpr.set_failure_index(pos as u32 + 1);
+        }
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         Ok(())
@@ -311,6 +323,7 @@ pub fn check_revocation(
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject);
             cpr.set_validation_status(revoked_error);
+            cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(revoked_error));
         }
 
@@ -342,6 +355,7 @@ pub fn check_revocation(
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
                             cpr.set_validation_status(revoked_error);
+                            cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled OCSP for certificate issued to {} with {}", cur_cert_subject, e);
@@ -360,6 +374,7 @@ pub fn check_revocation(
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
                             cpr.set_validation_status(revoked_error);
+                            cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
                         } else {
                             info!("Failed to determine revocation status using stapled CRL for certificate issued to {} with {}", cur_cert_subject, e);
@@ -393,6 +408,7 @@ pub fn check_revocation(
                                 cpr.add_crl(crl.as_slice(), pos);
                                 info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
                                 cpr.set_validation_status(revoked_error);
+                                cpr.set_failure_index(pos as u32 + 1);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
                                 cpr.add_failed_crl(crl.as_slice(), pos);
@@ -414,6 +430,12 @@ pub fn check_revocation(
 
     if statuses.contains(&RevocationStatusNotDetermined) {
         cpr.set_validation_status(RevocationStatusNotDetermined);
+        if let Some(pos) = statuses
+            .iter()
+            .position(|s| *s == RevocationStatusNotDetermined)
+        {
+            cpr.set_failure_index(pos as u32 + 1);
+        }
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         cpr.set_validation_status(Valid);
