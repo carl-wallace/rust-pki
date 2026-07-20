@@ -4617,6 +4617,7 @@ version = "0.1.3"
 dependencies = [
  "certval",
  "dioxus",
+ "getrandom 0.4.3",
  "log",
  "pem-rfc7468",
  "web-time",
