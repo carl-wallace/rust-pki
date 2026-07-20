@@ -308,7 +308,9 @@ fn validate_target(
     // reported as valid
     if pe.is_cert_a_trust_anchor(&target).is_ok() {
         if is_self_signed(pe, &target) {
-            out.push(ok(format!("{ee_name} is a trust anchor and is self-signed")));
+            out.push(ok(format!(
+                "{ee_name} is a trust anchor and is self-signed"
+            )));
         } else {
             out.push(err(format!(
                 "{ee_name} matches a trust anchor by key but is not self-signed (bad signature or unsupported algorithm)"
