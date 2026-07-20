@@ -45,6 +45,36 @@ jobs:
       # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
       - run: cargo hack test --each-feature --workspace --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm
 
+  # --each-feature never combines features, so the std+rsa test population
+  # (revocation.rs, rfc822_dn_name_constraints.rs, the pkits_2048 std variants)
+  # otherwise runs on dev machines only. This job executes it. Verified to need
+  # no network and no RUST_MIN_STACK override (2026-07-20).
+  test-combined:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - 1.85.0 # MSRV
+          - stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - run: cargo test -p certval --features std,rsa,revocation,pqc
+
+  # certval is no_std-capable; prove it links for an embedded target. Build-only
+  # (no test runner on the target). thumbv7em-none-eabihf deliberately — an
+  # x86_64-unknown-none check can silently tolerate std leakage this catches.
+  build-nostd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - run: cargo build -p certval --no-default-features --target thumbv7em-none-eabihf
+
   x509-limbo:
     runs-on: ubuntu-latest
     steps:

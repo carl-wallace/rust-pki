@@ -1,0 +1,36 @@
+# CI for the pittv3 UI crates, which certval.yml excludes: the dioxus 0.7
+# dependency tree requires rustc >= 1.88 (home/built/image/time), above that
+# workflow's 1.85 MSRV legs, and pittv3-gui needs Linux system packages absent
+# from stock runners. Splitting them here ends the exclusion without moving
+# certval's MSRV. Build-only: the UI has no headless test surface yet.
+name: pittv3-ui
+
+on:
+  pull_request:
+  push:
+    branches: main
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # dioxus-desktop on Linux needs webkit2gtk/gtk3/xdo development packages.
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check -p pittv3_gui_lib
+      - run: cargo check -p pittv3-gui
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build -p pittv3-wasm --target wasm32-unknown-unknown
