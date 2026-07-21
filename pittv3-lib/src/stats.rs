@@ -3,6 +3,8 @@
 use alloc::collections::BTreeMap;
 use certval::CertificationPathResults;
 
+use crate::report::PathReport;
+
 /// `PathValidationStats` enables collection of some basic statistics related to path validation.
 pub struct PathValidationStats {
     /// Number of certificate files processed for the target
@@ -18,6 +20,8 @@ pub struct PathValidationStats {
     pub target_is_revoked: bool,
     /// Results for each certification path processed for the target
     pub results: Vec<CertificationPathResults>,
+    /// Structured report for each certification path processed for the target
+    pub path_reports: Vec<PathReport>,
 }
 
 impl Default for PathValidationStats {
@@ -37,6 +41,7 @@ impl PathValidationStats {
             #[cfg(feature = "std")]
             target_is_revoked: false,
             results: vec![],
+            path_reports: vec![],
         }
     }
 }

@@ -29,6 +29,10 @@ h1 {
   margin: 0 0 0.25rem 0;
 }
 
+.app-title {
+  text-align: center;
+}
+
 .tagline {
   color: var(--muted);
   margin-top: 0;
@@ -82,8 +86,25 @@ details.notes li {
   width: 12rem;
 }
 
+.controls textarea {
+  width: 22rem;
+  max-width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}
+
 .controls button {
   margin-left: 0.5rem;
+}
+
+/* A single-control row whose content is centered (e.g. the Validate button). */
+.controls.center-row {
+  display: flex;
+  justify-content: center;
+}
+
+.controls.center-row button {
+  margin-left: 0;
 }
 
 .hint {

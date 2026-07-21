@@ -1,0 +1,386 @@
+:root {
+  color-scheme: light dark;
+  --muted: #6b7280;
+  --border: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --muted: #9ca3af;
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+
+form {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0 0 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+}
+
+legend {
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 0.4rem;
+}
+
+table {
+  border: none;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+td {
+  padding: 0.15rem 0.25rem;
+}
+
+/* fixed-width label column so fields align across fieldsets */
+td:first-child {
+  width: 230px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+label {
+  font-weight: 600;
+}
+
+input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="checkbox"] {
+  vertical-align: middle;
+}
+
+.hint {
+  color: var(--muted);
+  padding-left: 0.5rem;
+}
+
+button[type="submit"] {
+  font-size: 1rem;
+  padding: 0.35rem 1.5rem;
+  margin-top: 0.25rem;
+}
+
+/* ---- results view ---- */
+
+.badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  vertical-align: middle;
+  margin: 0 0.25rem;
+}
+
+.badge-valid {
+  background: #15803d;
+}
+
+.badge-invalid {
+  background: #b91c1c;
+}
+
+.badge-revoked {
+  background: #7f1d1d;
+}
+
+.badge-undetermined {
+  background: #b45309;
+}
+
+.badge-nopaths {
+  background: #6b7280;
+}
+
+.results-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.5rem;
+}
+
+.summary-valid {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.summary-invalid {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.target-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0.35rem 0;
+  padding: 0.25rem 0.5rem;
+}
+
+.target-card summary {
+  cursor: pointer;
+}
+
+.target-name {
+  font-weight: 600;
+}
+
+.path-detail {
+  border-top: 1px solid var(--border);
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  overflow-x: auto;
+}
+
+.path-head {
+  margin-bottom: 0.25rem;
+}
+
+.path-error {
+  color: #b91c1c;
+  margin: 0.2rem 0;
+}
+
+.failure-reasons {
+  color: #b91c1c;
+  margin: 0.2rem 0 0.4rem 0;
+}
+
+.cert-table th {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: 0.15rem 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.cert-table td,
+.cert-table td:first-child {
+  width: auto;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 0.15rem 0.4rem;
+}
+
+.cert-table .row-failure td {
+  background: color-mix(in srgb, #b91c1c 14%, transparent);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.policy-outcome {
+  margin-top: 0.35rem;
+}
+
+.progress-line {
+  padding: 0.3rem 0.25rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.1em;
+  animation: pittv3-spin 0.8s linear infinite;
+}
+
+@keyframes pittv3-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- app shell (sidebar navigation) ---- */
+
+.app-shell {
+  display: flex;
+  gap: 1rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.sidebar {
+  flex: 0 0 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.25rem;
+}
+
+.sidebar button {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.sidebar button:hover {
+  border-color: var(--border);
+}
+
+.sidebar button.nav-active {
+  border-color: var(--border);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-weight: 600;
+}
+
+.view {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---- settings editor ---- */
+
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.5rem;
+}
+
+.tab {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.tab-active {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-weight: 600;
+}
+
+.radio-group {
+  margin: 0.4rem 0;
+}
+
+.radio {
+  margin-right: 0.9rem;
+  font-weight: 400;
+}
+
+.list-editor {
+  margin: 0.4rem 0;
+}
+
+.list-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.field-error {
+  color: #b91c1c;
+  margin: 0.15rem 0;
+}
+
+.ku-editor {
+  margin: 0.4rem 0;
+}
+
+.ku-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0.25rem 0;
+}
+
+.ku-flag {
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.subtrees-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  margin: 0.4rem 0;
+}
+
+.settings-actions {
+  text-align: center;
+  margin-top: 0.6rem;
+}
+
+.settings-actions button {
+  margin: 0 0.3rem;
+  padding: 0.3rem 1rem;
+}
+
+.advanced {
+  margin-top: 0.5rem;
+}
+
+.advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ---- log stream ---- */
+
+.log-stream {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-stream p {
+  margin: 0.05rem 0;
+}
+
+/* ---- help ---- */
+
+.help-view h2 {
+  font-size: 1.05rem;
+  margin: 0.9rem 0 0.3rem 0;
+}
+
+.help-view p,
+.help-view li {
+  line-height: 1.45;
+}

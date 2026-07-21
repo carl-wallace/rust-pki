@@ -182,6 +182,7 @@ use std::time::Instant;
 use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
+use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 
@@ -190,7 +191,12 @@ use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
 
 /// The `options_std` function provides argument parsing and corresponding actions when `PITTv3` and
 /// `certval` are built with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
-pub async fn options_std(args: &Pittv3Args) {
+///
+/// A structured [`ValidationReport`] is returned when validation actions are performed; actions
+/// that perform no validation (generation, cleanup, diagnostics, tools) return a default (empty)
+/// report. The CLI ignores the return value (log/file output is unchanged); GUI and server
+/// frontends consume it.
+pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
@@ -220,14 +226,14 @@ pub async fn options_std(args: &Pittv3Args) {
             );
             if let Err(e) = r {
                 println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
-                return;
+                return ValidationReport::default();
             }
 
             if let Err(e) = ta_store.initialize() {
                 println!(
                     "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
                 );
-                return;
+                return ValidationReport::default();
             }
 
             ta_store.log_tas();
@@ -241,7 +247,7 @@ pub async fn options_std(args: &Pittv3Args) {
                         println!(
                             "Failed to initialize trust anchor source from webpki-roots with error {e:?}"
                         );
-                        return;
+                        return ValidationReport::default();
                     }
 
                     ta_store.log_tas();
@@ -250,7 +256,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     println!(
                         "Failed to create trust anchor source from webpki-roots with error {e:?}"
                     );
-                    return;
+                    return ValidationReport::default();
                 }
             }
         }
@@ -285,7 +291,7 @@ pub async fn options_std(args: &Pittv3Args) {
         let cbor = read_cbor(&args.cbor);
         if cbor.is_empty() {
             println!("Failed to read CBOR data from the file located at {cbor_file}");
-            return;
+            return ValidationReport::default();
         }
 
         let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
@@ -330,13 +336,13 @@ pub async fn options_std(args: &Pittv3Args) {
             );
             if let Err(e) = r {
                 println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
-                return;
+                return ValidationReport::default();
             }
             if let Err(e) = ta_store.initialize() {
                 println!(
                     "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
                 );
-                return;
+                return ValidationReport::default();
             }
 
             pe.add_trust_anchor_source(Box::new(ta_store));
@@ -355,7 +361,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     "Requested index does not exist. Try again with an index value less than {}",
                     cert_source.num_certs()
                 );
-                return;
+                return ValidationReport::default();
             }
             let c = &cert_source.get_cert_at_index(index);
             if let Some(cert) = c {
@@ -365,7 +371,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 fs::write(f, cert.as_bytes()).expect("Unable to write certificate file");
             } else {
                 println!("Requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file");
-                return;
+                return ValidationReport::default();
             }
         }
 
@@ -449,7 +455,7 @@ pub async fn options_std(args: &Pittv3Args) {
                 t
             } else {
                 error!("Failed to read file at {cert_filename}");
-                return;
+                return ValidationReport::default();
             };
 
             let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
@@ -466,7 +472,7 @@ pub async fn options_std(args: &Pittv3Args) {
                     "Requested index does not exist. Try again with an index value less than {}",
                     cert_source.num_certs()
                 );
-                return;
+                return ValidationReport::default();
             }
             let c = &cert_source.get_cert_at_index(leaf_ca_index);
             if let Some(leaf_ca_cert) = c {
@@ -565,8 +571,9 @@ pub async fn options_std(args: &Pittv3Args) {
         };
     } else {
         // Generate, validate certificate file, or validate certificates folder per args.
-        generate_and_validate(args).await;
+        return generate_and_validate(args).await;
     }
+    ValidationReport::default()
 }
 
 /// generate_and_validate takes a [`TaSource`](../certval/ta_source/index.html) and program arguments and performs CBOR file generation
@@ -588,7 +595,7 @@ pub async fn options_std(args: &Pittv3Args) {
 /// then downloading fresh artifacts, updating the buffers and partial paths and trying again until no
 /// further options are available.
 #[cfg(feature = "std")]
-async fn generate_and_validate(args: &Pittv3Args) {
+async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     // The CBOR file is required (but can be an empty file if doing dynamic building only)
     let cbor_file = if let Some(cbor) = &args.cbor {
         cbor
@@ -667,11 +674,11 @@ async fn generate_and_validate(args: &Pittv3Args) {
         );
         if let Err(e) = r {
             println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
-            return;
+            return ValidationReport::default();
         }
         if let Err(e) = ta_store.initialize() {
             println!("Failed to initialize trust anchor source from {ta_folder} with error {e:?}");
-            return;
+            return ValidationReport::default();
         }
         pe.add_trust_anchor_source(Box::new(ta_store));
         ta_store_added = true;
@@ -684,7 +691,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
 
     // if there's nothing to validate, there is nothing further to do
     if args.end_entity_folder.is_none() && args.end_entity_file.is_none() {
-        return;
+        return ValidationReport::default();
     }
 
     if !ta_store_added {
@@ -693,7 +700,7 @@ async fn generate_and_validate(args: &Pittv3Args) {
 
         #[cfg(not(feature = "webpki"))]
         error!("The ta_folder argument argument must be provided");
-        return;
+        return ValidationReport::default();
     };
 
     // The pass value governs two actions during the loop. AIA/SIA fetch operations are only
@@ -1039,4 +1046,32 @@ async fn generate_and_validate(args: &Pittv3Args) {
         duration,
         stats.keys().len()
     );
+
+    // assemble the structured report from the accumulated per-target stats; the target summary is
+    // drawn from the last certificate of a processed path (i.e., the target certificate)
+    let mut report = ValidationReport {
+        targets: vec![],
+        totals: ReportTotals::default(),
+        time_of_interest: cps.get_time_of_interest().as_unix_secs(),
+        duration_ms: duration.as_millis() as u64,
+    };
+    for (name, s) in stats.iter_mut() {
+        let paths_found = s.paths_per_target > 0;
+        let path_reports = core::mem::take(&mut s.path_reports);
+        let status = TargetReport::compute_status(&path_reports, paths_found);
+        let target_summary = path_reports.iter().find_map(|p| p.certs.last().cloned());
+
+        report.totals.targets += 1;
+        report.totals.paths_found += s.paths_per_target;
+        report.totals.valid_paths += s.valid_paths_per_target;
+        report.totals.invalid_paths += s.invalid_paths_per_target;
+
+        report.targets.push(TargetReport {
+            name: name.clone(),
+            target: target_summary,
+            status,
+            paths: path_reports,
+        });
+    }
+    report
 }

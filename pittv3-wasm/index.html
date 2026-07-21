@@ -3,8 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The document is unhashed and points at content-hashed js/wasm; always revalidate it so a
+         redeploy is picked up without a manual cache clear. The vhost Cache-Control header is the
+         authoritative control; this meta is a belt-and-suspenders fallback. -->
+    <meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
     <title>PITTv3 — PQC certification path validation in WASM</title>
     <link data-trunk rel="rust" data-bin="pittv3-wasm" data-wasm-opt="z" />
+    <!-- Ship the store CBOR as separate assets fetched on demand, keeping them out of the wasm
+         binary. Copied to dist/resources/ and referenced by relative URL (see validate::STORES). -->
+    <link data-trunk rel="copy-dir" href="resources" />
   </head>
   <body>
     <div id="main"></div>

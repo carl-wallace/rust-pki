@@ -3,38 +3,42 @@
 use std::io::{Cursor, Read};
 
 use certval::*;
+use pittv3_lib::report::{CertSummary, PathReport, TargetReport};
+use web_time::Instant;
 
-/// A trust anchor store and CA certificate store pair baked into the application as CBOR
+/// A trust anchor store and CA certificate store pair, referenced by the URL of its CBOR file.
+/// The CBOR ships alongside the wasm (see the Trunk `copy-dir` of `resources`) rather than baked
+/// into the binary, and is fetched on demand when the store is selected. URLs are relative to
+/// index.html so they resolve at any deployment mount point (matching `public_url = "./"`).
 pub struct Store {
     /// Display name for the store
     pub label: &'static str,
-    /// CBOR-serialized trust anchor store
-    pub ta_cbor: &'static [u8],
-    /// CBOR-serialized CA certificate store with partial certification paths
-    pub ca_cbor: &'static [u8],
+    /// URL of the CBOR-serialized trust anchor store
+    pub ta_url: &'static str,
+    /// URL of the CBOR-serialized CA certificate store with partial certification paths, or
+    /// `None` for a trust-anchor-only store (e.g. Web PKI roots without preloaded
+    /// intermediates); intermediates can then be supplied via upload.
+    pub ca_url: Option<&'static str>,
 }
 
-/// Baked-in stores available for selection in the UI
+/// Stores available for selection in the UI
 pub const STORES: &[Store] = &[
     Store {
         label: "ML-DSA-44 PKITS",
-        ta_cbor: include_bytes!("../resources/pkits_ml_dsa_44_ta.cbor"),
-        ca_cbor: include_bytes!("../resources/pkits_ml_dsa_44_ca.cbor"),
+        ta_url: "resources/pkits_ml_dsa_44_ta.cbor",
+        ca_url: Some("resources/pkits_ml_dsa_44_ca.cbor"),
     },
     Store {
-        label: "ML-DSA-65 PKITS",
-        ta_cbor: include_bytes!("../resources/pkits_ml_dsa_65_ta.cbor"),
-        ca_cbor: include_bytes!("../resources/pkits_ml_dsa_65_ca.cbor"),
+        label: "Web PKI (Mozilla roots + CCADB intermediates)",
+        ta_url: "resources/webpki_ta.cbor",
+        // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
+        // fetch proxy lands) will cover anything not preloaded here
+        ca_url: Some("resources/webpki_ca.cbor"),
     },
     Store {
-        label: "ML-DSA-87 PKITS",
-        ta_cbor: include_bytes!("../resources/pkits_ml_dsa_87_ta.cbor"),
-        ca_cbor: include_bytes!("../resources/pkits_ml_dsa_87_ca.cbor"),
-    },
-    Store {
-        label: "SLH-DSA-SHA2-128s PKITS",
-        ta_cbor: include_bytes!("../resources/pkits_slh_dsa_sha2_128s_ta.cbor"),
-        ca_cbor: include_bytes!("../resources/pkits_slh_dsa_sha2_128s_ca.cbor"),
+        label: "U.S. DoD (NIPR)",
+        ta_url: "resources/dod_nipr_prod_ta.cbor",
+        ca_url: Some("resources/dod_nipr_prod_ca.cbor"),
     },
 ];
 
@@ -69,8 +73,27 @@ pub struct ValidationSettings {
     pub enforce_trust_anchor_constraints: bool,
     /// Require trust anchors to be valid at the time of interest
     pub enforce_trust_anchor_validity: bool,
-    /// Enforce algorithm and key size constraints
-    pub enforce_alg_and_key_size_constraints: bool,
+    /// RFC 5280 initial-permitted-subtrees, one entry per line per name form
+    pub permitted_subtrees: NameConstraintInputs,
+    /// RFC 5280 initial-excluded-subtrees, one entry per line per name form
+    pub excluded_subtrees: NameConstraintInputs,
+}
+
+/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN and the
+/// "not supported" catch-all are intentionally omitted (UPN enforcement is being removed; the
+/// unsupported-forms bucket needs custom enforcement).
+#[derive(Default, Clone)]
+pub struct NameConstraintInputs {
+    /// dNSName subtrees
+    pub dns_name: String,
+    /// rfc822Name (email) subtrees
+    pub rfc822_name: String,
+    /// directoryName (DN) subtrees
+    pub directory_name: String,
+    /// uniformResourceIdentifier subtrees
+    pub uniform_resource_identifier: String,
+    /// iPAddress subtrees
+    pub ip_address: String,
 }
 
 /// A line of validation output along with a CSS class used to render it, i.e., "ok", "err" or "info"
@@ -113,6 +136,36 @@ fn looks_like_oid(s: &str) -> bool {
     s.contains('.') && s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
+/// Splits a textarea value into one entry per non-empty trimmed line (line-per-entry avoids
+/// ambiguity with directoryName values, which contain commas). None when there are no entries.
+fn lines_to_vec(s: &str) -> Option<Vec<String>> {
+    let v: Vec<String> = s
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Builds a [`NameConstraintsSettings`] from the UI inputs, or None when every form is empty.
+fn to_name_constraints(nc: &NameConstraintInputs) -> Option<NameConstraintsSettings> {
+    let s = NameConstraintsSettings {
+        rfc822_name: lines_to_vec(&nc.rfc822_name),
+        dns_name: lines_to_vec(&nc.dns_name),
+        directory_name: lines_to_vec(&nc.directory_name),
+        uniform_resource_identifier: lines_to_vec(&nc.uniform_resource_identifier),
+        ip_address: lines_to_vec(&nc.ip_address),
+        ..Default::default()
+    };
+    let empty = s.rfc822_name.is_none()
+        && s.dns_name.is_none()
+        && s.directory_name.is_none()
+        && s.uniform_resource_identifier.is_none()
+        && s.ip_address.is_none();
+    (!empty).then_some(s)
+}
+
 /// Builds a [`CertificationPathSettings`](certval::CertificationPathSettings) from user-supplied
 /// values, appending a note for any value that could not be applied as given
 fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> CertificationPathSettings {
@@ -132,7 +185,12 @@ fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> Certification
     cps.set_initial_inhibit_any_policy_indicator(vs.initial_inhibit_any_policy);
     cps.set_enforce_trust_anchor_constraints(vs.enforce_trust_anchor_constraints);
     cps.set_enforce_trust_anchor_validity(vs.enforce_trust_anchor_validity);
-    cps.set_enforce_alg_and_key_size_constraints(vs.enforce_alg_and_key_size_constraints);
+    if let Some(p) = to_name_constraints(&vs.permitted_subtrees) {
+        cps.set_initial_permitted_subtrees(p);
+    }
+    if let Some(e) = to_name_constraints(&vs.excluded_subtrees) {
+        cps.set_initial_excluded_subtrees(e);
+    }
 
     let mut oids = vec![];
     for tok in vs
@@ -155,33 +213,51 @@ fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> Certification
     cps
 }
 
-/// Validates `ee` against the union of an optional baked-in store and uploaded trust anchors and
-/// intermediate CA certificates, returning displayable results
-pub fn validate(
-    store: Option<&Store>,
+/// Validates every certificate in `ees` against a single prepared environment: an optional baked-in
+/// store plus uploaded trust anchors and intermediate CA certificates. The environment is prepared
+/// ONCE — one merged CA store, one partial-path discovery pass — and every target is validated
+/// against it. This mirrors the desktop utility (prepare once, validate all) and, crucially, keeps
+/// the discovery pass out of the per-target loop. Returns a report per target that reached path
+/// building, plus displayable notes.
+pub fn validate_batch(
+    store: Option<(&str, &[u8], &[u8])>,
     tas: &[(String, Vec<u8>)],
     cas: &[(String, Vec<u8>)],
-    ee_name: &str,
-    ee: &[u8],
+    ees: &[(String, Vec<u8>)],
     vs: &ValidationSettings,
-) -> Vec<ResultLine> {
+) -> (Vec<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
+    let cps = make_cps(vs, &mut out);
 
+    // --- trust anchors: baked store (if any) + uploaded TAs (certs or .cbor stores) ---
     let mut ta_store = match store {
-        Some(s) => match TaSource::new_from_cbor(s.ta_cbor) {
+        Some((_, ta_cbor, _)) => match TaSource::new_from_cbor(ta_cbor) {
             Ok(t) => t,
-            Err(e) => return vec![err(format!("Failed to parse TA store CBOR: {e:?}"))],
+            Err(e) => {
+                return (
+                    vec![],
+                    vec![err(format!("Failed to parse TA store CBOR: {e:?}"))],
+                )
+            }
         },
         None => TaSource::new(),
     };
     for (name, bytes) in tas {
+        // A `.cbor` trust-anchor store (BuffersAndPaths) merges all of its anchors; new_from_cbor
+        // rejects anything else, so a PEM/DER certificate falls through to the single-cert path.
+        if let Ok(src) = TaSource::new_from_cbor(bytes) {
+            for cf in src.get_tas() {
+                ta_store.push(cf);
+            }
+            continue;
+        }
         match maybe_pem(bytes) {
             Ok(der) => ta_store.push(CertFile {
                 filename: name.clone(),
                 bytes: der,
             }),
             Err(_) => out.push(err(format!(
-                "Failed to parse uploaded trust anchor {name} as PEM or DER"
+                "Failed to parse uploaded trust anchor {name} as a PEM/DER certificate or a CBOR store"
             ))),
         }
     }
@@ -190,36 +266,59 @@ pub fn validate(
             "No trust anchors are available. Select a built-in store or upload at least one trust anchor."
                 .to_string(),
         ));
-        return out;
+        return (vec![], out);
+    }
+    if let Err(e) = ta_store.initialize() {
+        return (
+            vec![],
+            vec![err(format!("Failed to initialize TA store: {e:?}"))],
+        );
     }
 
+    // --- one CA store: the baked store's certificates (with their precomputed partial paths) plus
+    // any uploaded intermediates, all in a single pool so path discovery can link across them. An
+    // empty CA buffer denotes a trust-anchor-only store (ca_url = None). ---
     let mut cert_source = match store {
-        Some(s) => match CertSource::new_from_cbor(s.ca_cbor) {
+        Some((_, _, ca_cbor)) if !ca_cbor.is_empty() => match CertSource::new_from_cbor(ca_cbor) {
             Ok(c) => c,
-            Err(e) => return vec![err(format!("Failed to parse CA store CBOR: {e:?}"))],
+            Err(e) => {
+                return (
+                    vec![],
+                    vec![err(format!("Failed to parse CA store CBOR: {e:?}"))],
+                )
+            }
         },
-        None => CertSource::new(),
+        _ => CertSource::new(),
     };
     for (name, bytes) in cas {
+        // A `.cbor` CA store merges all of its buffers; otherwise treat as a single PEM/DER cert.
+        if let Ok(src) = CertSource::new_from_cbor(bytes) {
+            for cf in src.get_buffers() {
+                cert_source.push(cf);
+            }
+            continue;
+        }
         match maybe_pem(bytes) {
             Ok(der) => cert_source.push(CertFile {
                 filename: name.clone(),
                 bytes: der,
             }),
             Err(_) => out.push(err(format!(
-                "Failed to parse uploaded CA certificate {name} as PEM or DER"
+                "Failed to parse uploaded CA certificate {name} as a PEM/DER certificate or a CBOR store"
             ))),
         }
     }
+    if let Err(e) = cert_source.initialize(&cps) {
+        return (
+            vec![],
+            vec![err(format!("Failed to initialize CA store: {e:?}"))],
+        );
+    }
 
-    // baked-in CBOR stores carry precomputed partial paths; any uploaded buffers require a
-    // discovery pass over the merged set
-    let discover = !tas.is_empty() || !cas.is_empty();
-    match (store, discover) {
-        (Some(s), false) => out.push(info(format!("Using {} store", s.label))),
-        (Some(s), true) => out.push(info(format!(
-            "Using {} store with {} uploaded trust anchor(s) and {} uploaded intermediate(s)",
-            s.label,
+    match (store, tas.is_empty() && cas.is_empty()) {
+        (Some((label, _, _)), true) => out.push(info(format!("Using {label} store"))),
+        (Some((label, _, _)), false) => out.push(info(format!(
+            "Using {label} store with {} uploaded trust anchor(s) and {} uploaded intermediate(s)",
             tas.len(),
             cas.len()
         ))),
@@ -230,59 +329,40 @@ pub fn validate(
         ))),
     }
 
-    out.extend(run_validation(
-        ta_store,
-        cert_source,
-        discover,
-        ee_name,
-        ee,
-        vs,
-    ));
-    out
-}
-
-fn run_validation(
-    mut ta_store: TaSource,
-    mut cert_source: CertSource,
-    discover_partial_paths: bool,
-    ee_name: &str,
-    ee: &[u8],
-    vs: &ValidationSettings,
-) -> Vec<ResultLine> {
-    let mut out = vec![];
-
-    let cps = make_cps(vs, &mut out);
-
-    if let Err(e) = ta_store.initialize() {
-        return vec![err(format!("Failed to initialize TA store: {e:?}"))];
-    }
-    if let Err(e) = cert_source.initialize(&cps) {
-        return vec![err(format!("Failed to initialize CA store: {e:?}"))];
-    }
-
+    // --- prepare the environment ONCE ---
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store));
-    // discover partial paths linking CA certificates to the trust anchors (the TA source must be
-    // registered with the environment before discovery)
-    if discover_partial_paths {
+    // The baked store ships with precomputed partial paths, so discovery runs only when uploads
+    // change the merged set. It rebuilds the whole merged pool's paths — but ONCE for the batch, not
+    // per target. The TA source must be registered first (discovery consults it).
+    if !tas.is_empty() || !cas.is_empty() {
         cert_source.find_all_partial_paths(&pe, &cps);
     }
     pe.add_certificate_source(Box::new(cert_source));
 
-    out.extend(validate_target(&pe, &cps, ee_name, ee, vs.validate_all));
-    out
+    // --- validate every target against the one prepared environment ---
+    let mut reports = vec![];
+    for (name, bytes) in ees {
+        let (report, lines) = validate_target(&pe, &cps, name, bytes, vs.validate_all);
+        out.extend(lines);
+        if let Some(r) = report {
+            reports.push(r);
+        }
+    }
+    (reports, out)
 }
 
 /// Builds and validates certification path(s) for a single target certificate against a fully
-/// prepared [`PkiEnvironment`](certval::PkiEnvironment), returning displayable results
+/// prepared [`PkiEnvironment`](certval::PkiEnvironment), returning a structured report for the
+/// target (absent when the certificate could not be parsed) along with displayable notes
 fn validate_target(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     ee_name: &str,
     ee: &[u8],
     validate_all: bool,
-) -> Vec<ResultLine> {
+) -> (Option<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
     let toi = cps.get_time_of_interest();
 
@@ -290,16 +370,17 @@ fn validate_target(
         Ok(der) => der,
         Err(_) => {
             out.push(err(format!("Failed to parse {ee_name} as PEM or DER")));
-            return out;
+            return (None, out);
         }
     };
     let target = match parse_cert(&der, ee_name) {
         Ok(t) => t,
         Err(e) => {
             out.push(err(format!("Failed to parse certificate {ee_name}: {e:?}")));
-            return out;
+            return (None, out);
         }
     };
+    let target_summary = CertSummary::from_cert(&target);
 
     // validate_path treats a target found in the TA store as trusted and returns success without
     // verifying its signature (and TA store membership requires only a subjectKeyIdentifier and
@@ -327,18 +408,36 @@ fn validate_target(
     let mut paths: Vec<CertificationPath> = vec![];
     if let Err(e) = pe.get_paths_for_target(&target, &mut paths, 0, toi) {
         out.push(err(format!("Failed to find certification paths: {e:?}")));
-        return out;
+        return (
+            Some(TargetReport {
+                name: ee_name.to_string(),
+                target: Some(target_summary),
+                status: TargetReport::compute_status(&[], false),
+                paths: vec![],
+            }),
+            out,
+        );
     }
     if paths.is_empty() {
         out.push(err(
             "No certification paths found (check trust anchors and time of interest)".to_string(),
         ));
-        return out;
+        return (
+            Some(TargetReport {
+                name: ee_name.to_string(),
+                target: Some(target_summary),
+                status: TargetReport::compute_status(&[], false),
+                paths: vec![],
+            }),
+            out,
+        );
     }
 
     let mut valid = 0;
     let mut invalid = 0;
+    let mut path_reports = vec![];
     for (i, path) in paths.iter_mut().enumerate() {
+        let path_start = Instant::now();
         let mut cpr = CertificationPathResults::new();
         // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
         // clone when enforcement is disabled, and validate_path does not perform it itself
@@ -350,10 +449,22 @@ fn validate_target(
                     "Path {}: failed to apply trust anchor constraints: {e:?}",
                     i + 1
                 )));
+                path_reports.push(PathReport::from_path_results(
+                    path,
+                    &CertificationPathResults::new(),
+                    Some(&e),
+                    path_start.elapsed().as_millis() as u64,
+                ));
                 continue;
             }
         };
         let r = pe.validate_path(pe, &path_cps, path, &mut cpr);
+        path_reports.push(PathReport::from_path_results(
+            path,
+            &cpr,
+            r.as_ref().err(),
+            path_start.elapsed().as_millis() as u64,
+        ));
         let cert_count = path.intermediates.len() + 2;
         match r {
             Ok(_) => {
@@ -389,7 +500,17 @@ fn validate_target(
     } else {
         out.push(err(summary));
     }
-    out
+
+    let status = TargetReport::compute_status(&path_reports, true);
+    (
+        Some(TargetReport {
+            name: ee_name.to_string(),
+            target: Some(target_summary),
+            status,
+            paths: path_reports,
+        }),
+        out,
+    )
 }
 
 /// Checks whether a certificate is self-signed, i.e., whether its signature verifies using its
@@ -421,17 +542,25 @@ fn validate_self_signed(pe: &PkiEnvironment, name: &str, der: &[u8]) -> Vec<Resu
 /// Validates the contents of an IETF Hackathon PQC certificates archive in the R5 format, i.e.,
 /// artifacts_certs_r5.zip. Entries named `*_ta.der` form the trust anchor store and entries named
 /// `*_ee.der` are validated against it; all other entries (private keys, KEM artifacts, etc.) are
-/// ignored. The archive is self-contained: built-in stores and uploads are not consulted.
+/// ignored. The archive is self-contained: built-in stores and uploads are not consulted. Returns
+/// a structured report per end entity certificate along with displayable notes (trust anchor
+/// self-signed checks are reported as notes).
 pub fn validate_hackathon_zip(
     zip_name: &str,
     bytes: Vec<u8>,
     vs: &ValidationSettings,
-) -> Vec<ResultLine> {
+) -> (Vec<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
+    let mut reports = vec![];
 
     let mut archive = match zip::ZipArchive::new(Cursor::new(bytes)) {
         Ok(a) => a,
-        Err(e) => return vec![err(format!("Failed to read {zip_name} as a zip file: {e}"))],
+        Err(e) => {
+            return (
+                vec![],
+                vec![err(format!("Failed to read {zip_name} as a zip file: {e}"))],
+            )
+        }
     };
 
     let mut tas: Vec<(String, Vec<u8>)> = vec![];
@@ -483,7 +612,7 @@ pub fn validate_hackathon_zip(
         out.push(err(format!(
             "No *_ta.der entries found in {zip_name}; expected an archive in the artifacts_certs_r5.zip format"
         )));
-        return out;
+        return (reports, out);
     }
 
     let mut ta_store = TaSource::new();
@@ -497,7 +626,7 @@ pub fn validate_hackathon_zip(
     let cps = make_cps(vs, &mut out);
     if let Err(e) = ta_store.initialize() {
         out.push(err(format!("Failed to initialize TA store: {e:?}")));
-        return out;
+        return (reports, out);
     }
 
     let mut pe = PkiEnvironment::default();
@@ -508,7 +637,7 @@ pub fn validate_hackathon_zip(
     let mut cert_source = CertSource::new();
     if let Err(e) = cert_source.initialize(&cps) {
         out.push(err(format!("Failed to initialize CA store: {e:?}")));
-        return out;
+        return (reports, out);
     }
     pe.add_certificate_source(Box::new(cert_source));
 
@@ -518,7 +647,81 @@ pub fn validate_hackathon_zip(
         out.extend(validate_self_signed(&pe, name, der));
     }
     for (name, der) in &ees {
-        out.extend(validate_target(&pe, &cps, name, der, vs.validate_all));
+        let (report, lines) = validate_target(&pe, &cps, name, der, vs.validate_all);
+        out.extend(lines);
+        if let Some(report) = report {
+            reports.push(report);
+        }
     }
-    out
+    (reports, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pittv3_lib::report::TargetStatus;
+
+    // The app fetches store CBOR at runtime; the native tests read it straight from the resources
+    // that Trunk copies into dist. The tuple mirrors validate's (label, ta_cbor, ca_cbor) argument.
+    const ML_DSA_44: (&str, &[u8], &[u8]) = (
+        "ML-DSA-44 PKITS",
+        include_bytes!("../resources/pkits_ml_dsa_44_ta.cbor"),
+        include_bytes!("../resources/pkits_ml_dsa_44_ca.cbor"),
+    );
+
+    fn test_settings() -> ValidationSettings {
+        ValidationSettings {
+            // 0 disables validity period checks so the baked PKITS edition stays usable
+            toi: 0,
+            validate_all: true,
+            initial_explicit_policy: false,
+            initial_policy_mapping_inhibit: false,
+            initial_inhibit_any_policy: false,
+            initial_policy_set: String::new(),
+            enforce_trust_anchor_constraints: false,
+            enforce_trust_anchor_validity: true,
+            permitted_subtrees: NameConstraintInputs::default(),
+            excluded_subtrees: NameConstraintInputs::default(),
+        }
+    }
+
+    #[test]
+    fn sample_valid_reports_valid() {
+        let (reports, _lines) = validate_batch(
+            Some(ML_DSA_44),
+            &[],
+            &[],
+            &[(SAMPLE_VALID.0.to_string(), SAMPLE_VALID.1.to_vec())],
+            &test_settings(),
+        );
+        let report = reports.into_iter().next().unwrap();
+        assert_eq!(report.status, TargetStatus::Valid);
+        assert!(!report.paths.is_empty());
+        assert_eq!(report.paths[0].certs.len(), 3);
+        assert!(report.paths[0].policy.is_some());
+    }
+
+    #[test]
+    fn sample_invalid_reports_invalid_at_target() {
+        let (reports, _lines) = validate_batch(
+            Some(ML_DSA_44),
+            &[],
+            &[],
+            &[(SAMPLE_INVALID.0.to_string(), SAMPLE_INVALID.1.to_vec())],
+            &test_settings(),
+        );
+        let report = reports.into_iter().next().unwrap();
+        assert_eq!(report.status, TargetStatus::Invalid);
+        let path = &report.paths[0];
+        assert_eq!(
+            path.status,
+            Some(PathValidationStatus::SignatureVerificationFailure)
+        );
+        // trust-anchor-first indexing: 0 = TA, 1 = Good CA, 2 = target
+        assert_eq!(path.failure_index, Some(2));
+        assert!(path
+            .failure_reasons
+            .iter()
+            .any(|r| r.contains("SignatureVerificationFailure")));
+    }
 }

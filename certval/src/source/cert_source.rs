@@ -889,6 +889,23 @@ impl CertSource {
         }
     }
 
+    /// normalize_buffer_labels reduces each buffer's `filename` label to its basename (the
+    /// final path component, splitting on both `/` and `\`). Folder-based ingest records the
+    /// absolute source path in `filename`; serializing that into a distributed store would
+    /// bake the generating machine's directory layout and username into the artifact and make
+    /// the output non-deterministic across machines. The label is only ever surfaced in logs
+    /// and reports (path building indexes by key identifier and name, and [`CertFile`]
+    /// equality ignores `filename`), so a basename preserves a useful label while keeping
+    /// generated stores leak-free and reproducible. Intended to be called just before
+    /// serialization; labels that are already path-free are left unchanged.
+    pub fn normalize_buffer_labels(&mut self) {
+        for cf in self.buffers_and_paths.buffers.iter_mut() {
+            if let Some(base) = cf.filename.rsplit(['/', '\\']).next() {
+                cf.filename = base.to_string();
+            }
+        }
+    }
+
     /// find_all_partial_paths is a slow recursive builder intended for offline use prior to
     /// serializing a set of partial paths.
     pub fn find_all_partial_paths(&mut self, pe: &PkiEnvironment, cps: &CertificationPathSettings) {

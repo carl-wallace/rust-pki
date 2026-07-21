@@ -19,11 +19,96 @@ use certval::*;
 use crate::pitt_log::*;
 use crate::{
     args::Pittv3Args,
+    report::{
+        CertSummary, PathReport, ProgressEvent, ReportTotals, TargetReport, ValidationReport,
+    },
     stats::{PVStats, PathValidationStats, PathValidationStatsGroup},
 };
 
 #[cfg(feature = "revocation")]
 use certval::check_revocation;
+
+/// `ValidateOpts` conveys the options that govern processing of a single validation target,
+/// decoupling the core validation logic from [`Pittv3Args`] so that non-CLI callers (GUI, web
+/// server) need not fabricate a full argument structure (and never see filesystem paths unless
+/// they choose to supply them).
+#[derive(Clone, Debug, Default)]
+pub struct ValidateOpts {
+    /// Validate all available certification paths instead of stopping at the first valid path
+    pub validate_all: bool,
+    /// Collect URIs from AIA and SIA extensions of trust anchors and intermediate CA certificates
+    /// encountered while processing paths (used to drive dynamic path building)
+    pub dynamic_build: bool,
+    /// Full path of folder to receive artifacts from processed certification paths, if desired
+    pub results_folder: Option<String>,
+    /// Full path of folder to receive artifacts from paths that fail validation, if desired
+    pub error_folder: Option<String>,
+    /// DER-encoded CRLs to staple into candidate certification paths prior to validation (matched
+    /// to path positions by issuer name), enabling single-artifact revocation input
+    pub crls: Vec<Vec<u8>>,
+}
+
+impl ValidateOpts {
+    /// Prepares a [`ValidateOpts`] from the corresponding [`Pittv3Args`] fields
+    pub fn from_args(args: &Pittv3Args) -> ValidateOpts {
+        ValidateOpts {
+            validate_all: args.validate_all,
+            #[cfg(feature = "remote")]
+            dynamic_build: args.dynamic_build,
+            #[cfg(not(feature = "remote"))]
+            dynamic_build: false,
+            results_folder: args.results_folder.clone(),
+            error_folder: args.error_folder.clone(),
+            crls: vec![],
+        }
+    }
+}
+
+/// `staple_crls` staples caller-provided DER-encoded CRLs into a candidate certification path by
+/// matching each CRL's issuer name to the issuer name of each certificate in the path. Positions
+/// that already have a stapled CRL are left alone, as are CRLs that fail to parse (with a log
+/// message). Stapled CRLs are consumed during revocation status determination.
+#[cfg(feature = "std")]
+fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
+    use x509_cert::certificate::Raw;
+    use x509_cert::crl::CertificateList;
+
+    if crls.is_empty() {
+        return;
+    }
+
+    let mut parsed = vec![];
+    for crl_bytes in crls {
+        match CertificateList::<Raw>::from_der(crl_bytes.as_slice()) {
+            Ok(crl) => parsed.push((crl, crl_bytes)),
+            Err(e) => {
+                error!("Failed to parse a provided CRL for stapling with {e}");
+            }
+        }
+    }
+
+    let num_certs = path.intermediates.len() + 1;
+    let mut staples: Vec<(usize, Vec<u8>)> = vec![];
+    for pos in 0..num_certs {
+        if path.crls.get(pos).map(|c| c.is_some()).unwrap_or(true) {
+            continue;
+        }
+        let issuer = if pos < path.intermediates.len() {
+            path.intermediates[pos].as_ref().tbs_certificate().issuer()
+        } else {
+            path.target.as_ref().tbs_certificate().issuer()
+        };
+        for (crl, crl_bytes) in &parsed {
+            if compare_names(&crl.tbs_cert_list.issuer, issuer) {
+                staples.push((pos, (*crl_bytes).clone()));
+                break;
+            }
+        }
+    }
+    for (pos, crl_bytes) in staples {
+        path.crls[pos] = Some(crl_bytes);
+    }
+}
 
 /// `validate_cert_file` attempts to validate the certificate read from the file indicated by
 /// `cert_filename` using the resources available via the
@@ -31,16 +116,8 @@ use certval::check_revocation;
 /// available via [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html)
 /// parameter.
 ///
-/// Where dynamic path building is used, path validation is governed by the `threshold` parameter,
-/// i.e., only paths with at least one certificate at an index above the threshold will be validated.
-/// The `args` parameter contributes `results_folder`, `validate_all`, `error_folder` and `dynamic_build`.
-/// Each path that is processed will be saved to the `results_folder`, if present in `args`.
-/// If `validate_all` is specified, validation will be attempted for all paths that were found by the builder.
-/// If `error_folder` is specified, paths that fail validation will be logged there (in addition to the results_folder).
-/// If `dynamic_build` is set, then URIs from the AIA and SIA extension of any trust anchor or
-/// intermediate CA cert will be added to `fresh_uris`, if not already present. The caller may use these
-/// URIs to fetch additional artifacts that may be used to build and validate additional certification paths.
-/// The `stats` parameter is used to aggregate basic path processing statistics.
+/// This is a thin file-reading wrapper around [`validate_cert_bytes`]. The `args` parameter
+/// contributes `results_folder`, `validate_all`, `error_folder` and `dynamic_build`.
 #[cfg(feature = "std")]
 pub(crate) async fn validate_cert_file(
     pe: &PkiEnvironment,
@@ -51,10 +128,53 @@ pub(crate) async fn validate_cert_file(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) -> Result<()> {
-    let time_of_interest = cps.get_time_of_interest();
     let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
+    let opts = ValidateOpts::from_args(args);
+    validate_cert_bytes(
+        pe,
+        cps,
+        cert_filename,
+        target_bytes.as_slice(),
+        stats,
+        &opts,
+        fresh_uris,
+        threshold,
+    )
+    .await
+}
 
-    let target_cert = parse_cert(target_bytes.as_slice(), cert_filename)?;
+/// `validate_cert_bytes` attempts to validate the certificate parsed from `target_bytes` using the
+/// resources available via the [`PkiEnvironment`](../certval/pki_environment/struct.PkiEnvironment.html)
+/// parameter and the settings available via
+/// [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html) parameter.
+///
+/// Where dynamic path building is used, path validation is governed by the `threshold` parameter,
+/// i.e., only paths with at least one certificate at an index above the threshold will be validated.
+/// The `opts` parameter contributes `results_folder`, `validate_all`, `error_folder` and `dynamic_build`.
+/// Each path that is processed will be saved to the `results_folder`, if present in `opts`.
+/// If `validate_all` is specified, validation will be attempted for all paths that were found by the builder.
+/// If `error_folder` is specified, paths that fail validation will be logged there (in addition to the results_folder).
+/// If `dynamic_build` is set, then URIs from the AIA and SIA extension of any trust anchor or
+/// intermediate CA cert will be added to `fresh_uris`, if not already present. The caller may use these
+/// URIs to fetch additional artifacts that may be used to build and validate additional certification paths.
+/// The `stats` parameter is used to aggregate basic path processing statistics along with a
+/// structured [`PathReport`] for each path processed.
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_cert_bytes(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    name: &str,
+    target_bytes: &[u8],
+    stats: &mut PathValidationStats,
+    opts: &ValidateOpts,
+    fresh_uris: &mut Vec<String>,
+    threshold: usize,
+) -> Result<()> {
+    let time_of_interest = cps.get_time_of_interest();
+    let cert_filename = name;
+
+    let target_cert = parse_cert(target_bytes, cert_filename)?;
     info!("Start building and validating path(s) for {cert_filename}");
 
     let start2 = Instant::now();
@@ -80,6 +200,8 @@ pub(crate) async fn validate_cert_file(
             (path.intermediates.len() + 2),
             path.target.as_ref().tbs_certificate().subject()
         );
+        let path_start = Instant::now();
+        staple_crls(path, &opts.crls);
         let mut cpr = CertificationPathResults::new();
 
         // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
@@ -89,6 +211,12 @@ pub(crate) async fn validate_cert_file(
             Err(e) => {
                 error!("Failed to enforce trust anchor constraints for {cert_filename} with {e:?}");
                 stats.invalid_paths_per_target += 1;
+                stats.path_reports.push(PathReport::from_path_results(
+                    path,
+                    &CertificationPathResults::new(),
+                    Some(&e),
+                    (Instant::now() - path_start).as_millis() as u64,
+                ));
                 continue;
             }
         };
@@ -109,26 +237,32 @@ pub(crate) async fn validate_cert_file(
 
         log_path(
             pe,
-            &args.results_folder,
+            &opts.results_folder,
             path,
             stats.paths_per_target + i,
             Some(&cpr),
             Some(&path_cps),
         );
+        stats.path_reports.push(PathReport::from_path_results(
+            path,
+            &cpr,
+            r.as_ref().err(),
+            (Instant::now() - path_start).as_millis() as u64,
+        ));
         stats.results.push(cpr);
         match r {
             Ok(_) => {
                 stats.valid_paths_per_target += 1;
 
                 info!("Successfully validated {cert_filename}");
-                if !args.validate_all {
+                if !opts.validate_all {
                     break;
                 }
             }
             Err(e) => {
                 stats.invalid_paths_per_target += 1;
 
-                log_path(pe, &args.error_folder, path, i, None, None);
+                log_path(pe, &opts.error_folder, path, i, None, None);
                 if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) {
                     info!("Failed to validate {cert_filename} with {e:?}");
                     break;
@@ -139,7 +273,7 @@ pub(crate) async fn validate_cert_file(
         }
 
         #[cfg(feature = "remote")]
-        if args.dynamic_build {
+        if opts.dynamic_build {
             // if we get here we are validating all possible paths with dynamic building. gather
             // up URIs from the trust anchor
             collect_uris_from_aia_and_sia_from_ta(&path.trust_anchor, fresh_uris);
@@ -163,6 +297,112 @@ pub(crate) async fn validate_cert_file(
         cert_filename
     );
     Ok(())
+}
+
+/// `validate_targets` builds and validates certification paths for a set of in-memory targets,
+/// returning a structured [`ValidationReport`]. Each target is a (name, DER-encoded certificate)
+/// pair; the name is a caller-assigned label (e.g., a filename) used in the report and log output.
+///
+/// This is the in-memory entry point for non-CLI frontends: no filesystem access occurs unless
+/// `opts` supplies results/error folders, and no dynamic building loop is performed (URIs collected
+/// while processing are discarded; callers wanting AIA/SIA chasing drive it themselves). CRLs
+/// supplied via `opts.crls` are stapled into candidate paths by issuer name prior to validation.
+///
+/// Progress events are conveyed to the optional `progress` callback as each target is processed.
+/// Path-level events are emitted after the paths for a target have been processed (i.e., events
+/// stream between targets, not within a target).
+#[cfg(feature = "std")]
+pub async fn validate_targets(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    targets: &[(String, Vec<u8>)],
+    opts: &ValidateOpts,
+    progress: Option<&(dyn Fn(ProgressEvent) + Send + Sync + '_)>,
+) -> ValidationReport {
+    let start = Instant::now();
+    let mut stats = PathValidationStatsGroup::new();
+    let mut fresh_uris: Vec<String> = vec![];
+    let mut target_reports: Vec<TargetReport> = vec![];
+    let mut totals = ReportTotals::default();
+
+    for (target_index, (name, der)) in targets.iter().enumerate() {
+        if let Some(progress) = progress {
+            progress(ProgressEvent::TargetStarted {
+                target_index,
+                name: name.clone(),
+            });
+        }
+
+        stats.init_for_target(name);
+        let stats_for_target = match stats.get_mut(name) {
+            Some(stats_for_target) => stats_for_target,
+            None => continue,
+        };
+
+        // snapshot counts so duplicate names contribute per-call deltas to the totals
+        let prev_paths = stats_for_target.paths_per_target;
+        let prev_valid = stats_for_target.valid_paths_per_target;
+        let prev_invalid = stats_for_target.invalid_paths_per_target;
+
+        let _ = validate_cert_bytes(
+            pe,
+            cps,
+            name.as_str(),
+            der.as_slice(),
+            stats_for_target,
+            opts,
+            &mut fresh_uris,
+            0,
+        )
+        .await;
+
+        let paths_found = stats_for_target.paths_per_target - prev_paths;
+        let path_reports = core::mem::take(&mut stats_for_target.path_reports);
+        let status = TargetReport::compute_status(&path_reports, paths_found > 0);
+
+        if let Some(progress) = progress {
+            progress(ProgressEvent::PathsFound {
+                target_index,
+                count: paths_found,
+            });
+            for (path_index, path_report) in path_reports.iter().enumerate() {
+                progress(ProgressEvent::PathCompleted {
+                    target_index,
+                    path_index,
+                    valid: path_report.error.is_none()
+                        && path_report.status == Some(PathValidationStatus::Valid),
+                });
+            }
+            progress(ProgressEvent::TargetCompleted {
+                target_index,
+                status,
+            });
+        }
+
+        let target_summary = match parse_cert(der.as_slice(), name.as_str()) {
+            Ok(target_cert) => Some(CertSummary::from_cert(&target_cert)),
+            Err(_e) => None,
+        };
+
+        totals.targets += 1;
+        totals.paths_found += paths_found;
+        totals.valid_paths += stats_for_target.valid_paths_per_target - prev_valid;
+        totals.invalid_paths += stats_for_target.invalid_paths_per_target - prev_invalid;
+
+        target_reports.push(TargetReport {
+            name: name.clone(),
+            target: target_summary,
+            status,
+            paths: path_reports,
+        });
+    }
+
+    ValidationReport {
+        targets: target_reports,
+        totals,
+        time_of_interest: cps.get_time_of_interest().as_unix_secs(),
+        duration_ms: (Instant::now() - start).as_millis() as u64,
+    }
 }
 
 /// validate_cert_folder recursively traverses the given `certs_folder` and invokes [validate_cert_file]

@@ -490,6 +490,15 @@ fn get_trust_anchor_test() {
     assert!(pe.get_trust_anchor(&good).is_ok());
 }
 
+// The webpki-roots table converts in full, including name-constrained roots (whose NameConstraints
+// value is stored with the outer SEQUENCE tag stripped, like subject and SPKI).
+#[cfg(feature = "webpki")]
+#[test]
+fn new_from_webpki_converts_all_roots() {
+    let src = TaSource::new_from_webpki().unwrap();
+    assert_eq!(src.buffers.len(), webpki_roots::TLS_SERVER_ROOTS.len());
+}
+
 // Malformed CBOR must be reported as an error rather than panicking, matching
 // CertSource::new_from_cbor. Here 0x00 is well-formed CBOR (the integer 0) but not a serialized
 // BuffersAndPaths, so deserialization fails.
