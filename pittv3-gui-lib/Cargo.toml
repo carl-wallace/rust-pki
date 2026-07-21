@@ -20,6 +20,7 @@ rust-version = "1.88"
 [dependencies]
 pittv3_lib = { path = "../pittv3-lib", default-features = false }
 certval = { path = "../certval", default-features = false }
+x509-cert = { version = "0.3.0", default-features = false }
 
 dioxus = "0.7.9"
 
@@ -27,6 +28,7 @@ log = {version = "0.4.33"}
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 
 anyhow = {version = "1.0.103", optional = true}
+futures-channel = {version = "0.3.31", optional = true}
 home = {version = "0.5.12", optional = true}
 log4rs = {version = "1.4.0", default-features = false, optional = true}
 
@@ -46,7 +48,7 @@ std = ["revocation", "certval/std", "pittv3_lib/std", "dep:home"]
 remote = ["certval/remote", "pittv3_lib/remote", "revocation", "std"]
 pqc = ["certval/pqc", "pittv3_lib/pqc"]
 webpki = ["certval/webpki", "pittv3_lib/webpki"]
-gui_desktop = ["std", "dep:log4rs", "dep:anyhow"]
+gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
 
 [package.metadata.docs.rs]
 all-features = true

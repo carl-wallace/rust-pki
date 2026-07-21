@@ -50,11 +50,13 @@ pub(crate) fn validate_cert(
         return Err(Error::Unrecognized);
     }
 
+    // the index is only consumed by the std_app log_path call below
+    #[allow(clippy::unused_enumerate_index)]
     for (_i, path) in paths.iter_mut().enumerate() {
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.as_ref().tbs_certificate().subject().to_string()
+            path.target.as_ref().tbs_certificate().subject()
         );
         let mut cpr = CertificationPathResults::new();
 

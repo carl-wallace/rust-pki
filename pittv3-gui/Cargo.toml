@@ -25,7 +25,10 @@ pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, feature
 
 der = { version = "0.8.1", default-features = false, features = ["alloc"] }
 dioxus = { version = "0.7.9", features = ["desktop"] }
+futures-channel = "0.3.31"
+futures-util = { version = "0.3.31", default-features = false }
 home = "0.5.12"
 log = "0.4.33"
 log4rs = "1.4.0"
 rfd = "0.17.2"
+tokio = { version = "1.52.3", features = ["rt", "time"] }

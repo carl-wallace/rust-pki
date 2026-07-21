@@ -22,10 +22,13 @@ rust-version = "1.88"
 # the user via file upload.
 [dependencies]
 certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "rsa"] }
+pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "rsa"] }
+pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc"] }
 
 dioxus = { version = "0.7.9", features = ["web"] }
 log = "0.4.33"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
+serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 web-time = "1.1.0"
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
 

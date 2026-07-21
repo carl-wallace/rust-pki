@@ -97,6 +97,8 @@ use core::fmt::{Debug, Formatter};
 use log::Record;
 #[cfg(feature = "gui_desktop")]
 use log4rs::append::Append;
+#[cfg(feature = "gui_desktop")]
+use std::sync::Mutex;
 
 /// No-op log4rs appender used by desktop GUI frontends to discard log output when no logging
 /// configuration is available.
@@ -113,6 +115,56 @@ impl Debug for SimpleLogger {
 #[cfg(feature = "gui_desktop")]
 impl Append for SimpleLogger {
     fn append(&self, _record: &Record<'_>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn flush(&self) {}
+}
+
+/// Destination for log lines forwarded by [`ChannelAppender`]. Frontends install a sender before
+/// starting a run and clear it when the run completes; when no sender is installed the appender
+/// discards records. A process-wide slot is used because log4rs configuration is one-shot per
+/// process while runs come and go.
+#[cfg(feature = "gui_desktop")]
+pub static LOG_SINK: Mutex<Option<futures_channel::mpsc::UnboundedSender<String>>> =
+    Mutex::new(None);
+
+/// Installs `tx` as the destination for forwarded log lines
+#[cfg(feature = "gui_desktop")]
+pub fn set_log_sink(tx: futures_channel::mpsc::UnboundedSender<String>) {
+    if let Ok(mut sink) = LOG_SINK.lock() {
+        *sink = Some(tx);
+    }
+}
+
+/// Clears the destination for forwarded log lines
+#[cfg(feature = "gui_desktop")]
+pub fn clear_log_sink() {
+    if let Ok(mut sink) = LOG_SINK.lock() {
+        *sink = None;
+    }
+}
+
+/// log4rs appender that forwards formatted log lines to the sender installed via [`set_log_sink`],
+/// enabling frontends to stream run output into their results view.
+#[cfg(feature = "gui_desktop")]
+pub struct ChannelAppender;
+
+#[cfg(feature = "gui_desktop")]
+impl Debug for ChannelAppender {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ChannelAppender")
+    }
+}
+
+#[cfg(feature = "gui_desktop")]
+impl Append for ChannelAppender {
+    fn append(&self, record: &Record<'_>) -> anyhow::Result<()> {
+        if let Ok(sink) = LOG_SINK.lock() {
+            if let Some(tx) = sink.as_ref() {
+                let _ = tx.unbounded_send(format!("{}", record.args()));
+            }
+        }
         Ok(())
     }
 

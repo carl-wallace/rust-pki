@@ -135,7 +135,7 @@ pub struct PolicyOutcome {
 }
 
 /// Results from validating one certification path for a target certificate.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct PathReport {
     /// Validation status recorded while processing the path, absent when processing failed before
     /// any status was recorded
@@ -230,7 +230,7 @@ pub enum TargetStatus {
 }
 
 /// Results from validating all certification paths processed for one target certificate.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct TargetReport {
     /// Name of the target, i.e., a filename or caller-assigned label
     pub name: String,
@@ -295,7 +295,7 @@ pub struct ReportTotals {
 }
 
 /// Results from a validation run covering one or more target certificates.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ValidationReport {
     /// Results for each target processed
     pub targets: Vec<TargetReport>,
@@ -309,7 +309,7 @@ pub struct ValidationReport {
 }
 
 /// Events emitted while a validation run progresses, for consumption by interactive frontends.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ProgressEvent {
     /// Processing began for the indicated target
     TargetStarted {

@@ -24,7 +24,16 @@ fn main() {
         enforce_trust_anchor_validity: true,
         enforce_alg_and_key_size_constraints: false,
     };
-    for line in validate_hackathon_zip(&path, bytes, &vs) {
+    let (reports, lines) = validate_hackathon_zip(&path, bytes, &vs);
+    for line in lines {
         println!("[{}] {}", line.class, line.text);
+    }
+    for report in reports {
+        println!(
+            "[report] {}: {:?} ({} path(s))",
+            report.name,
+            report.status,
+            report.paths.len()
+        );
     }
 }
