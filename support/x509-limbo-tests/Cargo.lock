@@ -168,6 +168,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rsa",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sha1",
@@ -2469,9 +2470,12 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.25.4"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+dependencies = [
+ "rustls-pki-types",
+]
 
 [[package]]
 name = "winapi-util"
