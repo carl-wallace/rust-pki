@@ -4623,6 +4623,7 @@ dependencies = [
  "dioxus",
  "getrandom 0.4.3",
  "gloo-net",
+ "gloo-timers",
  "js-sys",
  "log",
  "pem-rfc7468",

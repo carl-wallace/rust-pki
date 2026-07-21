@@ -157,6 +157,9 @@ fn App() -> Element {
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // True while a validation is running, to show a busy state (the parse/validation is synchronous
+    // and can take a moment on a large store).
+    let mut validating = use_signal(|| false);
     // Fetched CBOR for the most recently used built-in store, cached as (store index, ta, ca) so
     // repeated validations with the same selection do not re-download it.
     let mut loaded_store = use_signal(|| None::<(usize, Vec<u8>, Vec<u8>)>);
@@ -309,6 +312,11 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
+        validating.set(true);
+        // Yield one frame so the busy state paints before the synchronous parse/validation blocks
+        // the (single) thread; on a large store the first parse otherwise reads as a hang.
+        #[cfg(target_family = "wasm")]
+        gloo_timers::future::TimeoutFuture::new(16).await;
         let store_bytes = match ensure_store().await {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -316,6 +324,7 @@ fn App() -> Element {
                     class: "err",
                     text: e,
                 });
+                validating.set(false);
                 view.set(RESULTS_VIEW);
                 return;
             }
@@ -331,6 +340,7 @@ fn App() -> Element {
             validate_batch(store, &uploaded_tas(), &uploaded_cas(), &loaded_ees(), &vs);
         notes.write().extend(lines);
         targets.write().extend(reports);
+        validating.set(false);
         view.set(RESULTS_VIEW);
     };
 
@@ -437,9 +447,13 @@ fn App() -> Element {
                         div { class: "controls center-row",
                             button {
                                 class: "validate-button",
-                                disabled: loaded_ees().is_empty(),
+                                disabled: loaded_ees().is_empty() || validating(),
                                 onclick: move |_| async move { validate_loaded().await },
-                                "Validate loaded certificate(s) using current TA and CA stores and settings"
+                                if validating() {
+                                    "Validating\u{2026}"
+                                } else {
+                                    "Validate loaded certificate(s) using current TA and CA stores and settings"
+                                }
                             }
                         }
                     },
