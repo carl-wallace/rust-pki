@@ -1101,7 +1101,9 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         cmd.assert().stdout(predicate::str::contains(
             "SKID: 79F00049EB7F77C25D410265348A90239B1E076F",
         ));
-        cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired/178.der is not valid at indicated time of interest"));
+        cmd.assert().stdout(predicate::str::contains(
+            "Certificate from 178.der is not valid at indicated time of interest",
+        ));
     }
 
     {
@@ -1166,7 +1168,9 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         ));
         cmd.assert()
             .stdout(predicate::str::contains("Invalid paths found: 0"));
-        cmd.assert().stdout(predicate::str::contains("Certificate from tests/examples/cert_store_with_expired/178.der is not valid at indicated time of interest"));
+        cmd.assert().stdout(predicate::str::contains(
+            "Certificate from 178.der is not valid at indicated time of interest",
+        ));
     }
 
     {

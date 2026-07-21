@@ -276,10 +276,14 @@ pub fn check_validity(
 
     if cps.get_enforce_trust_anchor_validity() {
         // Check TA validity if feature is on (it's on by default) but if the TA does not feature a
-        // validity, i.e., if it's a TA Info without a certificate, just carry on.
-
-        let ta_ttl = ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false);
-        is_valid(ta_ttl, 0)?;
+        // validity, i.e., if it's a TrustAnchorInfo without an embedded certificate (e.g. a
+        // webpki-roots trust anchor, which carries only name + SPKI), there is no validity period
+        // to enforce — carry on rather than failing the path. `ta_valid_at_time` signals this with
+        // `Error::Unrecognized`; only a real `PathValidation` status is a validity failure.
+        match ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false) {
+            Err(Error::Unrecognized) => {}
+            ta_ttl => is_valid(ta_ttl, 0)?,
+        }
     }
 
     Ok(())

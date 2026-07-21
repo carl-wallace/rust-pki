@@ -4622,6 +4622,8 @@ dependencies = [
  "certval",
  "dioxus",
  "getrandom 0.4.3",
+ "gloo-net",
+ "js-sys",
  "log",
  "pem-rfc7468",
  "pittv3_gui_lib",

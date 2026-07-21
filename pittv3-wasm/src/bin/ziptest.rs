@@ -22,7 +22,8 @@ fn main() {
         initial_policy_set: "2.5.29.32.0".to_string(),
         enforce_trust_anchor_constraints: false,
         enforce_trust_anchor_validity: true,
-        enforce_alg_and_key_size_constraints: false,
+        permitted_subtrees: Default::default(),
+        excluded_subtrees: Default::default(),
     };
     let (reports, lines) = validate_hackathon_zip(&path, bytes, &vs);
     for line in lines {

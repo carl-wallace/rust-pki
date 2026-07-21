@@ -5,6 +5,9 @@ that performs certification path validation in a WASM context, including validat
 certificates signed using post-quantum algorithms, i.e., ML-DSA (FIPS 204) and SLH-DSA (FIPS 205).
 All processing occurs in the browser; certificates never leave the page.
 
+A hosted instance is available at <https://pittv3.redhoundsoftware.com>; no local build is required
+to try it.
+
 Trust anchor and CA certificate stores for several PKITS editions (ML-DSA-44, ML-DSA-65, ML-DSA-87
 and SLH-DSA-SHA2-128s) are baked into the application as CBOR. Trust anchors and intermediate CA
 certificates can also be uploaded and are used together with the selected built-in store (or alone

@@ -2,12 +2,16 @@
 
 Pure Rust Libraries and tools related to certification path processing. 
 
+A browser-based frontend for PITTv3 is hosted at <https://pittv3.redhoundsoftware.com>; no local
+build is required to try it.
+
 ## Crates
 
 | Name           | Description                                                                                |
 | -------------- | ------------------------------------------------------------------------------------------ |
 | `certval`      | Certification path validation implementation                                               |
 | `pittv3`       | Command-line version of PITTv2 (minus some features) that uses Rust undercarriage          |
+| `pittv3-wasm`  | Browser (WASM) frontend for PITTv3, hosted at <https://pittv3.redhoundsoftware.com>        |
 | `pkiprocmacros`| Procedural macros that support certval and friends                                         |
 
 ## License

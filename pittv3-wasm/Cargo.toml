@@ -37,3 +37,9 @@ zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
 # backend. Target-gated so native builds (e.g. the ziptest bin) do not pull in wasm-bindgen/js-sys.
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# Browser fetch for pulling store CBOR on demand (see fetch_bytes). wasm-only; native builds use a
+# stub, so keep the dependency off the host target where it would not compile.
+gloo-net = { version = "0.6", default-features = false, features = ["http"] }
+# js_sys::Date::parse converts the datetime-local picker's local-time string to the Unix-epoch
+# time of interest; wasm-only, with a host stub in main.rs.
+js-sys = "0.3"

@@ -156,6 +156,10 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         cert_store.find_all_partial_paths(pe, cps);
     }
 
+    // Reduce filename labels to basenames so the generated store does not carry the
+    // generating machine's absolute paths (leak + non-deterministic output).
+    cert_store.normalize_buffer_labels();
+
     let buffer = if let Ok(b) = cert_store.serialize(CertificationPathBuilderFormats::Cbor) {
         b
     } else {

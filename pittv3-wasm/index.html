@@ -9,6 +9,9 @@
     <meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
     <title>PITTv3 — PQC certification path validation in WASM</title>
     <link data-trunk rel="rust" data-bin="pittv3-wasm" data-wasm-opt="z" />
+    <!-- Ship the store CBOR as separate assets fetched on demand, keeping them out of the wasm
+         binary. Copied to dist/resources/ and referenced by relative URL (see validate::STORES). -->
+    <link data-trunk rel="copy-dir" href="resources" />
   </head>
   <body>
     <div id="main"></div>
