@@ -67,7 +67,10 @@ slh-dsa = { version = "0.2.0-rc.5", optional = true }
 # The verify-only sub-crate keeps signing/keygen (and their float emulation) out of the build.
 fn-dsa-vrfy = { version = "0.3.0", default-features = false, optional = true }
 
-webpki-roots = {version = "0.25.4", optional = true}
+webpki-roots = {version = "1.0", optional = true}
+# webpki-roots 1.0 moved TrustAnchor into rustls-pki-types (it no longer re-exports it), so the
+# webpki store initializer imports the type directly. Gated with webpki so it stays out of no-std.
+rustls-pki-types = {version = "1.8", default-features = false, optional = true}
 hex-literal = "1.1.0"
 
 [dev-dependencies]
@@ -91,7 +94,7 @@ revocation = []
 std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "dep:bitvec", "dep:cidr", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys", "fn-dsa-vrfy"]
-webpki = ["webpki-roots"]
+webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
 rsa = ["dep:rsa"]
 eddsa = ["dep:ed25519-dalek"]
 

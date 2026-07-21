@@ -5,7 +5,7 @@ cfg_if! {
     if #[cfg(feature = "webpki")] {
         use log::error;
         use sha1::{Digest, Sha1};
-        use webpki_roots::TrustAnchor;
+        use rustls_pki_types::TrustAnchor;
         use alloc::vec;
         use der::{asn1::OctetString, Length};
         use spki::SubjectPublicKeyInfoOwned;
@@ -120,6 +120,20 @@ fn partial_spki_to_spki(partial_spki_bytes: &[u8]) -> der::Result<SubjectPublicK
     SubjectPublicKeyInfoOwned::from_der(&enc_spki)
 }
 
+/// The webpki-roots TrustAnchor structure stores values with the outer SEQUENCE tag and length
+/// removed (!), including the NameConstraints value (which begins with the [0] permittedSubtrees
+/// tag once the SEQUENCE wrapper is stripped). This function restores the outer SEQUENCE tag and
+/// returns parsed NameConstraints; without it, name-constrained roots fail to convert.
+#[cfg(feature = "webpki")]
+fn partial_nc_to_nc(partial_nc_bytes: &[u8]) -> der::Result<NameConstraints> {
+    let l = Length::new(partial_nc_bytes.len() as u32);
+    let mut length_bytes = l.to_der()?;
+    let mut enc_nc = vec![0x30];
+    enc_nc.append(&mut length_bytes);
+    enc_nc.append(&mut partial_nc_bytes.to_vec());
+    NameConstraints::from_der(&enc_nc)
+}
+
 #[cfg(feature = "webpki")]
 impl TryFrom<&TrustAnchor<'_>> for PDVTrustAnchorChoice {
     type Error = crate::Error;
@@ -128,10 +142,12 @@ impl TryFrom<&TrustAnchor<'_>> for PDVTrustAnchorChoice {
     /// generating an [RFC5914](https://datatracker.ietf.org/doc/html/rfc5914) TrustAnchorInfo info
     /// structure containing the name, public key and, optionally, name constraints from the TrustAnchor.
     fn try_from(ta: &TrustAnchor<'_>) -> crate::Result<Self> {
-        let n = partial_name_to_name(ta.subject)?;
-        let spki = partial_spki_to_spki(ta.spki)?;
-        let nc = match ta.name_constraints {
-            Some(nc) => Some(NameConstraints::from_der(nc)?),
+        // webpki-roots 1.0 renamed spki -> subject_public_key_info and wraps the fields in
+        // rustls-pki-types Der (still with the outer SEQUENCE tag stripped), so drop to &[u8] here.
+        let n = partial_name_to_name(ta.subject.as_ref())?;
+        let spki = partial_spki_to_spki(ta.subject_public_key_info.as_ref())?;
+        let nc = match &ta.name_constraints {
+            Some(nc) => Some(partial_nc_to_nc(nc.as_ref())?),
             None => None,
         };
 
