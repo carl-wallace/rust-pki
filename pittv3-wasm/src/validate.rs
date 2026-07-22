@@ -804,6 +804,20 @@ mod tests {
     }
 
     #[test]
+    fn cps_keyusage_serde_round_trips_no_std() {
+        // KeyUsageValue is (de)serialized via a custom u16-bits impl (not flagset/serde, which would
+        // pull serde/std and break no_std). Confirm the wire form is the raw integer and it round-trips.
+        let mut cps = CertificationPathSettings::new();
+        let ku = KeyUsageSettings::new_truncated(0b0000_0101); // digitalSignature + keyEncipherment
+        cps.set_target_key_usage(ku);
+        let json = serde_json::to_string(&cps).unwrap();
+        assert!(json.contains(r#""KeyUsageValue":5"#));
+        let back: CertificationPathSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(cps, back);
+        assert_eq!(back.get_target_key_usage(), Some(ku));
+    }
+
+    #[test]
     fn parses_cps_file() {
         // shape produced by make_cps / the CLI and desktop apps today
         let json = r#"{"psInitialExplicitPolicyIndicator":{"Bool":true},"psInitialPolicySet":{"Strings":["2.16.840.1.101.3.2.1.48.1"]},"psTimeOfInterest":{"TimeOfInterest":1647264981}}"#;

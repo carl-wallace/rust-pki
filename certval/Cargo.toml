@@ -41,7 +41,7 @@ sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 
 cfg-if = "1.0.4"
 # serde feature is added to std, revocation,std and remote
-flagset = { version = "0.4.7", package = "flagset", default-features = false, features = ["serde"] }
+flagset = { version = "0.4.7", package = "flagset", default-features = false }
 readonly = "0.2.13"
 serde = {version = "1.0.228", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
@@ -93,7 +93,7 @@ tokio = { version = "1.52.3", features = ["full", "macros", "time", "rt-multi-th
 [features]
 default = ["remote", "webpki"]
 revocation = []
-std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "dep:bitvec", "der/std"]
+std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc", "dep:regex", "dep:bitvec", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys", "fn-dsa-vrfy"]
 webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
