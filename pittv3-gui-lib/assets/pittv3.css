@@ -198,6 +198,22 @@ button[type="submit"] {
   margin-top: 0.35rem;
 }
 
+.name-constraints-outcome {
+  margin-top: 0.35rem;
+}
+
+.name-constraints-outcome .nc-group {
+  margin-left: 0.5rem;
+}
+
+.name-constraints-outcome .nc-label {
+  color: var(--muted);
+}
+
+.name-constraints-outcome .nc-form {
+  margin-right: 0.75rem;
+}
+
 .progress-line {
   padding: 0.3rem 0.25rem;
 }

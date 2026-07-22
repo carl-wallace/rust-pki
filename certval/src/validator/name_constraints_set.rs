@@ -1171,7 +1171,11 @@ fn set_bits_count_bits_round_trip() {
     assert_eq!(set_bits(&[0u8; 4], 9), vec![0xFF, 0x80, 0x00, 0x00]);
 }
 
-pub(crate) fn name_constraints_set_to_name_constraints_settings(
+/// Renders a [`NameConstraintsSet`] as its serializable [`NameConstraintsSettings`] equivalent, e.g.,
+/// to display the terminal permitted/excluded subtrees recorded in a `CertificationPathResults`. Note
+/// that the per-form `_null` flags on the set are not represented here (a null bucket renders the same
+/// as an absent one); callers that need the null-vs-empty distinction should inspect the set directly.
+pub fn name_constraints_set_to_name_constraints_settings(
     set: &NameConstraintsSet,
 ) -> Result<NameConstraintsSettings> {
     let mut vrfc: Option<Vec<String>> = None;

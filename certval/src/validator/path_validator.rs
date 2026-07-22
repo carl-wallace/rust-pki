@@ -517,6 +517,14 @@ pub fn check_names(
         }
     } // end for (pos, ca_cert_ref) in v.iter_mut().enumerate() {
 
+    // Record the terminal name-constraints working sets so callers (e.g., a GUI) can display the
+    // effective permitted/excluded subtrees that a conforming path was validated against. Written
+    // only on successful completion: a name-constraints violation returns early above and is
+    // conveyed by PR_VALIDATION_STATUS/PR_FAILURE_INDEX instead. The NameConstraintsSet preserves
+    // the per-form null-vs-empty distinction (see PR_FINAL_PERMITTED_SUBTREES).
+    cpr.set_final_permitted_subtrees(permitted_subtrees);
+    cpr.set_final_excluded_subtrees(excluded_subtrees);
+
     Ok(())
 }
 

@@ -15,8 +15,9 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use certval::{
-    get_certificate_from_trust_anchor, name_to_string, source::ta_source::buffer_to_hex,
-    CertificationPath, CertificationPathResults, Error, PDVCertificate, PDVTrustAnchorChoice,
+    get_certificate_from_trust_anchor, name_constraints_set_to_name_constraints_settings,
+    name_to_string, source::ta_source::buffer_to_hex, CertificationPath, CertificationPathResults,
+    Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate, PDVTrustAnchorChoice,
     PathValidationStatus,
 };
 
@@ -134,6 +135,19 @@ pub struct PolicyOutcome {
     pub final_inhibit_any_policy: Option<u32>,
 }
 
+/// Terminal name-constraints state from certification path validation, i.e., the effective permitted
+/// and excluded subtrees the path was validated against upon completion of RFC 5280 section 6.1
+/// name-constraints processing. Each form uses the [`NameConstraintsSettings`] convention: `None`
+/// means the form was unconstrained, `Some(vec![])` means the permitted set intersected to empty for
+/// that form (nothing permitted), and `Some(values)` lists the operative subtrees.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NameConstraintsOutcome {
+    /// Effective permitted subtrees per name form
+    pub permitted: NameConstraintsSettings,
+    /// Effective excluded subtrees per name form
+    pub excluded: NameConstraintsSettings,
+}
+
 /// Results from validating one certification path for a target certificate.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct PathReport {
@@ -157,6 +171,9 @@ pub struct PathReport {
     pub failure_reasons: Vec<String>,
     /// Final values of policy-related outputs, absent when policy processing did not complete
     pub policy: Option<PolicyOutcome>,
+    /// Terminal permitted/excluded name-constraints state, absent when name-constraints processing
+    /// did not complete (e.g., the path failed before name checking finished)
+    pub name_constraints: Option<NameConstraintsOutcome>,
     /// Time expended building and validating the path in milliseconds
     pub duration_ms: u64,
 }
@@ -208,6 +225,7 @@ impl PathReport {
             failure_index,
             failure_reasons,
             policy: policy_outcome_from_cpr(cpr),
+            name_constraints: name_constraints_from_cpr(cpr),
             duration_ms,
         }
     }
@@ -459,6 +477,48 @@ pub fn policy_outcome_from_cpr(cpr: &CertificationPathResults) -> Option<PolicyO
     })
 }
 
+/// Renders a terminal name-constraints working set as [`NameConstraintsSettings`], overlaying the
+/// per-form null flags the string conversion drops: a null bucket (a permitted form that intersected
+/// to empty) becomes `Some(vec![])` to distinguish "nothing permitted" from an unconstrained `None`.
+fn name_constraints_settings_from_set(set: &NameConstraintsSet) -> NameConstraintsSettings {
+    let mut s = name_constraints_set_to_name_constraints_settings(set).unwrap_or_default();
+    if set.rfc822_name_null {
+        s.rfc822_name = Some(vec![]);
+    }
+    if set.dns_name_null {
+        s.dns_name = Some(vec![]);
+    }
+    if set.directory_name_null {
+        s.directory_name = Some(vec![]);
+    }
+    if set.uniform_resource_identifier_null {
+        s.uniform_resource_identifier = Some(vec![]);
+    }
+    if set.ip_address_null {
+        s.ip_address = Some(vec![]);
+    }
+    s
+}
+
+/// Builds a [`NameConstraintsOutcome`] from the terminal permitted/excluded subtrees recorded in a
+/// [`CertificationPathResults`]. Returns `None` when name-constraints processing did not record its
+/// terminal state (e.g., the path failed before name checking completed).
+pub fn name_constraints_from_cpr(cpr: &CertificationPathResults) -> Option<NameConstraintsOutcome> {
+    let permitted = cpr.get_final_permitted_subtrees();
+    let excluded = cpr.get_final_excluded_subtrees();
+    if permitted.is_none() && excluded.is_none() {
+        return None;
+    }
+    Some(NameConstraintsOutcome {
+        permitted: permitted
+            .map(|s| name_constraints_settings_from_set(&s))
+            .unwrap_or_default(),
+        excluded: excluded
+            .map(|s| name_constraints_settings_from_set(&s))
+            .unwrap_or_default(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,6 +562,16 @@ mod tests {
                         final_policy_mapping: Some(1),
                         final_inhibit_any_policy: Some(2),
                     }),
+                    name_constraints: Some(NameConstraintsOutcome {
+                        permitted: NameConstraintsSettings {
+                            dns_name: Some(vec!["example.com".to_string()]),
+                            ..Default::default()
+                        },
+                        excluded: NameConstraintsSettings {
+                            directory_name: Some(vec![]),
+                            ..Default::default()
+                        },
+                    }),
                     duration_ms: 12,
                 }],
             }],
@@ -534,6 +604,10 @@ mod tests {
                 .final_valid_policies,
             vec!["2.5.29.32.0".to_string()]
         );
+        let nc = target.paths[0].name_constraints.as_ref().unwrap();
+        assert_eq!(nc.permitted.dns_name, Some(vec!["example.com".to_string()]));
+        // Some(vec![]) survives the round trip, preserving "nothing permitted" vs. unconstrained
+        assert_eq!(nc.excluded.directory_name, Some(vec![]));
         assert_eq!(round_tripped.totals, report.totals);
     }
 
