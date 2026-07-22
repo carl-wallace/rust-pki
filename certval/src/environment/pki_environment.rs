@@ -35,13 +35,20 @@
 //!
 
 use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
+use der::Encode;
+use log::error;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 
+use crate::source::ta_source::{
+    buffer_to_hex, get_subject_public_key_info_from_trust_anchor, hex_skid_from_cert,
+    hex_skid_from_ta,
+};
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{
     environment::pki_environment_traits::*, path_settings::*, util::crypto::*, util::error::*,
@@ -89,6 +96,12 @@ pub struct PkiEnvironment {
     /// List of trait objects that provide access to trust anchors
     trust_anchor_sources: Vec<Box<dyn TrustAnchorSource + Send + Sync>>,
 
+    /// Hex-encoded subject key identifiers that resolve to more than one distinct public key across
+    /// the registered `trust_anchor_sources`. Such a SKID cannot unambiguously identify a trust
+    /// anchor, so trust-anchor lookups keyed on it are refused (fail-closed). Recomputed whenever the
+    /// set of trust anchor sources changes; see `add_trust_anchor_source`.
+    poisoned_ta_skids: BTreeSet<String>,
+
     /// List of trait objects that provide access to certificates
     certificate_sources: Vec<Box<dyn CertificateSource + Send + Sync>>,
 
@@ -123,6 +136,7 @@ impl Default for PkiEnvironment {
             verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
+            poisoned_ta_skids: BTreeSet::new(),
             certificate_sources: vec![],
             oid_lookups: vec![oid_lookup],
             crl_sources: vec![],
@@ -144,6 +158,7 @@ impl PkiEnvironment {
             verify_signature_message_ctx_callbacks: vec![],
             validate_path_callbacks: vec![],
             trust_anchor_sources: vec![],
+            poisoned_ta_skids: BTreeSet::new(),
             certificate_sources: vec![],
             oid_lookups: vec![],
             crl_sources: vec![],
@@ -356,18 +371,66 @@ impl PkiEnvironment {
     }
 
     /// add_trust_anchor_source adds a [`TrustAnchorSource`] object to the list used by get_trust_anchor.
+    ///
+    /// Adding a source re-evaluates subject key identifier collisions across all registered trust
+    /// anchor sources (see `poisoned_ta_skids`). A source whose membership changes after it is added
+    /// must be removed and re-added for the collision set to be recomputed; the environment does not
+    /// observe a source mutating itself in place.
     pub fn add_trust_anchor_source(&mut self, c: Box<dyn TrustAnchorSource + Send + Sync>) {
         self.trust_anchor_sources.push(c);
+        self.reindex_poisoned_ta_skids();
     }
 
     /// clear_trust_anchor_sources clears the list of [`TrustAnchorSource`] objects used by get_trust_anchor.
     pub fn clear_trust_anchor_sources(&mut self) {
         self.trust_anchor_sources.clear();
+        self.reindex_poisoned_ta_skids();
+    }
+
+    /// Recomputes [`poisoned_ta_skids`] from the current trust anchor sources. A subject key
+    /// identifier is poisoned when two trust anchors share it but carry different public keys, since
+    /// the SKID can then no longer identify a unique anchor. Same-key duplicates are benign and are
+    /// not poisoned. Runs whenever the set of sources changes; anchors are few, so the scan is cheap.
+    fn reindex_poisoned_ta_skids(&mut self) {
+        let mut first_spki: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut poisoned: BTreeSet<String> = BTreeSet::new();
+        for ta in self.get_trust_anchors() {
+            let hex_skid = hex_skid_from_ta(ta);
+            if hex_skid.is_empty() || poisoned.contains(&hex_skid) {
+                continue;
+            }
+            let spki_der =
+                match get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta).to_der() {
+                    Ok(d) => d,
+                    Err(_e) => continue,
+                };
+            match first_spki.get(&hex_skid) {
+                Some(existing) if *existing != spki_der => {
+                    error!("Trust anchor subject key identifier {hex_skid} resolves to more than one public key across registered sources; refusing to anchor on it");
+                    first_spki.remove(&hex_skid);
+                    poisoned.insert(hex_skid);
+                }
+                Some(_) => {} // same SKID, same key: benign duplicate
+                None => {
+                    first_spki.insert(hex_skid, spki_der);
+                }
+            }
+        }
+        self.poisoned_ta_skids = poisoned;
+    }
+
+    /// Returns true if `hex_skid` is ambiguous across the registered trust anchor sources, i.e., it
+    /// maps to more than one public key. Trust-anchor lookups keyed on such a SKID are refused.
+    fn ta_skid_poisoned(&self, hex_skid: &str) -> bool {
+        self.poisoned_ta_skids.contains(hex_skid)
     }
 
     /// get_trust_anchor iterates over trust_anchor_sources until an authoritative answer is found
     /// or all options have been exhausted
     pub fn get_trust_anchor(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice> {
+        if self.ta_skid_poisoned(&buffer_to_hex(skid)) {
+            return Err(Error::Unrecognized);
+        }
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_skid(skid);
             if let Ok(r) = r {
@@ -390,6 +453,9 @@ impl PkiEnvironment {
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
     pub fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice> {
+        if self.ta_skid_poisoned(hex_skid) {
+            return Err(Error::Unrecognized);
+        }
         for f in &self.trust_anchor_sources {
             let r = f.get_trust_anchor_by_hex_skid(hex_skid);
             if let Ok(r) = r {
@@ -406,8 +472,12 @@ impl PkiEnvironment {
         target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
-            let r = f.get_trust_anchor_for_target(target);
-            if let Ok(r) = r {
+            if let Ok(r) = f.get_trust_anchor_for_target(target) {
+                // Refuse a candidate whose SKID is ambiguous across sources rather than anchoring on
+                // a guess; the collision may be why this source matched by name in the first place.
+                if self.ta_skid_poisoned(&hex_skid_from_ta(r)) {
+                    continue;
+                }
                 return Ok(r);
             }
         }
@@ -418,6 +488,9 @@ impl PkiEnvironment {
     pub fn get_trust_anchor_by_name(&'_ self, name: &Name) -> Result<&PDVTrustAnchorChoice> {
         for f in &self.trust_anchor_sources {
             if let Ok(r) = f.get_trust_anchor_by_name(name) {
+                if self.ta_skid_poisoned(&hex_skid_from_ta(r)) {
+                    continue;
+                }
                 return Ok(r);
             }
         }
@@ -437,6 +510,11 @@ impl PkiEnvironment {
 
     /// is_cert_a_trust_anchor takes a target certificate indication if cert is a trust anchor.
     pub fn is_cert_a_trust_anchor(&self, target: &PDVCertificate) -> Result<()> {
+        // An ambiguous SKID cannot identify a unique anchor, so do not treat a cert bearing one as a
+        // trust anchor even if a source matches it.
+        if self.ta_skid_poisoned(&hex_skid_from_cert(target)) {
+            return Err(Error::NotFound);
+        }
         for f in &self.trust_anchor_sources {
             if f.is_cert_a_trust_anchor(target).is_ok() {
                 return Ok(());
@@ -447,6 +525,9 @@ impl PkiEnvironment {
 
     /// is_trust_anchor takes a [`PDVTrustAnchorChoice`] indication if cert is a trust anchor.
     pub fn is_trust_anchor(&self, target: &PDVTrustAnchorChoice) -> Result<()> {
+        if self.ta_skid_poisoned(&hex_skid_from_ta(target)) {
+            return Err(Error::NotFound);
+        }
         for f in &self.trust_anchor_sources {
             if f.is_trust_anchor(target).is_ok() {
                 return Ok(());
