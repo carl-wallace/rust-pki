@@ -285,7 +285,6 @@ fn KeyUsageEditor(
 /// name-constraints processing
 #[derive(Clone, Copy, PartialEq)]
 enum NameForm {
-    Upn,
     Rfc822,
     Dns,
     Dn,
@@ -294,7 +293,6 @@ enum NameForm {
 }
 
 const NAME_FORMS: &[(NameForm, &str)] = &[
-    (NameForm::Upn, "User principal names"),
     (NameForm::Rfc822, "RFC 822 names"),
     (NameForm::Dns, "DNS names"),
     (NameForm::Dn, "Directory names"),
@@ -304,7 +302,6 @@ const NAME_FORMS: &[(NameForm, &str)] = &[
 
 fn subtrees_get(ncs: &NameConstraintsSettings, form: NameForm) -> Vec<String> {
     let v = match form {
-        NameForm::Upn => &ncs.user_principal_name,
         NameForm::Rfc822 => &ncs.rfc822_name,
         NameForm::Dns => &ncs.dns_name,
         NameForm::Dn => &ncs.directory_name,
@@ -316,7 +313,6 @@ fn subtrees_get(ncs: &NameConstraintsSettings, form: NameForm) -> Vec<String> {
 
 fn subtrees_set(ncs: &mut NameConstraintsSettings, form: NameForm, values: Vec<String>) {
     let slot = match form {
-        NameForm::Upn => &mut ncs.user_principal_name,
         NameForm::Rfc822 => &mut ncs.rfc822_name,
         NameForm::Dns => &mut ncs.dns_name,
         NameForm::Dn => &mut ncs.directory_name,
@@ -331,8 +327,7 @@ fn subtrees_set(ncs: &mut NameConstraintsSettings, form: NameForm, values: Vec<S
 }
 
 fn subtrees_is_empty(ncs: &NameConstraintsSettings) -> bool {
-    ncs.user_principal_name.is_none()
-        && ncs.rfc822_name.is_none()
+    ncs.rfc822_name.is_none()
         && ncs.dns_name.is_none()
         && ncs.directory_name.is_none()
         && ncs.uniform_resource_identifier.is_none()

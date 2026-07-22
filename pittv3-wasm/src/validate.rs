@@ -90,10 +90,10 @@ pub struct ValidationSettings {
     pub excluded_subtrees: NameConstraintInputs,
 }
 
-/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN, URI and the
-/// "not supported" catch-all are intentionally omitted: UPN enforcement is being removed, the
-/// unsupported-forms bucket needs custom enforcement, and URI matching is std-only in certval (it
-/// parses the SAN host with the `url` crate), so the no_std browser build cannot enforce it.
+/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. URI and the
+/// "not supported" catch-all are intentionally omitted: the unsupported-forms bucket needs custom
+/// enforcement, and URI matching is std-only in certval (it parses the SAN host with the `url`
+/// crate), so the no_std browser build cannot enforce it.
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct NameConstraintInputs {
     /// dNSName subtrees

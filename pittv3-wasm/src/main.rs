@@ -518,7 +518,7 @@ fn App() -> Element {
         );
         enforce_ta_constraints.set(m.enforce_trust_anchor_constraints.unwrap_or(false));
         enforce_ta_validity.set(m.enforce_trust_anchor_validity.unwrap_or(true));
-        // one entry per line per name form; UPN and the unsupported-forms bucket are not surfaced
+        // one entry per line per name form; the unsupported-forms bucket is not surfaced
         let perm = m.initial_permitted_subtrees.unwrap_or_default();
         perm_dns.set(perm.dns_name.map(|v| v.join("\n")).unwrap_or_default());
         perm_email.set(perm.rfc822_name.map(|v| v.join("\n")).unwrap_or_default());

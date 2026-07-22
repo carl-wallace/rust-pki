@@ -276,7 +276,6 @@ fn convert_peer_names_to_name_constraints_settings(
     }
 
     let mut ncs = NameConstraintsSettings {
-        user_principal_name: None,
         rfc822_name: None,
         dns_name: None,
         directory_name: None,
