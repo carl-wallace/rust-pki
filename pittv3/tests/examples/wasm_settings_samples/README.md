@@ -12,7 +12,7 @@ policy mapping, inhibit anyPolicy, and initial permitted/excluded name-constrain
 
 ## One-time store setup (Validate tab)
 
-**Scenarios 01–07 (classic PKITS, RSA)** share one store:
+**Scenarios 01–07 and 09 (classic PKITS, RSA)** share one store:
 1. Store dropdown → **None (uploaded trust anchors and CA certificates only)**
 2. **Trust anchor** upload → `../pkits_ta_store/TrustAnchorRootCertificate.crt`
 3. **Intermediate CA** upload → `../pkits.cbor`  (the whole PKITS CA set as a CBOR store)
@@ -40,8 +40,9 @@ validating.
 | 06 | time of interest (reference 2022) vs. an EE not valid until 2047 | `InvalidEEnotBeforeDateTest2EE.crt` | **invalid** — certificate not yet valid |
 | 07 | initial **excluded** directoryName subtree `O=Test Certificates 2011,C=US` | `ValidCertificatePathTest1EE.crt` | **invalid** — NameConstraintsViolation |
 | 08 | initial **excluded** iPAddress subtree `192.0.2.0/24` vs leaf SAN `192.0.2.1` | `leaf_ip_192.0.2.1_ee.pem` | **invalid** — NameConstraintsViolation (valid without the setting) |
+| 09 | initial **excluded** URI subtree `.testcertificates.gov` vs a URI SAN under it | `ValidURInameConstraintsTest34EE.crt` | **invalid** — NameConstraintsViolation (valid without the setting) |
 
-04, 05 and 08 are flips: valid with default settings, invalid once the scenario's one setting is
+04, 05, 08 and 09 are flips: valid with default settings, invalid once the scenario's one setting is
 applied.
 
 ## Notes
@@ -58,5 +59,8 @@ applied.
 - The wasm app does **no** revocation checking (no CRL/OCSP, no AIA fetch); these scenarios exercise
   basic path validation plus the settings knobs. The same `settings.json` files also load into the
   CLI (`-s`) and desktop app.
-- URI name constraints are **not** exercisable in the wasm app (URI matching is std-only in certval);
-  the settings UI omits that form.
+- **Scenario 09 (URI name constraints)** validates `ValidURInameConstraintsTest34EE` (URI SAN
+  `http://testserver.testcertificates.gov/…`) against the PKITS store; the excluded URI subtree
+  `.testcertificates.gov` covers that host, so it flips to invalid. URI matching is now no_std in
+  certval (a small hand-rolled host extractor in place of the `url` crate), so the wasm settings UI
+  exposes the URI form alongside the other four.

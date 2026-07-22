@@ -11,12 +11,9 @@ use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-// URI name-constraint matching extracts the SAN host with the `url` crate, which needs std; the
-// other supported forms (rfc822, DNS, directory, IP) are no_std. IP uses core::net (stable since
-// 1.77) plus the cidr crate built without its std feature.
-#[cfg(feature = "std")]
-use url::Url;
-
+// IP-address name-constraint processing uses core::net (stable since 1.77) plus the cidr crate
+// built without its std feature; URI host extraction is hand-rolled (see uri_host) — so all five
+// supported name-constraint forms are no_std.
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
@@ -39,6 +36,58 @@ use crate::{buffer_to_hex, util::pdv_utilities::*, Error, Result};
 
 /// OID for uid attribute from RFC4519: 0.9.2342.19200300.100.1.1
 pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.19200300.100.1.1");
+
+/// Extracts the authority host from a URI string for name-constraint matching — no_std, replacing
+/// the `url` crate for this narrow purpose. Skips the scheme up to `://`, takes the authority up to
+/// the first `/`, `?` or `#`, drops a `userinfo@` prefix and a `:port` suffix, and unwraps a
+/// bracketed `[IPv6]` literal. Returns None when there is no authority (a scheme-only or opaque
+/// URI), which mirrors how a hostless URI SAN fails a URI name constraint.
+fn uri_host(uri: &str) -> Option<&str> {
+    let after_scheme = uri.split_once("://")?.1;
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host_port = authority
+        .rsplit_once('@')
+        .map(|(_, hp)| hp)
+        .unwrap_or(authority);
+    if let Some(rest) = host_port.strip_prefix('[') {
+        // bracketed IPv6 literal, e.g. [::1]:443
+        return rest
+            .split_once(']')
+            .map(|(h, _)| h)
+            .filter(|h| !h.is_empty());
+    }
+    let host = host_port
+        .split_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(host_port);
+    (!host.is_empty()).then_some(host)
+}
+
+#[test]
+fn uri_host_extracts_authority() {
+    assert_eq!(
+        uri_host("http://testserver.testcertificates.gov/index.html"),
+        Some("testserver.testcertificates.gov")
+    );
+    // userinfo + port are stripped
+    assert_eq!(
+        uri_host("https://user:pass@host.example.com:8443/p?q#f"),
+        Some("host.example.com")
+    );
+    // bracketed IPv6 literal, port dropped
+    assert_eq!(uri_host("http://[2001:db8::1]:443/x"), Some("2001:db8::1"));
+    // no path/query/fragment
+    assert_eq!(
+        uri_host("http://host.example.com"),
+        Some("host.example.com")
+    );
+    // no authority -> None (mirrors a hostless URI SAN failing a URI constraint)
+    assert_eq!(uri_host("mailto:user@example.com"), None);
+    assert_eq!(uri_host("http://"), None);
+}
 
 /// The `NameConstraintsSet` structure is used to define inputs for path validation, i.e.,
 /// initial-excluded-subtrees and initial-permitted-subtrees, as well as to track processing
@@ -130,13 +179,8 @@ impl NameConstraintsSet {
                     }
                 }
                 GeneralName::UniformResourceIdentifier(_uri) => {
-                    #[cfg(feature = "std")]
                     if !self.uniform_resource_identifier_null {
                         self.uniform_resource_identifier.push(subtree.clone());
-                    }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        self.uniform_resource_identifier_null = true;
                     }
                 }
                 GeneralName::IpAddress(_ip) => {
@@ -319,18 +363,14 @@ impl NameConstraintsSet {
 
                         let mut uri_ok = false;
 
-                        // Parse the SAN URI's host once; it does not vary across the permitted
+                        // Extract the SAN URI's host once; it does not vary across the permitted
                         // subtrees compared below.
-                        #[cfg(feature = "std")]
-                        if let Some(host) = Url::parse(uri_san.as_str())
-                            .ok()
-                            .and_then(|url| url.host().map(|h| h.to_string()))
-                        {
+                        if let Some(host) = uri_host(uri_san.as_str()) {
                             for gn_state in &self.uniform_resource_identifier {
                                 if let GeneralName::UniformResourceIdentifier(uri_state) =
                                     &gn_state.base
                                 {
-                                    if descended_from_host(uri_state, host.as_str(), true) {
+                                    if descended_from_host(uri_state, host, true) {
                                         uri_ok = true;
                                         break;
                                     }
@@ -518,18 +558,14 @@ impl NameConstraintsSet {
                             continue;
                         }
 
-                        // Parse the SAN URI's host once; it does not vary across the excluded
+                        // Extract the SAN URI's host once; it does not vary across the excluded
                         // subtrees compared below.
-                        #[cfg(feature = "std")]
-                        if let Some(host) = Url::parse(uri_san.as_str())
-                            .ok()
-                            .and_then(|url| url.host().map(|h| h.to_string()))
-                        {
+                        if let Some(host) = uri_host(uri_san.as_str()) {
                             for gn_state in &self.uniform_resource_identifier {
                                 if let GeneralName::UniformResourceIdentifier(uri_state) =
                                     &gn_state.base
                                 {
-                                    if descended_from_host(uri_state, host.as_str(), true) {
+                                    if descended_from_host(uri_state, host, true) {
                                         return true;
                                     }
                                 }
@@ -707,12 +743,6 @@ impl NameConstraintsSet {
             return;
         }
 
-        #[cfg(not(feature = "std"))]
-        {
-            self.uniform_resource_identifier_null = true;
-        }
-
-        #[cfg(feature = "std")]
         {
             let mut new_set = Vec::new();
 
