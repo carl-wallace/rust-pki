@@ -43,6 +43,10 @@ gloo-net = { version = "0.6", default-features = false, features = ["http"] }
 # js_sys::Date::parse converts the datetime-local picker's local-time string to the Unix-epoch
 # time of interest; wasm-only, with a host stub in main.rs.
 js-sys = "0.3"
+# navigator.maxTouchPoints distinguishes iPad/iPhone (which masquerade as desktop in the UA) so the
+# store file inputs can broaden their `accept` filter only there; wasm-only, host stub in main.rs.
+# Already in the tree via dioxus's web feature, so this only names the Window/Navigator bindings.
+web-sys = { version = "0.3", features = ["Window", "Navigator"] }
 # A one-frame yield so the "Validating…" busy state paints before the (blocking, single-threaded)
 # parse/validation runs; wasm-only.
 gloo-timers = { version = "0.3", features = ["futures"] }
