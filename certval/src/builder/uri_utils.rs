@@ -28,8 +28,75 @@ cfg_if! {
         use std::io::Write;
         use std::path::{PathBuf, Path};
         use std::str::FromStr;
+        use std::sync::OnceLock;
         use std::time::Duration;
     }
+}
+
+/// Returns a process-wide [`reqwest::Client`] shared across every artifact download (CRL, OCSP, and
+/// AIA/SIA fetches). Building a fresh client per request throws away reqwest's connection pool,
+/// forcing a new TCP+TLS handshake for every fetch on the enrollment hot path; a single pooled
+/// client amortizes connection setup across requests. The shared client carries no default timeout
+/// -- callers apply a per-request bound via [`reqwest::RequestBuilder::timeout`], since the CRL path
+/// takes a caller-supplied timeout while OCSP/AIA use a fixed one.
+///
+/// Returns `None` (logged once) if the client could not be built -- e.g. the TLS backend failed to
+/// initialize -- which callers translate into a network error.
+#[cfg(feature = "remote")]
+pub(crate) fn shared_http_client() -> Option<&'static reqwest::Client> {
+    static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| match reqwest::Client::builder().build() {
+            Ok(client) => Some(client),
+            Err(e) => {
+                error!("Failed to build the shared HTTP client: {e}");
+                None
+            }
+        })
+        .as_ref()
+}
+
+/// Reads a fetched HTTP response body into memory while enforcing `max_bytes` as it streams, so a
+/// hostile or misconfigured responder cannot exhaust memory with an unbounded body. Reading the whole
+/// body up front (reqwest's `bytes()`) allocates it in full before any size or parse check runs, so
+/// the cap must be applied at ingest -- here, over the streamed chunks.
+///
+/// The `Content-Length` header is attacker-controlled and absent on chunked responses, so it serves
+/// only as a fast-fail hint (a claimed length over the cap is rejected before any body is read); the
+/// running byte count over the streamed chunks is the authoritative guard. `label` names the source
+/// in log messages. Returns [`Error::LengthError`] if the body exceeds `max_bytes` and
+/// [`Error::NetworkError`] on a transport error mid-stream.
+#[cfg(feature = "remote")]
+pub(crate) async fn read_capped_body(
+    mut response: reqwest::Response,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Vec<u8>> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes {
+            debug!("{label} reported a {len}-byte body exceeding the {max_bytes}-byte cap");
+            return Err(Error::LengthError);
+        }
+    }
+
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if buf.len() as u64 + chunk.len() as u64 > max_bytes {
+                    debug!("{label} streamed a body exceeding the {max_bytes}-byte cap");
+                    return Err(Error::LengthError);
+                }
+                buf.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                debug!("Failed to read body from {label} with {e}");
+                return Err(Error::NetworkError);
+            }
+        }
+    }
+    Ok(buf)
 }
 
 /// `save_certs_from_p7` takes a buffer that notionally contains a degenerate certs-only SignedData
@@ -175,16 +242,14 @@ pub async fn fetch_to_buffer(
     last_mod_map: &mut BTreeMap<String, String>,
     blocklist: &mut Vec<String>,
     time_of_interest: TimeOfInterest,
+    max_bytes: u64,
 ) -> Result<()> {
     // Downloaded artifacts are saved for future use, create a path object for that folder
     let path = Path::new(folder);
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-    {
-        Ok(client) => client,
-        Err(_e) => return Err(Error::Unrecognized),
+    let client = match shared_http_client() {
+        Some(client) => client,
+        None => return Err(Error::Unrecognized),
     };
 
     // URIs may be piled up by the caller wiht the start_index used to ignore URIs that were
@@ -206,11 +271,16 @@ pub async fn fetch_to_buffer(
         };
 
         let response = if h.is_empty() {
-            client.get(target).send().await
+            client
+                .get(target)
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await
         } else {
             client
                 .get(target)
                 .header("If-Modified-Since", h)
+                .timeout(Duration::from_secs(10))
                 .send()
                 .await
         };
@@ -254,7 +324,7 @@ pub async fn fetch_to_buffer(
 
                 let fname = path.join(fname_from_response);
 
-                match &response.bytes().await {
+                match read_capped_body(response, max_bytes, target).await {
                     Ok(bytes) => {
                         debug!("Downloaded buffer {target}");
 

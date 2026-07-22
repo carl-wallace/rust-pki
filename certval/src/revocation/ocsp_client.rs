@@ -212,22 +212,20 @@ fn generate_nonce() -> Result<Vec<u8>> {
 }
 
 #[cfg(feature = "remote")]
-async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
-    let client = if let Ok(client) = reqwest::Client::builder()
-        .pool_max_idle_per_host(0)
-        .timeout(Duration::from_secs(10))
-        .build()
-    {
-        client
-    } else {
-        error!("Failed to prepare OCSP client: {uri_to_check}");
-        return Err(Error::NetworkError);
+async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8], max_bytes: u64) -> Result<Vec<u8>> {
+    let client = match crate::builder::uri_utils::shared_http_client() {
+        Some(client) => client,
+        None => {
+            error!("Failed to prepare OCSP client: {uri_to_check}");
+            return Err(Error::NetworkError);
+        }
     };
 
     let body = match client
         .post(uri_to_check)
         .body(enc_ocsp_req.to_vec())
         .header(CONTENT_TYPE, "application/ocsp-request")
+        .timeout(Duration::from_secs(10))
         .send()
         .await
     {
@@ -238,15 +236,7 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8]) -> Result<Vec<u8>> {
         }
     };
 
-    let body_bytes = match body.bytes().await {
-        Ok(bb) => bb,
-        Err(e) => {
-            error!("Failed to read OCSP response with {e}: {uri_to_check}");
-            return Err(Error::NetworkError);
-        }
-    };
-
-    Ok(body_bytes.to_vec())
+    crate::builder::uri_utils::read_capped_body(body, max_bytes, uri_to_check).await
 }
 
 #[cfg(feature = "remote")]
@@ -472,7 +462,13 @@ pub async fn send_ocsp_request(
         nonce.as_deref(),
     )?;
 
-    let enc_ocsp_resp = match post_ocsp(uri_to_check, enc_ocsp_req.as_slice()).await {
+    let enc_ocsp_resp = match post_ocsp(
+        uri_to_check,
+        enc_ocsp_req.as_slice(),
+        cps.get_max_ocsp_fetch_bytes(),
+    )
+    .await
+    {
         Ok(eor) => eor,
         Err(e) => {
             error!("Failed sending OCSP request to {uri_to_check} with {e:?}");
