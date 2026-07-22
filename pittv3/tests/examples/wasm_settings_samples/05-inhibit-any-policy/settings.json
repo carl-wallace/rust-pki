@@ -1,0 +1,11 @@
+{
+  "psCheckRevocationStatus": {
+    "Bool": false
+  },
+  "psInitialInhibitAnyPolicyIndicator": {
+    "Bool": true
+  },
+  "psTimeOfInterest": {
+    "TimeOfInterest": 1647264981
+  }
+}

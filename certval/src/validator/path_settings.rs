@@ -58,8 +58,7 @@ pub type Bools = Vec<bool>;
 
 /// `CertificationPathSettings` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CertificationPathSettings(pub BTreeMap<String, CertificationPathProcessingTypes>);
 
 impl CertificationPathSettings {
@@ -114,8 +113,7 @@ pub type KeyUsageSettings = FlagSet<KeyUsages>;
 //-----------------------------------------------------------------------------------------------
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),

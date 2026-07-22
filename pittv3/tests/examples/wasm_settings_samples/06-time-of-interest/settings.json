@@ -1,0 +1,8 @@
+{
+  "psCheckRevocationStatus": {
+    "Bool": false
+  },
+  "psTimeOfInterest": {
+    "TimeOfInterest": 1647264981
+  }
+}

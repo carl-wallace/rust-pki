@@ -4,6 +4,7 @@ use std::io::{Cursor, Read};
 
 use certval::*;
 use pittv3_lib::report::{CertSummary, PathReport, TargetReport};
+use serde::{Deserialize, Serialize};
 use web_time::Instant;
 
 /// A trust anchor store and CA certificate store pair, referenced by the URL of its CBOR file.
@@ -55,8 +56,18 @@ pub const SAMPLE_INVALID: (&str, &[u8]) = (
     include_bytes!("../resources/sample_invalid_ml_dsa_44.der"),
 );
 
-/// User-editable values that feed the RFC 5280 path validation inputs plus app-level options
+/// User-editable values that feed the RFC 5280 path validation inputs plus app-level options.
+///
+/// Serialized only as the localStorage snapshot that persists the settings tab across reloads: it
+/// carries app-level state (the custom-time flag and validate-all) that the interchange format does
+/// not. The downloadable settings file uses certval's `CertificationPathSettings` JSON instead —
+/// the same format the CLI and desktop apps read.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ValidationSettings {
+    /// True when `toi` is a time the user chose, as opposed to the run-time default. Only a custom
+    /// time is restored on reload; otherwise the time of interest is recomputed as the current time.
+    #[serde(default)]
+    pub toi_custom: bool,
     /// Time of interest as seconds since Unix epoch; 0 disables validity period checks
     pub toi: u64,
     /// Validate every discovered path instead of stopping at the first valid one
@@ -79,10 +90,11 @@ pub struct ValidationSettings {
     pub excluded_subtrees: NameConstraintInputs,
 }
 
-/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN and the
-/// "not supported" catch-all are intentionally omitted (UPN enforcement is being removed; the
-/// unsupported-forms bucket needs custom enforcement).
-#[derive(Default, Clone)]
+/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN, URI and the
+/// "not supported" catch-all are intentionally omitted: UPN enforcement is being removed, the
+/// unsupported-forms bucket needs custom enforcement, and URI matching is std-only in certval (it
+/// parses the SAN host with the `url` crate), so the no_std browser build cannot enforce it.
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct NameConstraintInputs {
     /// dNSName subtrees
     pub dns_name: String,
@@ -90,13 +102,12 @@ pub struct NameConstraintInputs {
     pub rfc822_name: String,
     /// directoryName (DN) subtrees
     pub directory_name: String,
-    /// uniformResourceIdentifier subtrees
-    pub uniform_resource_identifier: String,
-    /// iPAddress subtrees
+    /// iPAddress subtrees (CIDR form)
     pub ip_address: String,
 }
 
 /// A line of validation output along with a CSS class used to render it, i.e., "ok", "err" or "info"
+#[derive(Clone, Debug)]
 pub struct ResultLine {
     /// CSS class: "ok", "err" or "info"
     pub class: &'static str,
@@ -154,21 +165,19 @@ fn to_name_constraints(nc: &NameConstraintInputs) -> Option<NameConstraintsSetti
         rfc822_name: lines_to_vec(&nc.rfc822_name),
         dns_name: lines_to_vec(&nc.dns_name),
         directory_name: lines_to_vec(&nc.directory_name),
-        uniform_resource_identifier: lines_to_vec(&nc.uniform_resource_identifier),
         ip_address: lines_to_vec(&nc.ip_address),
         ..Default::default()
     };
     let empty = s.rfc822_name.is_none()
         && s.dns_name.is_none()
         && s.directory_name.is_none()
-        && s.uniform_resource_identifier.is_none()
         && s.ip_address.is_none();
     (!empty).then_some(s)
 }
 
 /// Builds a [`CertificationPathSettings`](certval::CertificationPathSettings) from user-supplied
 /// values, appending a note for any value that could not be applied as given
-fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> CertificationPathSettings {
+pub fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> CertificationPathSettings {
     let toi = match TimeOfInterest::from_unix_secs(vs.toi) {
         Ok(t) => t,
         Err(_) => TimeOfInterest::disabled(),
@@ -213,32 +222,37 @@ fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> Certification
     cps
 }
 
-/// Validates every certificate in `ees` against a single prepared environment: an optional baked-in
-/// store plus uploaded trust anchors and intermediate CA certificates. The environment is prepared
-/// ONCE — one merged CA store, one partial-path discovery pass — and every target is validated
-/// against it. This mirrors the desktop utility (prepare once, validate all) and, crucially, keeps
-/// the discovery pass out of the per-target loop. Returns a report per target that reached path
-/// building, plus displayable notes.
-pub fn validate_batch(
+/// A [`PkiEnvironment`](certval::PkiEnvironment) prepared for validation: trust anchors and CA
+/// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass
+/// completed. Preparing this is the expensive part of a run (parsing stores and, above all,
+/// discovering partial paths), so the frontend caches it and reuses it across Validate clicks while
+/// the trust anchors, CA certificates and settings are unchanged. Only the target certificates then
+/// need differ, and re-validating them skips reparse and rediscovery entirely.
+pub struct PreparedValidation {
+    /// Fully populated environment with the trust-anchor and certificate sources registered
+    pe: PkiEnvironment,
+}
+
+/// Prepares a validation environment from an optional baked-in store plus uploaded trust anchors and
+/// intermediate CA certificates: one merged trust-anchor store, one merged CA store, and a single
+/// partial-path discovery pass when uploads are present (baked stores ship with paths precomputed).
+/// This is the heavy step; validate targets against the result with [`validate_prepared`]. Returns
+/// the prepared environment plus informational notes, or fatal notes when preparation cannot yield a
+/// usable environment (e.g., no trust anchors).
+pub fn prepare_validation(
     store: Option<(&str, &[u8], &[u8])>,
     tas: &[(String, Vec<u8>)],
     cas: &[(String, Vec<u8>)],
-    ees: &[(String, Vec<u8>)],
-    vs: &ValidationSettings,
-) -> (Vec<TargetReport>, Vec<ResultLine>) {
+    cps: &CertificationPathSettings,
+    // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
-    let cps = make_cps(vs, &mut out);
 
     // --- trust anchors: baked store (if any) + uploaded TAs (certs or .cbor stores) ---
     let mut ta_store = match store {
         Some((_, ta_cbor, _)) => match TaSource::new_from_cbor(ta_cbor) {
             Ok(t) => t,
-            Err(e) => {
-                return (
-                    vec![],
-                    vec![err(format!("Failed to parse TA store CBOR: {e:?}"))],
-                )
-            }
+            Err(e) => return Err(vec![err(format!("Failed to parse TA store CBOR: {e:?}"))]),
         },
         None => TaSource::new(),
     };
@@ -262,17 +276,13 @@ pub fn validate_batch(
         }
     }
     if ta_store.is_empty() {
-        out.push(err(
+        return Err(vec![err(
             "No trust anchors are available. Select a built-in store or upload at least one trust anchor."
                 .to_string(),
-        ));
-        return (vec![], out);
+        )]);
     }
     if let Err(e) = ta_store.initialize() {
-        return (
-            vec![],
-            vec![err(format!("Failed to initialize TA store: {e:?}"))],
-        );
+        return Err(vec![err(format!("Failed to initialize TA store: {e:?}"))]);
     }
 
     // --- one CA store: the baked store's certificates (with their precomputed partial paths) plus
@@ -281,12 +291,7 @@ pub fn validate_batch(
     let mut cert_source = match store {
         Some((_, _, ca_cbor)) if !ca_cbor.is_empty() => match CertSource::new_from_cbor(ca_cbor) {
             Ok(c) => c,
-            Err(e) => {
-                return (
-                    vec![],
-                    vec![err(format!("Failed to parse CA store CBOR: {e:?}"))],
-                )
-            }
+            Err(e) => return Err(vec![err(format!("Failed to parse CA store CBOR: {e:?}"))]),
         },
         _ => CertSource::new(),
     };
@@ -308,11 +313,8 @@ pub fn validate_batch(
             ))),
         }
     }
-    if let Err(e) = cert_source.initialize(&cps) {
-        return (
-            vec![],
-            vec![err(format!("Failed to initialize CA store: {e:?}"))],
-        );
+    if let Err(e) = cert_source.initialize(cps) {
+        return Err(vec![err(format!("Failed to initialize CA store: {e:?}"))]);
     }
 
     match (store, tas.is_empty() && cas.is_empty()) {
@@ -334,17 +336,30 @@ pub fn validate_batch(
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store));
     // The baked store ships with precomputed partial paths, so discovery runs only when uploads
-    // change the merged set. It rebuilds the whole merged pool's paths — but ONCE for the batch, not
-    // per target. The TA source must be registered first (discovery consults it).
+    // change the merged set. It rebuilds the whole merged pool's paths — but ONCE, cached by the
+    // caller across runs. The TA source must be registered first (discovery consults it).
     if !tas.is_empty() || !cas.is_empty() {
-        cert_source.find_all_partial_paths(&pe, &cps);
+        cert_source.find_all_partial_paths(&pe, cps);
     }
     pe.add_certificate_source(Box::new(cert_source));
 
-    // --- validate every target against the one prepared environment ---
+    Ok((PreparedValidation { pe }, out))
+}
+
+/// Validates every certificate in `ees` against an environment prepared by [`prepare_validation`].
+/// This is the per-target work that reruns on each Validate click: it builds and validates the
+/// path(s) for each target but does not rebuild the environment or rediscover partial paths. Returns
+/// a report per target that reached path building, plus displayable notes.
+pub fn validate_prepared(
+    prepared: &PreparedValidation,
+    cps: &CertificationPathSettings,
+    ees: &[(String, Vec<u8>)],
+    validate_all: bool,
+) -> (Vec<TargetReport>, Vec<ResultLine>) {
+    let mut out = vec![];
     let mut reports = vec![];
     for (name, bytes) in ees {
-        let (report, lines) = validate_target(&pe, &cps, name, bytes, vs.validate_all);
+        let (report, lines) = validate_target(&prepared.pe, cps, name, bytes, validate_all);
         out.extend(lines);
         if let Some(r) = report {
             reports.push(r);
@@ -407,6 +422,33 @@ fn validate_target(
 
     let mut paths: Vec<CertificationPath> = vec![];
     if let Err(e) = pe.get_paths_for_target(&target, &mut paths, 0, toi) {
+        // A PathValidation error means a check failed while building the path (e.g. the target is
+        // not valid at the time of interest) — a rejection of the certificate, not an absence of
+        // candidate issuers. Report it as an invalid target carrying the reason rather than the
+        // neutral "no paths found", which reads like a store/configuration problem. Other errors
+        // (no candidate path exists) keep the no-paths-found outcome.
+        if let Error::PathValidation(pvs) = &e {
+            let reason = format!("{pvs:?}");
+            out.push(err(format!(
+                "{ee_name}: certificate rejected during path building — {reason}"
+            )));
+            let path = PathReport {
+                status: Some(*pvs),
+                error: Some(format!("{e:?}")),
+                certs: vec![target_summary.clone()],
+                failure_reasons: vec![reason],
+                ..Default::default()
+            };
+            return (
+                Some(TargetReport {
+                    name: ee_name.to_string(),
+                    target: Some(target_summary),
+                    status: TargetReport::compute_status(std::slice::from_ref(&path), true),
+                    paths: vec![path],
+                }),
+                out,
+            );
+        }
         out.push(err(format!("Failed to find certification paths: {e:?}")));
         return (
             Some(TargetReport {
@@ -673,6 +715,7 @@ mod tests {
         ValidationSettings {
             // 0 disables validity period checks so the baked PKITS edition stays usable
             toi: 0,
+            toi_custom: false,
             validate_all: true,
             initial_explicit_policy: false,
             initial_policy_mapping_inhibit: false,
@@ -685,12 +728,26 @@ mod tests {
         }
     }
 
+    /// Prepares an environment for `store` and validates `ees` against it in one call, as the
+    /// frontend's cached prepare/validate split does across clicks.
+    fn validate_batch(
+        store: (&str, &[u8], &[u8]),
+        ees: &[(String, Vec<u8>)],
+        vs: &ValidationSettings,
+    ) -> (Vec<TargetReport>, Vec<ResultLine>) {
+        let mut notes = vec![];
+        let cps = make_cps(vs, &mut notes);
+        let (prepared, prep_notes) = prepare_validation(Some(store), &[], &[], &cps).unwrap();
+        notes.extend(prep_notes);
+        let (reports, lines) = validate_prepared(&prepared, &cps, ees, vs.validate_all);
+        notes.extend(lines);
+        (reports, notes)
+    }
+
     #[test]
     fn sample_valid_reports_valid() {
         let (reports, _lines) = validate_batch(
-            Some(ML_DSA_44),
-            &[],
-            &[],
+            ML_DSA_44,
             &[(SAMPLE_VALID.0.to_string(), SAMPLE_VALID.1.to_vec())],
             &test_settings(),
         );
@@ -704,9 +761,7 @@ mod tests {
     #[test]
     fn sample_invalid_reports_invalid_at_target() {
         let (reports, _lines) = validate_batch(
-            Some(ML_DSA_44),
-            &[],
-            &[],
+            ML_DSA_44,
             &[(SAMPLE_INVALID.0.to_string(), SAMPLE_INVALID.1.to_vec())],
             &test_settings(),
         );
@@ -723,5 +778,41 @@ mod tests {
             .failure_reasons
             .iter()
             .any(|r| r.contains("SignatureVerificationFailure")));
+    }
+
+    // The settings file is certval's CertificationPathSettings JSON. certval is built here with its
+    // `std` feature off (the wasm dependency set), so these exercise the no_std serde path the
+    // browser build relies on for save/load.
+
+    #[test]
+    fn cps_json_round_trips_no_std() {
+        let vs = ValidationSettings {
+            toi: 1647264981,
+            toi_custom: true,
+            initial_explicit_policy: true,
+            initial_policy_set: "2.16.840.1.101.3.2.1.48.1".to_string(),
+            ..test_settings()
+        };
+        let mut notes = vec![];
+        let cps = make_cps(&vs, &mut notes);
+        let json = serde_json::to_string(&cps).unwrap();
+        // current certval stores the time of interest as the TimeOfInterest variant (a bare u64),
+        // not the legacy psTimeOfInterest {"U64": ...} form that predates the TimeOfInterest type
+        assert!(json.contains(r#""psTimeOfInterest":{"TimeOfInterest":1647264981}"#));
+        let back: CertificationPathSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(cps, back);
+    }
+
+    #[test]
+    fn parses_cps_file() {
+        // shape produced by make_cps / the CLI and desktop apps today
+        let json = r#"{"psInitialExplicitPolicyIndicator":{"Bool":true},"psInitialPolicySet":{"Strings":["2.16.840.1.101.3.2.1.48.1"]},"psTimeOfInterest":{"TimeOfInterest":1647264981}}"#;
+        let cps: CertificationPathSettings = serde_json::from_str(json).unwrap();
+        assert!(cps.get_initial_explicit_policy_indicator());
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), 1647264981);
+        assert_eq!(
+            cps.get_initial_policy_set(),
+            vec!["2.16.840.1.101.3.2.1.48.1".to_string()]
+        );
     }
 }

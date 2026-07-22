@@ -4629,6 +4629,7 @@ dependencies = [
  "pem-rfc7468",
  "pittv3_gui_lib",
  "pittv3_lib",
+ "serde",
  "serde_json",
  "web-sys",
  "web-time",

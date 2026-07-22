@@ -323,7 +323,6 @@ pub(crate) const EMAIL_PATTERN: &str =
 
 // TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
-#[cfg(feature = "std")]
 pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.as_bytes();
     let cand = cand.as_bytes();
@@ -351,13 +350,11 @@ pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> b
     }
 }
 
-// TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name falls within the constraint expressed by
 /// prev_name. Per RFC 5280 4.2.1.10, the constraint is a mailbox (a particular mailbox), a host
 /// (all mailboxes on that host) or a domain indicated by a leading period (all mailboxes on hosts
 /// within that domain). Per RFC 5280 7.5, local parts are compared exactly and host parts are
 /// compared case-insensitively.
-#[cfg(feature = "std")]
 pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String) -> bool {
     descended_from_rfc822_str(prev_name.as_ref(), new_name.as_ref())
 }
@@ -408,7 +405,6 @@ pub(crate) fn descended_from_rfc822_str(base: &str, cand: &str) -> bool {
 /// distinguished name, as `Ia5String` values. Applying rfc822 name constraints to an emailAddress
 /// attribute carried in the subject DN (in addition to rfc822Name SAN entries) is legacy RFC 3280
 /// behavior, as OpenSSL does; it is not required by RFC 5280.
-#[cfg(feature = "std")]
 pub(crate) fn emails_from_dn(name: &Name) -> Vec<Ia5String> {
     let mut emails = Vec::new();
     for rdn in name.iter_rdn() {

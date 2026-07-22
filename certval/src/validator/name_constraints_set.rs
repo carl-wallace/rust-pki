@@ -2,25 +2,25 @@
 
 use alloc::{
     collections::BTreeMap,
+    format,
     string::{String, ToString},
     vec,
     vec::Vec,
 };
-#[cfg(feature = "std")]
 use core::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+// URI name-constraint matching extracts the SAN host with the `url` crate, which needs std; the
+// other supported forms (rfc822, DNS, directory, IP) are no_std. IP uses core::net (stable since
+// 1.77) plus the cidr crate built without its std feature.
 #[cfg(feature = "std")]
 use url::Url;
 
-#[cfg(feature = "std")]
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-#[cfg(feature = "std")]
 use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
 
-#[cfg(feature = "std")]
 use der::asn1::OctetString;
 
 use der::asn1::{PrintableString, Utf8StringRef};
@@ -194,23 +194,13 @@ impl NameConstraintsSet {
             // as None signifies a failure.
             match gn {
                 GeneralName::Rfc822Name(_rfc822) => {
-                    #[cfg(feature = "std")]
                     if !self.rfc822_name_null {
                         self.rfc822_name.push(subtree.clone());
                     }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        self.rfc822_name_null = true;
-                    }
                 }
                 GeneralName::DnsName(_dns) => {
-                    #[cfg(feature = "std")]
                     if !self.dns_name_null {
                         self.dns_name.push(subtree.clone());
-                    }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        self.dns_name_null = true;
                     }
                 }
                 GeneralName::DirectoryName(_dn) => {
@@ -229,13 +219,8 @@ impl NameConstraintsSet {
                     }
                 }
                 GeneralName::IpAddress(_ip) => {
-                    #[cfg(feature = "std")]
                     if !self.ip_address_null {
                         self.ip_address.push(subtree.clone());
-                    }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        self.ip_address_null = true;
                     }
                 }
                 GeneralName::OtherName(on) => {
@@ -282,7 +267,6 @@ impl NameConstraintsSet {
         // rfc822 name constraints are also applied to a PKCS#9 emailAddress attribute in the
         // subject DN (legacy RFC 3280 behavior, as OpenSSL does), not just rfc822 SANs. Only
         // inspect the DN when an rfc822 constraint is present.
-        #[cfg(feature = "std")]
         {
             if self.rfc822_name_null || !self.rfc822_name.is_empty() {
                 for email in emails_from_dn(subject) {
@@ -375,7 +359,6 @@ impl NameConstraintsSet {
 
                         let mut rfc822_ok = false;
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.rfc822_name {
                             if let GeneralName::Rfc822Name(rfc822_state) = &gn_state.base {
                                 if descended_from_rfc822(rfc822_state, rfc822_san) {
@@ -401,7 +384,6 @@ impl NameConstraintsSet {
 
                         let mut dns_ok = false;
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.dns_name {
                             if let GeneralName::DnsName(dns_state) = &gn_state.base {
                                 if descended_from_host(dns_state, dns_san.as_str(), false) {
@@ -461,7 +443,6 @@ impl NameConstraintsSet {
 
                         let mut ip_ok = false;
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.ip_address {
                             if let GeneralName::IpAddress(ip_state) = &gn_state.base {
                                 let cidr_subtree = match get_cidr_for_subtree(ip_state.as_bytes()) {
@@ -531,7 +512,6 @@ impl NameConstraintsSet {
         // rfc822 name constraints are also applied to a PKCS#9 emailAddress attribute in the
         // subject DN (legacy RFC 3280 behavior, as OpenSSL does), not just rfc822 SANs. If any
         // such address falls within an excluded rfc822 subtree, reject.
-        #[cfg(feature = "std")]
         {
             if self.rfc822_name_null || !self.rfc822_name.is_empty() {
                 for email in emails_from_dn(subject) {
@@ -611,7 +591,6 @@ impl NameConstraintsSet {
                             continue;
                         }
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.rfc822_name {
                             if let GeneralName::Rfc822Name(rfc822_state) = &gn_state.base {
                                 if descended_from_rfc822(rfc822_state, rfc822_san) {
@@ -630,7 +609,6 @@ impl NameConstraintsSet {
                             continue;
                         }
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.dns_name {
                             if let GeneralName::DnsName(dns_state) = &gn_state.base {
                                 if descended_from_host(dns_state, dns_san.as_str(), false) {
@@ -678,7 +656,6 @@ impl NameConstraintsSet {
                             continue;
                         }
 
-                        #[cfg(feature = "std")]
                         for gn_state in &self.ip_address {
                             if let GeneralName::IpAddress(ip_state) = &gn_state.base {
                                 let cidr_subtree = match get_cidr_for_subtree(ip_state.as_bytes()) {
@@ -733,12 +710,6 @@ impl NameConstraintsSet {
             return;
         }
 
-        #[cfg(not(feature = "std"))]
-        {
-            self.rfc822_name_null = true;
-        }
-
-        #[cfg(feature = "std")]
         {
             let mut new_set = Vec::new();
 
@@ -776,12 +747,6 @@ impl NameConstraintsSet {
             return;
         }
 
-        #[cfg(not(feature = "std"))]
-        {
-            self.dns_name_null = true;
-        }
-
-        #[cfg(feature = "std")]
         {
             let mut new_set = Vec::new();
 
@@ -909,12 +874,6 @@ impl NameConstraintsSet {
             return;
         }
 
-        #[cfg(not(feature = "std"))]
-        {
-            self.ip_address_null = true;
-        }
-
-        #[cfg(feature = "std")]
         {
             let mut new_set = Vec::new();
 
@@ -1042,7 +1001,6 @@ pub struct NameConstraintsSettings {
     pub not_supported: Option<Vec<String>>, //ASCII hex encodings of unsupported name forms
 }
 
-#[cfg(feature = "std")]
 fn get_cidr_for_subtree(ip_bytes: &[u8]) -> Result<IpCidr> {
     if ip_bytes.len() == 8 {
         let mut tmp_addr: [u8; 4] = Default::default();
@@ -1066,7 +1024,6 @@ fn get_cidr_for_subtree(ip_bytes: &[u8]) -> Result<IpCidr> {
 }
 
 /// Creates an IpAddr from buffer with encoded address
-#[cfg(feature = "std")]
 pub fn get_ip_addr_for_san(ip_bytes: &[u8]) -> Result<IpAddr> {
     if ip_bytes.len() == 4 {
         let mut tmp_addr: [u8; 4] = Default::default();
@@ -1193,9 +1150,7 @@ pub fn name_constraints_settings_to_name_constraints_set(
     }
     bufs.insert("uri".to_string(), uribufs);
 
-    #[allow(unused_mut)]
     let mut ipbufs: Vec<Vec<u8>> = vec![];
-    #[cfg(feature = "std")]
     if let Some(ips) = &settings.ip_address {
         for ip in ips {
             let parts: Vec<&str> = ip.split('/').collect();
@@ -1348,7 +1303,6 @@ pub fn name_constraints_settings_to_name_constraints_set(
     })
 }
 
-#[cfg(feature = "std")]
 fn count_bits(buf: &[u8]) -> u8 {
     let mut num_bits = 0;
     let bits = vec![0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -1364,19 +1318,25 @@ fn count_bits(buf: &[u8]) -> u8 {
     num_bits
 }
 
-#[cfg(feature = "std")]
 fn set_bits(buf: &[u8], num_bits: u8) -> Vec<u8> {
-    use bitvec::prelude::*;
-    // Msb0 so bit 0 is the high-order bit of the first byte, matching the
-    // CIDR prefix semantics count_bits reads back
-    let mut bv = BitVec::<_, Msb0>::from_slice(buf);
-    for ii in 0..num_bits {
-        bv.set(ii as usize, true);
+    // Set the high-order `num_bits` bits (Msb0: bit 0 is the top bit of the first byte), matching the
+    // CIDR prefix semantics count_bits reads back. Plain bit math keeps this no_std (no bitvec).
+    let mut out = buf.to_vec();
+    let mut remaining = num_bits as usize;
+    for byte in out.iter_mut() {
+        if remaining >= 8 {
+            *byte |= 0xFF;
+            remaining -= 8;
+        } else if remaining > 0 {
+            *byte |= 0xFFu8 << (8 - remaining);
+            remaining = 0;
+        } else {
+            break;
+        }
     }
-    bv.to_bitvec().into()
+    out
 }
 
-#[cfg(feature = "std")]
 #[test]
 fn set_bits_count_bits_round_trip() {
     // Non-byte-aligned prefixes must survive the round trip. With Lsb0 ordering
@@ -1436,9 +1396,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         vuri = Some(tmp);
     }
 
-    #[cfg(feature = "std")]
     let mut vips: Option<Vec<String>> = None;
-    #[cfg(feature = "std")]
     {
         if !set.ip_address.is_empty() {
             let mut tmp = vec![];
@@ -1463,12 +1421,6 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
                 }
             }
             vips = Some(tmp);
-        }
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        if !set.ip_address.is_empty() {
-            return Err(Error::Unrecognized);
         }
     }
     let mut vupn: Option<Vec<String>> = None;
@@ -1515,8 +1467,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         vns = Some(tmp);
     }
 
-    #[cfg(feature = "std")]
-    return Ok(NameConstraintsSettings {
+    Ok(NameConstraintsSettings {
         rfc822_name: vrfc,
         dns_name: vdns,
         directory_name: vdn,
@@ -1524,18 +1475,7 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         user_principal_name: vupn,
         ip_address: vips,
         not_supported: vns,
-    });
-
-    #[cfg(not(feature = "std"))]
-    return Ok(NameConstraintsSettings {
-        rfc822_name: vrfc,
-        dns_name: vdns,
-        directory_name: vdn,
-        uniform_resource_identifier: vuri,
-        user_principal_name: vupn,
-        ip_address: None,
-        not_supported: vns,
-    });
+    })
 }
 
 // Intersecting permitted subtrees must retain the narrower subtree for rfc822/dNSName/URI

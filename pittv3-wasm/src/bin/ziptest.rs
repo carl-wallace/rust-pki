@@ -15,6 +15,7 @@ fn main() {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
+        toi_custom: false,
         validate_all: true,
         initial_explicit_policy: false,
         initial_policy_mapping_inhibit: false,
