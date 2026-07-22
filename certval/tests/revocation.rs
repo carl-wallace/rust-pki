@@ -741,3 +741,76 @@ async fn live_ocsp_nonce_disa() {
         "live DoD OCSP with SendNonceRequireMatch should succeed (nonce echoed), got {r:?}"
     );
 }
+
+// A trust anchor expressed as a name plus public key with no wrapped certificate (as webpki roots
+// are) can serve as the CRL issuer during revocation checking. Before the SubjectNameAndKey trait,
+// revocation hard-failed on such an anchor: get_certificate_from_trust_anchor returned None, so
+// check_revocation returned Error::Unrecognized before checking anything. This mirrors
+// stapled_crl_async but strips the trust anchor to name+SPKI form (same name and key).
+#[cfg(all(feature = "revocation", feature = "rsa"))]
+#[tokio::test]
+async fn stapled_crl_name_and_spki_trust_anchor() {
+    use certval::environment::pki_environment::PkiEnvironment;
+    use certval::path_settings::*;
+    use certval::*;
+    use der::asn1::OctetString;
+    use der::Decode;
+    use x509_cert::anchor::{CertPathControls, TrustAnchorChoice, TrustAnchorInfo};
+    use x509_cert::certificate::{Certificate, Raw};
+
+    let der_encoded_ta = include_bytes!("examples/harvard.edu/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/harvard.edu/1.der");
+    let der_encoded_ca_crl = include_bytes!("examples/harvard.edu/1-crl.crl");
+    let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
+    let der_encoded_ee_crl = include_bytes!("examples/harvard.edu/2-crl.crl");
+
+    // Build a name+SPKI trust anchor from the real root: same name and public key, but no wrapped
+    // certificate (cert_path.certificate = None), i.e. the shape a webpki root has.
+    let root = Certificate::from_der(der_encoded_ta.as_slice()).unwrap();
+    let cp: CertPathControls<Raw> = CertPathControls {
+        ta_name: root.tbs_certificate().subject().clone(),
+        certificate: None,
+        policy_set: None,
+        policy_flags: None,
+        name_constr: None,
+        path_len_constraint: None,
+    };
+    let tai: TrustAnchorInfo<Raw> = TrustAnchorInfo {
+        version: Default::default(),
+        pub_key: root.tbs_certificate().subject_public_key_info().clone(),
+        key_id: OctetString::new(vec![0u8; 20]).unwrap(),
+        ta_title: None,
+        cert_path: Some(cp),
+        extensions: None,
+        ta_title_lang_tag: None,
+    };
+    let ta = PDVTrustAnchorChoice::try_from(TrustAnchorChoice::TaInfo(tai)).unwrap();
+    // The condition that used to break revocation: this anchor has no embedded certificate.
+    assert!(get_certificate_from_trust_anchor(&ta.decoded_ta).is_none());
+
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    // crls[0] (CA's CRL) is signed by the root -> verified using the name+SPKI trust anchor's key.
+    cert_path.crls[0] = Some(der_encoded_ca_crl.to_vec());
+    cert_path.crls[1] = Some(der_encoded_ee_crl.to_vec());
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_check_revocation_status(true);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_require_ta_store(false);
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
+
+    let mut cpr = CertificationPathResults::new();
+    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    assert!(
+        r.is_ok(),
+        "revocation should succeed using stapled CRLs with a name+SPKI trust anchor as CRL issuer, got {r:?}"
+    );
+}

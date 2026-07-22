@@ -31,7 +31,7 @@ pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 web-time = "1.1.0"
-zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 # getrandom 0.4 (pulled in transitively via the RustCrypto 0.3/0.8 wave, e.g. crypto-common) has no
 # default backend on wasm32-unknown-unknown; the wasm_js feature opts into the JS (wasm-bindgen)

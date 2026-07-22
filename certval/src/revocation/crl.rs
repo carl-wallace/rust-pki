@@ -3,7 +3,6 @@
 
 extern crate alloc;
 use alloc::{
-    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -15,7 +14,7 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_ISSUER,
     ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_CRL_NUMBER, ID_CE_CRL_REASONS, ID_CE_DELTA_CRL_INDICATOR,
     ID_CE_FRESHEST_CRL, ID_CE_HOLD_INSTRUCTION_CODE, ID_CE_INVALIDITY_DATE,
-    ID_CE_ISSUING_DISTRIBUTION_POINT, ID_CE_KEY_USAGE,
+    ID_CE_ISSUING_DISTRIBUTION_POINT,
 };
 use der::{Decode, DerOrd, Encode};
 use x509_cert::ext::pkix::crl::dp::ReasonFlags;
@@ -25,21 +24,22 @@ use x509_cert::ext::pkix::{
     KeyUsages,
 };
 use x509_cert::ext::pkix::{
-    AuthorityKeyIdentifier, CrlDistributionPoints, IssuingDistributionPoint, KeyUsage,
+    AuthorityKeyIdentifier, CrlDistributionPoints, IssuingDistributionPoint,
 };
 use x509_cert::name::Name;
 use x509_cert::{
-    certificate::{CertificateInner, Raw},
+    certificate::Raw,
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
 };
 
 use crate::crl::CrlReasons::AllReasons;
+use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::Error::CrlIncompatible;
 use crate::{
-    compare_names, log_error_for_subject, name_to_string, CertificationPathResults,
-    CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
-    PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
+    compare_names, name_to_string, CertificationPathResults, CertificationPathSettings,
+    DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate, PDVExtension,
+    PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
 use core::time::Duration;
@@ -873,7 +873,7 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
-    issuer_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let Ok(defer_crl) = DeferDecodeSigned::from_der(crl_buf) else {
@@ -885,13 +885,14 @@ fn verify_crl(
         &defer_crl.tbs_field,
         defer_crl.signature.raw_bytes(),
         &defer_crl.signature_algorithm,
-        issuer_cert.tbs_certificate().subject_public_key_info(),
+        issuer.spki(),
     );
     if let Err(e) = r {
-        log_error_for_subject(
-            issuer_cert,
-            format!("CRL signature verification error: {e:?}").as_str(),
-        );
+        let subject = issuer
+            .subject_name()
+            .map(name_to_string)
+            .unwrap_or_default();
+        error!("CRL signature verification error for issuer {subject}: {e:?}");
         cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
             PathValidationStatus::SignatureVerificationFailure,
@@ -985,31 +986,32 @@ pub(crate) fn check_crl_validity(
     Ok(())
 }
 
-fn check_crl_sign(cert: &CertificateInner<Raw>) -> Result<()> {
-    if let Some(exts) = &cert.tbs_certificate().extensions() {
-        for ext in exts.as_slice() {
-            if ext.extn_id == ID_CE_KEY_USAGE {
-                if let Ok(ku) = KeyUsage::from_der(ext.extn_value.as_bytes()) {
-                    // RFC 5280 6.3.3(f): if a key usage extension is present, the cRLSign bit must
-                    // be set for the certificate to be a valid CRL issuer.
-                    if !ku.0.contains(KeyUsages::CRLSign) {
-                        error!("crlSign is not set in key usage extension");
-                        return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
-                    } else {
-                        return Ok(());
-                    }
-                } else {
-                    error!("key usage extension could not be parsed");
-                    return Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage));
-                }
+fn check_crl_sign(issuer: &dyn SubjectNameAndKey) -> Result<()> {
+    match issuer.key_usage() {
+        Some(ku) => {
+            // RFC 5280 6.3.3(f): if a key usage extension is present, the cRLSign bit must be set
+            // for the issuer to be a valid CRL issuer.
+            if ku.0.contains(KeyUsages::CRLSign) {
+                Ok(())
+            } else {
+                error!("crlSign is not set in key usage extension");
+                Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
+            }
+        }
+        None => {
+            // A trust anchor is implicitly trusted to issue CRLs even without a key usage extension
+            // (a name+SPKI anchor carries none). For an ordinary certificate, RFC 5280 6.3.3(f)
+            // gates the cRLSign check on the key usage extension being present, but we reject an
+            // absent one as a deliberate fail-closed choice: a modern CRL issuer always asserts
+            // cRLSign.
+            if issuer.is_implicitly_trusted() {
+                Ok(())
+            } else {
+                error!("key usage extension is missing");
+                Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
             }
         }
     }
-    // RFC 5280 6.3.3(f) gates the cRLSign check on the key usage extension being present, so a CRL
-    // issuer lacking one is not a conformance failure; rejecting it is a deliberate fail-closed
-    // choice, since a modern CRL issuer always carries key usage asserting cRLSign.
-    error!("key usage extension is missing");
-    Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
 }
 
 /// process_crl takes a CRL that is processed relative to a given target certificate and issuer
@@ -1020,14 +1022,14 @@ pub(crate) fn process_crl(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     result_index: usize,
     crl_buf: &[u8],
     uri: Option<&str>,
 ) -> Result<()> {
     // Verify then parse and classify the CRL
-    verify_crl(pe, crl_buf, issuer_cert, cpr)?;
-    check_crl_sign(issuer_cert)?;
+    verify_crl(pe, crl_buf, issuer, cpr)?;
+    check_crl_sign(issuer)?;
 
     let crl = match CertificateList::<Raw>::from_der(crl_buf) {
         Ok(crl) => crl,
@@ -1199,7 +1201,7 @@ pub(crate) async fn check_revocation_crl_remote(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
@@ -1226,7 +1228,7 @@ pub(crate) async fn check_revocation_crl_remote(
                 cps,
                 cpr,
                 target_cert,
-                issuer_cert,
+                issuer,
                 pos,
                 &crl,
                 Some(crl_dp.as_str()),
