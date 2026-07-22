@@ -14,6 +14,7 @@ use log::{error, warn};
 #[cfg(feature = "remote")]
 use log::{debug, info};
 
+use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::{
     crl::process_crl, util::pdv_utilities::compare_names, valid_at_time, CertificationPathResults,
     CertificationPathSettings, DeferDecodeSigned, Error, OcspNonceSetting, PDVCertificate,
@@ -64,18 +65,12 @@ use x509_cert::ext::Extension;
 #[cfg(feature = "remote")]
 use x509_ocsp::ext::Nonce;
 
-fn get_key_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
-    Ok(Sha1::digest(
-        cert.tbs_certificate()
-            .subject_public_key_info()
-            .subject_public_key
-            .raw_bytes(),
-    )
-    .to_vec())
+fn get_key_hash(issuer: &dyn SubjectNameAndKey) -> Result<Vec<u8>> {
+    Ok(Sha1::digest(issuer.spki().subject_public_key.raw_bytes()).to_vec())
 }
 
-fn get_subject_name_hash(cert: &CertificateInner<Raw>) -> Result<Vec<u8>> {
-    let enc_subject = match cert.tbs_certificate().subject().to_der() {
+fn get_subject_name_hash(issuer: &dyn SubjectNameAndKey) -> Result<Vec<u8>> {
+    let enc_subject = match issuer.subject_name()?.to_der() {
         Ok(enc_spki) => enc_spki,
         Err(e) => return Err(Error::Asn1Error(e)),
     };
@@ -407,7 +402,7 @@ fn has_ocsp_signing_eku(exts: &Option<&Extensions>) -> bool {
 
 fn verify_response_signature(
     pe: &PkiEnvironment,
-    signers_cert: &CertificateInner<Raw>,
+    signer: &dyn SubjectNameAndKey,
     enc_ocsp_resp: &[u8],
     bor: &BasicOcspResponse,
 ) -> Result<()> {
@@ -427,7 +422,7 @@ fn verify_response_signature(
         &ddbor.tbs_response_data,
         signature,
         &bor.signature_algorithm,
-        signers_cert.tbs_certificate().subject_public_key_info(),
+        signer.spki(),
     )
 }
 
@@ -449,7 +444,7 @@ pub async fn send_ocsp_request(
     cps: &CertificationPathSettings,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
-    issuers_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     cpr: &mut CertificationPathResults,
     result_index: usize,
 ) -> Result<()> {
@@ -467,8 +462,8 @@ pub async fn send_ocsp_request(
     };
 
     // Prepare info for request
-    let key_hash = get_key_hash(issuers_cert)?;
-    let name_hash = get_subject_name_hash(issuers_cert)?;
+    let key_hash = get_key_hash(issuer)?;
+    let name_hash = get_subject_name_hash(issuer)?;
 
     let enc_ocsp_req = prepare_ocsp_request(
         target_cert.as_ref(),
@@ -491,7 +486,7 @@ pub async fn send_ocsp_request(
         cps,
         cpr,
         &enc_ocsp_resp,
-        issuers_cert,
+        issuer,
         result_index,
         uri_to_check,
         target_cert,
@@ -532,13 +527,13 @@ pub fn process_ocsp_response(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
 ) -> Result<()> {
-    let key_hash = get_key_hash(issuers_cert)?;
-    let name_hash = get_subject_name_hash(issuers_cert)?;
+    let key_hash = get_key_hash(issuer)?;
+    let name_hash = get_subject_name_hash(issuer)?;
     // A stapled/externally-supplied response was not solicited by this library, so no nonce was
     // sent and none is enforced.
     process_ocsp_response_internal(
@@ -546,7 +541,7 @@ pub fn process_ocsp_response(
         cps,
         cpr,
         enc_ocsp_resp,
-        issuers_cert,
+        issuer,
         result_index,
         uri_to_check,
         target_cert,
@@ -563,7 +558,7 @@ fn process_ocsp_response_internal(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     enc_ocsp_resp: &[u8],
-    issuers_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
@@ -572,6 +567,9 @@ fn process_ocsp_response_internal(
     expected_nonce: Option<&[u8]>,
     nonce_setting: OcspNonceSetting,
 ) -> Result<()> {
+    // The issuer's subject name, used to match delegated responder certificates below. Resolved once
+    // (a trust anchor lookup can fail); a failure here means we cannot identify the issuer at all.
+    let issuer_subject = issuer.subject_name()?;
     let or = match OcspResponse::from_der(enc_ocsp_resp) {
         Ok(or) => or,
         Err(e) => {
@@ -663,10 +661,7 @@ fn process_ocsp_response_internal(
             // A delegated responder is issued by the same CA as the target, so its issuer must match
             // that CA's subject. This is a necessary condition for the signature verification below,
             // so a name mismatch lets us skip that verification entirely.
-            if !compare_names(
-                cert.tbs_certificate().issuer(),
-                issuers_cert.tbs_certificate().subject(),
-            ) {
+            if !compare_names(cert.tbs_certificate().issuer(), issuer_subject) {
                 continue;
             }
 
@@ -699,7 +694,7 @@ fn process_ocsp_response_internal(
                     &defer_cert.tbs_field,
                     defer_cert.signature.raw_bytes(),
                     &defer_cert.signature_algorithm,
-                    issuers_cert.tbs_certificate().subject_public_key_info(),
+                    issuer.spki(),
                 )
                 .is_err()
             {
@@ -728,7 +723,7 @@ fn process_ocsp_response_internal(
                                 cps,
                                 cpr,
                                 &responder,
-                                issuers_cert,
+                                issuer,
                                 result_index,
                                 crl.as_slice(),
                                 None,
@@ -760,14 +755,14 @@ fn process_ocsp_response_internal(
         // is not a delegated responder (it does not assert the id-kp-OCSPSigning EKU), so if none of
         // the echoed certificates authorized the response, fall back to the issuing CA's own key.
         if !sigverified
-            && verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor).is_ok()
+            && verify_response_signature(pe, issuer, rb.response.as_bytes(), &bor).is_ok()
         {
             authorized_responder = true;
             sigverified = true;
         }
     } else {
         // try the issuer's cert
-        let r = verify_response_signature(pe, issuers_cert, rb.response.as_bytes(), &bor);
+        let r = verify_response_signature(pe, issuer, rb.response.as_bytes(), &bor);
         if r.is_err() {
             error!("OCSPResponse from {uri_to_check} featured no candidate certificate but response signature verification failed using issuing CA certificate");
             cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
@@ -892,7 +887,7 @@ pub(crate) async fn check_revocation_ocsp(
     cps: &CertificationPathSettings,
     cpr: &mut CertificationPathResults,
     target_cert: &PDVCertificate,
-    issuer_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
@@ -904,8 +899,7 @@ pub(crate) async fn check_revocation_ocsp(
         );
     } else {
         for aia in ocsp_aias {
-            match send_ocsp_request(pe, cps, aia.as_str(), target_cert, issuer_cert, cpr, pos).await
-            {
+            match send_ocsp_request(pe, cps, aia.as_str(), target_cert, issuer, cpr, pos).await {
                 Ok(_r) => target_status = PathValidationStatus::Valid,
                 Err(e) => {
                     if let Error::PathValidation(pvs) = e {

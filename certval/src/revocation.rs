@@ -62,6 +62,7 @@
 //! - [`PS_OCSP_AIA_NONCE_SETTING`](../validator/path_settings/static.PS_OCSP_AIA_NONCE_SETTING.html)
 //!
 pub mod check_revocation;
+pub mod subject_name_and_key;
 
 #[cfg(feature = "revocation")]
 pub mod crl;
@@ -69,6 +70,7 @@ pub mod crl;
 pub mod ocsp_client;
 
 pub use crate::check_revocation::*;
+pub use crate::revocation::subject_name_and_key::*;
 
 #[cfg(feature = "revocation")]
 pub use crate::crl::*;
