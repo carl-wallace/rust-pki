@@ -573,7 +573,6 @@ dependencies = [
  "pqckeys",
  "pretty_env_logger",
  "readonly",
- "regex",
  "reqwest 0.13.4",
  "rsa",
  "rustls-pki-types",
