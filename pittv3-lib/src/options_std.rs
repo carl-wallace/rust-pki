@@ -404,6 +404,7 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
                         &mut lmm,
                         &mut blocklist,
                         TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                        cps.get_max_aia_fetch_bytes(),
                     )
                     .await;
                     if let Err(e) = r {
@@ -841,6 +842,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                     &mut lmm,
                     &mut blocklist,
                     TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                    cps.get_max_aia_fetch_bytes(),
                 )
                 .await;
 

@@ -100,6 +100,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
                 &mut lmm,
                 &mut blocklist,
                 toi,
+                cps.get_max_aia_fetch_bytes(),
             )
             .await;
             if let Err(e) = r {

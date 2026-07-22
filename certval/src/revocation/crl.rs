@@ -390,7 +390,12 @@ fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
-async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<Vec<u8>> {
+async fn fetch_crl(
+    pe: &PkiEnvironment,
+    uri: &str,
+    timeout: Duration,
+    max_bytes: u64,
+) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
@@ -401,10 +406,10 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<
         return Err(Error::UriOnBlocklist);
     }
 
-    let client = match reqwest::Client::builder().timeout(timeout).build() {
-        Ok(c) => c,
-        Err(e) => {
-            debug!("Failed to prepare HTTP client to retrieve CRL: {e}");
+    let client = match crate::builder::uri_utils::shared_http_client() {
+        Some(c) => c,
+        None => {
+            debug!("Failed to prepare HTTP client to retrieve CRL");
             return Err(Error::ResourceUnchanged);
         }
     };
@@ -413,9 +418,14 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<
     let h = pe.get_last_modified(uri);
 
     let response = if let Some(h) = h {
-        client.get(uri).header("If-Modified-Since", h).send().await
+        client
+            .get(uri)
+            .header("If-Modified-Since", h)
+            .timeout(timeout)
+            .send()
+            .await
     } else {
-        client.get(uri).send().await
+        client.get(uri).timeout(timeout).send().await
     };
     match response {
         Ok(response) => {
@@ -431,14 +441,7 @@ async fn fetch_crl(pe: &PkiEnvironment, uri: &str, timeout: Duration) -> Result<
                 }
             }
 
-            let b = response.bytes().await;
-            match &b {
-                Ok(bytes) => Ok(bytes.clone().to_vec()),
-                Err(e) => {
-                    debug!("Failed to retrieve CRL bytes from {uri} with {e}");
-                    Err(Error::NetworkError)
-                }
-            }
+            crate::builder::uri_utils::read_capped_body(response, max_bytes, uri).await
         }
         Err(e) => {
             debug!("Failed to fetch CRL from {uri}: {e:?}");
@@ -1214,10 +1217,11 @@ pub(crate) async fn check_revocation_crl_remote(
         );
     } else {
         let timeout = cps.get_crl_timeout();
+        let max_bytes = cps.get_max_crl_fetch_bytes();
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 
-            let crl = match fetch_crl(pe, crl_dp.as_str(), timeout).await {
+            let crl = match fetch_crl(pe, crl_dp.as_str(), timeout, max_bytes).await {
                 Ok(crl) => crl,
                 Err(_e) => continue,
             };
@@ -1270,6 +1274,7 @@ mod tests {
 
         use crate::{
             crl::fetch_crl, CrlSourceFolders, RemoteStatus, RevocationCache, TimeOfInterest,
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         };
         use std::{path::PathBuf, time::Duration};
         let mut pe = PkiEnvironment::default();
@@ -1289,11 +1294,23 @@ mod tests {
         pe.add_revocation_cache(Box::new(RevocationCache::new()));
         pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
 
-        let r = fetch_crl(&pe, "ldap://ldap.scheme/", Duration::from_secs(60)).await;
+        let r = fetch_crl(
+            &pe,
+            "ldap://ldap.scheme/",
+            Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+        )
+        .await;
         assert!(r.is_err());
         assert_eq!(Some(Error::InvalidUriScheme), r.err());
         pe.add_to_blocklist("http://blocklist.test");
-        let r = fetch_crl(&pe, "http://blocklist.test", Duration::from_secs(60)).await;
+        let r = fetch_crl(
+            &pe,
+            "http://blocklist.test",
+            Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+        )
+        .await;
         assert!(r.is_err());
         assert_eq!(Some(Error::UriOnBlocklist), r.err());
 
@@ -1306,6 +1323,7 @@ mod tests {
             &pe,
             "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
             Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         )
         .await;
         assert!(r.is_ok());
@@ -1313,12 +1331,38 @@ mod tests {
             &pe,
             "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
             Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         )
         .await;
         assert!(r.is_err());
         assert_eq!(Some(Error::ResourceUnchanged), r.err());
 
         let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
+    }
+
+    // The ingest cap must reject an oversized CRL body while streaming it, before the whole body is
+    // buffered. A 1-byte cap against a real (multi-KB) CRL trips the guard and yields LengthError.
+    #[cfg(feature = "remote")]
+    #[tokio::test]
+    async fn fetch_crl_respects_size_cap() {
+        use crate::util::Error;
+        use crate::PkiEnvironment;
+        use crate::{crl::fetch_crl, RemoteStatus};
+        use std::time::Duration;
+
+        let mut pe = PkiEnvironment::default();
+        pe.clear_all_callbacks();
+        pe.populate_5280_pki_environment();
+        // Point last-modified tracking at a private temp dir and clear any persisted map up front, so
+        // no cached If-Modified-Since (from a prior run) short-circuits the fetch with a 304.
+        let lmm_dir = std::env::temp_dir().join("certval_fetch_cap_test");
+        let _ = std::fs::create_dir_all(&lmm_dir);
+        let _ = std::fs::remove_file(lmm_dir.join("last_modified_map.json"));
+        pe.add_check_remote(Box::new(RemoteStatus::new(lmm_dir.to_str().unwrap_or("."))));
+
+        let uri = "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl";
+        let r = fetch_crl(&pe, uri, Duration::from_secs(60), 1).await;
+        assert_eq!(Some(Error::LengthError), r.err());
     }
 
     // A CRL that omits nextUpdate has no upper time bound. check_crl_validity caps its age

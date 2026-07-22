@@ -358,6 +358,40 @@ pub static PS_MAX_AIA_SIA_CERTS: &str = "psMaxAiaSiaCerts";
 /// bounding an AIA/SIA fetch loop that never converges.
 pub static PS_MAX_AIA_SIA_CERTS_DEFAULT: u64 = 2000;
 
+/// `PS_MAX_CRL_FETCH_BYTES` bounds, in bytes, the size of a CRL body accepted from a remote CRL
+/// distribution point. The fetch path enforces it while streaming the response, so a hostile or
+/// misconfigured responder cannot exhaust memory by streaming an unbounded body regardless of the
+/// (attacker-controlled) `Content-Length`. This is an OOM ceiling, not artifact-size validation:
+/// pick it comfortably above the largest legitimate CRL and far below "exhausts RAM". The default is
+/// [`PS_MAX_CRL_FETCH_BYTES_DEFAULT`].
+pub static PS_MAX_CRL_FETCH_BYTES: &str = "psMaxCrlFetchBytes";
+
+/// Default value for [`PS_MAX_CRL_FETCH_BYTES`]: 100 MiB. Enterprise CRLs are large -- the biggest
+/// current DoD CRL is ~25 MB -- so the ceiling leaves several-fold headroom for growth while still
+/// bounding an unbounded-ingest DoS.
+pub static PS_MAX_CRL_FETCH_BYTES_DEFAULT: u64 = 100 * 1024 * 1024;
+
+/// `PS_MAX_OCSP_FETCH_BYTES` bounds, in bytes, the size of an OCSP response body accepted from a
+/// remote responder, enforced while streaming the response (see [`PS_MAX_CRL_FETCH_BYTES`] for the
+/// rationale). Legitimate OCSP responses are tens of KB even with a delegated-responder certificate,
+/// so the default ceiling is generous. The default is [`PS_MAX_OCSP_FETCH_BYTES_DEFAULT`].
+pub static PS_MAX_OCSP_FETCH_BYTES: &str = "psMaxOcspFetchBytes";
+
+/// Default value for [`PS_MAX_OCSP_FETCH_BYTES`]: 1 MiB, far above any realistic OCSP response.
+pub static PS_MAX_OCSP_FETCH_BYTES_DEFAULT: u64 = 1024 * 1024;
+
+/// `PS_MAX_AIA_FETCH_BYTES` bounds, in bytes, the size of a single artifact (certificate or
+/// certs-only PKCS#7) fetched from an AIA/SIA URI, enforced while streaming the response (see
+/// [`PS_MAX_CRL_FETCH_BYTES`] for the rationale). Fetched artifacts are CA certificates (moderate
+/// signature-key certs); the default leaves headroom for a large PQC certificate (a Classic McEliece
+/// public key can approach ~1.5 MB) should one be served via caIssuers. The default is
+/// [`PS_MAX_AIA_FETCH_BYTES_DEFAULT`].
+pub static PS_MAX_AIA_FETCH_BYTES: &str = "psMaxAiaFetchBytes";
+
+/// Default value for [`PS_MAX_AIA_FETCH_BYTES`]: 4 MiB, above the largest legitimate certificate
+/// (including a Classic McEliece cert) while bounding an unbounded-ingest DoS.
+pub static PS_MAX_AIA_FETCH_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
+
 /// `PS_CERTIFICATES` is used to retrieve a set of potentially useful certificates from a [`CertificationPathSettings`]
 /// object.
 pub static PS_CERTIFICATES: &str = "psCertificates";
@@ -730,6 +764,13 @@ cps_gets_and_sets_with_default!(
     PS_REVOCATION_MAX_AGE_DEFAULT
 );
 cps_gets_and_sets_with_default!(PS_MAX_AIA_SIA_CERTS, u64, PS_MAX_AIA_SIA_CERTS_DEFAULT);
+cps_gets_and_sets_with_default!(PS_MAX_CRL_FETCH_BYTES, u64, PS_MAX_CRL_FETCH_BYTES_DEFAULT);
+cps_gets_and_sets_with_default!(
+    PS_MAX_OCSP_FETCH_BYTES,
+    u64,
+    PS_MAX_OCSP_FETCH_BYTES_DEFAULT
+);
+cps_gets_and_sets_with_default!(PS_MAX_AIA_FETCH_BYTES, u64, PS_MAX_AIA_FETCH_BYTES_DEFAULT);
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
 // PS_CERTIFICATES (will need lifetime aware macro)
 cps_gets_and_sets_with_default!(PS_REQUIRE_COUNTRY_CODE_INDICATOR, bool, false);
