@@ -412,3 +412,113 @@ fn enforce_ta_constraints_rejects_same_key_different_constraints() {
         "expected TrustAnchorConstraintsMismatch"
     );
 }
+
+// A subject key identifier shared by two trust anchors with different public keys is ambiguous:
+// the PkiEnvironment poisons that SKID and refuses trust-anchor lookups keyed on it, so neither
+// anchor can be used. A store without the collision resolves normally, and a same-key duplicate
+// under the same SKID is benign and still resolves.
+#[cfg(feature = "rsa")]
+#[test]
+fn colliding_skid_different_keys_is_refused() {
+    use der::asn1::OctetString;
+    use der::Encode;
+    use x509_cert::anchor::{TrustAnchorChoice, TrustAnchorInfo};
+
+    // This test deliberately induces a SKID collision, which the library correctly reports at ERROR.
+    // Suppress log output for the duration so the induced error does not clutter otherwise-quiet test
+    // output; no assertion depends on logging. Install the logger first (idempotent) so a sibling
+    // test's parallel try_init cannot reset the max level back after this one lowers it.
+    let _ = pretty_env_logger::try_init();
+    let prev_log_level = log::max_level();
+    log::set_max_level(log::LevelFilter::Off);
+
+    let der_root = include_bytes!("examples/TrustAnchorRootCertificate.crt");
+    let der_other = include_bytes!("examples/GoodCACert.crt");
+    let root = Certificate::from_der(der_root).unwrap();
+    let other = Certificate::from_der(der_other).unwrap();
+
+    // The SKID TrustAnchorRootCertificate.crt is indexed under.
+    let root_skid: [u8; 20] = [
+        0xE4, 0x7D, 0x5F, 0xD1, 0x5C, 0x95, 0x86, 0x08, 0x2C, 0x05, 0xAE, 0xBE, 0x75, 0xB6, 0x65,
+        0xA7, 0xD9, 0x5D, 0xA8, 0x66,
+    ];
+    let root_skid_hex = buffer_to_hex(&root_skid);
+
+    // A TaInfo trust anchor reusing root_skid as its key_id, carrying the given public key, as a DER
+    // buffer a TaSource can parse.
+    let make_tainfo = |spki: spki::SubjectPublicKeyInfoOwned| -> Vec<u8> {
+        let tai: TrustAnchorInfo<Raw> = TrustAnchorInfo {
+            version: Default::default(),
+            pub_key: spki,
+            key_id: OctetString::new(root_skid.to_vec()).unwrap(),
+            ta_title: None,
+            cert_path: None,
+            extensions: None,
+            ta_title_lang_tag: None,
+        };
+        TrustAnchorChoice::TaInfo(tai).to_der().unwrap()
+    };
+
+    let mut src_root = TaSource::new();
+    src_root.push(CertFile {
+        filename: "root".to_string(),
+        bytes: der_root.to_vec(),
+    });
+    src_root.initialize().unwrap();
+
+    let mut root_ta = PDVTrustAnchorChoice::try_from(der_root.as_slice()).unwrap();
+    root_ta.parse_extensions(EXTS_OF_INTEREST);
+
+    // Baseline: no collision, so the root resolves by its SKID and is recognized as a trust anchor.
+    {
+        let mut pe = PkiEnvironment::new();
+        pe.add_trust_anchor_source(Box::new(src_root.clone()));
+        assert!(pe.get_trust_anchor_by_hex_skid(&root_skid_hex).is_ok());
+        assert!(pe.is_trust_anchor(&root_ta).is_ok());
+    }
+
+    // Collision: a second anchor reuses the SKID with a different key -> the SKID is poisoned.
+    let mut src_collide = TaSource::new();
+    src_collide.push(CertFile {
+        filename: "collide".to_string(),
+        bytes: make_tainfo(other.tbs_certificate().subject_public_key_info().clone()),
+    });
+    src_collide.initialize().unwrap();
+    assert_eq!(
+        src_collide.get_trust_anchors().unwrap().len(),
+        1,
+        "the TaInfo buffer should have parsed into a trust anchor"
+    );
+    {
+        let mut pe = PkiEnvironment::new();
+        pe.add_trust_anchor_source(Box::new(src_root.clone()));
+        pe.add_trust_anchor_source(Box::new(src_collide.clone()));
+        assert!(
+            pe.get_trust_anchor_by_hex_skid(&root_skid_hex).is_err(),
+            "an ambiguous SKID must not resolve to a trust anchor"
+        );
+        assert!(
+            pe.is_trust_anchor(&root_ta).is_err(),
+            "a cert bearing the ambiguous SKID must not be accepted as a trust anchor"
+        );
+    }
+
+    // Same key reused under the same SKID is a benign duplicate, not a collision -> still resolves.
+    let mut src_dup = TaSource::new();
+    src_dup.push(CertFile {
+        filename: "dup".to_string(),
+        bytes: make_tainfo(root.tbs_certificate().subject_public_key_info().clone()),
+    });
+    src_dup.initialize().unwrap();
+    {
+        let mut pe = PkiEnvironment::new();
+        pe.add_trust_anchor_source(Box::new(src_root.clone()));
+        pe.add_trust_anchor_source(Box::new(src_dup.clone()));
+        assert!(
+            pe.get_trust_anchor_by_hex_skid(&root_skid_hex).is_ok(),
+            "a same-key duplicate SKID is benign and must still resolve"
+        );
+    }
+
+    log::set_max_level(prev_log_level);
+}
