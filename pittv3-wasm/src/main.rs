@@ -99,6 +99,23 @@ async fn fetch_bytes(_url: &str) -> Result<Vec<u8>, String> {
     Err("network fetch is only available in the browser build".to_string())
 }
 
+/// True on touch devices (iPad/iPhone). iPadOS Safari reports as desktop macOS in its user agent,
+/// so `navigator.maxTouchPoints` (0 on a real Mac/PC, >0 on iPad/iPhone) is the reliable signal.
+/// Used to broaden the store inputs' `accept` filter only where it is needed: iOS grays out files
+/// whose extension (.cbor/.ta) has no registered UTI unless a supertype (application/octet-stream)
+/// is also offered, whereas on desktop that supertype would defeat the extension filter entirely.
+#[cfg(target_family = "wasm")]
+fn is_touch_device() -> bool {
+    web_sys::window()
+        .map(|w| w.navigator().max_touch_points() > 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn is_touch_device() -> bool {
+    false
+}
+
 /// Reads all files carried by a form event into (name, bytes) pairs
 async fn read_files(ev: &FormEvent) -> Vec<(String, Vec<u8>)> {
     let mut out = vec![];
@@ -344,6 +361,21 @@ fn App() -> Element {
         view.set(RESULTS_VIEW);
     };
 
+    // On touch devices (iPad/iPhone) the file picker grays out .cbor/.ta stores unless a generic
+    // supertype is offered; on desktop that supertype would defeat the extension filter, so keep
+    // the strict list there. See is_touch_device.
+    let touch = is_touch_device();
+    let ta_accept = if touch {
+        ".der,.crt,.cer,.pem,.ta,.cbor,application/octet-stream"
+    } else {
+        ".der,.crt,.cer,.pem,.ta,.cbor"
+    };
+    let ca_accept = if touch {
+        ".der,.crt,.cer,.pem,.cbor,application/octet-stream"
+    } else {
+        ".der,.crt,.cer,.pem,.cbor"
+    };
+
     rsx! {
         style { {PITTV3_CSS} }
         style { {include_str!("../assets/pittv3-wasm.css")} }
@@ -383,7 +415,7 @@ fn App() -> Element {
                                 input {
                                     r#type: "file",
                                     multiple: true,
-                                    accept: ".der,.crt,.cer,.pem,.ta,.cbor",
+                                    accept: "{ta_accept}",
                                     onchange: move |ev| async move {
                                         let files = read_files(&ev).await;
                                         extend_unique(uploaded_tas, files);
@@ -393,7 +425,7 @@ fn App() -> Element {
                                 input {
                                     r#type: "file",
                                     multiple: true,
-                                    accept: ".der,.crt,.cer,.pem,.cbor",
+                                    accept: "{ca_accept}",
                                     onchange: move |ev| async move {
                                         let files = read_files(&ev).await;
                                         extend_unique(uploaded_cas, files);
