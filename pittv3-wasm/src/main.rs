@@ -271,12 +271,14 @@ fn App() -> Element {
         dns_name: init_perm_dns,
         rfc822_name: init_perm_email,
         directory_name: init_perm_dn,
+        uniform_resource_identifier: init_perm_uri,
         ip_address: init_perm_ip,
     } = init_perm;
     let NameConstraintInputs {
         dns_name: init_excl_dns,
         rfc822_name: init_excl_email,
         directory_name: init_excl_dn,
+        uniform_resource_identifier: init_excl_uri,
         ip_address: init_excl_ip,
     } = init_excl;
 
@@ -326,10 +328,12 @@ fn App() -> Element {
     let mut perm_dns = use_signal(move || init_perm_dns);
     let mut perm_email = use_signal(move || init_perm_email);
     let mut perm_dn = use_signal(move || init_perm_dn);
+    let mut perm_uri = use_signal(move || init_perm_uri);
     let mut perm_ip = use_signal(move || init_perm_ip);
     let mut excl_dns = use_signal(move || init_excl_dns);
     let mut excl_email = use_signal(move || init_excl_email);
     let mut excl_dn = use_signal(move || init_excl_dn);
+    let mut excl_uri = use_signal(move || init_excl_uri);
     let mut excl_ip = use_signal(move || init_excl_ip);
 
     let current_settings = move || ValidationSettings {
@@ -346,12 +350,14 @@ fn App() -> Element {
             dns_name: perm_dns(),
             rfc822_name: perm_email(),
             directory_name: perm_dn(),
+            uniform_resource_identifier: perm_uri(),
             ip_address: perm_ip(),
         },
         excluded_subtrees: NameConstraintInputs {
             dns_name: excl_dns(),
             rfc822_name: excl_email(),
             directory_name: excl_dn(),
+            uniform_resource_identifier: excl_uri(),
             ip_address: excl_ip(),
         },
     };
@@ -386,7 +392,8 @@ fn App() -> Element {
         enforce_ta_validity.set(true);
         settings_status.set(String::new());
         for mut s in [
-            perm_dns, perm_email, perm_dn, perm_ip, excl_dns, excl_email, excl_dn, excl_ip,
+            perm_dns, perm_email, perm_dn, perm_uri, perm_ip, excl_dns, excl_email, excl_dn,
+            excl_uri, excl_ip,
         ] {
             s.set(String::new());
         }
@@ -527,12 +534,22 @@ fn App() -> Element {
                 .map(|v| v.join("\n"))
                 .unwrap_or_default(),
         );
+        perm_uri.set(
+            perm.uniform_resource_identifier
+                .map(|v| v.join("\n"))
+                .unwrap_or_default(),
+        );
         perm_ip.set(perm.ip_address.map(|v| v.join("\n")).unwrap_or_default());
         let excl = m.initial_excluded_subtrees.unwrap_or_default();
         excl_dns.set(excl.dns_name.map(|v| v.join("\n")).unwrap_or_default());
         excl_email.set(excl.rfc822_name.map(|v| v.join("\n")).unwrap_or_default());
         excl_dn.set(
             excl.directory_name
+                .map(|v| v.join("\n"))
+                .unwrap_or_default(),
+        );
+        excl_uri.set(
+            excl.uniform_resource_identifier
                 .map(|v| v.join("\n"))
                 .unwrap_or_default(),
         );
@@ -874,6 +891,8 @@ fn App() -> Element {
                                     textarea { rows: "2", value: "{perm_email}", oninput: move |ev| perm_email.set(ev.value()) }
                                     label { "directoryName (DN): " }
                                     textarea { rows: "2", value: "{perm_dn}", oninput: move |ev| perm_dn.set(ev.value()) }
+                                    label { "URI: " }
+                                    textarea { rows: "2", value: "{perm_uri}", oninput: move |ev| perm_uri.set(ev.value()) }
                                     label { "iPAddress (CIDR): " }
                                     textarea { rows: "2", value: "{perm_ip}", oninput: move |ev| perm_ip.set(ev.value()) }
                                     span { class: "hint",
@@ -890,6 +909,8 @@ fn App() -> Element {
                                     textarea { rows: "2", value: "{excl_email}", oninput: move |ev| excl_email.set(ev.value()) }
                                     label { "directoryName (DN): " }
                                     textarea { rows: "2", value: "{excl_dn}", oninput: move |ev| excl_dn.set(ev.value()) }
+                                    label { "URI: " }
+                                    textarea { rows: "2", value: "{excl_uri}", oninput: move |ev| excl_uri.set(ev.value()) }
                                     label { "iPAddress (CIDR): " }
                                     textarea { rows: "2", value: "{excl_ip}", oninput: move |ev| excl_ip.set(ev.value()) }
                                     span { class: "hint", "One entry per line." }

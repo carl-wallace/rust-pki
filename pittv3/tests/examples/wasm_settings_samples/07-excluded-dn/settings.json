@@ -17,8 +17,7 @@
       "ip_address": null,
       "not_supported": null,
       "rfc822_name": null,
-      "uniform_resource_identifier": null,
-      "user_principal_name": null
+      "uniform_resource_identifier": null
     }
   },
   "psInitialExplicitPolicyIndicator": {

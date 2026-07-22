@@ -90,10 +90,9 @@ pub struct ValidationSettings {
     pub excluded_subtrees: NameConstraintInputs,
 }
 
-/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. URI and the
-/// "not supported" catch-all are intentionally omitted: the unsupported-forms bucket needs custom
-/// enforcement, and URI matching is std-only in certval (it parses the SAN host with the `url`
-/// crate), so the no_std browser build cannot enforce it.
+/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN and the
+/// "not supported" catch-all are omitted: UPN has been removed from certval, and the
+/// unsupported-forms bucket needs custom enforcement.
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct NameConstraintInputs {
     /// dNSName subtrees
@@ -102,6 +101,8 @@ pub struct NameConstraintInputs {
     pub rfc822_name: String,
     /// directoryName (DN) subtrees
     pub directory_name: String,
+    /// uniformResourceIdentifier subtrees
+    pub uniform_resource_identifier: String,
     /// iPAddress subtrees (CIDR form)
     pub ip_address: String,
 }
@@ -165,12 +166,14 @@ fn to_name_constraints(nc: &NameConstraintInputs) -> Option<NameConstraintsSetti
         rfc822_name: lines_to_vec(&nc.rfc822_name),
         dns_name: lines_to_vec(&nc.dns_name),
         directory_name: lines_to_vec(&nc.directory_name),
+        uniform_resource_identifier: lines_to_vec(&nc.uniform_resource_identifier),
         ip_address: lines_to_vec(&nc.ip_address),
         ..Default::default()
     };
     let empty = s.rfc822_name.is_none()
         && s.dns_name.is_none()
         && s.directory_name.is_none()
+        && s.uniform_resource_identifier.is_none()
         && s.ip_address.is_none();
     (!empty).then_some(s)
 }

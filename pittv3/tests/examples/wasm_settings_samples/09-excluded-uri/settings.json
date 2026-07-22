@@ -1,0 +1,20 @@
+{
+  "psCheckRevocationStatus": {
+    "Bool": false
+  },
+  "psInitialExcludedSubtrees": {
+    "NameConstraintsSettings": {
+      "directory_name": null,
+      "dns_name": null,
+      "ip_address": null,
+      "not_supported": null,
+      "rfc822_name": null,
+      "uniform_resource_identifier": [
+        ".testcertificates.gov"
+      ]
+    }
+  },
+  "psTimeOfInterest": {
+    "TimeOfInterest": 1647264981
+  }
+}

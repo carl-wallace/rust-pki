@@ -589,7 +589,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-test",
- "url",
  "walkdir",
  "webpki-roots",
  "x509-cert",
