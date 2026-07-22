@@ -8,6 +8,7 @@ use der::asn1::ObjectIdentifier;
 use pkiprocmacros::*;
 
 use crate::path_settings::*;
+use crate::validator::name_constraints_set::NameConstraintsSet;
 use crate::Error;
 use crate::PathValidationStatus;
 use crate::Result;
@@ -32,6 +33,8 @@ pub enum CertificationPathResultsTypes {
     Error(Error),
     /// Represents u32 values
     U32(u32),
+    /// Represents a terminal name-constraints working set (permitted or excluded subtrees)
+    NameConstraintsSet(NameConstraintsSet),
 }
 
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
@@ -114,6 +117,19 @@ pub static PR_FINAL_POLICY_MAPPING: &str = "cprFinalPolicyMapping";
 /// variable from RFC 5280 section 6.1 upon completion of certificate policy processing.
 pub static PR_FINAL_INHIBIT_ANY_POLICY: &str = "cprFinalInhibitAnyPolicy";
 
+/// `PR_FINAL_PERMITTED_SUBTREES` is used to retrieve the terminal permitted_subtrees name-constraints
+/// state from RFC 5280 section 6.1 upon completion of name-constraints processing. The stored
+/// [`NameConstraintsSet`] preserves the null-vs-empty distinction per form: a `_null` bucket denotes
+/// a permitted set that intersected to empty (nothing permitted), distinct from an empty `Vec`
+/// (unconstrained). Absent when no name-constraints processing occurred.
+pub static PR_FINAL_PERMITTED_SUBTREES: &str = "cprFinalPermittedSubtrees";
+
+/// `PR_FINAL_EXCLUDED_SUBTREES` is used to retrieve the terminal excluded_subtrees name-constraints
+/// state from RFC 5280 section 6.1 upon completion of name-constraints processing. The stored
+/// [`NameConstraintsSet`] accumulates the union of excluded subtrees across the path. Absent when no
+/// name-constraints processing occurred.
+pub static PR_FINAL_EXCLUDED_SUBTREES: &str = "cprFinalExcludedSubtrees";
+
 //-----------------------------------------------------------------------------------------------
 // Getters/setters for results
 //-----------------------------------------------------------------------------------------------
@@ -127,6 +143,8 @@ cpr_gets_and_sets!(PR_FAILURE_INDEX, u32);
 cpr_gets_and_sets!(PR_FINAL_EXPLICIT_POLICY, u32);
 cpr_gets_and_sets!(PR_FINAL_POLICY_MAPPING, u32);
 cpr_gets_and_sets!(PR_FINAL_INHIBIT_ANY_POLICY, u32);
+cpr_gets_and_sets!(PR_FINAL_PERMITTED_SUBTREES, NameConstraintsSet);
+cpr_gets_and_sets!(PR_FINAL_EXCLUDED_SUBTREES, NameConstraintsSet);
 cpr_gets_and_sets!(PR_FAILED_OCSP_REQUESTS, ListOfBuffers);
 impl CertificationPathResults {
     /// Add a failed OCSP request to list maintained by CertificationPathResults

@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 
-use certval::TimeOfInterest;
+use certval::{NameConstraintsSettings, TimeOfInterest};
 use pittv3_lib::report::{
     PathReport, ProgressEvent, RevocationMethod, RevocationOutcome, RevocationStatus, TargetReport,
     TargetStatus, ValidationReport,
@@ -162,6 +162,43 @@ pub fn PathDetail(path: PathReport, path_index: usize) -> Element {
                     }
                 }
             }
+            if let Some(nc) = path.name_constraints.clone() {
+                {
+                    let permitted = nc_rows(&nc.permitted);
+                    let excluded = nc_rows(&nc.excluded);
+                    rsx! {
+                        div { class: "name-constraints-outcome",
+                            strong { "Name constraints: " }
+                            div { class: "nc-group",
+                                span { class: "nc-label", "Permitted: " }
+                                if permitted.is_empty() {
+                                    span { class: "hint", "unconstrained" }
+                                } else {
+                                    for (label , text) in permitted.iter() {
+                                        span { key: "{label}", class: "nc-form",
+                                            "{label}: "
+                                            span { class: "mono", "{text}" }
+                                        }
+                                    }
+                                }
+                            }
+                            div { class: "nc-group",
+                                span { class: "nc-label", "Excluded: " }
+                                if excluded.is_empty() {
+                                    span { class: "hint", "none" }
+                                } else {
+                                    for (label , text) in excluded.iter() {
+                                        span { key: "{label}", class: "nc-form",
+                                            "{label}: "
+                                            span { class: "mono", "{text}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -172,6 +209,35 @@ fn opt_u32(v: Option<u32>) -> String {
         Some(v) => v.to_string(),
         None => "—".to_string(),
     }
+}
+
+/// Flattens the set name forms of a [`NameConstraintsSettings`] into (label, value) rows for display,
+/// one row per form that carries a constraint. A form set to `Some(vec![])` (a permitted set that
+/// intersected to empty, i.e., nothing permitted) renders as `∅`; an unconstrained (`None`) form is
+/// omitted entirely.
+fn nc_rows(s: &NameConstraintsSettings) -> Vec<(&'static str, String)> {
+    fn push_form(
+        rows: &mut Vec<(&'static str, String)>,
+        label: &'static str,
+        field: &Option<Vec<String>>,
+    ) {
+        if let Some(vals) = field {
+            let text = if vals.is_empty() {
+                "∅".to_string()
+            } else {
+                vals.join(", ")
+            };
+            rows.push((label, text));
+        }
+    }
+    let mut rows = vec![];
+    push_form(&mut rows, "DNS", &s.dns_name);
+    push_form(&mut rows, "Email", &s.rfc822_name);
+    push_form(&mut rows, "Directory", &s.directory_name);
+    push_form(&mut rows, "URI", &s.uniform_resource_identifier);
+    push_form(&mut rows, "IP", &s.ip_address);
+    push_form(&mut rows, "Other", &s.not_supported);
+    rows
 }
 
 /// Accordion card for one target certificate: status badge summary plus per-path details
