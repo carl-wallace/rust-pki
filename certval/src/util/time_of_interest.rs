@@ -102,8 +102,9 @@ impl Sub<TimeOfInterest> for x509_cert::time::Time {
     }
 }
 
-#[cfg(feature = "std")]
-mod std {
+// Serde for TimeOfInterest is a plain u64 (Unix seconds) round-trip, so it needs no std; keeping it
+// available in no_std builds lets CertificationPathSettings serialize under no-default-features.
+mod serde_impl {
     use super::*;
     use serde::{
         de::{self, Deserializer, Visitor},
@@ -146,6 +147,12 @@ mod std {
             deserializer.deserialize_u64(ToiVisitor)
         }
     }
+}
+
+// now()/Default read the system clock, so they remain std-only.
+#[cfg(feature = "std")]
+mod std_only {
+    use super::*;
 
     impl TimeOfInterest {
         /// Creates a [`TimeOfInterest`] for today's date

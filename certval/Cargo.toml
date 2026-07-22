@@ -48,7 +48,9 @@ subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex
 
 bitvec = { version = "1.1.1", optional = true }
 ciborium = {version = "0.2.2", default-features = false }
-cidr = { version = "0.3.2", optional = true }
+# IP-address name-constraint processing is no_std-capable (core::net + cidr with default features
+# off), so cidr is a non-optional no_std dependency rather than being gated behind std.
+cidr = { version = "0.3.2", default-features = false }
 log = {version = "0.4.33", default-features = false}
 reqwest = { version = "0.13.4", features = ["blocking"], optional = true}
 getrandom = { version = "0.3", optional = true}
@@ -91,7 +93,7 @@ tokio = { version = "1.52.3", features = ["full", "macros", "time", "rt-multi-th
 [features]
 default = ["remote", "webpki"]
 revocation = []
-std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc",  "flagset/serde", "dep:regex", "dep:bitvec", "dep:cidr", "der/std"]
+std = ["dep:base64ct", "dep:walkdir", "dep:url", "dep:serde_json", "serde/rc", "dep:regex", "dep:bitvec", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys", "fn-dsa-vrfy"]
 webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]

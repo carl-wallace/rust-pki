@@ -77,6 +77,15 @@ details.notes li {
   margin-bottom: 1rem;
 }
 
+/* Inside a fieldset the border + legend already frame the group, so drop the inner
+   .controls box; without this the nested sections render a redundant double border. */
+fieldset > .controls {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
 .controls label {
   font-weight: 600;
   text-align: right;

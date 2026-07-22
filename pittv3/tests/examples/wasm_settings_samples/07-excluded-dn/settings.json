@@ -1,0 +1,36 @@
+{
+  "psCheckRevocationStatus": {
+    "Bool": false
+  },
+  "psEnforceTrustAnchorConstraints": {
+    "Bool": false
+  },
+  "psEnforceTrustAnchorValidity": {
+    "Bool": true
+  },
+  "psInitialExcludedSubtrees": {
+    "NameConstraintsSettings": {
+      "directory_name": [
+        "O=Test Certificates 2011,C=US"
+      ],
+      "dns_name": null,
+      "ip_address": null,
+      "not_supported": null,
+      "rfc822_name": null,
+      "uniform_resource_identifier": null,
+      "user_principal_name": null
+    }
+  },
+  "psInitialExplicitPolicyIndicator": {
+    "Bool": false
+  },
+  "psInitialInhibitAnyPolicyIndicator": {
+    "Bool": false
+  },
+  "psInitialPolicyMappingInhibitIndicator": {
+    "Bool": false
+  },
+  "psTimeOfInterest": {
+    "TimeOfInterest": 1647264981
+  }
+}

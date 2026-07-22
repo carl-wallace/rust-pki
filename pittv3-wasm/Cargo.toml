@@ -28,6 +28,7 @@ pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, feature
 dioxus = { version = "0.7.9", features = ["web"] }
 log = "0.4.33"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
+serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 web-time = "1.1.0"
 zip = { version = "7.2.0", default-features = false, features = ["deflate"] }
@@ -45,8 +46,9 @@ gloo-net = { version = "0.6", default-features = false, features = ["http"] }
 js-sys = "0.3"
 # navigator.maxTouchPoints distinguishes iPad/iPhone (which masquerade as desktop in the UA) so the
 # store file inputs can broaden their `accept` filter only there; wasm-only, host stub in main.rs.
-# Already in the tree via dioxus's web feature, so this only names the Window/Navigator bindings.
-web-sys = { version = "0.3", features = ["Window", "Navigator"] }
+# Storage is the window.localStorage binding used to persist the settings tab across reloads.
+# Already in the tree via dioxus's web feature, so this only names the bindings.
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Storage"] }
 # A one-frame yield so the "Validating…" busy state paints before the (blocking, single-threaded)
 # parse/validation runs; wasm-only.
 gloo-timers = { version = "0.3", features = ["futures"] }

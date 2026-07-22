@@ -58,8 +58,7 @@ pub type Bools = Vec<bool>;
 
 /// `CertificationPathSettings` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CertificationPathSettings(pub BTreeMap<String, CertificationPathProcessingTypes>);
 
 impl CertificationPathSettings {
@@ -109,13 +108,34 @@ pub type FinalValidPolicyTree = Vec<Vec<ValidPolicyTreeNode>>;
 /// KeyUsageSettings provides a flagset that can be used to serialize key usage settings
 pub type KeyUsageSettings = FlagSet<KeyUsages>;
 
+/// Serde for the `KeyUsageValue` variant. `FlagSet<KeyUsages>` (de)serializes as its raw `u16` bits
+/// — the same wire form flagset's own serde impl produces — but without enabling `flagset/serde`,
+/// whose dependency declaration pulls `serde` with its default (std) features and would break the
+/// no_std build.
+mod keyusage_serde {
+    use super::KeyUsageSettings;
+    use serde::{Deserialize, Serialize};
+
+    pub(super) fn serialize<S: serde::Serializer>(
+        v: &KeyUsageSettings,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        v.bits().serialize(s)
+    }
+
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<KeyUsageSettings, D::Error> {
+        Ok(KeyUsageSettings::new_truncated(u16::deserialize(d)?))
+    }
+}
+
 //-----------------------------------------------------------------------------------------------
 // Enum used to define all path settings and results
 //-----------------------------------------------------------------------------------------------
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),
@@ -140,7 +160,7 @@ pub enum CertificationPathProcessingTypes {
     /// Represents vectors of vectors of buffers
     ListOfBuffers(Vec<Vec<Vec<u8>>>),
     /// Represents KeyUsageValues values
-    KeyUsageValue(KeyUsageSettings),
+    KeyUsageValue(#[serde(with = "keyusage_serde")] KeyUsageSettings),
     /// Represents instruction for nonce handling in OCSP client
     OcspNonceSetting(OcspNonceSetting),
     /// Represents duration or a timeout
