@@ -27,7 +27,6 @@ fn settings_serialization_test() {
     let perm = certval::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: None,
@@ -37,7 +36,6 @@ fn settings_serialization_test() {
     let excl = certval::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
-        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
         ip_address: None,

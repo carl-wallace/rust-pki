@@ -23,88 +23,22 @@ use cidr::{IpCidr, Ipv4Cidr, Ipv6Cidr};
 
 use der::asn1::OctetString;
 
-use der::asn1::{PrintableString, Utf8StringRef};
 use der::{
     asn1::{Any, Ia5String, ObjectIdentifier},
-    Decode, Encode, Tag, Tagged,
+    Decode, Encode, Tag,
 };
 use subtle_encoding::hex;
 use x509_cert::ext::pkix::{
     constraints::name::{GeneralSubtree, GeneralSubtrees},
-    name::{GeneralName, OtherName},
+    name::GeneralName,
     SubjectAltName,
 };
 use x509_cert::name::Name;
 
 use crate::{buffer_to_hex, util::pdv_utilities::*, Error, Result};
 
-/// Microsoft User Principal Name OID (see <https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wcce/ea9ef420-4cbf-44bc-b093-c4175139f90f>)
-pub const MSFT_USER_PRINCIPAL_NAME: ObjectIdentifier =
-    ObjectIdentifier::new_unwrap("1.3.6.1.4.1.311.20.2.3");
-
 /// OID for uid attribute from RFC4519: 0.9.2342.19200300.100.1.1
 pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.19200300.100.1.1");
-
-/// `upn_from_other_name` returns the string value of a UPN (Microsoft user principal name)
-/// otherName, or None for any other otherName. The value is commonly a UTF8String but IA5String
-/// and PrintableString are also accepted.
-fn upn_from_other_name(on: &OtherName) -> Option<String> {
-    if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-        return None;
-    }
-    match on.value.tag() {
-        Tag::Ia5String => on
-            .value
-            .decode_as::<Ia5String>()
-            .ok()
-            .map(|s| s.to_string()),
-        Tag::Utf8String => on
-            .value
-            .decode_as::<Utf8StringRef<'_>>()
-            .ok()
-            .map(|s| s.to_string()),
-        Tag::PrintableString => on
-            .value
-            .decode_as::<PrintableString>()
-            .ok()
-            .map(|s| s.to_string()),
-        _ => None,
-    }
-}
-
-/// `upn_within_subtree` returns true if the candidate UPN string falls within the UPN constraint
-/// held in the given subtree base. UPN values are structured as email addresses, so rfc822 name
-/// constraint semantics are applied (mailbox, host, or leading-period domain).
-fn upn_within_subtree(subtree_base: &GeneralName, cand_upn: &str) -> bool {
-    if let GeneralName::OtherName(on) = subtree_base {
-        if let Some(base_upn) = upn_from_other_name(on) {
-            return descended_from_rfc822_str(&base_upn, cand_upn);
-        }
-    }
-    false
-}
-
-/// `upn_of_subtree` returns the UPN string held in a subtree whose base is a UPN otherName.
-#[cfg(feature = "std")]
-fn upn_of_subtree(subtree: &GeneralSubtree) -> Option<String> {
-    if let GeneralName::OtherName(on) = &subtree.base {
-        upn_from_other_name(on)
-    } else {
-        None
-    }
-}
-
-/// `has_upn` returns true if the given GeneralSubtrees contains at least one UPN otherName.
-fn has_upn(subtrees: &GeneralSubtrees) -> bool {
-    for subtree in subtrees {
-        if let GeneralName::OtherName(on) = &subtree.base {
-            if on.type_id == MSFT_USER_PRINCIPAL_NAME {
-                return true;
-            }
-        }
-    }
-    false
-}
 
 /// The `NameConstraintsSet` structure is used to define inputs for path validation, i.e.,
 /// initial-excluded-subtrees and initial-permitted-subtrees, as well as to track processing
@@ -120,10 +54,6 @@ fn has_upn(subtrees: &GeneralSubtrees) -> bool {
 /// [RFC 5280 Section 6.1]: <https://datatracker.ietf.org/doc/html/rfc5280#section-6.1>
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct NameConstraintsSet {
-    /// user_principal_name governs use of UPN values in otherName instances in SANs
-    pub user_principal_name: Vec<GeneralSubtree>, //t = 0 (only form of otherName supported is UPN)
-    /// user_principal_name_null is initialized to false and set to true if an intersection operation yields empty set
-    pub user_principal_name_null: bool,
     /// rfc822_name governs use of email addresses in SANs
     pub rfc822_name: Vec<GeneralSubtree>, //t = 1
     /// rfc822_name_null is initialized to false and set to true if an intersection operation yields empty set
@@ -160,22 +90,13 @@ impl NameConstraintsSet {
         self.calculate_intersection_dns_name(ext);
         self.calculate_intersection_uri(ext);
         self.calculate_intersection_ip(ext);
-        self.calculate_intersection_upn(ext);
 
         // collect all unsupported instances (not intersection)
         for gs in ext {
             match &gs.base {
-                GeneralName::EdiPartyName(_) => {
-                    self.not_supported.push(gs.clone());
-                }
-                GeneralName::OtherName(on) => {
-                    // UPN otherNames are handled by calculate_intersection_upn above; every other
-                    // otherName form is unsupported.
-                    if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                        self.not_supported.push(gs.clone());
-                    }
-                }
-                GeneralName::RegisteredId(_) => {
+                GeneralName::EdiPartyName(_)
+                | GeneralName::OtherName(_)
+                | GeneralName::RegisteredId(_) => {
                     self.not_supported.push(gs.clone());
                 }
                 _ => {
@@ -223,17 +144,7 @@ impl NameConstraintsSet {
                         self.ip_address.push(subtree.clone());
                     }
                 }
-                GeneralName::OtherName(on) => {
-                    // UPN otherNames accumulate in the user_principal_name bucket; other otherName
-                    // forms remain unsupported.
-                    let is_upn = on.type_id == MSFT_USER_PRINCIPAL_NAME;
-                    if is_upn && !self.user_principal_name_null {
-                        self.user_principal_name.push(subtree.clone());
-                    } else if !is_upn {
-                        self.not_supported.push(subtree.clone());
-                    }
-                }
-                // not supporting name constraints for x400Address, ediPartyName, or registeredID
+                // not supporting name constraints for x400Address, ediPartyName, registeredID or otherName
                 _ => {
                     self.not_supported.push(subtree.clone());
                 }
@@ -244,8 +155,7 @@ impl NameConstraintsSet {
     /// `are_any_empty` returns true if any of the supported name constraints buckets have been set to None,
     /// which signifies failure.
     pub fn are_any_empty(&self) -> bool {
-        if self.user_principal_name_null
-            || self.rfc822_name_null
+        if self.rfc822_name_null
             || self.dns_name_null
             || self.directory_name_null
             || self.uniform_resource_identifier_null
@@ -465,31 +375,11 @@ impl NameConstraintsSet {
                             return false;
                         }
                     }
-                    GeneralName::OtherName(on_san) => {
-                        // UPN otherNames are constrained via the user_principal_name bucket using
-                        // rfc822 semantics; every other otherName form remains unsupported and is
-                        // handled coarsely (any unsupported otherName constraint excludes it).
-                        if let Some(upn_san) = upn_from_other_name(on_san) {
-                            if self.user_principal_name_null {
+                    GeneralName::OtherName(_) => {
+                        // otherName SANs are unsupported; any otherName name constraint excludes them
+                        for ns in &self.not_supported {
+                            if let GeneralName::OtherName(_) = ns.base {
                                 return false;
-                            }
-                            if !self.user_principal_name.is_empty() {
-                                let mut upn_ok = false;
-                                for gn_state in &self.user_principal_name {
-                                    if upn_within_subtree(&gn_state.base, &upn_san) {
-                                        upn_ok = true;
-                                        break;
-                                    }
-                                }
-                                if !upn_ok {
-                                    return false;
-                                }
-                            }
-                        } else {
-                            for ns in &self.not_supported {
-                                if let GeneralName::OtherName(_) = ns.base {
-                                    return false;
-                                }
                             }
                         }
                     }
@@ -674,23 +564,11 @@ impl NameConstraintsSet {
                             }
                         }
                     }
-                    GeneralName::OtherName(on_san) => {
-                        // UPN otherNames are matched against excluded UPN subtrees via rfc822
-                        // semantics; other otherName forms remain coarsely handled.
-                        if let Some(upn_san) = upn_from_other_name(on_san) {
-                            if self.user_principal_name_null {
+                    GeneralName::OtherName(_) => {
+                        // otherName SANs are unsupported; any otherName name constraint excludes them
+                        for ns in &self.not_supported {
+                            if let GeneralName::OtherName(_) = ns.base {
                                 return true;
-                            }
-                            for gn_state in &self.user_principal_name {
-                                if upn_within_subtree(&gn_state.base, &upn_san) {
-                                    return true;
-                                }
-                            }
-                        } else {
-                            for ns in &self.not_supported {
-                                if let GeneralName::OtherName(_) = ns.base {
-                                    return true;
-                                }
                             }
                         }
                     }
@@ -925,54 +803,8 @@ impl NameConstraintsSet {
             }
         }
     }
-    fn calculate_intersection_upn(&mut self, new_names: &GeneralSubtrees) {
-        if self.user_principal_name_null || !has_upn(new_names) {
-            // nothing to intersect (either state has become NULL or there are no names to add)
-            return;
-        }
-
-        #[cfg(not(feature = "std"))]
-        {
-            self.user_principal_name_null = true;
-        }
-
-        #[cfg(feature = "std")]
-        {
-            let mut new_set = Vec::new();
-
-            for new_name in new_names {
-                let new_upn = match upn_of_subtree(new_name) {
-                    Some(upn) => upn,
-                    None => continue,
-                };
-                if self.user_principal_name.is_empty() {
-                    new_set.push(new_name.clone());
-                } else {
-                    for prev_name in &self.user_principal_name {
-                        let prev_upn = match upn_of_subtree(prev_name) {
-                            Some(upn) => upn,
-                            None => continue,
-                        };
-                        if new_name == prev_name || descended_from_rfc822_str(&prev_upn, &new_upn) {
-                            new_set.push(new_name.clone());
-                        } else if descended_from_rfc822_str(&new_upn, &prev_upn) {
-                            new_set.push(prev_name.clone());
-                        }
-                    }
-                }
-            }
-
-            if !new_set.is_empty() {
-                self.user_principal_name = new_set;
-            } else {
-                self.user_principal_name_null = true;
-            }
-        }
-    }
-
     pub(crate) fn len(&self) -> usize {
-        self.user_principal_name.len()
-            + self.rfc822_name.len()
+        self.rfc822_name.len()
             + self.dns_name.len()
             + self.directory_name.len()
             + self.uniform_resource_identifier.len()
@@ -985,8 +817,6 @@ impl NameConstraintsSet {
 /// for CertificationPathSettings handle translating from one to the other.
 #[derive(Clone, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub struct NameConstraintsSettings {
-    /// user_principal_name governs use of UPN values in otherName instances in SANs
-    pub user_principal_name: Option<Vec<String>>, //t = 0 (only form of otherName supported is UPN)
     /// rfc822_name governs use of email addresses in SANs
     pub rfc822_name: Option<Vec<String>>, //t = 1
     /// dns_name governs use of DNS names in SANs
@@ -1203,34 +1033,6 @@ pub fn name_constraints_settings_to_name_constraints_set(
     }
     bufs.insert("not_supported".to_string(), nsbufs);
 
-    let mut upnbufs: Vec<Vec<u8>> = vec![];
-    if let Some(user_principal_name) = &settings.user_principal_name {
-        for n in user_principal_name {
-            match Any::new(Tag::Ia5String, n.as_bytes()) {
-                Ok(a) => {
-                    let on = OtherName {
-                        type_id: MSFT_USER_PRINCIPAL_NAME,
-                        value: a,
-                    };
-                    let gn = GeneralName::OtherName(on);
-                    let gs = GeneralSubtree {
-                        base: gn,
-                        maximum: None,
-                        minimum: 0,
-                    };
-                    match gs.to_der() {
-                        Ok(b) => {
-                            upnbufs.push(b);
-                        }
-                        Err(e) => return Err(Error::Asn1Error(e)),
-                    }
-                }
-                Err(e) => return Err(Error::Asn1Error(e)),
-            }
-        }
-    }
-    bufs.insert("upn".to_string(), upnbufs);
-
     let mut vrfc = vec![];
     for b in &bufs["rfc822"] {
         match GeneralSubtree::from_der(b.as_slice()) {
@@ -1270,14 +1072,6 @@ pub fn name_constraints_settings_to_name_constraints_set(
         }
     }
 
-    let mut vupn = vec![];
-    for b in &bufs["upn"] {
-        match GeneralSubtree::from_der(b.as_slice()) {
-            Ok(v) => vupn.push(v),
-            Err(e) => return Err(Error::Asn1Error(e)),
-        }
-    }
-
     let mut vns = vec![];
     for b in &bufs["not_supported"] {
         match GeneralSubtree::from_der(b.as_slice()) {
@@ -1293,8 +1087,6 @@ pub fn name_constraints_settings_to_name_constraints_set(
         dns_name_null: false,
         directory_name: vdn,
         directory_name_null: false,
-        user_principal_name: vupn,
-        user_principal_name_null: false,
         uniform_resource_identifier: vuri,
         uniform_resource_identifier_null: false,
         ip_address: ips,
@@ -1423,34 +1215,6 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
             vips = Some(tmp);
         }
     }
-    let mut vupn: Option<Vec<String>> = None;
-    if !set.user_principal_name.is_empty() {
-        let mut tmp = vec![];
-        for gs in &set.user_principal_name {
-            if let GeneralName::OtherName(on) = &gs.base {
-                if on.type_id == MSFT_USER_PRINCIPAL_NAME {
-                    if on.value.tag() == Tag::Ia5String {
-                        if let Ok(ia5) = on.value.decode_as::<Ia5String>() {
-                            tmp.push(ia5.to_string());
-                        }
-                    } else if on.value.tag() == Tag::Utf8String {
-                        if let Ok(utf) = on.value.decode_as::<Utf8StringRef<'_>>() {
-                            tmp.push(utf.to_string());
-                        }
-                    } else if on.value.tag() == Tag::PrintableString {
-                        if let Ok(ps) = on.value.decode_as::<PrintableString>() {
-                            tmp.push(ps.to_string());
-                        }
-                    } else {
-                        //todo how to access?
-                        //tmp.push(crate::buffer_to_hex(on.value.value()));
-                    }
-                }
-            }
-        }
-        vupn = Some(tmp);
-    }
-
     let mut vns: Option<Vec<String>> = None;
     if !set.not_supported.is_empty() {
         let mut tmp = vec![];
@@ -1472,7 +1236,6 @@ pub(crate) fn name_constraints_set_to_name_constraints_settings(
         dns_name: vdns,
         directory_name: vdn,
         uniform_resource_identifier: vuri,
-        user_principal_name: vupn,
         ip_address: vips,
         not_supported: vns,
     })
@@ -1489,7 +1252,6 @@ fn intersection_keeps_narrower_subtree() {
     let broad = NameConstraintsSettings {
         directory_name: Some(vec!["OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["example.com".to_string()]),
-        user_principal_name: None,
         dns_name: Some(vec!["example.com".to_string()]),
         uniform_resource_identifier: Some(vec![".example.com".to_string()]),
         ip_address: Some(vec!["192.168.0.0/16".to_string()]),
@@ -1498,7 +1260,6 @@ fn intersection_keeps_narrower_subtree() {
     let narrow = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: None,
         dns_name: Some(vec!["sub.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["sub.example.com".to_string()]),
         ip_address: Some(vec!["192.168.10.0/24".to_string()]),
@@ -1604,7 +1365,6 @@ fn intersection_tests() {
     let perm = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: Some(vec!["192.168.0.0/16".to_string()]),
@@ -1613,7 +1373,6 @@ fn intersection_tests() {
     let perm_copy = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: Some(vec!["192.168.0.0/16".to_string()]),
@@ -1622,7 +1381,6 @@ fn intersection_tests() {
     let perm2 = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
-        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
         ip_address: Some(vec!["2.2.2.0/24".to_string()]),
@@ -1631,7 +1389,6 @@ fn intersection_tests() {
     let perm3 = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Abe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["z@example.com".to_string()]),
-        user_principal_name: Some(vec!["1236547890@mil".to_string()]),
         dns_name: Some(vec!["t.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://t.example.com".to_string()]),
         ip_address: Some(vec!["1.1.0.0/16".to_string()]),
@@ -1641,7 +1398,6 @@ fn intersection_tests() {
     let perm4 = NameConstraintsSettings {
         directory_name: None,
         rfc822_name: None,
-        user_principal_name: None,
         dns_name: None,
         uniform_resource_identifier: None,
         ip_address: Some(vec!["192.168.0.0/16".to_string()]),
@@ -1650,7 +1406,6 @@ fn intersection_tests() {
     let perm5 = NameConstraintsSettings {
         directory_name: None,
         rfc822_name: None,
-        user_principal_name: None,
         dns_name: None,
         uniform_resource_identifier: None,
         ip_address: Some(vec!["192.168.0.0/24".to_string()]),
@@ -1659,7 +1414,6 @@ fn intersection_tests() {
     let perm6 = NameConstraintsSettings {
         directory_name: None,
         rfc822_name: None,
-        user_principal_name: None,
         dns_name: None,
         uniform_resource_identifier: None,
         ip_address: Some(vec!["192.168.0.0/15".to_string()]),
@@ -1817,7 +1571,6 @@ fn intersection_tests_no_std() {
     let perm = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: None,
@@ -1826,7 +1579,6 @@ fn intersection_tests_no_std() {
     let perm_copy = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: None,
@@ -1835,7 +1587,6 @@ fn intersection_tests_no_std() {
     let perm2 = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
-        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
         ip_address: None,
@@ -1844,7 +1595,6 @@ fn intersection_tests_no_std() {
     let perm3 = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Abe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["z@example.com".to_string()]),
-        user_principal_name: Some(vec!["1236547890@mil".to_string()]),
         dns_name: Some(vec!["t.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://t.example.com".to_string()]),
         ip_address: None,

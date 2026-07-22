@@ -81,14 +81,6 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         .get_initial_permitted_subtrees_as_set(&mut pbufs)
         .unwrap_or_default();
     if let Some(perm) = perm {
-        for gs in perm.user_principal_name {
-            if let GeneralName::OtherName(on) = &gs.base {
-                if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                    f.write_all(format!("\t\t\t* UPN: {:?}\n", on.value).as_bytes())
-                        .expect("Unable to write manifest file");
-                }
-            }
-        }
         for gs in perm.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
                 f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
@@ -123,14 +115,6 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
         .get_initial_excluded_subtrees_as_set(&mut ebufs)
         .unwrap_or_default();
     if let Some(excl) = excl {
-        for gs in excl.user_principal_name {
-            if let GeneralName::OtherName(on) = &gs.base {
-                if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                    f.write_all(format!("\t\t\t* UPN: {:?}\n", on.value).as_bytes())
-                        .expect("Unable to write manifest file");
-                }
-            }
-        }
         for gs in excl.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
                 f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
@@ -347,16 +331,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             for gn in iss {
                 match gn {
                     GeneralName::OtherName(on) => {
-                        if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                            f.write_all(format!("\t\t\t* UPN: {:?}\n", on.value).as_bytes())
-                                .expect("Unable to write manifest file");
-                        } else {
-                            f.write_all(
-                                format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
-                                    .as_bytes(),
-                            )
-                            .expect("Unable to write manifest file");
-                        }
+                        f.write_all(
+                            format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
+                                .as_bytes(),
+                        )
+                        .expect("Unable to write manifest file");
                     }
                     GeneralName::Rfc822Name(rfc822) => {
                         f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
@@ -429,16 +408,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             for gs in perm {
                 match &gs.base {
                     GeneralName::OtherName(on) => {
-                        if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                            f.write_all(format!("\t\t\t* UPN: {:?}\n", on.value).as_bytes())
-                                .expect("Unable to write manifest file");
-                        } else {
-                            f.write_all(
-                                format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
-                                    .as_bytes(),
-                            )
-                            .expect("Unable to write manifest file");
-                        }
+                        f.write_all(
+                            format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
+                                .as_bytes(),
+                        )
+                        .expect("Unable to write manifest file");
                     }
                     GeneralName::Rfc822Name(rfc822) => {
                         f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
@@ -470,16 +444,11 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
             for gs in excl {
                 match &gs.base {
                     GeneralName::OtherName(on) => {
-                        if on.type_id != MSFT_USER_PRINCIPAL_NAME {
-                            f.write_all(format!("\t\t\t* UPN: {:?}\n", on.value).as_bytes())
-                                .expect("Unable to write manifest file");
-                        } else {
-                            f.write_all(
-                                format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
-                                    .as_bytes(),
-                            )
-                            .expect("Unable to write manifest file");
-                        }
+                        f.write_all(
+                            format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
+                                .as_bytes(),
+                        )
+                        .expect("Unable to write manifest file");
                     }
                     GeneralName::Rfc822Name(rfc822) => {
                         f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
@@ -764,7 +733,6 @@ fn test_cps_log() {
     let perm = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: None,
@@ -774,7 +742,6 @@ fn test_cps_log() {
     let excl = NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
-        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
         ip_address: None,

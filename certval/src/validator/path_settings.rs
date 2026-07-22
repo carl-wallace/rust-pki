@@ -1024,7 +1024,6 @@ fn test_no_default_sets_cps() {
     cps.set_initial_permitted_subtrees(crate::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["x@example.com".to_string()]),
-        user_principal_name: Some(vec!["1234567890@mil".to_string()]),
         dns_name: Some(vec!["j.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://j.example.com".to_string()]),
         ip_address: None,
@@ -1036,10 +1035,6 @@ fn test_no_default_sets_cps() {
         perm.uniform_resource_identifier
     );
     assert_eq!(Some(vec!["j.example.com".to_string()]), perm.dns_name);
-    assert_eq!(
-        Some(vec!["1234567890@mil".to_string()]),
-        perm.user_principal_name
-    );
     assert_eq!(Some(vec!["x@example.com".to_string()]), perm.rfc822_name);
     assert_eq!(
         Some(vec!["CN=Joe,OU=Org Unit,O=Org,C=US".to_string()]),
@@ -1059,7 +1054,6 @@ fn test_no_default_sets_cps() {
     assert_eq!(vec![gn], perm_set.rfc822_name);
     assert_eq!(1, perm_set.uniform_resource_identifier.len());
     assert_eq!(1, perm_set.dns_name.len());
-    assert_eq!(1, perm_set.user_principal_name.len());
     assert_eq!(1, perm_set.directory_name.len());
 
     assert_eq!(None, cps.get_initial_excluded_subtrees());
@@ -1081,7 +1075,6 @@ fn test_no_default_sets_cps() {
     cps.set_initial_excluded_subtrees(crate::NameConstraintsSettings {
         directory_name: Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
         rfc822_name: Some(vec!["y@example.com".to_string()]),
-        user_principal_name: Some(vec!["0987654321@mil".to_string()]),
         dns_name: Some(vec!["s.example.com".to_string()]),
         uniform_resource_identifier: Some(vec!["https://s.example.com".to_string()]),
         ip_address: None,
@@ -1093,10 +1086,6 @@ fn test_no_default_sets_cps() {
         excl.uniform_resource_identifier
     );
     assert_eq!(Some(vec!["s.example.com".to_string()]), excl.dns_name);
-    assert_eq!(
-        Some(vec!["0987654321@mil".to_string()]),
-        excl.user_principal_name
-    );
     assert_eq!(Some(vec!["y@example.com".to_string()]), excl.rfc822_name);
     assert_eq!(
         Some(vec!["CN=Sue,OU=Org Unit,O=Org,C=US".to_string()]),
@@ -1116,7 +1105,6 @@ fn test_no_default_sets_cps() {
     assert_eq!(vec![gn], excl_set.rfc822_name);
     assert_eq!(1, excl_set.uniform_resource_identifier.len());
     assert_eq!(1, excl_set.dns_name.len());
-    assert_eq!(1, excl_set.user_principal_name.len());
     assert_eq!(1, excl_set.directory_name.len());
 
     let v = vec!["1.2.3.4.5".to_string()];
