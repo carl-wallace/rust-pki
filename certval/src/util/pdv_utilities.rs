@@ -7,9 +7,6 @@ use core::str::FromStr;
 
 use log::{debug, error};
 
-#[cfg(feature = "std")]
-use regex::Regex;
-
 use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
 use const_oid::db::rfc3280::{EMAIL_ADDRESS, PSEUDONYM};
 use const_oid::db::rfc4519::*;
@@ -321,7 +318,6 @@ pub(crate) const EMAIL_PATTERN: &str =
 // // URI regular expression pattern from RFC 2396 Appendix B
 // pub(crate) const URI_PATTERN: &str = "^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?";
 
-// TODO implement to support name constraints for no-std
 /// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
 pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.as_bytes();
@@ -757,6 +753,26 @@ pub fn get_value_from_rdn(atav: &AttributeTypeAndValue) -> Result<String> {
     Ok(s)
 }
 
+/// Collapses each run of whitespace in `s` to a single ASCII space, e.g., "a  b\tc" -> "a b c". Used
+/// by [`compare_names`] to disregard insignificant internal whitespace when comparing DN attribute
+/// values; a no-std replacement for the former regex-based collapse.
+fn collapse_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_ws = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !in_ws {
+                out.push(' ');
+                in_ws = true;
+            }
+        } else {
+            out.push(c);
+            in_ws = false;
+        }
+    }
+    out
+}
+
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
 pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
@@ -770,8 +786,7 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
         }
 
         if lrdn != rrdn {
-            // only do the whitespace and case insensitve stuff is simpler compare fails (not full featured on no-std, hence tolerance for unused variables)
-            #[allow(unused_variables)]
+            // fall back to the whitespace/case-insensitive comparison only when the simpler compare fails
             for (l, r) in lrdn.iter().zip(rrdn.iter()) {
                 if l.oid != r.oid {
                     return false;
@@ -779,13 +794,13 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
 
                 let l_str_val = match get_value_from_rdn(l) {
                     Ok(val) => val.replace("\\ ", " "),
-                    Err(e) => {
+                    Err(_e) => {
                         return false;
                     }
                 };
                 let r_str_val = match get_value_from_rdn(r) {
                     Ok(val) => val.replace("\\ ", " "),
-                    Err(e) => {
+                    Err(_e) => {
                         return false;
                     }
                 };
@@ -794,23 +809,10 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 let r_val = r_str_val.trim().to_lowercase();
 
                 if l_val != r_val {
-                    #[cfg(feature = "std")]
-                    {
-                        use std::sync::LazyLock;
-
-                        static WHITESPACE_RE: LazyLock<Regex> =
-                            LazyLock::new(|| Regex::new(r"\s+").unwrap());
-
-                        //collapse multiple whitespace instances into one and convert to lowercase
-                        let l_str_val = WHITESPACE_RE.replace_all(l_val.as_str(), " ");
-                        let r_str_val = WHITESPACE_RE.replace_all(r_val.as_str(), " ");
-                        if l_str_val != r_str_val {
-                            return false;
-                        }
-                    }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        // TODO implement to support name comparison with whitespace issues for no-std
+                    // RFC 5280 4.1.2.4 insignificant-whitespace handling: collapse internal runs of
+                    // whitespace to a single space before comparing (both values are already trimmed
+                    // and lowercased above). Hand-rolled so it works identically under std and no-std.
+                    if collapse_whitespace(&l_val) != collapse_whitespace(&r_val) {
                         return false;
                     }
                 }
@@ -1117,4 +1119,28 @@ fn descended_from_dn_multivalued_rdn_requires_all_attributes() {
     let one_differs = Name::from_str("CN=example+OU=Other,O=Org").unwrap();
     assert!(descended_from_dn(&subtree, &case_only, 0, None));
     assert!(!descended_from_dn(&subtree, &one_differs, 0, None));
+}
+
+#[test]
+fn collapse_whitespace_reduces_runs() {
+    assert_eq!(collapse_whitespace("a  b\t c"), "a b c");
+    assert_eq!(collapse_whitespace("x\n\ny"), "x y");
+    assert_eq!(collapse_whitespace("nochange"), "nochange");
+    assert_eq!(collapse_whitespace(""), "");
+    // leading/trailing runs collapse too (callers pre-trim, but the helper is standalone)
+    assert_eq!(collapse_whitespace("  a  "), " a ");
+}
+
+// Names that differ only by insignificant internal whitespace (and case) compare equal. This
+// exercised the std-only regex path before; the hand-rolled collapse now covers std and no-std.
+#[cfg(feature = "std")]
+#[test]
+fn compare_names_ignores_insignificant_internal_whitespace() {
+    let a = Name::from_str("O=Test  Org,C=US").unwrap();
+    let b = Name::from_str("O=test Org,C=US").unwrap();
+    assert!(compare_names(&a, &b));
+
+    // a genuine difference is still rejected
+    let c = Name::from_str("O=Test Orgs,C=US").unwrap();
+    assert!(!compare_names(&a, &c));
 }
