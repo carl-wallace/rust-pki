@@ -663,6 +663,12 @@ pub fn pkits_guts_sync(
 
     let pool: &CertPool = &*mpool;
 
+    // Guard against the loop silently no-opping (e.g. every EE cert failing to parse and
+    // hitting the `continue` below): count the cases we intend to run vs. the cases that
+    // actually reach the end of validation, then assert they match once the loop completes.
+    let mut candidates = 0usize;
+    let mut executed = 0usize;
+
     // iterate over settings map
     for k in pkits_data_map.keys() {
         let pd = pkits_data_map.get(k).unwrap();
@@ -686,6 +692,10 @@ pub fn pkits_guts_sync(
                 // where skip_revocation is true (i.e., for EC) then continue
                 continue;
             }
+
+            // Count every case we did not explicitly skip; `executed` (bumped at the end of
+            // the iteration) must catch up to this, or a case was dropped mid-loop.
+            candidates += 1;
 
             println!("{}", case_name);
             let mut ta = PDVTrustAnchorChoice::try_from(
@@ -904,8 +914,17 @@ pub fn pkits_guts_sync(
                     }
                 }
             }
+
+            executed += 1;
         }
     }
+
+    assert!(
+        executed > 0 && executed == candidates,
+        "PKITS run validated {executed} of {candidates} candidate cases; expected a full, \
+         non-empty run (an EE cert likely failed to parse and hit the `continue`, or the case \
+         map was empty)"
+    );
 }
 
 #[cfg(feature = "std")]
@@ -978,6 +997,12 @@ pub async fn pkits_guts(
 
     let pool: &CertPool = &*mpool;
 
+    // Guard against the loop silently no-opping (e.g. every EE cert failing to parse and
+    // hitting the `continue` below): count the cases we intend to run vs. the cases that
+    // actually reach the end of validation, then assert they match once the loop completes.
+    let mut candidates = 0usize;
+    let mut executed = 0usize;
+
     // iterate over settings map
     for k in pkits_data_map.keys() {
         let pd = pkits_data_map.get(k).unwrap();
@@ -1001,6 +1026,10 @@ pub async fn pkits_guts(
                 // where skip_revocation is true (i.e., for EC) then continue
                 continue;
             }
+
+            // Count every case we did not explicitly skip; `executed` (bumped at the end of
+            // the iteration) must catch up to this, or a case was dropped mid-loop.
+            candidates += 1;
 
             println!("{case_name}");
             let mut ta = PDVTrustAnchorChoice::try_from(
@@ -1192,6 +1221,15 @@ pub async fn pkits_guts(
                     }
                 }
             }
+
+            executed += 1;
         }
     }
+
+    assert!(
+        executed > 0 && executed == candidates,
+        "PKITS run validated {executed} of {candidates} candidate cases; expected a full, \
+         non-empty run (an EE cert likely failed to parse and hit the `continue`, or the case \
+         map was empty)"
+    );
 }

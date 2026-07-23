@@ -343,48 +343,33 @@ impl BuffersAndPaths {
 /// Second, it serves as a path builder implementation by maintaining a map of partial certificate
 /// paths that can be serialized/deserialized.
 ///
-/// Preparation of a [`CertSource`] requires four steps:
-///   1. Create an empty [`CertSource`] instance via [`CertSource::new`] or [`CertSource::default`]
-///   2. Populate the [`buffers_and_paths`](`CertSource`) member using desired sources, i.e., by deserializing a
-///      CBOR file, by reading certificates from files, by downloading certificates via URIs, etc.
-///   3. Call [`populate_parsed_cert_vector`](fn.populate_parsed_cert_vector.html) passing a reference to the [`buffers_and_paths`](`CertSource`) member and
-///      a reference to the [`certs`](`CertSource`) member.
-///   4. Prepare key identifier-based and name-based maps.
+/// Preparation of a [`CertSource`] takes two steps:
+///   1. Obtain a [`CertSource`] instance — either [`CertSource::new_from_cbor`] to deserialize a
+///      previously generated store, or [`CertSource::new`]/[`CertSource::default`] when populating the
+///      [`buffers_and_paths`](`CertSource`) member from other sources (files, URIs, etc.).
+///   2. Call [`CertSource::initialize`], which parses the immutable buffers into the vector of
+///      long-lived parsed certificates and prepares the key-identifier- and name-based maps used for
+///      lookups and path building.
 ///
-/// These steps allows an immutable vector of buffers to be used to produce a vector of long-lived
-/// parsed certificate instances. The snip below, similar to code found in the PITTv3 utility, demonstrates preparation of
-/// a CertSource structure from a CBOR file. In this snip, read_cbor reads a `Vec<u8>` from the file
-/// indicated by the `cbor_file` variable then the `from_reader` function from the
-/// [Ciborium](https://docs.rs/ciborium/latest/ciborium/) library deserializes the structure into
-/// the [`BuffersAndPaths`] instance of the [`CertSource`] instance. Subsequent calls to
-/// [`populate_parsed_cert_vector`](fn.populate_parsed_cert_vector.html) and
-/// preparation of name and SKID maps must occur before using a CertSource instance.
+/// The snippet below, similar to code found in the PITTv3 utility, prepares a [`CertSource`] from a
+/// CBOR file: [`read_cbor`] loads the serialized `Vec<u8>` and [`CertSource::new_from_cbor`]
+/// deserializes it into the instance's [`BuffersAndPaths`]. The initialized [`CertSource`] is then
+/// passed to a [`PkiEnvironment`] to serve both as a certificate source and as a path builder.
 ///
-/// ```ignore
-///     let cbor = read_cbor(cbor_file);
-///     let mut cert_source = CertSource::new();
-///     cert_source.buffers_and_paths = from_reader(cbor.as_slice()).unwrap();
-///     let r = populate_parsed_cert_vector(
-///      &pe,
-///      &cert_source.buffers_and_paths,
-///      &cps,
-///      &mut cert_source.certs,
-///     );
-///     if let Err(e) = r {
-///      log_message(
-///          &PeLogLevels::PeError,
-///          format!("Failed to populate cert vector with: {:?}", e).as_str(),
-///      );
-///     }
+/// ```no_run
+/// use certval::*;
+/// # fn main() -> certval::Result<()> {
+/// let cbor_file = Some("path/to/store.cbor".to_string());
+/// let cps = CertificationPathSettings::new();
+/// let mut pe = PkiEnvironment::new();
 ///
-///     cert_source.index_certs();
-/// ```
+/// let cbor = read_cbor(&cbor_file);
+/// let mut cert_source = CertSource::new_from_cbor(cbor.as_slice())?;
+/// cert_source.initialize(&cps)?;
 ///
-/// The [`CertSource`] instance can then be passed to a [`PkiEnvironment`] instance to serve both as
-/// a source of certificates, which includes a path building implementation, as shown below.
-///
-/// ```ignore
-///     pe.add_certificate_source(Box::new(cert_source.clone()));
+/// pe.add_certificate_source(Box::new(cert_source));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// The general idea is to prepare an as comprehensive as possible set of partial certification paths
@@ -496,6 +481,12 @@ impl CertSource {
     /// Returns number of certificates currently held by instance
     pub fn num_certs(&self) -> usize {
         self.certs.len()
+    }
+    /// Returns the parsed certificate vector prepared by [`CertSource::initialize`]. Entries are
+    /// `None` where the corresponding buffer could not be parsed or was invalid at the time of
+    /// interest.
+    pub fn certs(&self) -> &[Option<PDVCertificate>] {
+        &self.certs
     }
     /// Retrieves certificate at a given index
     pub fn get_cert_at_index(&self, index: usize) -> Option<PDVCertificate> {
