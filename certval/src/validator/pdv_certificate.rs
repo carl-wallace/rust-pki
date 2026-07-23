@@ -65,6 +65,16 @@ impl PDVCertificate {
     pub fn locator(&self) -> Option<&str> {
         self.locator.as_deref()
     }
+
+    /// Return the decoded Certificate object.
+    ///
+    /// Prefer this over `as_ref()` at call sites: once a `PDVCertificate` is held behind a smart
+    /// pointer (e.g. `Arc<PDVCertificate>`), `.as_ref()` resolves to the pointer's own `AsRef`
+    /// rather than this `AsRef<CertificateInner<Raw>>` impl. This inherent method is unambiguous
+    /// through `Deref`.
+    pub fn decoded(&self) -> &CertificateInner<Raw> {
+        &self.decoded_cert
+    }
 }
 
 impl AsRef<CertificateInner<Raw>> for PDVCertificate {

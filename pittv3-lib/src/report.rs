@@ -41,7 +41,7 @@ pub struct CertSummary {
 impl CertSummary {
     /// Prepares a [`CertSummary`] from a parsed certificate
     pub fn from_cert(cert: &PDVCertificate) -> CertSummary {
-        let tbs = cert.as_ref().tbs_certificate();
+        let tbs = cert.decoded().tbs_certificate();
         CertSummary {
             subject: name_to_string(tbs.subject()),
             issuer: Some(name_to_string(tbs.issuer())),

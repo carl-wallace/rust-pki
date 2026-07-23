@@ -94,9 +94,9 @@ fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
             continue;
         }
         let issuer = if pos < path.intermediates.len() {
-            path.intermediates[pos].as_ref().tbs_certificate().issuer()
+            path.intermediates[pos].decoded().tbs_certificate().issuer()
         } else {
-            path.target.as_ref().tbs_certificate().issuer()
+            path.target.decoded().tbs_certificate().issuer()
         };
         for (crl, crl_bytes) in &parsed {
             if compare_names(&crl.tbs_cert_list.issuer, issuer) {
@@ -198,7 +198,7 @@ pub async fn validate_cert_bytes(
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.as_ref().tbs_certificate().subject()
+            path.target.decoded().tbs_certificate().subject()
         );
         let path_start = Instant::now();
         staple_crls(path, &opts.crls);
@@ -574,7 +574,7 @@ pub fn cleanup_certs(
                     match parse_cert(target.as_slice(), filename) {
                         Ok(tc) => {
                             if !t.is_disabled() {
-                                let r = valid_at_time(tc.as_ref().tbs_certificate(), t, true);
+                                let r = valid_at_time(tc.decoded().tbs_certificate(), t, true);
                                 if let Err(_e) = r {
                                     delete_file = true;
                                     error!(

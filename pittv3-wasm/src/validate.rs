@@ -420,7 +420,7 @@ fn validate_target(
     out.push(info(format!(
         "Building and validating path(s) for {} ({})",
         ee_name,
-        target.as_ref().tbs_certificate().subject()
+        target.decoded().tbs_certificate().subject()
     )));
 
     let mut paths: Vec<CertificationPath> = vec![];

@@ -102,7 +102,7 @@ pub async fn check_revocation(
         } else {
             v[pos - 1].as_ref()
         };
-        let cur_cert_subject = name_to_string(ca_cert_ref.as_ref().tbs_certificate().subject());
+        let cur_cert_subject = name_to_string(ca_cert_ref.decoded().tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {
@@ -301,7 +301,7 @@ pub fn check_revocation(
         } else {
             v[pos - 1].as_ref()
         };
-        let cur_cert_subject = name_to_string(&ca_cert_ref.as_ref().tbs_certificate().subject());
+        let cur_cert_subject = name_to_string(&ca_cert_ref.decoded().tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {
