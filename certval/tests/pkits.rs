@@ -802,6 +802,23 @@ pub fn pkits_guts_sync(
                         PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
+                    // The 5914 leg vets TA *constraint enforcement*, so the presented
+                    // TrustAnchorInfo must itself be the authoritative store anchor. Validating it
+                    // against the shared store (which holds the root as a bare Certificate) would
+                    // place a second, constraint-free representation of the same key alongside it,
+                    // which the RFC 5937 provenance guard in validate_path rejects as a mismatch.
+                    // Build a per-case environment whose sole trust anchor is this case's TaInfo
+                    // (one anchor per store => no SKID collision).
+                    let mut ta_source_5914 = TaSource::new();
+                    ta_source_5914.push(CertFile {
+                        filename: case.ta5914_filename.to_string(),
+                        bytes: der_encoded_ta5914.clone(),
+                    });
+                    ta_source_5914.initialize().unwrap();
+                    let mut pe_5914 = PkiEnvironment::new();
+                    pe_5914.populate_5280_pki_environment();
+                    pe_5914.add_trust_anchor_source(Box::new(ta_source_5914));
+
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
@@ -809,10 +826,12 @@ pub fn pkits_guts_sync(
                         CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = m {
                         #[cfg(not(feature = "revocation"))]
-                        let r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
+                        let r =
+                            pe_5914.validate_path(&pe_5914, &mod_cps, &mut cert_path2, &mut cpr);
 
                         #[cfg(feature = "revocation")]
-                        let mut r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
+                        let mut r =
+                            pe_5914.validate_path(&pe_5914, &mod_cps, &mut cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
                             r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr);
@@ -820,6 +839,10 @@ pub fn pkits_guts_sync(
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
                         {
+                            #[cfg(feature = "std")]
+                            {
+                                panic!("Unexpected result for {} with TA enforcement", case_name);
+                            }
                             #[cfg(not(feature = "std"))]
                             if ![
                                 "4.13.21", "4.13.23", "4.13.25", "4.13.27", "4.13.30", "4.13.32",
@@ -828,7 +851,7 @@ pub fn pkits_guts_sync(
                             ]
                             .contains(&case_name.as_str())
                             {
-                                println!("Unexpected result for {} with TA enforcement", case_name);
+                                panic!("Unexpected result for {} with TA enforcement", case_name);
                             }
                         }
                     } else if case.expected_error.is_none() {
@@ -1077,6 +1100,23 @@ pub async fn pkits_guts(
                         PDVTrustAnchorChoice::try_from(der_encoded_ta5914.as_slice()).unwrap();
                     ta5914.parse_extensions(EXTS_OF_INTEREST);
 
+                    // The 5914 leg vets TA *constraint enforcement*, so the presented
+                    // TrustAnchorInfo must itself be the authoritative store anchor. Validating it
+                    // against the shared store (which holds the root as a bare Certificate) would
+                    // place a second, constraint-free representation of the same key alongside it,
+                    // which the RFC 5937 provenance guard in validate_path rejects as a mismatch.
+                    // Build a per-case environment whose sole trust anchor is this case's TaInfo
+                    // (one anchor per store => no SKID collision).
+                    let mut ta_source_5914 = TaSource::new();
+                    ta_source_5914.push(CertFile {
+                        filename: case.ta5914_filename.to_string(),
+                        bytes: der_encoded_ta5914.clone(),
+                    });
+                    ta_source_5914.initialize().unwrap();
+                    let mut pe_5914 = PkiEnvironment::new();
+                    pe_5914.populate_5280_pki_environment();
+                    pe_5914.add_trust_anchor_source(Box::new(ta_source_5914));
+
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
@@ -1084,10 +1124,11 @@ pub async fn pkits_guts(
                         CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = &m {
                         #[cfg(not(feature = "revocation"))]
-                        let r = pe.validate_path(&pe, &mod_cps, &mut cert_path2, &mut cpr);
+                        let r = pe_5914.validate_path(&pe_5914, mod_cps, &mut cert_path2, &mut cpr);
 
                         #[cfg(feature = "revocation")]
-                        let mut r = pe.validate_path(pe, mod_cps, &mut cert_path2, &mut cpr);
+                        let mut r =
+                            pe_5914.validate_path(&pe_5914, mod_cps, &mut cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
                             r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr).await;
@@ -1095,7 +1136,7 @@ pub async fn pkits_guts(
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
                         {
-                            println!("Unexpected result for {case_name} with TA enforcement");
+                            panic!("Unexpected result for {case_name} with TA enforcement");
                         }
                     } else if case.expected_error.is_none() {
                         // enforcement failure counts as an invalid path; do not skip silently
