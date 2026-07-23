@@ -115,7 +115,18 @@ fn cert_or_ta_folder_to_vec(
                         continue;
                     }
 
-                    let buffer = get_file_as_byte_vec_pem(path)?;
+                    // A file that cannot be read or PEM-decoded must not abort the whole folder
+                    // scan (with `?` a single stray file left the store empty); skip it and go on.
+                    let buffer = match get_file_as_byte_vec_pem(path) {
+                        Ok(buffer) => buffer,
+                        Err(e) => {
+                            error!(
+                                "Ignoring {} as it could not be read or decoded: {e:?}",
+                                path.display()
+                            );
+                            continue;
+                        }
+                    };
 
                     // make sure it parses before saving buffer
                     if collect_tas {
@@ -257,18 +268,12 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
 #[cfg(feature = "std")]
 pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
     let b = get_file_as_byte_vec(filename)?;
-    if b[0] == 0x2D {
-        match pem_rfc7468::decode_vec(b.as_slice()) {
-            Ok(b) => {
-                return Ok(b.1);
-            }
-            Err(e) => {
-                error!("Failed to PEM decode data from {filename:?}: {e:?}");
-                return Err(Error::Unrecognized);
-            }
-        }
-    }
-    Ok(b)
+    // decode_pem_to_der (in pdv_utilities, no_std-capable) handles strict RFC 7468, a lenient
+    // fallback for real-world PEM OpenSSL accepts but strict RFC 7468 rejects, and outer-SEQUENCE
+    // trailing-byte trimming.
+    decode_pem_to_der(&b).inspect_err(|e| {
+        error!("Failed to PEM decode data from {filename:?}: {e:?}");
+    })
 }
 
 #[test]

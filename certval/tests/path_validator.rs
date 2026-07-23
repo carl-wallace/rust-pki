@@ -186,39 +186,41 @@ fn denies_self_signed_ee() {
 
     let time_of_interest: TimeOfInterest = TimeOfInterest::from_unix_secs(1707264000).unwrap();
     let mut pe = PkiEnvironment::default();
-    let ta_source = TaSource::default();
-    let cert_source = CertSource::default();
-    pe.add_trust_anchor_source(Box::new(ta_source));
-    pe.add_certificate_source(Box::new(cert_source));
-
     pe.populate_5280_pki_environment();
 
     let pem_encoded_cert = include_bytes!("../tests/examples/ee_alice_ss_test.pem");
     use der::DecodePem as _;
-    let cert = CertificateInner::<Raw>::from_pem(pem_encoded_cert).unwrap();
-    let cert = PDVCertificate::try_from(cert).unwrap();
+    use der::Encode as _;
+    let cert_inner = CertificateInner::<Raw>::from_pem(pem_encoded_cert).unwrap();
+    let der = cert_inner.to_der().unwrap();
+
+    // Drive the forbid_self_signed_ee guard directly with the degenerate path [anchor = alice,
+    // target = alice]. Going through the builder cannot exercise it: an empty trust store yields no
+    // path, and anchoring the self-signed cert to itself makes the target a trust anchor, which
+    // validate_path_rfc5280 short-circuits as trusted (require_ta_store) before reaching the guard.
+    // This test previously hid that dead end behind an unconditional `paths.is_empty()` early return.
+    let ta = PDVTrustAnchorChoice::try_from(der.as_slice()).unwrap();
+    let target = PDVCertificate::try_from(cert_inner).unwrap();
+    let mut cert_path = CertificationPath::new(ta, CertificateChain::default(), target);
 
     let mut cps = CertificationPathSettings::default();
     cps.set_forbid_self_signed_ee(true);
+    cps.set_require_ta_store(false);
     cps.set_time_of_interest(time_of_interest);
 
-    let mut paths = vec![];
-    if let Err(e) = pe.get_paths_for_target(&cert, &mut paths, 0, cps.get_time_of_interest()) {
-        assert!(e.is_certificate_expired_error());
-    }
-
-    if paths.is_empty() {
-        return;
-    }
-
-    for path in &mut paths {
-        let mut cpr = CertificationPathResults::new();
-        if validate_path_rfc5280(&pe, &cps, path, &mut cpr).is_err() {
-            return;
-        }
-    }
-
-    panic!("EE cert was accepted");
+    // The self-signed EE must be rejected *specifically* by the forbid guard — not tolerated, and
+    // not failed for some incidental reason that would mask a regression in the guard.
+    let mut cpr = CertificationPathResults::new();
+    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    assert!(
+        matches!(
+            r,
+            Err(Error::PathValidation(
+                PathValidationStatus::SelfSignedEndIdentity
+            ))
+        ),
+        "expected SelfSignedEndIdentity rejection, got {r:?}"
+    );
 }
 
 #[cfg(all(feature = "std", feature = "eddsa"))]

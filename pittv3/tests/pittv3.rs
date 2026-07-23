@@ -97,7 +97,9 @@ fn cleanup_trust_anchors() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("-t").arg("tests/examples/ta_store_two");
         cmd.arg("--ta-cleanup");
         cmd.arg("--report-only");
-        let _ = cmd.assert();
+        // report-only emits no stdout on this fixture; assert the command at least exits cleanly
+        // rather than discarding the outcome.
+        cmd.assert().success();
     }
 
     Ok(())
@@ -253,6 +255,12 @@ fn list_partial_paths_for_leaf_ca() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // todo fix or replace
+// Disabled: not cleanly revivable against the current fixtures. The fpki_and_crtsh.cbor store has
+// aged out — at today's time-of-interest most of its certs (including the DigiCert Global Root G2
+// path this asserted) are expired, so the "* TA subject: … - [987]" line no longer appears, and
+// that [987] store index is a brittle change-detector besides. The second half also references
+// tests/cert_store_with_expired/45.der, which no longer exists. Reviving needs a regenerated store
+// plus a pinned time-of-interest and re-derived indices.
 // #[cfg(feature = "std")]
 // #[test]
 // fn list_partial_paths_for_target() -> Result<(), Box<dyn std::error::Error>> {
@@ -979,94 +987,89 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-// todo fix or replace
-// #[test]
-// fn multi_pass_build() -> Result<(), Box<dyn std::error::Error>> {
-//     let p = Path::new("tests/examples/multipass.cbor");
-//     if Path::exists(p) {
-//         fs::remove_file(p.to_str().unwrap())?;
-//     }
-//     {
-//         let mut cmd = Command::new(cargo::cargo_bin!());
-//         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
-//         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
-//         cmd.arg("-c").arg("tests/examples/build_test");
-//         cmd.arg("-i").arg("1642763756");
-//         cmd.arg("--generate");
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Serializing 5 buffers and 5 partial paths",
-//         ));
-//         assert!(p.exists());
-//         fs::remove_file(p.to_str().unwrap())?;
-//     }
-//     #[cfg(feature = "remote")]
-//     {
-//         // same as above but with dynamic build. same result owing to blocklist in build_test folder
-//         // that includes resources that otherwise would have been fetched
-//         let mut cmd = Command::new(cargo::cargo_bin!());
-//         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
-//         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
-//         cmd.arg("-c").arg("tests/examples/build_test");
-//         cmd.arg("-i").arg("1642763756");
-//         cmd.arg("-y");
-//         cmd.arg("--generate");
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Serializing 5 buffers and 5 partial paths",
-//         ));
-//         assert!(p.exists());
-//         fs::remove_file(p.to_str().unwrap())?;
-//     }
-//
-//     #[cfg(feature = "remote")]
-//     {
-//         let dp = Path::new("tests/examples/downloads_multipass");
-//         if Path::exists(dp) {
-//             fs::remove_dir_all(dp).unwrap();
-//         }
-//         fs::create_dir_all(dp).unwrap();
-//
-//         // same as above but with dynamic build. same result owing to blocklist in build_test folder
-//         // that includes resources that otherwise would have been fetched
-//         let mut cmd = Command::new(cargo::cargo_bin!());
-//         cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
-//         cmd.arg("-t").arg("tests/examples/ta_store_build_test");
-//         cmd.arg("-c").arg("tests/examples/build_test");
-//         cmd.arg("-d").arg(dp.to_str().unwrap());
-//         cmd.arg("-i").arg("1642763756");
-//         cmd.arg("-y");
-//         cmd.arg("--generate");
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Downloading http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c",
-//         ));
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Downloading http://repo.fpki.gov/bridge/caCertsIssuedTofbcag4.p7c",
-//         ));
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Downloading http://crl.disa.mil/issuedby/DODINTEROPERABILITYROOTCA2_IB.p7c",
-//         ));
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Downloading http://repo.fpki.gov/fcpca/caCertsIssuedTofcpcag2.p7c",
-//         ));
-//         cmd.assert().stdout(predicate::str::contains(
-//             "Downloading http://repo.fpki.gov/bridge/caCertsIssuedByfbcag4.p7c",
-//         ));
-//         assert!(p.exists());
-//         fs::remove_file(p.to_str().unwrap())?;
-//         if Path::exists(dp) {
-//             fs::remove_dir_all(dp).unwrap();
-//         }
-//     }
-//
-//     if Path::exists(p) {
-//         fs::remove_file(p.to_str().unwrap())?;
-//     }
-//     let p = Path::new("tests/examples/build_test/last_modified_map.json");
-//     if Path::exists(p) {
-//         fs::remove_file(p.to_str().unwrap())?;
-//     }
-//
-//     Ok(())
-// }
+// Static multi-pass graph build over the local DoD/FPKI fixtures: roots in ta_store_build_test
+// (DoD Root CA 3, Federal Common Policy CA G2) plus five intermediates in build_test. Confirms the
+// builder serializes one partial path per intermediate (5). RSA-gated because every DoD/FPKI CA here
+// is RSA-signed and pass-0 partial-path construction verifies each cert's signature against its
+// trust-anchor key — without `rsa` the signatures never verify and the build yields 0 partial paths.
+// The "Failed to find trust anchor ... 79F0…" line is a benign warning: DoD Interoperability Root
+// CA 2's issuer (Federal Bridge CA G4) is an intermediate in this graph, not a trust anchor.
+#[cfg(feature = "rsa")]
+#[test]
+fn multi_pass_build() -> Result<(), Box<dyn std::error::Error>> {
+    let p = Path::new("tests/examples/multipass.cbor");
+    if Path::exists(p) {
+        fs::remove_file(p.to_str().unwrap())?;
+    }
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
+    cmd.arg("-t").arg("tests/examples/ta_store_build_test");
+    cmd.arg("-c").arg("tests/examples/build_test");
+    cmd.arg("-i").arg("1642763756");
+    cmd.arg("--generate");
+    cmd.assert().stdout(predicate::str::contains(
+        "Serializing 5 buffers and 5 partial paths",
+    ));
+    assert!(p.exists());
+    fs::remove_file(p.to_str().unwrap())?;
+    Ok(())
+}
+
+// Dynamic (network) multi-pass build: the same starting fixtures, but with dynamic building enabled
+// (`-y`) so the builder follows the AIA/SIA URLs embedded in the certs and fetches additional
+// intermediates live to extend the graph. The build_test certs point first at crl.disa.mil and
+// repo.fpki.gov (and, transitively, the SSP/bridge peers those bundles reference). pittv3 logs at
+// info level to stdout by default, so a real fetch surfaces as "Downloading {url}" lines there; the
+// starting graph's own hits are:
+//   http://crl.disa.mil/issuedto/DODROOTCA3_IT.p7c
+//   http://crl.disa.mil/issuedby/DODINTEROPERABILITYROOTCA2_IB.p7c
+//   http://repo.fpki.gov/bridge/caCertsIssuedTofbcag4.p7c
+//   http://repo.fpki.gov/fcpca/caCertsIssuedTofcpcag2.p7c
+//   http://repo.fpki.gov/bridge/caCertsIssuedByfbcag4.p7c
+// Assert that a fetch occurred (a Downloading line) and the build completed; the exact buffer/path
+// counts and the full URL set are server dependent, so they are not pinned. #[ignore]d because it
+// needs network; run with `--ignored`. remote + rsa gated as with the static build above.
+#[cfg(all(feature = "remote", feature = "rsa"))]
+#[test]
+#[ignore = "live crl.disa.mil + repo.fpki.gov fetch; run with --ignored"]
+fn multi_pass_build_dynamic() -> Result<(), Box<dyn std::error::Error>> {
+    let p = Path::new("tests/examples/multipass.cbor");
+    let dp = Path::new("tests/examples/downloads_multipass");
+    if Path::exists(p) {
+        fs::remove_file(p.to_str().unwrap())?;
+    }
+    if Path::exists(dp) {
+        fs::remove_dir_all(dp)?;
+    }
+    fs::create_dir_all(dp)?;
+
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("--cbor").arg("tests/examples/multipass.cbor");
+    cmd.arg("-t").arg("tests/examples/ta_store_build_test");
+    cmd.arg("-c").arg("tests/examples/build_test");
+    cmd.arg("-d").arg(dp.to_str().unwrap());
+    cmd.arg("-i").arg("1642763756");
+    cmd.arg("-y");
+    cmd.arg("--generate");
+    cmd.assert()
+        // a real network fetch happened (info-level log, emitted to stdout by default)...
+        .stdout(predicate::str::contains("Downloading http"))
+        // ...and the build completed by serializing partial paths.
+        .stdout(predicate::str::contains("partial paths"));
+    assert!(p.exists());
+
+    fs::remove_file(p.to_str().unwrap())?;
+    if Path::exists(dp) {
+        fs::remove_dir_all(dp)?;
+    }
+    // The dynamic build writes a last-modified map into the cert folder; drop it so the fixture
+    // tree stays clean between runs.
+    let lmm = Path::new("tests/examples/build_test/last_modified_map.json");
+    if Path::exists(lmm) {
+        fs::remove_file(lmm)?;
+    }
+    Ok(())
+}
 
 #[cfg(feature = "rsa")]
 #[test]
@@ -1762,7 +1765,12 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
         cmd.arg("-s")
             .arg("tests/examples/pkits_settings/default.json");
         cmd.arg("-f").arg("tests/examples/SeparatedPKITS/default");
-        let _ = cmd.assert();
+        // The intended valid/invalid split for the `default` target set isn't pinned yet (see the
+        // TODO below — default.json currently reports every target invalid), so assert the run at
+        // least reaches its summary line rather than discarding the outcome entirely, which would
+        // green over a mid-run panic.
+        cmd.assert()
+            .stdout(predicate::str::contains("Total valid paths found:"));
         // TODO remove targets that do not apply and get right number of valid/invalid
     }
     fs::remove_dir_all(&results_path).unwrap();
@@ -1818,53 +1826,94 @@ fn fndsa_falcon_512_broken_signature_rejected() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-// #[cfg(feature = "pqc")]
-// #[test]
-// fn pqc_hackathon_r3_ipd() -> Result<(), Box<dyn std::error::Error>> {
-//     use std::ffi::OsStr;
-//     let paths = fs::read_dir("tests/examples/artifacts_certs_r3").unwrap();
-//
-//     let file_exts = vec!["der", "pem"];
-//     for path in paths {
-//         let p = path?.path();
-//         if let Some(ext) = p.extension().and_then(OsStr::to_str) {
-//             if !file_exts.contains(&ext) {
-//                 continue;
-//             }
-//         } else {
-//             continue;
-//         }
-//         let mut cmd = Command::new(cargo::cargo_bin!());
-//         cmd.arg("-e").arg(p.display().to_string());
-//         cmd.arg("--validate-self-signed");
-//         cmd.assert()
-//             .stdout(predicate::str::contains("is self-signed"));
-//     }
-//
-//     Ok(())
-// }
+// Removed: pqc_hackathon_r3_ipd. It validated the round-3 IETF hackathon "IPD" artifacts (the
+// tests/examples/artifacts_certs_r3 fixtures, pre-standardization Dilithium OIDs 1.3.6.1.4.1.2.267.*),
+// which predate the standardized ML-DSA and SLH-DSA algorithms/OIDs and no longer represent what we
+// ship; both the test and the r3 fixtures have been pruned. The intent to test PQC self-signatures is
+// preserved with current standardized artifacts: FN-DSA via fndsa_falcon_*_self_signed, ML-DSA via
+// pqc_mldsa_self_signed, and SLH-DSA via pqc_slhdsa_self_signed (all above).
 
-// TODO(composite-verify): disabled until composite artifacts are updated.
-// #[cfg(all(feature = "pqc", feature = "rsa", feature = "eddsa"))]
-// #[test]
-// fn pqc_composite_verify() -> Result<(), Box<dyn std::error::Error>> {
-//     let paths = std::fs::read_dir("tests/examples/composite").unwrap();
-//     for path in paths {
-//         let path = match path {
-//             Ok(path) => path,
-//             Err(err) => {
-//                 eprintln!("{:?}", err);
-//                 continue;
-//             }
-//         };
-//         if !path.file_name().to_str().unwrap().ends_with(".der") {
-//             continue;
-//         }
-//         let mut cmd = Command::new(cargo::cargo_bin!());
-//         cmd.arg("--validate-self-signed");
-//         cmd.arg("-e").arg(path.path());
-//         cmd.assert()
-//             .stdout(predicate::str::contains("is self-signed"));
-//     }
-//     Ok(())
-// }
+// Composite (ML-DSA + traditional) self-signed trust anchors from the IETF hackathon, covering the
+// finalized composite OIDs 1.3.6.1.5.5.7.6.37..54 (fixtures shared with certval/tests/composite.rs,
+// which exercises the verify callback directly). pittv3's --validate-self-signed dispatches each cert
+// to the composite verifier registered by populate_5280_pki_environment. Requires eddsa + rsa for the
+// Ed25519/RSA traditional components (the ML-DSA half rides `pqc`).
+#[cfg(all(feature = "pqc", feature = "rsa", feature = "eddsa"))]
+#[test]
+fn pqc_composite_verify() -> Result<(), Box<dyn std::error::Error>> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("tests/examples/composite")? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("der") {
+            continue;
+        }
+        let mut cmd = Command::new(cargo::cargo_bin!());
+        cmd.arg("--validate-self-signed");
+        cmd.arg("-e").arg(&path);
+        // "is self-signed" is not a substring of "is not self-signed" (the "not " breaks it), so this
+        // predicate genuinely distinguishes a verified composite self-signature from a rejection.
+        cmd.assert()
+            .stdout(predicate::str::contains("is self-signed"));
+        count += 1;
+    }
+    assert!(count > 0, "no composite fixtures were exercised");
+    Ok(())
+}
+
+// Standalone (non-composite) ML-DSA-44/65/87 self-signed trust anchors. Unlike the composite set
+// these carry no traditional component, so they verify under `pqc` alone (no rsa/eddsa). pittv3's
+// --validate-self-signed dispatches each to the ML-DSA verifier registered by
+// populate_5280_pki_environment.
+#[cfg(feature = "pqc")]
+#[test]
+fn pqc_mldsa_self_signed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("tests/examples/mldsa")? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("der") {
+            continue;
+        }
+        let mut cmd = Command::new(cargo::cargo_bin!());
+        cmd.arg("--validate-self-signed");
+        cmd.arg("-e").arg(&path);
+        // "is self-signed" is not a substring of "is not self-signed", so this distinguishes a
+        // verified ML-DSA self-signature from a rejection.
+        cmd.assert()
+            .stdout(predicate::str::contains("is self-signed"));
+        count += 1;
+    }
+    assert!(count > 0, "no ML-DSA fixtures were exercised");
+    Ok(())
+}
+
+// Standalone SLH-DSA self-signed trust anchors covering all 12 standardized parameter sets
+// (SHA2/SHAKE × 128/192/256 × {s,f}, OIDs 2.16.840.1.101.3.4.3.20..31), from the IETF hackathon
+// pqc-certificates project (CryptoNext, round-5 artifacts). Each parameter set is a distinct OID
+// dispatch in certval's crypto_pqc.rs, so validating one cert per set exercises every SLH-DSA verify
+// branch. pittv3's --validate-self-signed routes each cert to the matching verifier registered by
+// populate_5280_pki_environment. Verifies under `pqc` alone (no traditional component).
+#[cfg(feature = "pqc")]
+#[test]
+fn pqc_slhdsa_self_signed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("tests/examples/slhdsa")? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("der") {
+            continue;
+        }
+        let mut cmd = Command::new(cargo::cargo_bin!());
+        cmd.arg("--validate-self-signed");
+        cmd.arg("-e").arg(&path);
+        // "is self-signed" is not a substring of "is not self-signed", so this distinguishes a
+        // verified SLH-DSA self-signature from a rejection.
+        cmd.assert()
+            .stdout(predicate::str::contains("is self-signed"));
+        count += 1;
+    }
+    // All 12 parameter sets must be present so the coverage cannot silently shrink to a subset.
+    assert_eq!(
+        count, 12,
+        "expected all 12 SLH-DSA parameter sets under tests/examples/slhdsa, exercised {count}"
+    );
+    Ok(())
+}

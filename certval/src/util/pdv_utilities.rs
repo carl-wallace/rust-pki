@@ -869,6 +869,118 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
     }
 }
 
+/// `decode_pem_to_der` accepts the bytes of a PEM- or DER-encoded object and returns DER. When the
+/// input begins with `-----`, it is PEM-decoded: the strict RFC 7468 decoder is tried first, then a
+/// lenient fallback for real-world PEM that OpenSSL accepts but strict RFC 7468 rejects (a trailing
+/// blank line, or base64 wrapped at a width other than 64, as some DoD/FPKI tools emit) — drop the
+/// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. Any bytes past the
+/// outer DER SEQUENCE are then trimmed (see [`trim_to_outer_der_sequence`]). Available in no_std.
+pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
+    use base64ct::{Base64, Encoding};
+
+    let der = if bytes.first() == Some(&0x2D) {
+        match pem_rfc7468::decode_vec(bytes) {
+            Ok((_label, der)) => der,
+            Err(_e) => {
+                let text = String::from_utf8_lossy(bytes);
+                let body: String = text
+                    .lines()
+                    .filter(|line| !line.contains("-----"))
+                    .flat_map(str::chars)
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                match Base64::decode_vec(&body) {
+                    Ok(der) => der,
+                    Err(_e) => return Err(crate::Error::Unrecognized),
+                }
+            }
+        }
+    } else {
+        bytes.to_vec()
+    };
+
+    Ok(trim_to_outer_der_sequence(der))
+}
+
+/// Truncates `der` to the encoded length of its outer DER SEQUENCE when the buffer carries spurious
+/// trailing bytes. Returns `der` unchanged when it does not begin with a definite-length SEQUENCE or
+/// the encoded length is not shorter than the buffer, so conforming DER is never altered.
+pub fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
+    // 0x30 = universal, constructed, SEQUENCE — the outer tag of a cert, CRL, or TrustAnchorChoice.
+    if der.first() != Some(&0x30) || der.len() < 2 {
+        return der;
+    }
+    let len_byte = der[1];
+    let total = if len_byte < 0x80 {
+        // short-form length
+        2 + len_byte as usize
+    } else if len_byte == 0x80 {
+        // indefinite length is not valid DER; leave it for the decoder to reject
+        return der;
+    } else {
+        // long-form: the low 7 bits give the number of subsequent big-endian length octets
+        let num = (len_byte & 0x7f) as usize;
+        if num == 0 || num > 4 || der.len() < 2 + num {
+            return der;
+        }
+        let mut len = 0usize;
+        for &octet in &der[2..2 + num] {
+            len = (len << 8) | octet as usize;
+        }
+        2 + num + len
+    };
+    if total < der.len() {
+        der.truncate(total);
+    }
+    der
+}
+
+#[test]
+fn trim_to_outer_der_sequence_drops_trailing() {
+    // SEQUENCE, length 3, content [01 02 03]; total encoded length = 5
+    let exact = alloc::vec![0x30, 0x03, 0x01, 0x02, 0x03];
+    assert_eq!(trim_to_outer_der_sequence(exact.clone()), exact);
+    // spurious trailing bytes are dropped
+    let mut with_trailing = exact.clone();
+    with_trailing.extend_from_slice(&[0xff, 0x00, 0xaa]);
+    assert_eq!(trim_to_outer_der_sequence(with_trailing), exact);
+    // a non-SEQUENCE outer tag is left untouched
+    let not_seq = alloc::vec![0x02, 0x01, 0x00, 0x99];
+    assert_eq!(trim_to_outer_der_sequence(not_seq.clone()), not_seq);
+    // a truncated length header is left for the decoder to reject
+    let truncated = alloc::vec![0x30, 0x82, 0x01];
+    assert_eq!(trim_to_outer_der_sequence(truncated.clone()), truncated);
+}
+
+#[test]
+fn decode_pem_to_der_lenient_and_passthrough() {
+    use base64ct::{Base64, Encoding};
+    // arbitrary DER: SEQUENCE { INTEGER 42, INTEGER 43 }
+    let der = alloc::vec![0x30, 0x06, 0x02, 0x01, 0x2a, 0x02, 0x01, 0x2b];
+    // raw DER passes through unchanged
+    assert_eq!(decode_pem_to_der(&der).unwrap(), der);
+    let b64 = Base64::encode_string(&der);
+
+    // strict RFC 7468 (single short line, LF, no trailing) round-trips
+    let strict = format!("-----BEGIN X-----\n{b64}\n-----END X-----\n");
+    assert_eq!(decode_pem_to_der(strict.as_bytes()).unwrap(), der);
+
+    // real-world quirks the strict decoder rejects but the lenient fallback accepts:
+    // CRLF line endings plus a trailing blank line
+    let crlf_trailing = format!("-----BEGIN X-----\r\n{b64}\r\n-----END X-----\r\n\r\n");
+    assert_eq!(decode_pem_to_der(crlf_trailing.as_bytes()).unwrap(), der);
+
+    // base64 split across many short CRLF lines (a width other than 64)
+    let wrapped = b64
+        .as_bytes()
+        .chunks(4)
+        .map(|c| core::str::from_utf8(c).unwrap())
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    let odd_width = format!("-----BEGIN X-----\r\n{wrapped}\r\n-----END X-----\r\n");
+    assert_eq!(decode_pem_to_der(odd_width.as_bytes()).unwrap(), der);
+}
+
 #[test]
 fn bad_input_self_signed() {
     let der_encoded_ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");

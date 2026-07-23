@@ -80,13 +80,19 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
 
         loop {
             {
-                let tmp_vec: Vec<Option<PDVCertificate>> = vec![];
                 let r = cert_store.initialize(cps);
                 if let Err(e) = r {
                     error!("Failed to populate cert map: {e}");
                 }
 
-                collect_uris_from_aia_and_sia_for_graph_build(&tmp_vec, &mut uris, certs_count);
+                // Collect AIA/SIA URIs from the certificates loaded so far (skipping the ones
+                // already processed on prior loops). Previously this iterated an empty scratch
+                // vector, so no URIs were ever gathered and dynamic building fetched nothing.
+                collect_uris_from_aia_and_sia_for_graph_build(
+                    cert_store.certs(),
+                    &mut uris,
+                    certs_count,
+                );
             }
 
             let mut blocklist = read_blocklist(&blocklist_file);
