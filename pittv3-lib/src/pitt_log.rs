@@ -488,7 +488,7 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             .expect("Unable to write manifest file");
     }
 
-    let vpt = cpr.get_final_valid_policy_tree();
+    let vpt = cpr.get_final_valid_policy_graph();
     if let Some(vpt) = vpt {
         f.write_all("Valid certificate policies\n".as_bytes())
             .expect("Unable to write manifest file");

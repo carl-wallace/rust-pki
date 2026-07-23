@@ -39,6 +39,30 @@ pub const PKITS_TEST_POLICY_5: ObjectIdentifier =
 pub const PKITS_TEST_POLICY_6: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("2.16.840.1.101.3.2.1.48.6");
 
+pub const ANY_POLICY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.32.0");
+
+/// The `authorities-constrained-policy-set` NIST PKITS v1.0.1 §4.8 specifies for each certificate-
+/// policies test (fixed by the certification path, independent of the caller's initial-policy-set).
+/// `test` is the test number without the sub-case suffix, e.g. "4.8.10" for case "4.8.10.2". Returns
+/// `None` for cases outside §4.8 (no expected set encoded). The graph leaf certval records is the
+/// *user*-constrained set — this intersected with the initial-policy-set — which the caller derives.
+pub fn authorities_constrained_policy_set(test: &str) -> Option<Vec<ObjectIdentifier>> {
+    Some(match test {
+        "4.8.1" | "4.8.6" | "4.8.14" | "4.8.15" | "4.8.16" | "4.8.17" | "4.8.19" | "4.8.20" => {
+            vec![PKITS_TEST_POLICY_1]
+        }
+        "4.8.10" | "4.8.18" => vec![PKITS_TEST_POLICY_1, PKITS_TEST_POLICY_2],
+        "4.8.13" => vec![
+            PKITS_TEST_POLICY_1,
+            PKITS_TEST_POLICY_2,
+            PKITS_TEST_POLICY_3,
+        ],
+        "4.8.11" => vec![ANY_POLICY_OID],
+        "4.8.2" | "4.8.3" | "4.8.4" | "4.8.5" | "4.8.7" | "4.8.8" | "4.8.9" | "4.8.12" => vec![],
+        _ => return None,
+    })
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn serialize_pkits_settings() {

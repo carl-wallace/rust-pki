@@ -55,10 +55,6 @@ impl CertificationPathResults {
 /// to check for unprocessed critical extensions.
 pub static PR_PROCESSED_EXTENSIONS: &str = "cprProcessedExtensions";
 
-/// `PR_FINAL_VALID_POLICY_TREE` is used to retrieve a FinalValidPolicyTree value from a [`CertificationPathResults`]
-/// object.
-pub static PR_FINAL_VALID_POLICY_TREE: &str = "cprValidPolicyTree";
-
 /// `PR_FINAL_VALID_POLICY_GRAPH` is used to retrieve a FinalValidPolicyGraph value from a [`CertificationPathResults`]
 /// object.
 pub static PR_FINAL_VALID_POLICY_GRAPH: &str = "cprValidPolicyTree";
@@ -136,7 +132,6 @@ pub static PR_FINAL_EXCLUDED_SUBTREES: &str = "cprFinalExcludedSubtrees";
 cpr_gets_and_sets_with_default!(PR_PROCESSED_EXTENSIONS, ObjectIdentifierSet, {
     BTreeSet::new()
 });
-cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_TREE, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_FINAL_VALID_POLICY_GRAPH, FinalValidPolicyTree);
 cpr_gets_and_sets!(PR_VALIDATION_STATUS, PathValidationStatus);
 cpr_gets_and_sets!(PR_FAILURE_INDEX, u32);

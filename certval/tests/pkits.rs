@@ -47,6 +47,46 @@ use crate::pkits_data::*;
 mod pkits_utils;
 use crate::pkits_utils::*;
 
+/// Assert that the valid-policy graph certval recorded matches NIST PKITS §4.8. The graph leaf is the
+/// RFC 5280 §6.1.5(g) *user-constrained-policy-set* — the path's authorities-constrained-policy-set
+/// (fixed per test, taken from the PKITS document) intersected with the caller's initial-policy-set
+/// during path-processing wrap-up. No-op for cases with no encoded expected set (non-§4.8).
+fn check_policy_graph(
+    case_name: &str,
+    cps: &CertificationPathSettings,
+    cpr: &CertificationPathResults,
+) {
+    // Strip the sub-case suffix: "4.8.10.2" -> "4.8.10", "4.8.4" -> "4.8.4".
+    let test = case_name.split('.').take(3).collect::<Vec<_>>().join(".");
+    let Some(authorities) = authorities_constrained_policy_set(&test) else {
+        return;
+    };
+    let authorities: ObjectIdentifierSet = authorities.into_iter().collect();
+    let initial = cps.get_initial_policy_set_as_oid_set();
+
+    // Wrap-up intersection; anyPolicy on either side imposes no restriction from that side.
+    let expected: ObjectIdentifierSet = if initial.is_empty() || initial.contains(&ANY_POLICY_OID) {
+        authorities
+    } else if authorities.contains(&ANY_POLICY_OID) {
+        initial
+    } else {
+        authorities.intersection(&initial).copied().collect()
+    };
+
+    let actual: ObjectIdentifierSet = cpr
+        .get_final_valid_policy_graph()
+        .and_then(|g| {
+            g.last()
+                .map(|leaf| leaf.iter().map(|n| n.valid_policy).collect())
+        })
+        .unwrap_or_default();
+
+    assert_eq!(
+        actual, expected,
+        "policy-graph leaf mismatch for {case_name}: expected {expected:?}, got {actual:?}"
+    );
+}
+
 #[derive(Clone)]
 pub struct CertPool {
     pub certs: BTreeMap<String, Vec<u8>>,
@@ -769,6 +809,10 @@ pub fn pkits_guts_sync(
                     }
                 }
 
+                if r.is_ok() {
+                    check_policy_graph(&case_name, &tmp_settings, &cpr);
+                }
+
                 if !verified_ta_as_target {
                     let ta_as_cert =
                         parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt")
@@ -1063,6 +1107,10 @@ pub async fn pkits_guts(
                     || (r.is_ok() && case.expected_error.is_some())
                 {
                     panic!("Unexpected result for {case_name}");
+                }
+
+                if r.is_ok() {
+                    check_policy_graph(&case_name, &tmp_settings, &cpr);
                 }
 
                 if !verified_ta_as_target {
