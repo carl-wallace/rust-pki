@@ -352,19 +352,20 @@ impl BuffersAndPaths {
 ///      lookups and path building.
 ///
 /// The snippet below, similar to code found in the PITTv3 utility, prepares a [`CertSource`] from a
-/// CBOR file: [`read_cbor`] loads the serialized `Vec<u8>` and [`CertSource::new_from_cbor`]
-/// deserializes it into the instance's [`BuffersAndPaths`]. The initialized [`CertSource`] is then
-/// passed to a [`PkiEnvironment`] to serve both as a certificate source and as a path builder.
+/// serialized store: [`CertSource::new_from_cbor`] deserializes the `Vec<u8>` into the instance's
+/// [`BuffersAndPaths`]. The initialized [`CertSource`] is then passed to a [`PkiEnvironment`] to
+/// serve both as a certificate source and as a path builder. (With the `std` feature, `read_cbor`
+/// is a convenience for loading the serialized bytes from a file.)
 ///
 /// ```no_run
 /// use certval::*;
 /// # fn main() -> certval::Result<()> {
-/// let cbor_file = Some("path/to/store.cbor".to_string());
+/// // `cbor` holds a previously generated store, e.g. read from a file with `read_cbor`.
+/// let cbor: &[u8] = &[];
 /// let cps = CertificationPathSettings::new();
 /// let mut pe = PkiEnvironment::new();
 ///
-/// let cbor = read_cbor(&cbor_file);
-/// let mut cert_source = CertSource::new_from_cbor(cbor.as_slice())?;
+/// let mut cert_source = CertSource::new_from_cbor(cbor)?;
 /// cert_source.initialize(&cps)?;
 ///
 /// pe.add_certificate_source(Box::new(cert_source));
