@@ -61,7 +61,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo test -p certval --features std,rsa,revocation,pqc
+      - run: cargo test -p certval --features std,rsa,revocation,pqc,eddsa
 
   # certval is no_std-capable; prove it links for an embedded target. Build-only
   # (no test runner on the target). thumbv7em-none-eabihf deliberately — an

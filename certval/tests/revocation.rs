@@ -1,204 +1,5 @@
 #![cfg(feature = "revocation")]
 
-//todo fix or replace
-// #[cfg(not(feature = "std"))]
-// #[test]
-// fn stapled_ocsp() {
-//     use certval::environment::pki_environment::PkiEnvironment;
-//     use certval::path_settings::*;
-//     use certval::validator::path_validator::*;
-//     use certval::*;
-//     use der::Decode;
-//     use x509_cert::anchor::TrustAnchorChoice;
-//     use x509_cert::*;
-//
-//     let der_encoded_ta = include_bytes!("examples/amazon.com/0-ta.der");
-//     let der_encoded_ca = include_bytes!("examples/amazon.com/1.der");
-//     let der_encoded_ca_ocsp = include_bytes!("examples/amazon.com/1-ocsp.ocspResp");
-//     let der_encoded_ee = include_bytes!("examples/amazon.com/2-target.der");
-//     let der_encoded_ee_ocsp = include_bytes!("examples/amazon.com/2-ocsp.ocspResp");
-//
-//     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-//     let ta = PDVTrustAnchorChoice {
-//         encoded_ta: der_encoded_ta,
-//         decoded_ta: tac,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//
-//     let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-//     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-//
-//     let mut ca = PDVCertificate {
-//         encoded_cert: der_encoded_ca,
-//         decoded_cert: ca_cert,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//     ca.parse_extensions(EXTS_OF_INTEREST);
-//     let mut ee = PDVCertificate {
-//         encoded_cert: der_encoded_ee,
-//         decoded_cert: ee_cert,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//
-//     let chain = vec![ca];
-//
-//     let mut pe = PkiEnvironment::new();
-//     pe.populate_5280_pki_environment();
-//     let mut pe2 = PkiEnvironment::new();
-//     pe2.add_validate_path_callback(validate_path_rfc5280);
-//
-//     ee.parse_extensions(EXTS_OF_INTEREST);
-//
-//     let mut cert_path = CertificationPath::new(ta, chain, ee);
-//
-//     cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
-//     cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
-//
-//     let mut cps = CertificationPathSettings::new();
-//     set_require_ta_store(&mut cps, false);
-//
-//     let mut cpr = CertificationPathResults::new();
-//
-//     {
-//         set_time_of_interest(&mut cps, 1646482828);
-//         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
-//         if r.is_err() {
-//             panic!("Failed to successfully validate path");
-//         }
-//         #[cfg(feature = "revocation")]
-//         {
-//             let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr);
-//             if r.is_err() {
-//                 panic!("Failed to successfully check revocation using stapled OCSP responses");
-//             }
-//         }
-//     }
-//     {
-//         set_time_of_interest(&mut cps, 1647030025);
-//         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
-//         if r.is_err() {
-//             panic!("Failed to successfully validate path");
-//         }
-//         #[cfg(feature = "revocation")]
-//         {
-//             let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr);
-//             if r.is_ok() {
-//                 panic!("Failed to reject stale stapled OCSP responses");
-//             }
-//         }
-//     }
-// }
-
-//todo fix or replace
-// #[cfg(all(feature = "revocation", feature = "std"))]
-// #[tokio::test]
-// async fn stapled_ocsp_async() {
-//     use certval::environment::pki_environment::PkiEnvironment;
-//     use certval::path_settings::*;
-//     use certval::validator::path_validator::*;
-//     use certval::*;
-//     use der::Decode;
-//     use x509_cert::anchor::TrustAnchorChoice;
-//     use x509_cert::*;
-//
-//     // Target expires UTCTime 19/09/2022 23:59:59 GMT
-//     // CA expires UTCTime 01/08/2028 12:00:00 GMT
-//
-//     let der_encoded_ta = include_bytes!("examples/amazon.com/0-ta.der");
-//     let der_encoded_ca = include_bytes!("examples/amazon.com/1.der");
-//     let der_encoded_ca_ocsp = include_bytes!("examples/amazon.com/1-ocsp.ocspResp");
-//     let der_encoded_ee = include_bytes!("examples/amazon.com/2-target.der");
-//     let der_encoded_ee_ocsp = include_bytes!("examples/amazon.com/2-ocsp.ocspResp");
-//
-//     let tac = TrustAnchorChoice::from_der(der_encoded_ta).unwrap();
-//     let ta = PDVTrustAnchorChoice {
-//         encoded_ta: der_encoded_ta,
-//         decoded_ta: tac,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//
-//     let ca_cert = Certificate::from_der(der_encoded_ca).unwrap();
-//     let ee_cert = Certificate::from_der(der_encoded_ee).unwrap();
-//
-//     let mut ca = PDVCertificate {
-//         encoded_cert: der_encoded_ca,
-//         decoded_cert: ca_cert,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//     ca.parse_extensions(EXTS_OF_INTEREST);
-//     let mut ee = PDVCertificate {
-//         encoded_cert: der_encoded_ee,
-//         decoded_cert: ee_cert,
-//         metadata: None,
-//         parsed_extensions: ParsedExtensions::new(),
-//     };
-//
-//     let chain = vec![ca];
-//
-//     let mut pe = PkiEnvironment::new();
-//     pe.populate_5280_pki_environment();
-//     let mut pe2 = PkiEnvironment::new();
-//     pe2.add_validate_path_callback(validate_path_rfc5280);
-//
-//     ee.parse_extensions(EXTS_OF_INTEREST);
-//
-//     let mut cert_path = CertificationPath::new(ta, chain, ee);
-//
-//     cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
-//     cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
-//
-//     let mut cps = CertificationPathSettings::new();
-//     set_require_ta_store(&mut cps, false);
-//
-//     let mut cpr = CertificationPathResults::new();
-//
-//     {
-//         set_time_of_interest(&mut cps, 1646482828);
-//         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
-//         if r.is_err() {
-//             panic!("Failed to successfully validate path");
-//         }
-//         r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
-//         if r.is_err() {
-//             panic!("Failed to successfully check revocation using stapled OCSP responses");
-//         }
-//     }
-//     #[cfg(feature = "remote")]
-//     {
-//         use std::time::{SystemTime, UNIX_EPOCH};
-//         let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-//         set_time_of_interest(&mut cps, before.as_secs());
-//         let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
-//         if r.is_err() {
-//             panic!("Failed to successfully validate path");
-//         }
-//         r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
-//         if r.is_err() {
-//             panic!("Failed to successfully check revocation after failing over from stapled OCSP responses to dynamic");
-//         }
-//     }
-//     #[cfg(not(feature = "remote"))]
-//     {
-//         set_time_of_interest(&mut cps, 1647030025);
-//         let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
-//         if r.is_err() {
-//             panic!("Failed to successfully validate path");
-//         }
-//         #[cfg(feature = "revocation")]
-//         {
-//             let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
-//             if r.is_ok() {
-//                 panic!("Failed to reject stale stapled OCSP responses");
-//             }
-//         }
-//     }
-// }
-
 #[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn stapled_crl_async() {
@@ -747,7 +548,7 @@ async fn live_ocsp_nonce_disa() {
 // revocation hard-failed on such an anchor: get_certificate_from_trust_anchor returned None, so
 // check_revocation returned Error::Unrecognized before checking anything. This mirrors
 // stapled_crl_async but strips the trust anchor to name+SPKI form (same name and key).
-#[cfg(all(feature = "revocation", feature = "rsa"))]
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn stapled_crl_name_and_spki_trust_anchor() {
     use certval::environment::pki_environment::PkiEnvironment;
@@ -812,5 +613,204 @@ async fn stapled_crl_name_and_spki_trust_anchor() {
     assert!(
         r.is_ok(),
         "revocation should succeed using stapled CRLs with a name+SPKI trust anchor as CRL issuer, got {r:?}"
+    );
+}
+
+// Affirm that revocation checking honors the configuration knobs that limit it, and — crucially —
+// fails closed (RevocationStatusNotDetermined) whenever a required status cannot be determined. All
+// cases are deterministic: OCSP-from-AIA and CRL-DP HTTP fetching are pinned off, so no network is
+// used and revocation status comes only from stapled CRLs (or nothing).
+#[cfg(all(feature = "std", feature = "rsa"))]
+mod revocation_config {
+    use certval::*;
+
+    const TA: &[u8] = include_bytes!("examples/harvard.edu/0-ta.der");
+    const CA: &[u8] = include_bytes!("examples/harvard.edu/1.der");
+    const CA_CRL: &[u8] = include_bytes!("examples/harvard.edu/1-crl.crl");
+    const EE: &[u8] = include_bytes!("examples/harvard.edu/2-target.der");
+    const EE_CRL: &[u8] = include_bytes!("examples/harvard.edu/2-crl.crl");
+    // A time within the harvard.edu chain's validity window (the target expires Feb 2022).
+    const TOI: u64 = 1646567209;
+
+    fn make_pe() -> PkiEnvironment {
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        pe
+    }
+
+    fn make_path() -> CertificationPath {
+        let ta = PDVTrustAnchorChoice::try_from(TA).unwrap();
+        let mut ca = PDVCertificate::try_from(CA).unwrap();
+        ca.parse_extensions(EXTS_OF_INTEREST);
+        let mut ee = PDVCertificate::try_from(EE).unwrap();
+        ee.parse_extensions(EXTS_OF_INTEREST);
+        CertificationPath::new(ta, vec![ca], ee)
+    }
+
+    fn base_cps() -> CertificationPathSettings {
+        let mut cps = CertificationPathSettings::new();
+        cps.set_require_ta_store(false);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(TOI).unwrap());
+        // Deterministic: no network-driven revocation sources.
+        cps.set_check_ocsp_from_aia(false);
+        cps.set_check_crldp_http(false);
+        cps
+    }
+
+    async fn run(
+        cps: &CertificationPathSettings,
+        staple: impl Fn(&mut CertificationPath),
+    ) -> Result<()> {
+        let pe = make_pe();
+        let mut path = make_path();
+        staple(&mut path);
+        let mut cpr = CertificationPathResults::new();
+        check_revocation(&pe, cps, &mut path, &mut cpr).await
+    }
+
+    fn staple_both(p: &mut CertificationPath) {
+        p.crls[0] = Some(CA_CRL.to_vec());
+        p.crls[1] = Some(EE_CRL.to_vec());
+    }
+    fn staple_ca_only(p: &mut CertificationPath) {
+        p.crls[0] = Some(CA_CRL.to_vec());
+    }
+    fn staple_none(_p: &mut CertificationPath) {}
+
+    fn is_not_determined(r: &Result<()>) -> bool {
+        matches!(
+            r,
+            Err(Error::PathValidation(
+                PathValidationStatus::RevocationStatusNotDetermined
+            ))
+        )
+    }
+
+    // Stapled CRLs cover every certificate -> status is determined -> Ok.
+    #[tokio::test]
+    async fn stapled_crls_determine_status() {
+        let r = run(&base_cps(), staple_both).await;
+        assert!(r.is_ok(), "stapled CRLs should determine status, got {r:?}");
+    }
+
+    // Revocation enabled with no source of any kind must fail closed.
+    #[tokio::test]
+    async fn no_revocation_info_fails_closed() {
+        let r = run(&base_cps(), staple_none).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+
+    // The single top-level opt-out returns Ok without determining status.
+    #[tokio::test]
+    async fn revocation_disabled_returns_ok() {
+        let mut cps = base_cps();
+        cps.set_check_revocation_status(false);
+        assert!(run(&cps, staple_none).await.is_ok());
+    }
+
+    // Disabling the CRL source type must NOT open the gate: with no other source, still fail closed.
+    #[tokio::test]
+    async fn check_crls_off_without_source_fails_closed() {
+        let mut cps = base_cps();
+        cps.set_check_crls(false);
+        let r = run(&cps, staple_none).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+
+    // Stapled rev info is consumed before the check_crls gate, so it still determines status even
+    // when check_crls is off.
+    #[tokio::test]
+    async fn stapled_crls_honored_even_with_check_crls_off() {
+        let mut cps = base_cps();
+        cps.set_check_crls(false);
+        let r = run(&cps, staple_both).await;
+        assert!(r.is_ok(), "stapled CRLs should be honored, got {r:?}");
+    }
+
+    // Determining some but not all certificates still fails closed.
+    #[tokio::test]
+    async fn partial_coverage_fails_closed() {
+        let r = run(&base_cps(), staple_ca_only).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+}
+
+// Stapled OCSP over a DigiCert-issued *.peg.a2z.com chain. Both responses are CA-signed: the
+// responder id is the issuing key's SHA-1 and no responder certificate is embedded, so certval
+// verifies each response against the issuer already present in the path. The time of interest is
+// pinned inside the responses' early-March-2022 validity window (and the leaf's validity), keeping
+// the check deterministic and offline.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[tokio::test]
+async fn stapled_ocsp_async() {
+    use certval::*;
+
+    let der_encoded_ta = include_bytes!("examples/amazon.com/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/amazon.com/1.der");
+    let der_encoded_ca_ocsp = include_bytes!("examples/amazon.com/1-ocsp.ocspResp");
+    let der_encoded_ee = include_bytes!("examples/amazon.com/2-target.der");
+    let der_encoded_ee_ocsp = include_bytes!("examples/amazon.com/2-ocsp.ocspResp");
+
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
+    cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_require_ta_store(false);
+    cps.set_check_crldp_http(false);
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
+    let mut cpr = CertificationPathResults::new();
+
+    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    assert!(
+        r.is_ok(),
+        "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"
+    );
+}
+
+// The no_std variant of `stapled_ocsp_async`, exercising the synchronous `check_revocation`.
+#[cfg(all(feature = "revocation", not(feature = "std"), feature = "rsa"))]
+#[test]
+fn stapled_ocsp() {
+    use certval::*;
+
+    let der_encoded_ta = include_bytes!("examples/amazon.com/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/amazon.com/1.der");
+    let der_encoded_ca_ocsp = include_bytes!("examples/amazon.com/1-ocsp.ocspResp");
+    let der_encoded_ee = include_bytes!("examples/amazon.com/2-target.der");
+    let der_encoded_ee_ocsp = include_bytes!("examples/amazon.com/2-ocsp.ocspResp");
+
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    cert_path.ocsp_responses[0] = Some(der_encoded_ca_ocsp.to_vec());
+    cert_path.ocsp_responses[1] = Some(der_encoded_ee_ocsp.to_vec());
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_require_ta_store(false);
+    cps.set_check_crldp_http(false);
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
+    let mut cpr = CertificationPathResults::new();
+
+    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr);
+    assert!(
+        r.is_ok(),
+        "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"
     );
 }
