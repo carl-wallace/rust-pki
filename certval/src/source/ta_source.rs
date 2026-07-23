@@ -155,7 +155,7 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
         buffer_to_hex(skid.0.as_bytes())
     } else {
-        let working_spki = &cert.as_ref().tbs_certificate().subject_public_key_info();
+        let working_spki = &cert.decoded().tbs_certificate().subject_public_key_info();
         // A public key BIT STRING is byte-aligned; a nonzero unused-bits count is malformed, so
         // decline to compute a key identifier rather than panic or digest a non-byte-aligned value
         // (empty string is the no-identifier sentinel here).
@@ -332,7 +332,7 @@ impl TrustAnchorSource for TaSource {
         target: &PDVCertificate,
     ) -> Result<&PDVTrustAnchorChoice> {
         let mut akid_hex = None;
-        let mut name_vec = vec![target.as_ref().tbs_certificate().issuer()];
+        let mut name_vec = vec![target.decoded().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
@@ -402,7 +402,7 @@ impl TrustAnchorSource for TaSource {
         // A subjectKeyIdentifier match is not sufficient: the SKID extension value
         // is chosen by the certificate creator. Confirm the presented certificate carries
         // the same public key as the stored anchor before accepting it.
-        let presented_spki = ta.as_ref().tbs_certificate().subject_public_key_info();
+        let presented_spki = ta.decoded().tbs_certificate().subject_public_key_info();
         let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
         if presented_spki == stored_spki {
             Ok(())

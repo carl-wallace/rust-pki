@@ -56,7 +56,7 @@ pub(crate) fn validate_cert(
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
-            path.target.as_ref().tbs_certificate().subject()
+            path.target.decoded().tbs_certificate().subject()
         );
         let mut cpr = CertificationPathResults::new();
 

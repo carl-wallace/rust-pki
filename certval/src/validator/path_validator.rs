@@ -120,7 +120,7 @@ pub fn validate_path_rfc5280(
     cpr.set_validation_status(PathValidationStatus::Valid);
     info!(
         "Successfully completed basic path validation checks for certificate issued to {}",
-        name_to_string(cp.target.as_ref().tbs_certificate().subject())
+        name_to_string(cp.target.decoded().tbs_certificate().subject())
     );
     Ok(())
 }
@@ -151,7 +151,7 @@ pub fn check_basic_constraints(
         // (l)  If the certificate was not self-issued, verify that
         //       max_path_length is greater than zero and decrement
         //       max_path_length by 1.
-        if !is_self_issued(ca_cert.as_ref()) {
+        if !is_self_issued(ca_cert.decoded()) {
             if path_len_constraint == 0 {
                 log_error_for_ca(ca_cert, "path length constraint violation");
                 cpr.set_validation_status(PathValidationStatus::InvalidPathLength);
@@ -166,7 +166,7 @@ pub fn check_basic_constraints(
         // only support v3 (this is a no-op here because the decoder fails to parse non-V3 certs)
         // if any of the bad_ca_cert_version, bad_ee_cert_version, unsupported_ca_cert_version or
         // unsupported_ee_cert_version tests in tests/path_validator.rs fail this should be uncommented.
-        // if ca_cert.as_ref().tbs_certificate.version != Version::V3 {
+        // if ca_cert.decoded().tbs_certificate.version != Version::V3 {
         //     log_error_for_ca(ca_cert, "unsupported x509 version");
         //     cpr.set_validation_status( PathValidationStatus::InvalidBasicConstraints);
         //     return Err(Error::PathValidation(
@@ -220,7 +220,7 @@ pub fn check_basic_constraints(
             true
         };
 
-        if is_ee && (is_self_issued(cp.target.as_ref()) || is_self_signed(pe, &cp.target)) {
+        if is_ee && (is_self_issued(cp.target.decoded()) || is_self_signed(pe, &cp.target)) {
             log_error_for_ca(
                 &cp.target,
                 "End-identity certificate is self-signed or self-issued, but it is forbidden",
@@ -266,11 +266,11 @@ pub fn check_validity(
     };
 
     let target = &cp.target;
-    let target_ttl = valid_at_time(target.as_ref().tbs_certificate(), toi, false);
+    let target_ttl = valid_at_time(target.decoded().tbs_certificate(), toi, false);
     is_valid(target_ttl, cp.intermediates.len() as u32 + 1)?;
 
     for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
-        let ca_ttl = valid_at_time(ca_cert.as_ref().tbs_certificate(), toi, false);
+        let ca_ttl = valid_at_time(ca_cert.decoded().tbs_certificate(), toi, false);
         is_valid(ca_ttl, pos as u32 + 1)?;
     }
 
@@ -368,7 +368,7 @@ pub fn check_names(
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
         if !compare_names(
-            ca_cert.as_ref().tbs_certificate().issuer(),
+            ca_cert.decoded().tbs_certificate().issuer(),
             &working_issuer_name,
         ) {
             log_error_for_ca(ca_cert, "name chaining violation");
@@ -380,17 +380,17 @@ pub fn check_names(
         }
 
         if pos + 1 != certs_in_cert_path {
-            working_issuer_name = ca_cert.as_ref().tbs_certificate().subject().clone();
+            working_issuer_name = ca_cert.decoded().tbs_certificate().subject().clone();
         }
     }
 
     // Iterate over the list of intermediate CA certificates plus target to check name constraints
     for (pos, ca_cert) in v.iter().enumerate() {
-        let self_issued = is_self_issued(ca_cert.as_ref());
+        let self_issued = is_self_issued(ca_cert.decoded());
 
         if (pos + 1) == certs_in_cert_path || !self_issued {
             if !permitted_subtrees
-                .subject_within_permitted_subtrees(ca_cert.as_ref().tbs_certificate().subject())
+                .subject_within_permitted_subtrees(ca_cert.decoded().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -404,7 +404,7 @@ pub fn check_names(
             }
 
             if excluded_subtrees
-                .subject_within_excluded_subtrees(ca_cert.as_ref().tbs_certificate().subject())
+                .subject_within_excluded_subtrees(ca_cert.decoded().tbs_certificate().subject())
             {
                 log_error_for_ca(
                     ca_cert,
@@ -717,7 +717,7 @@ pub fn check_critical_extensions(
                                           err_str: &'static str,
                                           failure_index: u32|
      -> Result<()> {
-        if let Some(exts) = &cert.as_ref().tbs_certificate().extensions() {
+        if let Some(exts) = &cert.decoded().tbs_certificate().extensions() {
             let exts = exts.as_slice();
             for ext in exts {
                 // A critical extension is satisfied only if its OID was processed AND it is the
@@ -981,15 +981,15 @@ pub fn verify_signatures(
             }
         };
 
-        if cur_cert.as_ref().tbs_certificate().signature()
-            != cur_cert.as_ref().signature_algorithm()
+        if cur_cert.decoded().tbs_certificate().signature()
+            != cur_cert.decoded().signature_algorithm()
         {
             log_error_for_ca(
                 cur_cert,
                 format!(
                     "signature algorithm mismatch: {:?} - {:?}",
-                    cur_cert.as_ref().tbs_certificate().signature(),
-                    cur_cert.as_ref().signature_algorithm()
+                    cur_cert.decoded().tbs_certificate().signature(),
+                    cur_cert.decoded().signature_algorithm()
                 )
                 .as_str(),
             );
@@ -1018,8 +1018,8 @@ pub fn verify_signatures(
             let r = pe.verify_signature_message(
                 pe,
                 &defer_cert.tbs_field,
-                cur_cert.as_ref().signature().raw_bytes(),
-                cur_cert.as_ref().tbs_certificate().signature(),
+                cur_cert.decoded().signature().raw_bytes(),
+                cur_cert.decoded().tbs_certificate().signature(),
                 &working_spki,
             );
             if let Err(e) = r {

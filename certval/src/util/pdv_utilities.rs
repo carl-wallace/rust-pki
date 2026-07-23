@@ -575,7 +575,7 @@ pub(crate) fn log_error_for_name(name: &Name, msg: &str) {
 }
 
 pub(crate) fn log_error_for_ca(ca: &PDVCertificate, msg: &str) {
-    log_error_for_name(ca.as_ref().tbs_certificate().subject(), msg);
+    log_error_for_name(ca.decoded().tbs_certificate().subject(), msg);
 }
 
 /// log a message with subject name of the certificate appended

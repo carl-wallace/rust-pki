@@ -177,7 +177,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
-            name_to_string(cert.as_ref().tbs_certificate().issuer())
+            name_to_string(cert.decoded().tbs_certificate().issuer())
         )
         .as_bytes(),
     )
@@ -185,7 +185,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Subject Name: {}\n",
-            name_to_string(cert.as_ref().tbs_certificate().subject())
+            name_to_string(cert.decoded().tbs_certificate().subject())
         )
         .as_bytes(),
     )
@@ -193,7 +193,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Serial Number: 0x{}\n",
-            buffer_to_hex(cert.as_ref().tbs_certificate().serial_number().as_bytes())
+            buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes())
         )
         .as_bytes(),
     )
@@ -201,7 +201,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Not Before: {}\n",
-            cert.as_ref().tbs_certificate().validity().not_before
+            cert.decoded().tbs_certificate().validity().not_before
         )
         .as_bytes(),
     )
@@ -209,7 +209,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Not After: {}\n",
-            cert.as_ref().tbs_certificate().validity().not_after
+            cert.decoded().tbs_certificate().validity().not_after
         )
         .as_bytes(),
     )
@@ -247,7 +247,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
     f.write_all(
         format!(
             "\t\t* Signature algorithm: {}\n",
-            pe.oid_lookup(&cert.as_ref().tbs_certificate().signature().oid)
+            pe.oid_lookup(&cert.decoded().tbs_certificate().signature().oid)
         )
         .as_bytes(),
     )
