@@ -814,3 +814,122 @@ async fn stapled_crl_name_and_spki_trust_anchor() {
         "revocation should succeed using stapled CRLs with a name+SPKI trust anchor as CRL issuer, got {r:?}"
     );
 }
+
+// Affirm that revocation checking honors the configuration knobs that limit it, and — crucially —
+// fails closed (RevocationStatusNotDetermined) whenever a required status cannot be determined. All
+// cases are deterministic: OCSP-from-AIA and CRL-DP HTTP fetching are pinned off, so no network is
+// used and revocation status comes only from stapled CRLs (or nothing).
+#[cfg(all(feature = "std", feature = "rsa"))]
+mod revocation_config {
+    use certval::*;
+
+    const TA: &[u8] = include_bytes!("examples/harvard.edu/0-ta.der");
+    const CA: &[u8] = include_bytes!("examples/harvard.edu/1.der");
+    const CA_CRL: &[u8] = include_bytes!("examples/harvard.edu/1-crl.crl");
+    const EE: &[u8] = include_bytes!("examples/harvard.edu/2-target.der");
+    const EE_CRL: &[u8] = include_bytes!("examples/harvard.edu/2-crl.crl");
+    // A time within the harvard.edu chain's validity window (the target expires Feb 2022).
+    const TOI: u64 = 1646567209;
+
+    fn make_pe() -> PkiEnvironment {
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        pe
+    }
+
+    fn make_path() -> CertificationPath {
+        let ta = PDVTrustAnchorChoice::try_from(TA).unwrap();
+        let mut ca = PDVCertificate::try_from(CA).unwrap();
+        ca.parse_extensions(EXTS_OF_INTEREST);
+        let mut ee = PDVCertificate::try_from(EE).unwrap();
+        ee.parse_extensions(EXTS_OF_INTEREST);
+        CertificationPath::new(ta, vec![ca], ee)
+    }
+
+    fn base_cps() -> CertificationPathSettings {
+        let mut cps = CertificationPathSettings::new();
+        cps.set_require_ta_store(false);
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(TOI).unwrap());
+        // Deterministic: no network-driven revocation sources.
+        cps.set_check_ocsp_from_aia(false);
+        cps.set_check_crldp_http(false);
+        cps
+    }
+
+    async fn run(
+        cps: &CertificationPathSettings,
+        staple: impl Fn(&mut CertificationPath),
+    ) -> Result<()> {
+        let pe = make_pe();
+        let mut path = make_path();
+        staple(&mut path);
+        let mut cpr = CertificationPathResults::new();
+        check_revocation(&pe, cps, &mut path, &mut cpr).await
+    }
+
+    fn staple_both(p: &mut CertificationPath) {
+        p.crls[0] = Some(CA_CRL.to_vec());
+        p.crls[1] = Some(EE_CRL.to_vec());
+    }
+    fn staple_ca_only(p: &mut CertificationPath) {
+        p.crls[0] = Some(CA_CRL.to_vec());
+    }
+    fn staple_none(_p: &mut CertificationPath) {}
+
+    fn is_not_determined(r: &Result<()>) -> bool {
+        matches!(
+            r,
+            Err(Error::PathValidation(
+                PathValidationStatus::RevocationStatusNotDetermined
+            ))
+        )
+    }
+
+    // Stapled CRLs cover every certificate -> status is determined -> Ok.
+    #[tokio::test]
+    async fn stapled_crls_determine_status() {
+        let r = run(&base_cps(), staple_both).await;
+        assert!(r.is_ok(), "stapled CRLs should determine status, got {r:?}");
+    }
+
+    // Revocation enabled with no source of any kind must fail closed.
+    #[tokio::test]
+    async fn no_revocation_info_fails_closed() {
+        let r = run(&base_cps(), staple_none).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+
+    // The single top-level opt-out returns Ok without determining status.
+    #[tokio::test]
+    async fn revocation_disabled_returns_ok() {
+        let mut cps = base_cps();
+        cps.set_check_revocation_status(false);
+        assert!(run(&cps, staple_none).await.is_ok());
+    }
+
+    // Disabling the CRL source type must NOT open the gate: with no other source, still fail closed.
+    #[tokio::test]
+    async fn check_crls_off_without_source_fails_closed() {
+        let mut cps = base_cps();
+        cps.set_check_crls(false);
+        let r = run(&cps, staple_none).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+
+    // Stapled rev info is consumed before the check_crls gate, so it still determines status even
+    // when check_crls is off.
+    #[tokio::test]
+    async fn stapled_crls_honored_even_with_check_crls_off() {
+        let mut cps = base_cps();
+        cps.set_check_crls(false);
+        let r = run(&cps, staple_both).await;
+        assert!(r.is_ok(), "stapled CRLs should be honored, got {r:?}");
+    }
+
+    // Determining some but not all certificates still fails closed.
+    #[tokio::test]
+    async fn partial_coverage_fails_closed() {
+        let r = run(&base_cps(), staple_ca_only).await;
+        assert!(is_not_determined(&r), "expected fail-closed, got {r:?}");
+    }
+}
