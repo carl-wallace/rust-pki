@@ -156,11 +156,9 @@ pub async fn check_revocation(
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {cur_cert_subject}");
-                        cpr.add_crl(crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
-                        cpr.add_crl(crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {cur_cert_subject}");
                             cpr.set_validation_status(revoked_error);
@@ -179,20 +177,17 @@ pub async fn check_revocation(
                 for crl in crls {
                     match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
                         Ok(_ok) => {
-                            cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {cur_cert_subject}");
                             cur_status = Valid;
                             break;
                         }
                         Err(Error::PathValidation(CertificateRevoked)) => {
-                            cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (revoked) using cached CRL for certificate issued to {cur_cert_subject}");
                             cpr.set_validation_status(revoked_error);
                             cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
                         }
                         Err(e) => {
-                            cpr.add_failed_crl(crl.as_slice(), pos);
                             info!("Failed to determine revocation status using cached CRL for certificate issued to {cur_cert_subject} with {e}");
                         }
                     };
@@ -357,11 +352,9 @@ pub fn check_revocation(
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
-                        cpr.add_crl(crl, pos);
                         cur_status = Valid
                     }
                     Err(e) => {
-                        cpr.add_crl(crl, pos);
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
                             cpr.set_validation_status(revoked_error);
@@ -380,20 +373,17 @@ pub fn check_revocation(
                 for crl in crls {
                     match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
                         Ok(_ok) => {
-                            cpr.add_crl(crl.as_slice(), pos);
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
-                                cpr.add_crl(crl.as_slice(), pos);
                                 info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
                                 cpr.set_validation_status(revoked_error);
                                 cpr.set_failure_index(pos as u32 + 1);
                                 return Err(Error::PathValidation(revoked_error));
                             } else {
-                                cpr.add_failed_crl(crl.as_slice(), pos);
                                 info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                             }
                         }

@@ -53,6 +53,11 @@ pub type Buffers = Vec<Vec<u8>>;
 /// `ListOfBuffers` is a typedef for a vector of vectors of `Vec<u8>` values.
 pub type ListOfBuffers = Vec<Vec<Vec<u8>>>;
 
+/// `Crls` holds per-position lists of [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata records
+/// used to note which CRLs were consulted, without retaining the (potentially very large) CRL bodies.
+#[cfg(feature = "revocation")]
+pub type Crls = Vec<Vec<crate::revocation::crl::CrlInfo>>;
+
 /// `Bools` is a typedef for a vector bool values.
 pub type Bools = Vec<bool>;
 

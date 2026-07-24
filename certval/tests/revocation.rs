@@ -247,6 +247,57 @@ async fn cached_crl_async() {
     }
 }
 
+// keep_entries_in_memory: a CRL verified once (as process_crl would, via keep_verified_crl) is
+// retained in memory so get_status answers subsequent certificates straight from the sorted
+// serials, sustaining the RevocationStatusCache without a per-certificate memo entry. The memo
+// (cache_map) is never populated here, so a Valid result can only come from the kept serials.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[test]
+fn keep_entries_in_memory_sustains_revocation_cache() {
+    use certval::*;
+    use der::Decode;
+    use std::path::PathBuf;
+    use x509_cert::{certificate::Raw, crl::CertificateList};
+
+    let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("tests/examples/makaan.com/crls");
+    let folder = d.as_path().to_str().unwrap();
+    let toi = TimeOfInterest::from_unix_secs(1647011592).unwrap();
+
+    // Flag off: the store abstains as a RevocationStatusCache (original behavior preserved).
+    let plain = CrlSourceFolders::with_options(folder, false);
+    plain.index_crls(toi).unwrap();
+    assert_eq!(
+        plain.get_status(&ee, toi),
+        PathValidationStatus::RevocationStatusNotDetermined
+    );
+
+    // Flag on: no answer until a CRL has been verified and kept, then Valid straight from memory.
+    let store = CrlSourceFolders::with_options(folder, true);
+    store.index_crls(toi).unwrap();
+    assert_eq!(
+        store.get_status(&ee, toi),
+        PathValidationStatus::RevocationStatusNotDetermined,
+        "must not answer before a CRL is verified and kept"
+    );
+
+    let crls = store.get_crls(&ee).unwrap();
+    assert_eq!(1, crls.len());
+    let crl = CertificateList::<Raw>::from_der(&crls[0]).unwrap();
+    // Stand in for the post-verify call process_crl makes.
+    store.keep_verified_crl(&crls[0], &crl).unwrap();
+
+    assert_eq!(
+        store.get_status(&ee, toi),
+        PathValidationStatus::Valid,
+        "EE (not revoked) must be answered from the kept serials"
+    );
+}
+
 #[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[tokio::test]
 async fn cached_crl_revoked_async() {

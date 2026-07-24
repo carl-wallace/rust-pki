@@ -174,6 +174,15 @@ pub trait CrlSource {
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>>;
     /// Adds a CRL to the store
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()>;
+
+    /// Offered a CRL that the caller has already verified so a store may retain its revoked serial
+    /// numbers in memory for fast subsequent revocation status determinations. The default
+    /// implementation is a no-op; only stores that support in-memory retention override it. The
+    /// caller MUST have verified the CRL signature (the store cannot, and when loaded cold has no
+    /// issuer to verify against), so this is invoked only from the post-verification path.
+    fn keep_verified_crl(&self, _crl_buf: &[u8], _crl: &CertificateList<Raw>) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// The [`CheckRemoteResource`] trait defines an interface for checking last modified and blocklist values when downloading remote item

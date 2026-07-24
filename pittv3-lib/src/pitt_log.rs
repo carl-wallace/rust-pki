@@ -561,28 +561,59 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
     if let Some(crls) = cpr.get_crl() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-crl-{}.crl", i + 1, j).as_str())
+            for (j, info) in or.iter().enumerate() {
+                let stem = if suffix {
+                    format!("{}-crl-{}", i + 1, j)
                 } else {
-                    np.join(format!("{}-crl.crl", i + 1).as_str())
+                    format!("{}-crl", i + 1)
                 };
-                fs::write(p, ir).expect("Unable to write CRL");
+                write_crl_artifact(np, &stem, info);
             }
         }
     }
     if let Some(crls) = cpr.get_failed_crls() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-crl-{}.failed.crl", i + 1, j).as_str())
+            for (j, info) in or.iter().enumerate() {
+                let stem = if suffix {
+                    format!("{}-crl-{}.failed", i + 1, j)
                 } else {
-                    np.join(format!("{}-crl.failed.crl", i + 1).as_str())
+                    format!("{}-crl.failed", i + 1)
                 };
-                fs::write(p, ir).expect("Unable to write CRL");
+                write_crl_artifact(np, &stem, info);
             }
         }
+    }
+}
+
+/// Writes a CRL artifact into the manifest folder from the compact [`CrlInfo`] now retained in the
+/// results (the results no longer carry the full CRL body). When the CRL was loaded from a folder
+/// its cached bytes are copied out as a `.crl`; when it is only known by URI (e.g., fetched remotely
+/// and not retained) a `.crl.txt` note is written recording where the full CRL can be re-obtained
+/// along with its validity window.
+fn write_crl_artifact(np: &Path, stem: &str, info: &CrlInfo) {
+    if let Some(filename) = &info.filename {
+        let p = np.join(format!("{stem}.crl"));
+        if let Err(e) = fs::copy(filename, &p) {
+            error!("Unable to copy cached CRL {filename} into manifest: {e}");
+        }
+        return;
+    }
+
+    let p = np.join(format!("{stem}.crl.txt"));
+    let mut note = format!("issuer: {}\n", info.issuer_name);
+    if let Some(uri) = &info.uri {
+        note.push_str(&format!("uri: {uri}\n"));
+    }
+    if let Some(idp) = &info.idp_name {
+        note.push_str(&format!("idp: {idp}\n"));
+    }
+    note.push_str(&format!("this_update: {}\n", info.this_update));
+    if let Some(nu) = info.next_update {
+        note.push_str(&format!("next_update: {nu}\n"));
+    }
+    if let Err(e) = fs::write(&p, note.as_bytes()) {
+        error!("Unable to write CRL note {}: {e}", p.display());
     }
 }
 

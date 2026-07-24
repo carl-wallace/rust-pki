@@ -621,6 +621,15 @@ impl PkiEnvironment {
         Err(Error::NotFound)
     }
 
+    /// Offers a CRL that the caller has already verified to every [`CrlSource`] so any configured to
+    /// retain entries in memory may do so. A no-op for sources that do not support retention. Invoked
+    /// from the post-verification CRL processing path (see `keep_verified_crl` on [`CrlSource`]).
+    pub fn keep_verified_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>) {
+        for f in &self.crl_sources {
+            let _ = f.keep_verified_crl(crl_buf, crl);
+        }
+    }
+
     /// add_revocation_cache adds a [`RevocationStatusCache`] object to the list.
     pub fn add_revocation_cache(&mut self, c: Box<dyn RevocationStatusCache + Send + Sync>) {
         self.revocation_cache.push(c);

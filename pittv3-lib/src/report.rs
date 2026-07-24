@@ -376,12 +376,17 @@ pub fn revocation_outcomes_from_cpr(
     let blocklist = cpr.get_blocklist_usage();
     let allowlist = cpr.get_allowlist_usage();
     let ocsp_responses = cpr.get_ocsp_responses();
+    #[cfg(feature = "revocation")]
     let crls = cpr.get_crl();
+    #[cfg(feature = "revocation")]
+    let crls_none = crls.is_none();
+    #[cfg(not(feature = "revocation"))]
+    let crls_none = true;
     if nocheck.is_none()
         && blocklist.is_none()
         && allowlist.is_none()
         && ocsp_responses.is_none()
-        && crls.is_none()
+        && crls_none
     {
         return vec![];
     }
@@ -404,6 +409,16 @@ pub fn revocation_outcomes_from_cpr(
             .map(|v| v.get(pos).map(|b| !b.is_empty()).unwrap_or(false))
             .unwrap_or(false)
     };
+    // CRL results are held as compact CrlInfo records (revocation-gated), so they need their own
+    // presence check; without the revocation feature there are never any CRL artifacts.
+    #[cfg(feature = "revocation")]
+    let crl_artifact_at = |pos: usize| -> bool {
+        crls.as_ref()
+            .map(|v| v.get(pos).map(|b| !b.is_empty()).unwrap_or(false))
+            .unwrap_or(false)
+    };
+    #[cfg(not(feature = "revocation"))]
+    let crl_artifact_at = |_pos: usize| -> bool { false };
 
     let mut outcomes = Vec::with_capacity(num_certs);
     for pos in 0..num_certs {
@@ -422,7 +437,7 @@ pub fn revocation_outcomes_from_cpr(
             } else {
                 (RevocationMethod::Ocsp, RevocationStatus::NotRevoked)
             }
-        } else if artifacts_at(&crls, pos) {
+        } else if crl_artifact_at(pos) {
             if revoked_here {
                 (RevocationMethod::Crl, RevocationStatus::Revoked)
             } else {
@@ -523,6 +538,31 @@ pub fn name_constraints_from_cpr(cpr: &CertificationPathResults) -> Option<NameC
 mod tests {
     use super::*;
 
+    /// Builds a minimal CrlInfo used to mark that a CRL contributed at a given path position. The
+    /// content is irrelevant to these tests; only presence at the position matters.
+    #[cfg(feature = "revocation")]
+    fn crl_marker() -> certval::CrlInfo {
+        certval::CrlInfo {
+            type_info: certval::CrlType {
+                scope: certval::CrlScope::Complete,
+                coverage: certval::CrlCoverage::All,
+                authority: certval::CrlAuthority::Direct,
+                reasons: certval::CrlReasons::AllReasons,
+            },
+            this_update: 0,
+            next_update: None,
+            issuer_name: String::new(),
+            issuer_name_blob: Vec::new(),
+            sig_alg_blob: Vec::new(),
+            exts_blob: None,
+            idp_name: None,
+            idp_blob: None,
+            skid: None,
+            filename: None,
+            uri: None,
+        }
+    }
+
     #[test]
     fn report_json_round_trip() {
         let report = ValidationReport {
@@ -618,13 +658,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "revocation")]
     fn revocation_outcomes_methods_and_statuses() {
         let mut cpr = CertificationPathResults::new();
         cpr.prepare_revocation_results(4).unwrap();
 
         // position 0: OCSP no-check; position 1: CRL; position 2: OCSP; position 3: nothing
         cpr.set_nocheck_for_item(0);
-        cpr.add_crl(&[0x30, 0x00], 1);
+        cpr.add_crl(crl_marker(), 1);
         cpr.add_ocsp_response(vec![0x30, 0x00], 2);
 
         let outcomes = revocation_outcomes_from_cpr(&cpr, 4);
@@ -646,11 +687,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "revocation")]
     fn revocation_outcomes_revoked_at_failure_index() {
         let mut cpr = CertificationPathResults::new();
         cpr.prepare_revocation_results(2).unwrap();
-        cpr.add_crl(&[0x30, 0x00], 0);
-        cpr.add_crl(&[0x30, 0x00], 1);
+        cpr.add_crl(crl_marker(), 0);
+        cpr.add_crl(crl_marker(), 1);
         cpr.set_validation_status(PathValidationStatus::CertificateRevokedEndEntity);
         cpr.set_failure_index(2);
 
