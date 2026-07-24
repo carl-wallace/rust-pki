@@ -339,6 +339,7 @@ pub(crate) fn App() -> Element {
             results_folder: string_or_none(s_results_folder),
             settings: string_or_none(s_settings),
             crl_folder: string_or_none(s_crl_folder),
+            keep_crl_entries_in_memory: false,
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
             report_only: s_report_only(),

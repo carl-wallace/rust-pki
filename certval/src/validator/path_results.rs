@@ -35,6 +35,10 @@ pub enum CertificationPathResultsTypes {
     U32(u32),
     /// Represents a terminal name-constraints working set (permitted or excluded subtrees)
     NameConstraintsSet(NameConstraintsSet),
+    /// Represents per-position CRL metadata records ([`Crls`]) -- notes which CRLs were consulted
+    /// without retaining the CRL bodies
+    #[cfg(feature = "revocation")]
+    Crls(Crls),
 }
 
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
@@ -171,34 +175,41 @@ impl CertificationPathResults {
     }
 }
 
-cpr_gets_and_sets!(PR_FAILED_CRLS, ListOfBuffers);
+#[cfg(feature = "revocation")]
+cpr_gets_and_sets!(PR_FAILED_CRLS, Crls);
+#[cfg(feature = "revocation")]
 impl CertificationPathResults {
-    /// Add a failed OCSP response to list maintained by CertificationPathResults
-    pub fn add_failed_crl(&mut self, crl: &[u8], pos: usize) {
-        let mut v: ListOfBuffers = if let Some(v) = self.get_failed_crls() {
+    /// Notes a CRL that was consulted but did not yield a status determination (i.e., was discarded
+    /// as incompatible, stale, or otherwise unusable). Only the compact [`CrlInfo`] metadata is
+    /// retained, not the (potentially very large) CRL body.
+    pub fn add_failed_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
+        let mut v: Crls = if let Some(v) = self.get_failed_crls() {
             v
         } else {
             return;
         };
         if v.len() > pos {
-            v[pos].push(crl.to_vec());
+            v[pos].push(crl);
         }
         self.set_failed_crls(v);
     }
 }
 
-//TODO use Vec<CrlInfo> instead?
-cpr_gets_and_sets!(PR_CRL, ListOfBuffers);
+#[cfg(feature = "revocation")]
+cpr_gets_and_sets!(PR_CRL, Crls);
+#[cfg(feature = "revocation")]
 impl CertificationPathResults {
-    /// Add a failed OCSP request to list maintained by CertificationPathResults
-    pub fn add_crl(&mut self, crl: &[u8], pos: usize) {
-        let mut v: ListOfBuffers = if let Some(v) = self.get_crl() {
+    /// Notes a CRL that contributed to a revocation status determination (valid or revoked). Only
+    /// the compact [`CrlInfo`] metadata is retained, not the CRL body; the metadata carries a
+    /// [`CrlInfo::uri`](crate::revocation::crl::CrlInfo::uri) clue for where the full CRL was obtained.
+    pub fn add_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
+        let mut v: Crls = if let Some(v) = self.get_crl() {
             v
         } else {
             return;
         };
         if v.len() > pos {
-            v[pos].push(crl.to_vec());
+            v[pos].push(crl);
         }
         self.set_crl(v);
     }
@@ -326,8 +337,10 @@ impl CertificationPathResults {
         self.set_ocsp_responses(vec![vec![]; num_certs]);
         self.set_failed_ocsp_requests(vec![vec![]; num_certs]);
         self.set_failed_ocsp_responses(vec![vec![]; num_certs]);
+        #[cfg(feature = "revocation")]
         self.set_failed_crls(vec![vec![]; num_certs]);
         self.set_ocsp_entry(vec![vec![]; num_certs]);
+        #[cfg(feature = "revocation")]
         self.set_crl(vec![vec![]; num_certs]);
         self.set_crl_entry(vec![vec![]; num_certs]);
         Ok(())
@@ -355,8 +368,10 @@ fn check_prepared_results() {
     assert_eq!(4, cpr.get_ocsp_responses().unwrap().len());
     assert_eq!(4, cpr.get_failed_ocsp_requests().unwrap().len());
     assert_eq!(4, cpr.get_failed_ocsp_responses().unwrap().len());
+    #[cfg(feature = "revocation")]
     assert_eq!(4, cpr.get_failed_crls().unwrap().len());
     assert_eq!(4, cpr.get_ocsp_entry().unwrap().len());
+    #[cfg(feature = "revocation")]
     assert_eq!(4, cpr.get_crl().unwrap().len());
     assert_eq!(4, cpr.get_crl_entry().unwrap().len());
 
@@ -369,8 +384,10 @@ fn check_prepared_results() {
     assert_eq!(0, cpr.get_ocsp_responses().unwrap().len());
     assert_eq!(0, cpr.get_failed_ocsp_requests().unwrap().len());
     assert_eq!(0, cpr.get_failed_ocsp_responses().unwrap().len());
+    #[cfg(feature = "revocation")]
     assert_eq!(0, cpr.get_failed_crls().unwrap().len());
     assert_eq!(0, cpr.get_ocsp_entry().unwrap().len());
+    #[cfg(feature = "revocation")]
     assert_eq!(0, cpr.get_crl().unwrap().len());
     assert_eq!(0, cpr.get_crl_entry().unwrap().len());
 }

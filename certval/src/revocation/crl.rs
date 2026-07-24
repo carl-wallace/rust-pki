@@ -323,6 +323,10 @@ pub struct CrlInfo {
     pub skid: Option<Vec<u8>>,
     /// Optional filename in DER-encoded form
     pub filename: Option<String>,
+    /// Optional source URI the CRL was fetched from (its CRL distribution point) -- a clue for where
+    /// the full CRL can be re-obtained. Set when the CRL was fetched/stored via a URI; None for CRLs
+    /// parsed without a known source (e.g. stapled) or loaded from disk.
+    pub uri: Option<String>,
 }
 
 //CRL Processing Steps
@@ -658,6 +662,7 @@ pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
         idp_name,
         idp_blob,
         filename: None,
+        uri: None,
     })
 }
 
@@ -873,6 +878,91 @@ fn validate_crl_authority(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> R
     }
 }
 
+/// Determines whether `crl_info` is in scope for `target_cert`, i.e., whether this CRL is one that
+/// may be used to determine the revocation status of the certificate. This is the per-target
+/// coverage affirmation performed by [`process_crl`] (certificate/CRL type compatibility,
+/// distribution point validation and CRL authority validation), factored out so an in-memory
+/// kept-CRL answer path can apply the identical checks. It does NOT check freshness (callers bound
+/// that separately) nor consult the revoked list. Returns `Ok(())` when in scope.
+pub(crate) fn crl_covers_cert(target_cert: &PDVCertificate, crl_info: &CrlInfo) -> Result<()> {
+    let cert_type = classify_certificate(target_cert);
+    let dps_from_crl_dp = match target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS) {
+        Ok(Some(PDVExtension::CrlDistributionPoints(crldp))) => Some(crldp),
+        _ => None,
+    };
+
+    let scope_ok = COMPATIBLE_SCOPE
+        .get(cert_type as usize)
+        .and_then(|row| row.get(crl_info.type_info.scope as usize))
+        .copied()
+        .unwrap_or(false);
+    let coverage_ok = COMPATIBLE_COVERAGE
+        .get(cert_type as usize)
+        .and_then(|row| row.get(crl_info.type_info.coverage as usize))
+        .copied()
+        .unwrap_or(false);
+    if !scope_ok || !coverage_ok {
+        return Err(Error::CrlIncompatible);
+    }
+
+    let mut collected_reasons = ReasonFlags::new(0).map_err(|_| Error::Unrecognized)?;
+    validate_distribution_point(
+        dps_from_crl_dp,
+        crl_info,
+        cert_type,
+        target_cert,
+        &mut collected_reasons,
+    )
+    .map_err(|_| Error::CrlIncompatible)?;
+
+    // matches process_crl: only an error discards the CRL (the returned bool is not consulted)
+    validate_crl_authority(target_cert, crl_info).map_err(|_| Error::CrlIncompatible)?;
+
+    Ok(())
+}
+
+/// True if a CRL of this type must not be answered from a kept in-memory serial list because a
+/// single CRL cannot yield a complete determination: delta CRLs, indirect CRLs, and reason-
+/// partitioned CRLs. Such CRLs fall through to full [`process_crl`] handling.
+#[cfg(feature = "std")]
+fn info_precludes_keeping(info: &CrlInfo) -> bool {
+    matches!(info.type_info.scope, CrlScope::Delta | CrlScope::DeltaDp)
+        || CrlAuthority::Indirect == info.type_info.authority
+        || CrlReasons::SomeReasons == info.type_info.reasons
+}
+
+/// Builds the sorted list of revoked serial numbers for a verified CRL to keep in memory, or `None`
+/// to decline keeping (so callers fall through to [`process_crl`]) for any CRL that cannot be
+/// answered from a bare serial list: delta/indirect/reason-partitioned scope, an unrecognized
+/// critical CRL extension, an indirect (certificate-issuer) entry extension, or an unrecognized
+/// critical entry extension. Serial keys are the INTEGER value octets, which are canonical for a
+/// DER-decoded serial number, so the same integer yields identical bytes on both build and lookup.
+#[cfg(feature = "std")]
+pub(crate) fn build_kept_serials(
+    crl: &CertificateList<Raw>,
+    info: &CrlInfo,
+) -> Option<Vec<Vec<u8>>> {
+    if info_precludes_keeping(info) {
+        return None;
+    }
+    if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
+        if check_crl_extensions(exts).is_err() {
+            return None;
+        }
+    }
+    let mut serials = Vec::new();
+    if let Some(revoked) = &crl.tbs_cert_list.revoked_certificates {
+        for rc in revoked {
+            if certificate_issuer_extension_present(rc) || check_entry_extensions(rc).is_err() {
+                return None;
+            }
+            serials.push(rc.serial_number.as_bytes().to_vec());
+        }
+    }
+    serials.sort();
+    Some(serials)
+}
+
 fn verify_crl(
     pe: &PkiEnvironment,
     crl_buf: &[u8],
@@ -1030,9 +1120,16 @@ pub(crate) fn process_crl(
     crl_buf: &[u8],
     uri: Option<&str>,
 ) -> Result<()> {
-    // Verify then parse and classify the CRL
-    verify_crl(pe, crl_buf, issuer, cpr)?;
-    check_crl_sign(issuer)?;
+    // Verify then parse and classify the CRL. A CRL that fails verification or the CRL-signing
+    // authority check is deliberately not retained in the results (it may be bogus and would only be
+    // re-saved on every pass); log the source URI when it is known so the CRL can still be re-obtained
+    // for diagnosis. verify_crl/check_crl_sign already log the specific failure and issuer.
+    if let Err(e) = verify_crl(pe, crl_buf, issuer, cpr).and_then(|_| check_crl_sign(issuer)) {
+        if let Some(uri) = uri {
+            error!("Discarding unverifiable CRL from {uri} with {e}");
+        }
+        return Err(e);
+    }
 
     let crl = match CertificateList::<Raw>::from_der(crl_buf) {
         Ok(crl) => crl,
@@ -1042,10 +1139,16 @@ pub(crate) fn process_crl(
             } else {
                 error!("Failed to parse CRL from with {e}");
             }
-            cpr.add_failed_crl(crl_buf, result_index);
+            // No CrlInfo can be built from an unparseable CRL, so there is nothing to record here.
             return Err(Error::Asn1Error(e));
         }
     };
+
+    // Build the compact metadata record once, right after the CRL parses. This is what gets recorded
+    // in the results (as a failed or contributing CRL) in place of the full CRL body, and it carries
+    // the URI clue for where the full CRL was obtained when one is available.
+    let mut crl_info = get_crl_info(&crl)?;
+    crl_info.uri = uri.map(|u| u.to_string());
 
     // RFC 5280 5.1.1.2/5.1.2: the signatureAlgorithm in the CRL must match the signature field
     // of the tbsCertList it protects, else the algorithm is subject to substitution (the cert
@@ -1057,13 +1160,11 @@ pub(crate) fn process_crl(
             crl.signature_algorithm,
             crl.tbs_cert_list.signature
         );
-        cpr.add_failed_crl(crl_buf, result_index);
+        cpr.add_failed_crl(crl_info.clone(), result_index);
         return Err(Error::PathValidation(
             PathValidationStatus::SignatureVerificationFailure,
         ));
     }
-
-    let crl_info = get_crl_info(&crl)?;
 
     if let Some(uri) = uri {
         if let Err(e) = pe.add_crl(crl_buf, &crl, uri) {
@@ -1071,64 +1172,31 @@ pub(crate) fn process_crl(
         }
     }
 
-    //Classify the certificate as DP/not DP and CA/EE and harvest DPs, if any
-    let cert_type = classify_certificate(target_cert);
-    let dps_from_crl_dp = match target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS) {
-        Ok(Some(PDVExtension::CrlDistributionPoints(crldp))) => Some(crldp),
-        _ => None,
-    };
+    // Offer the just-verified CRL to any store configured to keep its entries in memory so that
+    // subsequent certificates under the same scope are answered from get_status without re-entering
+    // process_crl. This is the only path that populates the in-memory kept serials, which is why a
+    // cold-loaded store cannot serve them until a CRL has been verified here at least once.
+    pe.keep_verified_crl(crl_buf, &crl);
 
     //4-a) confirm that the CRL type and cert type are compatible
-    let scope_ok = COMPATIBLE_SCOPE
-        .get(cert_type as usize)
-        .and_then(|row| row.get(crl_info.type_info.scope as usize))
-        .copied()
-        .unwrap_or(false);
-    let coverage_ok = COMPATIBLE_COVERAGE
-        .get(cert_type as usize)
-        .and_then(|row| row.get(crl_info.type_info.coverage as usize))
-        .copied()
-        .unwrap_or(false);
-    if !scope_ok || !coverage_ok {
-        info!("Discarding CRL from {} as having incompatible scope or coverage for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.decoded().tbs_certificate().subject()));
-        return Err(Error::CrlIncompatible);
-    }
-
     //4-b) validate the CRL issuer name (validate_crl_issuer_name is called by validate_distribution_point)
     //4-c) Validate DP (sets activeCRLDP as necessary)
-    let mut collected_reasons = match ReasonFlags::new(0) {
-        Ok(rf) => rf,
-        Err(_e) => {
-            info!(
-                "Discarding CRL from {} due to failure to prepare ReasonFlags",
-                name_to_string(&crl.tbs_cert_list.issuer)
-            );
-            return Err(Error::Unrecognized);
-        }
-    };
-    if let Err(_e) = validate_distribution_point(
-        dps_from_crl_dp,
-        &crl_info,
-        cert_type,
-        target_cert,
-        &mut collected_reasons,
-    ) {
-        info!("Discarding CRL from {} as having incompatible distribution point for certificate issued to {}", name_to_string(&crl.tbs_cert_list.issuer), name_to_string(target_cert.decoded().tbs_certificate().subject()));
-        return Err(Error::CrlIncompatible);
-    }
-
     //4-d) Validate CRL authority
-    if let Err(_e) = validate_crl_authority(target_cert, &crl_info) {
+    if let Err(e) = crl_covers_cert(target_cert, &crl_info) {
         info!(
-            "Discarding CRL from {} as having incompatible authority for certificate issued to {}",
+            "Discarding CRL from {} as not covering certificate issued to {}",
             name_to_string(&crl.tbs_cert_list.issuer),
             name_to_string(target_cert.decoded().tbs_certificate().subject())
         );
-        return Err(Error::CrlIncompatible);
+        cpr.add_failed_crl(crl_info.clone(), result_index);
+        return Err(e);
     }
 
     let toi = cps.get_time_of_interest();
-    check_crl_validity(toi, cps.get_revocation_max_age(), &crl)?;
+    if let Err(e) = check_crl_validity(toi, cps.get_revocation_max_age(), &crl) {
+        cpr.add_failed_crl(crl_info.clone(), result_index);
+        return Err(e);
+    }
 
     if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
         if let Err(_e) = check_crl_extensions(exts) {
@@ -1136,6 +1204,7 @@ pub(crate) fn process_crl(
                 "Discarding CRL from {} due to unrecognized critical extension",
                 name_to_string(&crl.tbs_cert_list.issuer)
             );
+            cpr.add_failed_crl(crl_info.clone(), result_index);
             return Err(Error::UnsupportedCrlExtension);
         }
     }
@@ -1147,6 +1216,7 @@ pub(crate) fn process_crl(
             // that IDP check is good enough.
             if certificate_issuer_extension_present(&rc) {
                 info!("Discarding CRL from {} due to presence of certificate issuer CRL entry extension", name_to_string(&crl.tbs_cert_list.issuer));
+                cpr.add_failed_crl(crl_info.clone(), result_index);
                 return Err(Error::UnsupportedIndirectCrl);
             }
 
@@ -1163,6 +1233,7 @@ pub(crate) fn process_crl(
                         "Discarding CRL from {} due to unrecognized critical CRL entry extension",
                         name_to_string(&crl.tbs_cert_list.issuer)
                     );
+                    cpr.add_failed_crl(crl_info.clone(), result_index);
                     return Err(Error::UnsupportedCrlEntryExtension);
                 }
 
@@ -1182,6 +1253,7 @@ pub(crate) fn process_crl(
                         PathValidationStatus::CertificateRevoked,
                     );
                 }
+                cpr.add_crl(crl_info.clone(), result_index);
                 return Err(Error::PathValidation(
                     PathValidationStatus::CertificateRevoked,
                 ));
@@ -1195,6 +1267,7 @@ pub(crate) fn process_crl(
             PathValidationStatus::Valid,
         );
     }
+    cpr.add_crl(crl_info.clone(), result_index);
     Ok(())
 }
 
@@ -1238,20 +1311,16 @@ pub(crate) async fn check_revocation_crl_remote(
                 Some(crl_dp.as_str()),
             ) {
                 Ok(_ok) => {
-                    target_status = {
-                        cpr.add_crl(crl.as_slice(), pos);
-                        info!("Determined revocation status (valid) using CRL for certificate issued to {cur_cert_subject}");
-                        PathValidationStatus::Valid
-                    }
+                    // process_crl records the contributing CRL (as compact CrlInfo) in the results.
+                    info!("Determined revocation status (valid) using CRL for certificate issued to {cur_cert_subject}");
+                    target_status = PathValidationStatus::Valid;
                 }
                 Err(e) => {
                     if Error::PathValidation(PathValidationStatus::CertificateRevoked) == e {
-                        cpr.add_crl(crl.as_slice(), pos);
                         info!("Determined revocation status (revoked) using CRL for certificate issued to {cur_cert_subject}");
                         return PathValidationStatus::CertificateRevoked;
                     } else {
                         info!("Failed to determine revocation status using CRL for certificate issued to {cur_cert_subject} with {e}");
-                        cpr.add_failed_crl(crl.as_slice(), pos);
                     }
                 }
             };

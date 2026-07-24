@@ -6,7 +6,7 @@ use core::ops::{Deref, DerefMut};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
-use std::sync::{RwLock, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use log::{debug, error, info};
 
@@ -29,7 +29,9 @@ use crate::{
 };
 
 #[cfg(feature = "revocation")]
-use crate::revocation::crl::{check_crl_validity, get_crl_info, CrlInfo, CrlScope};
+use crate::revocation::crl::{
+    build_kept_serials, check_crl_validity, crl_covers_cert, get_crl_info, CrlInfo, CrlScope,
+};
 
 struct StatusAndTime {
     status: PathValidationStatus, // Valid or Revoked
@@ -44,21 +46,30 @@ struct CrlSourceFoldersInner {
     issuer_map: IssuerMap,
     skid_map: SkidMap,
     dp_map: DpMap,
+    /// Revoked serials of verified full/direct CRLs, keyed by CRL scope (not by crl_info index, so
+    /// it is independent of the append-only crl_info vector). Populated only via keep_verified_crl,
+    /// which the post-verification CRL processing path invokes; never populated by a cold index.
+    kept: BTreeMap<CrlKey, KeptCrl>,
 }
 
-//TODO hygiene
 /// CrlSourceFolders provides a simple CRL store that supports storing CRL retrieved from remote
-/// resources for subsequent use.
+/// resources for subsequent use. When constructed with `keep_entries_in_memory` set (see
+/// [`CrlSourceFolders::with_options`]) it also implements [`RevocationStatusCache`]: after a CRL is
+/// verified and processed once (via `keep_verified_crl` from the CRL processing path), the revoked
+/// serial numbers of full/direct CRLs are retained in memory so subsequent certificates under the
+/// same scope are answered without re-parsing or re-verifying the CRL. As a RevocationStatusCache it
+/// answers only from those kept CRLs and abstains otherwise; register a [`RevocationCache`] alongside
+/// it to memoize OCSP determinations and anything not covered by a kept CRL.
 #[readonly::make]
 pub struct CrlSourceFolders {
     /// Folder where CRLs are stored
     #[readonly]
     pub crls_folder: String,
 
+    /// When true, retain verified full/direct CRLs' revoked serials in memory (see the type doc).
+    keep_entries_in_memory: bool,
+
     inner: RwLock<CrlSourceFoldersInner>,
-    // cache_map: Arc<Mutex<RefCell<CacheMap>>>,
-    // blocklist: Arc<Mutex<RefCell<Blocklist>>>,
-    // last_modified_map: Arc<Mutex<RefCell<LastModifiedMap>>>,
 }
 
 /// Provided in-memory revocation status cache
@@ -87,17 +98,52 @@ type CacheMap = BTreeMap<(String, String), StatusAndTime>;
 type LastModifiedMap = BTreeMap<String, String>;
 type Blocklist = Vec<String>;
 
+/// Scope key for kept CRL entries. Issuer-qualified so two issuers that share an idp name cannot
+/// collide; the optional idp distinguishes distribution-point partitions within a single issuer.
+/// Both population and lookup derive the key from a [`CrlInfo`], so the two are symmetric.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct CrlKey {
+    issuer: String,
+    idp: Option<String>,
+}
+
+/// A kept CRL: the sorted revoked serial numbers plus the next-update bound through which they are
+/// valid. Serial numbers are INTEGER value octets (canonical for a DER-decoded serial number).
+struct KeptCrl {
+    next_update: u64,
+    serials: Vec<Vec<u8>>,
+}
+
+#[cfg(feature = "revocation")]
+fn crl_key(info: &CrlInfo) -> CrlKey {
+    CrlKey {
+        issuer: info.issuer_name.clone(),
+        idp: info.idp_name.clone(),
+    }
+}
+
 impl CrlSourceFolders {
     /// Instantiates a new CrlSourceFolders instance that uses the indicated folder for storage and
     /// retrieval of CRLs.
     pub fn new(crls_folder: &str) -> Self {
+        Self::with_options(crls_folder, false)
+    }
+
+    /// Instantiates a CrlSourceFolders instance that, when `keep_entries_in_memory` is true, retains
+    /// the revoked serial numbers of each verified full/direct CRL in memory so subsequent
+    /// certificates under the same scope are answered via the [`RevocationStatusCache`]
+    /// implementation without re-parsing or re-verifying the CRL. Memory is traded for speed; a
+    /// value of false yields the original file-backed behavior.
+    pub fn with_options(crls_folder: &str, keep_entries_in_memory: bool) -> Self {
         CrlSourceFolders {
             crls_folder: crls_folder.to_string(),
+            keep_entries_in_memory,
             inner: RwLock::new(CrlSourceFoldersInner {
                 crl_info: vec![],
                 issuer_map: BTreeMap::new(),
                 dp_map: BTreeMap::new(),
                 skid_map: BTreeMap::new(),
+                kept: BTreeMap::new(),
             }),
         }
     }
@@ -301,6 +347,7 @@ impl CrlSource for CrlSourceFolders {
                 return Err(Error::Unrecognized);
             }
             cur_crl_info.filename = path.to_str().map(|s| s.to_string());
+            cur_crl_info.uri = Some(uri.to_string());
 
             let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
             let inner = inner.deref_mut();
@@ -363,6 +410,76 @@ impl CrlSource for CrlSourceFolders {
             return Ok(retval);
         }
         Err(Error::NotFound)
+    }
+
+    #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]
+    fn keep_verified_crl(&self, _crl_buf: &[u8], crl: &CertificateList<Raw>) -> Result<()> {
+        #[cfg(feature = "revocation")]
+        {
+            if !self.keep_entries_in_memory {
+                return Ok(());
+            }
+            let info = match get_crl_info(crl) {
+                Ok(info) => info,
+                Err(_e) => return Ok(()),
+            };
+            // A CRL with no nextUpdate cannot be freshness-bounded, mirroring add_status which only
+            // caches determinations that carry a nextUpdate.
+            let next_update = match info.next_update {
+                Some(nu) => nu,
+                None => return Ok(()),
+            };
+            let serials = match build_kept_serials(crl, &info) {
+                Some(serials) => serials,
+                None => return Ok(()),
+            };
+            let key = crl_key(&info);
+            let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
+            // Latest-verified wins so a reissued CRL replaces stale serials for the same scope.
+            let fresher = inner
+                .kept
+                .get(&key)
+                .is_none_or(|k| next_update >= k.next_update);
+            if fresher {
+                inner.kept.insert(
+                    key,
+                    KeptCrl {
+                        next_update,
+                        serials,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "revocation")]
+impl CrlSourceFoldersInner {
+    /// Candidate crl_info indices for a certificate, mirroring the distribution-point / SKID /
+    /// issuer-name lookup precedence used by get_crls. Used by the RevocationStatusCache path.
+    fn matching_indices(&self, cert: &PDVCertificate) -> Vec<usize> {
+        if let Some(dps) = get_dps_from_cert(cert) {
+            for dp in dps {
+                if let Some(indices) = self.dp_map.get(&dp) {
+                    return indices.clone();
+                }
+            }
+        }
+        if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) =
+            cert.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER)
+        {
+            if let Some(kid) = &akid.key_identifier {
+                if let Some(indices) = self.skid_map.get(kid.as_bytes()) {
+                    return indices.clone();
+                }
+            }
+        }
+        let issuer_name = name_to_string(cert.decoded().tbs_certificate().issuer());
+        self.issuer_map
+            .get(&issuer_name)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -600,6 +717,93 @@ impl RevocationStatusCache for RevocationCache {
             debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.1, key.0);
             cache_map.insert(key, status_and_time);
         }
+    }
+}
+
+impl RevocationStatusCache for CrlSourceFolders {
+    /// Answers only from the in-memory kept CRLs (populated via keep_verified_crl); abstains with
+    /// RevocationStatusNotDetermined otherwise. A per-certificate memo registered alongside (e.g. a
+    /// [`RevocationCache`]) handles OCSP determinations and anything not covered by a kept CRL --
+    /// PkiEnvironment::get_status consults each registered cache in turn and returns the first
+    /// determination.
+    #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]
+    fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus {
+        #[cfg(feature = "revocation")]
+        {
+            if let Ok(inner) = self.inner.read() {
+                let serial = cert
+                    .decoded()
+                    .tbs_certificate()
+                    .serial_number()
+                    .as_bytes()
+                    .to_vec();
+                for idx in inner.matching_indices(cert) {
+                    let info = match inner.crl_info.get(idx) {
+                        Some(info) => info,
+                        None => continue,
+                    };
+                    let kept = match inner.kept.get(&crl_key(info)) {
+                        Some(kept) => kept,
+                        None => continue,
+                    };
+                    // Freshness against the kept entry's own nextUpdate (fresh iff nextUpdate > toi).
+                    if kept.next_update <= time_of_interest.as_unix_secs() {
+                        continue;
+                    }
+                    if crl_covers_cert(cert, info).is_err() {
+                        continue;
+                    }
+                    return if kept.serials.binary_search(&serial).is_ok() {
+                        PathValidationStatus::CertificateRevoked
+                    } else {
+                        PathValidationStatus::Valid
+                    };
+                }
+            }
+        }
+        RevocationStatusNotDetermined
+    }
+
+    // Nothing to record: this store answers only from kept CRLs. Determinations are memoized by a
+    // separately-registered RevocationStatusCache (e.g. RevocationCache).
+    fn add_status(&self, _cert: &PDVCertificate, _next_update: u64, _status: PathValidationStatus) {
+    }
+}
+
+// A single CrlSourceFolders often needs to be registered in two roles at once: as a CrlSource
+// (which populates the in-memory kept CRLs via keep_verified_crl) and as a RevocationStatusCache
+// (which answers from them). Because the kept state is mutated at runtime, both roles must observe
+// the same instance, so consumers share one via Arc and register a clone in each role. These
+// delegating implementations let `Arc<CrlSourceFolders>` satisfy both traits.
+impl CrlSource for Arc<CrlSourceFolders> {
+    fn get_all_crls(&self) -> Result<Vec<Vec<u8>>> {
+        (**self).get_all_crls()
+    }
+    fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
+        (**self).get_crls(cert)
+    }
+    fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
+        (**self).add_crl(crl_buf, crl, uri)
+    }
+    fn keep_verified_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>) -> Result<()> {
+        (**self).keep_verified_crl(crl_buf, crl)
+    }
+}
+
+impl RevocationStatusCache for Arc<CrlSourceFolders> {
+    fn get_status(
+        &self,
+        cert: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> PathValidationStatus {
+        (**self).get_status(cert, time_of_interest)
+    }
+    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus) {
+        (**self).add_status(cert, next_update, status)
     }
 }
 

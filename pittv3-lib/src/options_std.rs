@@ -274,7 +274,8 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let cbor_file: &String = if let Some(cbor) = &args.cbor {
             cbor
         } else {
-            panic!("cbor argument must be provided when using a diagnostic command")
+            eprintln!("error: --cbor is required when using a diagnostic command");
+            std::process::exit(1)
         };
 
         let download_folder = if let Some(download_folder) = &args.download_folder {
@@ -297,7 +298,8 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                panic!("Failed to parse CBOR file at {cbor_file} with: {e}")
+                eprintln!("error: failed to parse CBOR file at {cbor_file}: {e}");
+                std::process::exit(1)
             }
         };
         let r = cert_source.initialize(&cps);
@@ -486,7 +488,8 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let ca_folder = if let Some(ca_folder) = &args.ca_folder {
             ca_folder.clone()
         } else {
-            panic!("The ca-folder option is required when parsing a Mozilla CSV file (to receive the certificate files)");
+            eprintln!("error: --ca-folder is required when parsing a Mozilla CSV file (to receive the certificate files)");
+            std::process::exit(1)
         };
 
         use csv::ReaderBuilder;
@@ -620,15 +623,17 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
 
     #[cfg(feature = "remote")]
     if args.dynamic_build && download_folder.is_empty() {
-        panic!(
-            "Either ca_folder or download_folder must be specified when dynamic_build is specified"
-        )
+        eprintln!(
+            "error: --ca-folder or --download-folder is required when --dynamic-build (-y) is used"
+        );
+        std::process::exit(1);
     }
 
     let mut cps = match read_settings(&args.settings) {
         Ok(cps) => cps,
         Err(e) => {
-            panic!("Failed to parse settings file: {e:?}")
+            eprintln!("error: failed to parse settings file: {e:?}");
+            std::process::exit(1)
         }
     };
 
@@ -731,9 +736,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     #[cfg(all(feature = "std", feature = "revocation"))]
     let crl_source = match &args.crl_folder {
         Some(crl_folder) => {
-            let crl_source = CrlSourceFolders::new(crl_folder);
+            let crl_source =
+                CrlSourceFolders::with_options(crl_folder, args.keep_crl_entries_in_memory);
             match crl_source.index_crls(cps.get_time_of_interest()) {
-                Ok(_) => Some(crl_source),
+                Ok(_) => Some(std::sync::Arc::new(crl_source)),
                 Err(e) => {
                     error!("Failed to index CRL source with {e}");
                     None
@@ -750,15 +756,22 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         .map(|crl_folder| RemoteStatus::new(crl_folder));
 
     #[cfg(all(feature = "std", feature = "revocation"))]
-    if let Some(crl_source) = crl_source {
-        pe.add_crl_source(Box::new(crl_source));
-    }
-    #[cfg(all(feature = "std", feature = "revocation"))]
     if let Some(remote_status) = remote_status {
         pe.add_check_remote(Box::new(remote_status));
     }
+    // The CrlSourceFolders serves CRLs (as a CrlSource) and, when keep_crl_entries_in_memory is set,
+    // answers revocation status from its retained CRL serials (as a RevocationStatusCache). Register
+    // it in both roles via a shared Arc, with its revocation cache FIRST so the kept fast path is
+    // consulted before the per-certificate memo. A RevocationCache is always registered as that memo
+    // for OCSP determinations and anything not covered by a kept CRL.
     #[cfg(all(feature = "std", feature = "revocation"))]
-    pe.add_revocation_cache(Box::new(RevocationCache::new()));
+    {
+        if let Some(crl_source) = crl_source {
+            pe.add_crl_source(Box::new(crl_source.clone()));
+            pe.add_revocation_cache(Box::new(crl_source));
+        }
+        pe.add_revocation_cache(Box::new(RevocationCache::new()));
+    }
     loop {
         // Create a new CertSource and (re-)deserialize on every iteration due references to
         // buffers in the certs member. On the first pass, cbor will contain data read from file,

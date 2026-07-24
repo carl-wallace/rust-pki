@@ -135,6 +135,13 @@ pub struct Pittv3CliArgs {
     #[clap(long, help_heading = "VALIDATION")]
     pub crl_folder: Option<String>,
 
+    /// When set together with --crl-folder, retain the revoked serial numbers of each verified
+    /// full/direct CRL in memory so subsequent certificates under the same scope are answered
+    /// without re-parsing or re-verifying the CRL.
+    #[cfg(feature = "std")]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub keep_crl_entries_in_memory: bool,
+
     /// Paired with ca_folder to remove expired, unparseable certificates, self-signed
     /// certificates and non-CA certificates from consideration. When paired with error_folder,
     /// the errant files are moved instead of deleted. After cleanup completes, the application
@@ -256,6 +263,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             settings: v.settings,
             #[cfg(feature = "std")]
             crl_folder: v.crl_folder,
+            #[cfg(feature = "std")]
+            keep_crl_entries_in_memory: v.keep_crl_entries_in_memory,
             #[cfg(feature = "std")]
             cleanup: v.cleanup,
             #[cfg(feature = "std")]
