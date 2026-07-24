@@ -182,7 +182,12 @@ fn get_trust_anchors_merges_all_sources() {
 
 #[test]
 fn denies_self_signed_ee() {
+    // This test deliberately drives the forbid_self_signed_ee guard, which the library correctly
+    // reports at ERROR. Suppress log output for the duration so the induced error does not clutter
+    // otherwise-quiet test output; no assertion depends on logging.
     let _ = pretty_env_logger::try_init();
+    let prev_log_level = log::max_level();
+    log::set_max_level(log::LevelFilter::Off);
 
     let time_of_interest: TimeOfInterest = TimeOfInterest::from_unix_secs(1707264000).unwrap();
     let mut pe = PkiEnvironment::default();
@@ -212,6 +217,7 @@ fn denies_self_signed_ee() {
     // not failed for some incidental reason that would mask a regression in the guard.
     let mut cpr = CertificationPathResults::new();
     let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    log::set_max_level(prev_log_level);
     assert!(
         matches!(
             r,

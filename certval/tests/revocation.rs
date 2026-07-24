@@ -251,6 +251,8 @@ async fn cached_crl_async() {
 // retained in memory so get_status answers subsequent certificates straight from the sorted
 // serials, sustaining the RevocationStatusCache without a per-certificate memo entry. The memo
 // (cache_map) is never populated here, so a Valid result can only come from the kept serials.
+// Kept entries are bound to the SPKI that verified the CRL: a lookup on behalf of an issuer with
+// a different key (e.g. a same-name CA across a key rollover) must miss and abstain.
 #[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
 #[test]
 fn keep_entries_in_memory_sustains_revocation_cache() {
@@ -263,6 +265,17 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
     ee.parse_extensions(EXTS_OF_INTEREST);
 
+    // The CA that issued the EE and signed the CRLs: the issuer process_crl would have verified
+    // the CRL against before offering it for retention.
+    let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
+    let ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    let issuer: &dyn SubjectNameAndKey = ca.decoded();
+
+    // A different subject with a different key, standing in for a wrong-key issuer.
+    let der_encoded_ta = include_bytes!("examples/makaan.com/0-ta.der");
+    let ta = PDVCertificate::try_from(der_encoded_ta.as_slice()).unwrap();
+    let wrong_issuer: &dyn SubjectNameAndKey = ta.decoded();
+
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("tests/examples/makaan.com/crls");
     let folder = d.as_path().to_str().unwrap();
@@ -272,7 +285,7 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     let plain = CrlSourceFolders::with_options(folder, false);
     plain.index_crls(toi).unwrap();
     assert_eq!(
-        plain.get_status(&ee, toi),
+        plain.get_status(&ee, issuer, toi),
         PathValidationStatus::RevocationStatusNotDetermined
     );
 
@@ -280,7 +293,7 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     let store = CrlSourceFolders::with_options(folder, true);
     store.index_crls(toi).unwrap();
     assert_eq!(
-        store.get_status(&ee, toi),
+        store.get_status(&ee, issuer, toi),
         PathValidationStatus::RevocationStatusNotDetermined,
         "must not answer before a CRL is verified and kept"
     );
@@ -289,12 +302,20 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     assert_eq!(1, crls.len());
     let crl = CertificateList::<Raw>::from_der(&crls[0]).unwrap();
     // Stand in for the post-verify call process_crl makes.
-    store.keep_verified_crl(&crls[0], &crl).unwrap();
+    store.keep_verified_crl(&crls[0], &crl, issuer).unwrap();
 
     assert_eq!(
-        store.get_status(&ee, toi),
+        store.get_status(&ee, issuer, toi),
         PathValidationStatus::Valid,
         "EE (not revoked) must be answered from the kept serials"
+    );
+
+    // Same certificate, same kept CRL, but on behalf of an issuer with a different key: the kept
+    // entries must not answer (name-only matching would wrongly return Valid here).
+    assert_eq!(
+        store.get_status(&ee, wrong_issuer, toi),
+        PathValidationStatus::RevocationStatusNotDetermined,
+        "kept serials must be bound to the key that verified the CRL"
     );
 }
 

@@ -61,6 +61,7 @@
 //! - [`PS_CRL_TIMEOUT`](../certval/path_settings/static.PS_CRL_TIMEOUT.html)
 //! - [`PS_OCSP_AIA_NONCE_SETTING`](../validator/path_settings/static.PS_OCSP_AIA_NONCE_SETTING.html)
 //!
+#[cfg(feature = "revocation")]
 pub mod check_revocation;
 pub mod subject_name_and_key;
 
@@ -69,6 +70,7 @@ pub mod crl;
 #[cfg(feature = "revocation")]
 pub mod ocsp_client;
 
+#[cfg(feature = "revocation")]
 pub use crate::check_revocation::*;
 pub use crate::revocation::subject_name_and_key::*;
 

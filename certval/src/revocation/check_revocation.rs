@@ -110,7 +110,7 @@ pub async fn check_revocation(
         };
 
         // check revocation status cache
-        let mut cur_status = pe.get_status(cur_cert, toi);
+        let mut cur_status = pe.get_status(cur_cert, issuer, toi);
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {cur_cert_subject}");
             cpr.set_validation_status(revoked_error);
@@ -304,7 +304,7 @@ pub fn check_revocation(
         };
 
         // check revocation status cache
-        let mut cur_status = pe.get_status(cur_cert, toi);
+        let mut cur_status = pe.get_status(cur_cert, issuer, toi);
 
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject);

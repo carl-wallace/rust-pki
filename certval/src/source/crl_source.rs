@@ -25,7 +25,7 @@ use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{buffer_to_hex, CheckRemoteResource, PathValidationStatus, RevocationStatusCache};
 use crate::{
     get_file_as_byte_vec_pem, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension,
-    Result, TimeOfInterest,
+    Result, SubjectNameAndKey, TimeOfInterest,
 };
 
 #[cfg(feature = "revocation")]
@@ -57,9 +57,12 @@ struct CrlSourceFoldersInner {
 /// [`CrlSourceFolders::with_options`]) it also implements [`RevocationStatusCache`]: after a CRL is
 /// verified and processed once (via `keep_verified_crl` from the CRL processing path), the revoked
 /// serial numbers of full/direct CRLs are retained in memory so subsequent certificates under the
-/// same scope are answered without re-parsing or re-verifying the CRL. As a RevocationStatusCache it
-/// answers only from those kept CRLs and abstains otherwise; register a [`RevocationCache`] alongside
-/// it to memoize OCSP determinations and anything not covered by a kept CRL.
+/// same scope are answered without re-parsing or re-verifying the CRL. Kept entries are bound to
+/// the key that verified the CRL and answer only on behalf of that same issuing key, so issuers
+/// sharing a subject name (e.g. across a key rollover) can never answer for one another. As a
+/// RevocationStatusCache it answers only from those kept CRLs and abstains otherwise; register a
+/// [`RevocationCache`] alongside it to cache OCSP determinations and anything not covered by a
+/// kept CRL.
 #[readonly::make]
 pub struct CrlSourceFolders {
     /// Folder where CRLs are stored
@@ -94,31 +97,43 @@ pub struct RemoteStatus {
 type IssuerMap = BTreeMap<String, Vec<usize>>;
 type SkidMap = BTreeMap<Vec<u8>, Vec<usize>>;
 type DpMap = BTreeMap<Vec<u8>, Vec<usize>>;
-type CacheMap = BTreeMap<(String, String), StatusAndTime>;
+// Keyed by (issuer name, hex SHA-256 of issuer SPKI, serial). The SPKI hash binds a cached
+// determination to the issuing key so issuers sharing a subject name cannot answer for one another.
+type CacheMap = BTreeMap<(String, String, String), StatusAndTime>;
 type LastModifiedMap = BTreeMap<String, String>;
 type Blocklist = Vec<String>;
 
 /// Scope key for kept CRL entries. Issuer-qualified so two issuers that share an idp name cannot
 /// collide; the optional idp distinguishes distribution-point partitions within a single issuer.
-/// Both population and lookup derive the key from a [`CrlInfo`], so the two are symmetric.
+/// The verifier SPKI binds the entries to the key that verified the CRL's signature: population
+/// keys on the SPKI that did verify, lookup keys on the SPKI that would verify for the current
+/// path, so issuers sharing a subject name (e.g. across a key rollover) occupy separate slots and
+/// can never answer for one another's certificates.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct CrlKey {
     issuer: String,
     idp: Option<String>,
+    verifier_spki: Vec<u8>,
 }
 
-/// A kept CRL: the sorted revoked serial numbers plus the next-update bound through which they are
-/// valid. Serial numbers are INTEGER value octets (canonical for a DER-decoded serial number).
+/// A kept CRL: the sorted revoked serial numbers plus the validity window through which they may be
+/// used (mirroring check_crl_validity, the time of interest must fall within thisUpdate/nextUpdate).
+/// Serial numbers are INTEGER value octets (canonical for a DER-decoded serial number). The
+/// per-validation revocation max age was applied by the processing path that verified the CRL and is
+/// not re-applied here; a validation configured with a stricter max age that shares this store gets
+/// answers vetted under the policy in force at keep time.
 struct KeptCrl {
+    this_update: u64,
     next_update: u64,
     serials: Vec<Vec<u8>>,
 }
 
 #[cfg(feature = "revocation")]
-fn crl_key(info: &CrlInfo) -> CrlKey {
+fn crl_key(info: &CrlInfo, verifier_spki: &[u8]) -> CrlKey {
     CrlKey {
         issuer: info.issuer_name.clone(),
         idp: info.idp_name.clone(),
+        verifier_spki: verifier_spki.to_vec(),
     }
 }
 
@@ -413,7 +428,12 @@ impl CrlSource for CrlSourceFolders {
     }
 
     #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]
-    fn keep_verified_crl(&self, _crl_buf: &[u8], crl: &CertificateList<Raw>) -> Result<()> {
+    fn keep_verified_crl(
+        &self,
+        _crl_buf: &[u8],
+        crl: &CertificateList<Raw>,
+        verifier: &dyn SubjectNameAndKey,
+    ) -> Result<()> {
         #[cfg(feature = "revocation")]
         {
             if !self.keep_entries_in_memory {
@@ -429,13 +449,21 @@ impl CrlSource for CrlSourceFolders {
                 Some(nu) => nu,
                 None => return Ok(()),
             };
+            // The kept entries are bound to the key that verified the CRL; with no encodable SPKI
+            // there is nothing sound to bind to, so decline to keep.
+            let verifier_spki = match verifier.spki().to_der() {
+                Ok(spki) => spki,
+                Err(_e) => return Ok(()),
+            };
             let serials = match build_kept_serials(crl, &info) {
                 Some(serials) => serials,
                 None => return Ok(()),
             };
-            let key = crl_key(&info);
+            let key = crl_key(&info, &verifier_spki);
             let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
             // Latest-verified wins so a reissued CRL replaces stale serials for the same scope.
+            // Replacement only ever compares CRLs verified by the same key, since the key is part
+            // of the slot identity.
             let fresher = inner
                 .kept
                 .get(&key)
@@ -444,6 +472,7 @@ impl CrlSource for CrlSourceFolders {
                 inner.kept.insert(
                     key,
                     KeptCrl {
+                        this_update: info.this_update,
                         next_update,
                         serials,
                     },
@@ -662,13 +691,25 @@ fn index_crls_internal(
     Ok(crl_info.len() - initial_count)
 }
 
+/// Hex SHA-256 of the issuer's DER-encoded SPKI, used to key cached determinations to the issuing
+/// key. None when the SPKI cannot be encoded, in which case there is nothing sound to key on.
+fn issuer_spki_hash_hex(issuer: &dyn SubjectNameAndKey) -> Option<String> {
+    let spki = issuer.spki().to_der().ok()?;
+    Some(buffer_to_hex(Sha256::digest(&spki).to_vec().as_slice()))
+}
+
 impl RevocationStatusCache for RevocationCache {
     fn get_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus {
         let name = name_to_string(cert.decoded().tbs_certificate().issuer());
+        let issuer_key = match issuer_spki_hash_hex(issuer) {
+            Some(hash) => hash,
+            None => return RevocationStatusNotDetermined,
+        };
         let serial = buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes());
 
         let cache_map = if let Ok(c) = self.cache_map.read() {
@@ -676,18 +717,24 @@ impl RevocationStatusCache for RevocationCache {
         } else {
             return RevocationStatusNotDetermined;
         };
-        let key = (name, serial);
+        let key = (name, issuer_key, serial);
         if cache_map.contains_key(&key) {
             let status_and_time = &cache_map[&key];
             if status_and_time.time > time_of_interest.as_unix_secs() {
-                info!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.1, key.0);
+                info!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.2, key.0);
                 return status_and_time.status;
             }
         }
 
         RevocationStatusNotDetermined
     }
-    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus) {
+    fn add_status(
+        &self,
+        cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
+        next_update: u64,
+        status: PathValidationStatus,
+    ) {
         if status != PathValidationStatus::Valid
             && status != PathValidationStatus::CertificateRevoked
         {
@@ -695,8 +742,12 @@ impl RevocationStatusCache for RevocationCache {
         }
 
         let name = name_to_string(cert.decoded().tbs_certificate().issuer());
+        let issuer_key = match issuer_spki_hash_hex(issuer) {
+            Some(hash) => hash,
+            None => return,
+        };
         let serial = buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes());
-        let key = (name, serial);
+        let key = (name, issuer_key, serial);
 
         let mut cache_map = if let Ok(g) = self.cache_map.write() {
             g
@@ -710,11 +761,11 @@ impl RevocationStatusCache for RevocationCache {
         if cache_map.contains_key(&key) {
             let old_status_and_time = &cache_map[&key];
             if old_status_and_time.time < next_update {
-                debug!("Updating entry in revocation status check for certificate with serial number {} issued by {} in cache", key.1, key.0);
+                debug!("Updating entry in revocation status check for certificate with serial number {} issued by {} in cache", key.2, key.0);
                 cache_map.insert(key, status_and_time);
             }
         } else {
-            debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.1, key.0);
+            debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.2, key.0);
             cache_map.insert(key, status_and_time);
         }
     }
@@ -730,10 +781,20 @@ impl RevocationStatusCache for CrlSourceFolders {
     fn get_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus {
         #[cfg(feature = "revocation")]
         {
+            // The kept slot is keyed by the SPKI that verified the CRL; look it up with the SPKI
+            // that would verify a CRL for this certificate (its issuer on the current path). A CRL
+            // verified by a different key than the one that issued the certificate can therefore
+            // never answer for it, no matter how its names line up — the miss falls through to full
+            // processing, which settles matters with a signature check.
+            let verifier_spki = match issuer.spki().to_der() {
+                Ok(spki) => spki,
+                Err(_e) => return RevocationStatusNotDetermined,
+            };
             if let Ok(inner) = self.inner.read() {
                 let serial = cert
                     .decoded()
@@ -746,12 +807,14 @@ impl RevocationStatusCache for CrlSourceFolders {
                         Some(info) => info,
                         None => continue,
                     };
-                    let kept = match inner.kept.get(&crl_key(info)) {
+                    let kept = match inner.kept.get(&crl_key(info, &verifier_spki)) {
                         Some(kept) => kept,
                         None => continue,
                     };
-                    // Freshness against the kept entry's own nextUpdate (fresh iff nextUpdate > toi).
-                    if kept.next_update <= time_of_interest.as_unix_secs() {
+                    // Freshness mirrors check_crl_validity in both directions: the time of interest
+                    // must fall within the kept CRL's thisUpdate/nextUpdate window.
+                    let toi_secs = time_of_interest.as_unix_secs();
+                    if kept.this_update > toi_secs || kept.next_update <= toi_secs {
                         continue;
                     }
                     if crl_covers_cert(cert, info).is_err() {
@@ -768,9 +831,15 @@ impl RevocationStatusCache for CrlSourceFolders {
         RevocationStatusNotDetermined
     }
 
-    // Nothing to record: this store answers only from kept CRLs. Determinations are memoized by a
+    // Nothing to record: this store answers only from kept CRLs. Determinations are cached by a
     // separately-registered RevocationStatusCache (e.g. RevocationCache).
-    fn add_status(&self, _cert: &PDVCertificate, _next_update: u64, _status: PathValidationStatus) {
+    fn add_status(
+        &self,
+        _cert: &PDVCertificate,
+        _issuer: &dyn SubjectNameAndKey,
+        _next_update: u64,
+        _status: PathValidationStatus,
+    ) {
     }
 }
 
@@ -789,8 +858,13 @@ impl CrlSource for Arc<CrlSourceFolders> {
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         (**self).add_crl(crl_buf, crl, uri)
     }
-    fn keep_verified_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>) -> Result<()> {
-        (**self).keep_verified_crl(crl_buf, crl)
+    fn keep_verified_crl(
+        &self,
+        crl_buf: &[u8],
+        crl: &CertificateList<Raw>,
+        verifier: &dyn SubjectNameAndKey,
+    ) -> Result<()> {
+        (**self).keep_verified_crl(crl_buf, crl, verifier)
     }
 }
 
@@ -798,12 +872,19 @@ impl RevocationStatusCache for Arc<CrlSourceFolders> {
     fn get_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus {
-        (**self).get_status(cert, time_of_interest)
+        (**self).get_status(cert, issuer, time_of_interest)
     }
-    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus) {
-        (**self).add_status(cert, next_update, status)
+    fn add_status(
+        &self,
+        cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
+        next_update: u64,
+        status: PathValidationStatus,
+    ) {
+        (**self).add_status(cert, issuer, next_update, status)
     }
 }
 

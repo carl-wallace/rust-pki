@@ -1172,11 +1172,22 @@ pub(crate) fn process_crl(
         }
     }
 
+    // Reject a stale or future-dated CRL before offering it for in-memory retention so kept entries
+    // are never sourced from a CRL the inline path would have refused. Unlike crl_covers_cert below,
+    // this check is target-independent, so its verdict applies to every certificate the kept entries
+    // might later answer.
+    let toi = cps.get_time_of_interest();
+    if let Err(e) = check_crl_validity(toi, cps.get_revocation_max_age(), &crl) {
+        cpr.add_failed_crl(crl_info.clone(), result_index);
+        return Err(e);
+    }
+
     // Offer the just-verified CRL to any store configured to keep its entries in memory so that
     // subsequent certificates under the same scope are answered from get_status without re-entering
     // process_crl. This is the only path that populates the in-memory kept serials, which is why a
-    // cold-loaded store cannot serve them until a CRL has been verified here at least once.
-    pe.keep_verified_crl(crl_buf, &crl);
+    // cold-loaded store cannot serve them until a CRL has been verified here at least once. The
+    // kept entries are bound to the issuer whose key verified the CRL just above.
+    pe.keep_verified_crl(crl_buf, &crl, issuer);
 
     //4-a) confirm that the CRL type and cert type are compatible
     //4-b) validate the CRL issuer name (validate_crl_issuer_name is called by validate_distribution_point)
@@ -1188,12 +1199,6 @@ pub(crate) fn process_crl(
             name_to_string(&crl.tbs_cert_list.issuer),
             name_to_string(target_cert.decoded().tbs_certificate().subject())
         );
-        cpr.add_failed_crl(crl_info.clone(), result_index);
-        return Err(e);
-    }
-
-    let toi = cps.get_time_of_interest();
-    if let Err(e) = check_crl_validity(toi, cps.get_revocation_max_age(), &crl) {
         cpr.add_failed_crl(crl_info.clone(), result_index);
         return Err(e);
     }
@@ -1249,6 +1254,7 @@ pub(crate) fn process_crl(
                 if let Some(nu) = crl.tbs_cert_list.next_update {
                     pe.add_status(
                         target_cert,
+                        issuer,
                         nu.to_unix_duration().as_secs(),
                         PathValidationStatus::CertificateRevoked,
                     );
@@ -1263,6 +1269,7 @@ pub(crate) fn process_crl(
     if let Some(nu) = crl.tbs_cert_list.next_update {
         pe.add_status(
             target_cert,
+            issuer,
             nu.to_unix_duration().as_secs(),
             PathValidationStatus::Valid,
         );
