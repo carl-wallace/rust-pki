@@ -10,7 +10,8 @@ pub mod source;
 pub mod util;
 pub mod validator;
 
-#[cfg(feature = "revocation")]
+// The module itself is always present because the environment traits reference the
+// SubjectNameAndKey abstraction it hosts; the CRL/OCSP machinery within is feature-gated.
 pub mod revocation;
 
 #[cfg(feature = "std")]
@@ -27,7 +28,6 @@ pub use crate::builder::*;
 
 pub use crate::environment::*;
 
-#[cfg(feature = "revocation")]
 pub use crate::revocation::*;
 
 #[cfg(feature = "pqc")]

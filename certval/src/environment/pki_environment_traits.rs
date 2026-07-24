@@ -11,7 +11,7 @@ use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 use crate::util::error::*;
 use crate::{
     CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings,
-    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, TimeOfInterest,
+    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, SubjectNameAndKey, TimeOfInterest,
 };
 
 /// `ValidatePath` provides a function signature for implementations that perform certification path
@@ -178,9 +178,17 @@ pub trait CrlSource {
     /// Offered a CRL that the caller has already verified so a store may retain its revoked serial
     /// numbers in memory for fast subsequent revocation status determinations. The default
     /// implementation is a no-op; only stores that support in-memory retention override it. The
-    /// caller MUST have verified the CRL signature (the store cannot, and when loaded cold has no
-    /// issuer to verify against), so this is invoked only from the post-verification path.
-    fn keep_verified_crl(&self, _crl_buf: &[u8], _crl: &CertificateList<Raw>) -> Result<()> {
+    /// caller MUST have verified the CRL signature against `verifier`'s key (the store cannot, and
+    /// when loaded cold has no issuer to verify against), so this is invoked only from the
+    /// post-verification path. Retained entries must be bound to `verifier`'s SPKI so that issuers
+    /// sharing a subject name (e.g. across a key rollover) can never answer for one another's
+    /// certificates.
+    fn keep_verified_crl(
+        &self,
+        _crl_buf: &[u8],
+        _crl: &CertificateList<Raw>,
+        _verifier: &dyn SubjectNameAndKey,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -203,16 +211,29 @@ pub trait CheckRemoteResource {
 /// The [`RevocationStatusCache`] trait defines the interface for storing and retrieving cached revocation status determinations
 /// in support of certification path validation.
 pub trait RevocationStatusCache {
-    /// Returns Ok(Valid) is status is known to be good at time of interest, Ok(Revoked) if
-    /// certificate is known to be revoked and Err(RevocationStatusDetermined) otherwise.
+    /// Returns Valid if status is known to be good at time of interest, CertificateRevoked if
+    /// certificate is known to be revoked and RevocationStatusNotDetermined otherwise. `issuer` is
+    /// the subject that would verify revocation data for `cert` (its issuing CA or trust anchor);
+    /// implementations must bind answers to the issuer's key, not just its name, so that issuers
+    /// sharing a subject name (e.g. across a key rollover) can never answer for one another's
+    /// certificates.
     fn get_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus;
 
-    /// Sets status for certificate to one of Valid or Revoked and a next update value.
-    fn add_status(&self, cert: &PDVCertificate, next_update: u64, status: PathValidationStatus);
+    /// Sets status for certificate to one of Valid or Revoked and a next update value. `issuer` is
+    /// the subject whose key verified the revocation data behind the determination and must key the
+    /// cached entry alongside the certificate identity (see `get_status`).
+    fn add_status(
+        &self,
+        cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
+        next_update: u64,
+        status: PathValidationStatus,
+    );
 }
 // TODO add allowlist and blocklist as RevocationStatusCache implementations
 

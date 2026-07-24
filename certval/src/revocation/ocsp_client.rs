@@ -826,6 +826,7 @@ fn process_ocsp_response_internal(
                     if let Some(nu) = sr.next_update {
                         pe.add_status(
                             target_cert,
+                            issuer,
                             nu.0.to_unix_duration().as_secs(),
                             PathValidationStatus::Valid,
                         );
@@ -837,6 +838,7 @@ fn process_ocsp_response_internal(
                 if let Some(nu) = sr.next_update {
                     pe.add_status(
                         target_cert,
+                        issuer,
                         nu.0.to_unix_duration().as_secs(),
                         PathValidationStatus::CertificateRevoked,
                     );

@@ -53,7 +53,8 @@ use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{
     environment::pki_environment_traits::*, path_settings::*, util::crypto::*, util::error::*,
     util::pdv_utilities::oid_lookup, validate_path_rfc5280, CertificationPath,
-    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice, TimeOfInterest,
+    CertificationPathResults, PDVCertificate, PDVTrustAnchorChoice, SubjectNameAndKey,
+    TimeOfInterest,
 };
 
 #[cfg(feature = "pqc")]
@@ -623,10 +624,16 @@ impl PkiEnvironment {
 
     /// Offers a CRL that the caller has already verified to every [`CrlSource`] so any configured to
     /// retain entries in memory may do so. A no-op for sources that do not support retention. Invoked
-    /// from the post-verification CRL processing path (see `keep_verified_crl` on [`CrlSource`]).
-    pub fn keep_verified_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>) {
+    /// from the post-verification CRL processing path (see `keep_verified_crl` on [`CrlSource`]);
+    /// `verifier` is the issuer whose key verified the CRL and bounds who the kept entries may answer.
+    pub fn keep_verified_crl(
+        &self,
+        crl_buf: &[u8],
+        crl: &CertificateList<Raw>,
+        verifier: &dyn SubjectNameAndKey,
+    ) {
         for f in &self.crl_sources {
-            let _ = f.keep_verified_crl(crl_buf, crl);
+            let _ = f.keep_verified_crl(crl_buf, crl, verifier);
         }
     }
 
@@ -674,14 +681,17 @@ impl PkiEnvironment {
         }
     }
 
-    /// Retrieves cached revocation status determination for given certificate from store
+    /// Retrieves cached revocation status determination for given certificate from store. `issuer`
+    /// is the subject that would verify revocation data for the certificate on the current path;
+    /// caches bind their answers to its key (see [`RevocationStatusCache`]).
     pub fn get_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus {
         for f in &self.revocation_cache {
-            let status = f.get_status(cert, time_of_interest);
+            let status = f.get_status(cert, issuer, time_of_interest);
             if RevocationStatusNotDetermined != status {
                 return status;
             }
@@ -689,15 +699,17 @@ impl PkiEnvironment {
         RevocationStatusNotDetermined
     }
 
-    /// Adds a cached revocation status determination to the store
+    /// Adds a cached revocation status determination to the store, keyed to the issuer whose key
+    /// verified the revocation data behind it.
     pub fn add_status(
         &self,
         cert: &PDVCertificate,
+        issuer: &dyn SubjectNameAndKey,
         next_update: u64,
         status: PathValidationStatus,
     ) {
         for f in &self.revocation_cache {
-            f.add_status(cert, next_update, status);
+            f.add_status(cert, issuer, next_update, status);
         }
     }
 
