@@ -7,7 +7,6 @@ use core::str::FromStr;
 use core::time::Duration;
 
 use flagset::FlagSet;
-use log::warn;
 use serde::{Deserialize, Serialize};
 
 use const_oid::db::rfc5280::ANY_POLICY;
@@ -53,10 +52,11 @@ pub type Buffers = Vec<Vec<u8>>;
 /// `ListOfBuffers` is a typedef for a vector of vectors of `Vec<u8>` values.
 pub type ListOfBuffers = Vec<Vec<Vec<u8>>>;
 
-/// `Crls` holds per-position lists of [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata records
-/// used to note which CRLs were consulted, without retaining the (potentially very large) CRL bodies.
+/// `CrlInfoLists` holds per-position lists of [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata
+/// records used to note which CRLs were consulted, without retaining the (potentially very large)
+/// CRL bodies.
 #[cfg(feature = "revocation")]
-pub type Crls = Vec<Vec<crate::revocation::crl::CrlInfo>>;
+pub type CrlInfoLists = Vec<Vec<crate::revocation::crl::CrlInfo>>;
 
 /// `Bools` is a typedef for a vector bool values.
 pub type Bools = Vec<bool>;
@@ -141,6 +141,7 @@ mod keyusage_serde {
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),
@@ -430,8 +431,6 @@ pub static PS_URI_BLOCKLIST_FILE: &str = "psUriBlocklistFile";
 pub static PS_CBOR_TA_STORE: &str = "psCborTaStore";
 /// PS_REQUIRE_TA_STORE is used to indicate that the validator should require a TA to affirm given TA is actually a TA.
 pub static PS_REQUIRE_TA_STORE: &str = "psRequireTaStore";
-/// PS_USE_POLICY_GRAPH is used to indicate that the validator should use policy graph-based certificate policy processing.
-pub static PS_USE_POLICY_GRAPH: &str = "psUsePolicyGraph";
 /// PS_FORBID_SELF_SIGNED_EE is used to forbid allowing self-signed end-identity certificates
 pub static PS_FORBID_SELF_SIGNED_EE: &str = "psForbidSelfSignedEE";
 
@@ -783,25 +782,6 @@ cps_gets_and_sets!(PS_PERM_COUNTRIES, Strings);
 cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
-
-impl CertificationPathSettings {
-    /// Returns `true`: certificate policy processing is always graph-based (RFC 9618).
-    /// `PS_USE_POLICY_GRAPH` is retained for backward compatibility with serialized settings.
-    pub fn get_use_policy_graph(&self) -> bool {
-        true
-    }
-
-    /// Retained for backward compatibility. Graph-based policy processing (RFC 9618) is the only
-    /// implementation, so `true` is a no-op and `false` is ignored with a warning.
-    pub fn set_use_policy_graph(&mut self, value: bool) {
-        if !value {
-            warn!(
-                "PS_USE_POLICY_GRAPH=false is not supported; certificate policy processing is \
-                 always graph-based (RFC 9618)"
-            );
-        }
-    }
-}
 
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a

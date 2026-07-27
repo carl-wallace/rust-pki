@@ -5,7 +5,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::str::FromStr;
 
-use log::{debug, error};
+use log::error;
 
 use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
 use const_oid::db::rfc3280::{EMAIL_ADDRESS, PSEUDONYM};
@@ -453,30 +453,17 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
                 // diff number of attributes
                 return false;
             }
-            // every attribute in the RDN must match, either exactly or via one of the
-            // tolerances below; a single mismatched attribute fails the whole RDN
+            // every attribute in the RDN must match; a single mismatched attribute fails the whole
+            // RDN. atav_values_equal applies the same tolerances (differing character set, case, and
+            // insignificant whitespace) that compare_names uses for chaining, so a subject that
+            // chains to an issuer cannot simultaneously escape that issuer's name constraints.
             for (subtree_attr, name_attr) in subtree_rdn.iter().zip(name_rdn.iter()) {
-                let lau = subtree_attr;
-                let rau = name_attr;
-                if lau.oid != rau.oid {
+                if subtree_attr.oid != name_attr.oid {
                     // if the type of attribute, i.e., c, cn, o, is different, return false
                     return false;
                 }
-                let lav = &lau.value;
-                let rav = &rau.value;
-                //not checking tag on the any since that is where the issue is most likely
-                if lav.value() == rav.value() {
-                    if lav.tag() != rav.tag() {
-                        debug!("Permitting a DN name constraint match despite different character sets");
-                    }
-                } else {
-                    let llav = lau.to_string();
-                    let rlav = rau.to_string();
-                    if llav.to_lowercase() == rlav.to_lowercase() {
-                        debug!( "Permitting a DN name constraint match despite different capitalization");
-                    } else {
-                        return false;
-                    }
+                if !atav_values_equal(subtree_attr, name_attr) {
+                    return false;
                 }
             }
         }
@@ -773,6 +760,26 @@ fn collapse_whitespace(s: &str) -> String {
     out
 }
 
+/// Compares the values of two DN attributes for equality under the RFC 5280 §7.1 caseIgnoreMatch-style
+/// rules shared by name chaining ([`compare_names`]) and name-constraint matching ([`descended_from_dn`]).
+/// Two values are equal when their encoded value octets are identical or when they decode to strings that
+/// are equal after unescaping a leading-space escape, trimming, case-folding, and collapsing internal
+/// whitespace runs to a single space. This is hand-rolled so std and no-std behave identically. The caller
+/// is responsible for checking that the attribute type OIDs match.
+fn atav_values_equal(l: &AttributeTypeAndValue, r: &AttributeTypeAndValue) -> bool {
+    if l.value.value() == r.value.value() {
+        return true;
+    }
+    let normalize = |a: &AttributeTypeAndValue| -> Option<String> {
+        let v = get_value_from_rdn(a).ok()?.replace("\\ ", " ");
+        Some(collapse_whitespace(v.trim().to_lowercase().as_str()))
+    };
+    match (normalize(l), normalize(r)) {
+        (Some(l), Some(r)) => l == r,
+        _ => false,
+    }
+}
+
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
 pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
@@ -791,30 +798,8 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l.oid != r.oid {
                     return false;
                 }
-
-                let l_str_val = match get_value_from_rdn(l) {
-                    Ok(val) => val.replace("\\ ", " "),
-                    Err(_e) => {
-                        return false;
-                    }
-                };
-                let r_str_val = match get_value_from_rdn(r) {
-                    Ok(val) => val.replace("\\ ", " "),
-                    Err(_e) => {
-                        return false;
-                    }
-                };
-
-                let l_val = l_str_val.trim().to_lowercase();
-                let r_val = r_str_val.trim().to_lowercase();
-
-                if l_val != r_val {
-                    // RFC 5280 4.1.2.4 insignificant-whitespace handling: collapse internal runs of
-                    // whitespace to a single space before comparing (both values are already trimmed
-                    // and lowercased above). Hand-rolled so it works identically under std and no-std.
-                    if collapse_whitespace(&l_val) != collapse_whitespace(&r_val) {
-                        return false;
-                    }
+                if !atav_values_equal(l, r) {
+                    return false;
                 }
             }
         }
@@ -874,7 +859,11 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 /// lenient fallback for real-world PEM that OpenSSL accepts but strict RFC 7468 rejects (a trailing
 /// blank line, or base64 wrapped at a width other than 64, as some DoD/FPKI tools emit) — drop the
 /// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. Any bytes past the
-/// outer DER SEQUENCE are then trimmed (see [`trim_to_outer_der_sequence`]). Available in no_std.
+/// outer DER SEQUENCE are then trimmed (see `trim_to_outer_der_sequence`). Available in no_std.
+///
+/// This decodes a *single* object. A multi-object PEM (a concatenated bundle) is not supported here:
+/// depending on byte alignment it yields only the first object or fails outright, so treat a bundle as
+/// unsupported input. Use [`decode_pem_to_ders`] to load every object in a bundle.
 pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     use base64ct::{Base64, Encoding};
 
@@ -902,10 +891,50 @@ pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(trim_to_outer_der_sequence(der))
 }
 
+/// Decodes every object in a possibly multi-object PEM input, in file order, returning one DER buffer
+/// per object. A bare-DER input (no `-----BEGIN` marker) yields a single-element vector. Each PEM block
+/// is decoded through [`decode_pem_to_der`], so the same strict-then-lenient handling and outer-SEQUENCE
+/// trimming apply per block. This is the loader for certificate and trust-anchor folders, where a
+/// concatenated bundle (an OpenSSL fullchain, or a root-CA bundle) must contribute every object rather
+/// than silently only its first; CRL loading stays single-object via [`decode_pem_to_der`]. A block
+/// that fails to decode fails the whole call (the caller skips the file), matching the single-object
+/// contract. Available in no_std.
+pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let text = String::from_utf8_lossy(bytes);
+    // No PEM armor anywhere: defer to the single-object decoder (handles bare DER and passthrough).
+    if !text.contains("-----BEGIN") {
+        return Ok(alloc::vec![decode_pem_to_der(bytes)?]);
+    }
+
+    let mut ders: Vec<Vec<u8>> = Vec::new();
+    let mut block = String::new();
+    let mut in_block = false;
+    for line in text.lines() {
+        if line.contains("-----BEGIN") {
+            in_block = true;
+            block.clear();
+        }
+        if in_block {
+            block.push_str(line);
+            block.push('\n');
+            if line.contains("-----END") {
+                in_block = false;
+                ders.push(decode_pem_to_der(block.as_bytes())?);
+                block.clear();
+            }
+        }
+    }
+    if ders.is_empty() {
+        // a `-----BEGIN` marker was present but no complete block decoded
+        return Err(Error::Unrecognized);
+    }
+    Ok(ders)
+}
+
 /// Truncates `der` to the encoded length of its outer DER SEQUENCE when the buffer carries spurious
 /// trailing bytes. Returns `der` unchanged when it does not begin with a definite-length SEQUENCE or
 /// the encoded length is not shorter than the buffer, so conforming DER is never altered.
-pub fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
+pub(crate) fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
     // 0x30 = universal, constructed, SEQUENCE — the outer tag of a cert, CRL, or TrustAnchorChoice.
     if der.first() != Some(&0x30) || der.len() < 2 {
         return der;
@@ -979,6 +1008,46 @@ fn decode_pem_to_der_lenient_and_passthrough() {
         .join("\r\n");
     let odd_width = format!("-----BEGIN X-----\r\n{wrapped}\r\n-----END X-----\r\n");
     assert_eq!(decode_pem_to_der(odd_width.as_bytes()).unwrap(), der);
+}
+
+#[test]
+fn decode_pem_to_ders_splits_bundle() {
+    use base64ct::{Base64, Encoding};
+    // two distinct DER SEQUENCEs, each exactly its own encoded length (no trailing trim needed)
+    let der1 = alloc::vec![0x30, 0x03, 0x01, 0x02, 0x03];
+    let der2 = alloc::vec![0x30, 0x02, 0x0a, 0x0b];
+
+    // a two-object PEM bundle contributes both objects, in order
+    let bundle = format!(
+        "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n\
+         -----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+        Base64::encode_string(&der1),
+        Base64::encode_string(&der2),
+    );
+    assert_eq!(
+        decode_pem_to_ders(bundle.as_bytes()).unwrap(),
+        alloc::vec![der1.clone(), der2.clone()]
+    );
+
+    // a single PEM object yields a one-element vector
+    let single = format!(
+        "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+        Base64::encode_string(&der1)
+    );
+    assert_eq!(
+        decode_pem_to_ders(single.as_bytes()).unwrap(),
+        alloc::vec![der1.clone()]
+    );
+
+    // bare DER (no armor) also yields a one-element vector
+    assert_eq!(
+        decode_pem_to_ders(&der1).unwrap(),
+        alloc::vec![der1.clone()]
+    );
+
+    // a malformed block fails the whole call (caller skips the file)
+    let malformed = "-----BEGIN CERTIFICATE-----\n!!!notbase64!!!\n-----END CERTIFICATE-----\n";
+    assert!(decode_pem_to_ders(malformed.as_bytes()).is_err());
 }
 
 #[test]
@@ -1255,4 +1324,21 @@ fn compare_names_ignores_insignificant_internal_whitespace() {
     // a genuine difference is still rejected
     let c = Name::from_str("O=Test Orgs,C=US").unwrap();
     assert!(!compare_names(&a, &c));
+}
+
+// Constraint matching must agree with chaining on insignificant internal whitespace, or an excluded
+// subtree is evaded (chaining links the path, the constraint check does not fire) and a permitted
+// subtree is falsely rejected. Both directions go through the shared atav_values_equal helper.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_dn_ignores_insignificant_whitespace() {
+    let subtree = Name::from_str("O=Acme Corp").unwrap();
+    // subject differs only by a doubled internal space and case; must be treated as within subtree
+    let subject = Name::from_str("O=acme  corp").unwrap();
+    assert!(descended_from_dn(&subtree, &subject, 0, None));
+    assert!(compare_names(&subtree, &subject));
+
+    // a genuine difference is still outside the subtree
+    let other = Name::from_str("O=Acme Corps").unwrap();
+    assert!(!descended_from_dn(&subtree, &other, 0, None));
 }

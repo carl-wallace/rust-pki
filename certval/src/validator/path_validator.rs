@@ -110,8 +110,7 @@ pub fn validate_path_rfc5280(
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
     //check_country_codes(pe, cps, cp, cpr)?;
-    // Certificate policy processing is always graph-based (RFC 9618); PS_USE_POLICY_GRAPH is
-    // retained for backward compatibility but no longer selects an implementation.
+    // Certificate policy processing is always graph-based (RFC 9618).
     check_certificate_policies_graph(pe, cps, cp, cpr)?;
     check_key_usage(pe, cps, cp, cpr)?;
     check_extended_key_usage(pe, cps, cp, cpr)?;
