@@ -630,9 +630,11 @@ impl PkiEnvironment {
         crl_buf: &[u8],
         crl: &CertificateList<Raw>,
         verifier: &dyn SubjectNameAndKey,
+        toi: TimeOfInterest,
+        retain_expired: bool,
     ) {
         for f in &self.crl_sources {
-            let _ = f.keep_verified_crl(crl_buf, crl, verifier);
+            let _ = f.keep_verified_crl(crl_buf, crl, verifier, toi, retain_expired);
         }
     }
 

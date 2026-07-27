@@ -1187,7 +1187,13 @@ pub(crate) fn process_crl(
     // process_crl. This is the only path that populates the in-memory kept serials, which is why a
     // cold-loaded store cannot serve them until a CRL has been verified here at least once. The
     // kept entries are bound to the issuer whose key verified the CRL just above.
-    pe.keep_verified_crl(crl_buf, &crl, issuer);
+    pe.keep_verified_crl(
+        crl_buf,
+        &crl,
+        issuer,
+        toi,
+        cps.get_retain_expired_kept_crls(),
+    );
 
     //4-a) confirm that the CRL type and cert type are compatible
     //4-b) validate the CRL issuer name (validate_crl_issuer_name is called by validate_distribution_point)

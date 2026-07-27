@@ -302,7 +302,9 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     assert_eq!(1, crls.len());
     let crl = CertificateList::<Raw>::from_der(&crls[0]).unwrap();
     // Stand in for the post-verify call process_crl makes.
-    store.keep_verified_crl(&crls[0], &crl, issuer).unwrap();
+    store
+        .keep_verified_crl(&crls[0], &crl, issuer, toi, false)
+        .unwrap();
 
     assert_eq!(
         store.get_status(&ee, issuer, toi),
@@ -316,6 +318,68 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
         store.get_status(&ee, wrong_issuer, toi),
         PathValidationStatus::RevocationStatusNotDetermined,
         "kept serials must be bound to the key that verified the CRL"
+    );
+}
+
+// An expired kept CRL is evicted on the next insert (bounding memory) unless retention is requested.
+// The eviction reference is the inserting operation's time of interest; a later insert at a time past
+// the kept CRL's nextUpdate drops it -- unless retain_expired is set, so retroactive / past-time-of-
+// interest checks (long-term validation) can still be answered from it.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[test]
+fn keep_entries_expired_eviction_and_retain() {
+    use certval::*;
+    use der::Decode;
+    use std::path::PathBuf;
+    use x509_cert::{certificate::Raw, crl::CertificateList};
+
+    let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+    let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
+    let ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    let issuer: &dyn SubjectNameAndKey = ca.decoded();
+    // A distinct verifier key, used only to drive a second, different-scope insert (so the evicted
+    // slot is not re-created by the insert that triggered the eviction).
+    let der_encoded_ta = include_bytes!("examples/makaan.com/0-ta.der");
+    let ta = PDVCertificate::try_from(der_encoded_ta.as_slice()).unwrap();
+    let other_key: &dyn SubjectNameAndKey = ta.decoded();
+
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("tests/examples/makaan.com/crls");
+    let folder = d.as_path().to_str().unwrap();
+    let toi = TimeOfInterest::from_unix_secs(1647011592).unwrap(); // within the CRL's window
+    let future = TimeOfInterest::from_unix_secs(4102444800).unwrap(); // year 2100, past nextUpdate
+
+    // Keep the CRL under `issuer` at a time in its window (EE answered from memory), then do a second
+    // insert (different scope) at `future`; return whether the original entry still answers at `toi`.
+    let run = |retain_expired: bool| -> PathValidationStatus {
+        let store = CrlSourceFolders::with_options(folder, true);
+        store.index_crls(toi).unwrap();
+        let crls = store.get_crls(&ee).unwrap();
+        let crl = CertificateList::<Raw>::from_der(&crls[0]).unwrap();
+        store
+            .keep_verified_crl(&crls[0], &crl, issuer, toi, false)
+            .unwrap();
+        assert_eq!(
+            store.get_status(&ee, issuer, toi),
+            PathValidationStatus::Valid
+        );
+        store
+            .keep_verified_crl(&crls[0], &crl, other_key, future, retain_expired)
+            .unwrap();
+        store.get_status(&ee, issuer, toi)
+    };
+
+    assert_eq!(
+        run(false),
+        PathValidationStatus::RevocationStatusNotDetermined,
+        "expired kept CRL must be evicted on the next insert when retain is off"
+    );
+    assert_eq!(
+        run(true),
+        PathValidationStatus::Valid,
+        "expired kept CRL must be retained when retain is on"
     );
 }
 
