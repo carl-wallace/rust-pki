@@ -141,6 +141,7 @@ mod keyusage_serde {
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum CertificationPathProcessingTypes {
     /// Represents bool values
     Bool(bool),

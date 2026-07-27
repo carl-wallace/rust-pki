@@ -16,6 +16,7 @@ use crate::Result;
 /// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
 /// performing certification path discovery and validation.
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum CertificationPathResultsTypes {
     /// Represents ObjectIdentifierSet values
     ObjectIdentifierSet(ObjectIdentifierSet),
@@ -180,7 +181,8 @@ cpr_gets_and_sets!(PR_FAILED_CRLS, Crls);
 #[cfg(feature = "revocation")]
 impl CertificationPathResults {
     /// Notes a CRL that was consulted but did not yield a status determination (i.e., was discarded
-    /// as incompatible, stale, or otherwise unusable). Only the compact [`CrlInfo`] metadata is
+    /// as incompatible, stale, or otherwise unusable). Only the compact
+    /// [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata is
     /// retained, not the (potentially very large) CRL body.
     pub fn add_failed_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
         let mut v: Crls = if let Some(v) = self.get_failed_crls() {
@@ -200,7 +202,8 @@ cpr_gets_and_sets!(PR_CRL, Crls);
 #[cfg(feature = "revocation")]
 impl CertificationPathResults {
     /// Notes a CRL that contributed to a revocation status determination (valid or revoked). Only
-    /// the compact [`CrlInfo`] metadata is retained, not the CRL body; the metadata carries a
+    /// the compact [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata is retained, not the CRL
+    /// body; the metadata carries a
     /// [`CrlInfo::uri`](crate::revocation::crl::CrlInfo::uri) clue for where the full CRL was obtained.
     pub fn add_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
         let mut v: Crls = if let Some(v) = self.get_crl() {

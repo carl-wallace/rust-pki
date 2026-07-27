@@ -859,7 +859,7 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 /// lenient fallback for real-world PEM that OpenSSL accepts but strict RFC 7468 rejects (a trailing
 /// blank line, or base64 wrapped at a width other than 64, as some DoD/FPKI tools emit) — drop the
 /// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. Any bytes past the
-/// outer DER SEQUENCE are then trimmed (see [`trim_to_outer_der_sequence`]). Available in no_std.
+/// outer DER SEQUENCE are then trimmed (see `trim_to_outer_der_sequence`). Available in no_std.
 ///
 /// This decodes a *single* object. A multi-object PEM (a concatenated bundle) is not supported here:
 /// depending on byte alignment it yields only the first object or fails outright, so treat a bundle as
@@ -934,7 +934,7 @@ pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
 /// Truncates `der` to the encoded length of its outer DER SEQUENCE when the buffer carries spurious
 /// trailing bytes. Returns `der` unchanged when it does not begin with a definite-length SEQUENCE or
 /// the encoded length is not shorter than the buffer, so conforming DER is never altered.
-pub fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
+pub(crate) fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
     // 0x30 = universal, constructed, SEQUENCE — the outer tag of a cert, CRL, or TrustAnchorChoice.
     if der.first() != Some(&0x30) || der.len() < 2 {
         return der;

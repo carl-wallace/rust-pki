@@ -30,7 +30,7 @@ use std::fs::File;
 /// for use as a trust anchor source.
 ///
 /// `ta_folder_to_vec` takes a string containing the full path of a folder containing binary DER
-/// encoded [`Certificate`] or [`TrustAnchorChoice`] files, a mutable vector of [`CertFile`] objects and a time
+/// encoded [`Certificate`](x509_cert::certificate::Certificate) or [`TrustAnchorChoice`] files, a mutable vector of [`CertFile`] objects and a time
 /// of interest, expressed as seconds since Unix epoch. It recursively traverses the directory
 /// populating the vector with items corresponding to files that could be processed as a TrustAnchorChoice
 /// that is valid at the time of interest and returns the number of items added. Pass 0 for `time_of_interest`
@@ -50,9 +50,9 @@ pub fn ta_folder_to_vec(
 /// for use as a certificate source.
 ///
 /// `cert_folder_to_vec` takes a string containing the full path of a folder containing binary DER
-/// encoded [`Certificate`] files, a mutable vector of [`CertFile`] objects and a time of interest, expressed
+/// encoded [`Certificate`](x509_cert::certificate::Certificate) files, a mutable vector of [`CertFile`] objects and a time of interest, expressed
 /// as seconds since Unix epoch. It recursively traverses the directory populating the vector with
-/// items corresponding to files that could be processed as a [`Certificate`] that is valid at the time of
+/// items corresponding to files that could be processed as a [`Certificate`](x509_cert::certificate::Certificate) that is valid at the time of
 /// interest and returns the number of items added. Pass 0 for `time_of_interest` to skip the validity check.
 ///
 /// Only files with .der, .cer, or .crt extensions are processed.
