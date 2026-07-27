@@ -192,10 +192,13 @@ impl CrlSourceFolders {
         }
         Ok(retval)
     }
+}
 
+impl CrlSourceFoldersInner {
+    // A method on the inner struct (not on CrlSourceFolders) because it reads only inner's data and
+    // operates through the read guard the caller already holds.
     fn read_crl_at_index(&self, index: usize) -> Option<Vec<u8>> {
-        let inner = self.inner.read().ok()?;
-        let ci = &inner.crl_info[index];
+        let ci = &self.crl_info[index];
         if let Some(filename) = &ci.filename {
             if let Ok(crl_buf) = get_file_as_byte_vec_pem(Path::new(filename.as_str())) {
                 return Some(crl_buf);
@@ -387,7 +390,7 @@ impl CrlSource for CrlSourceFolders {
                     let indices = &inner.dp_map[&dp];
                     let mut retval = vec![];
                     for index in indices {
-                        if let Some(crl_buf) = self.read_crl_at_index(*index) {
+                        if let Some(crl_buf) = inner.read_crl_at_index(*index) {
                             retval.push(crl_buf);
                         }
                     }
@@ -404,7 +407,7 @@ impl CrlSource for CrlSourceFolders {
                     let indices = &inner.skid_map[&kid.as_bytes().to_vec()];
                     let mut retval = vec![];
                     for index in indices {
-                        if let Some(crl_buf) = self.read_crl_at_index(*index) {
+                        if let Some(crl_buf) = inner.read_crl_at_index(*index) {
                             retval.push(crl_buf);
                         }
                     }
@@ -418,7 +421,7 @@ impl CrlSource for CrlSourceFolders {
             let indices = &inner.issuer_map[&issuer_name];
             let mut retval = vec![];
             for index in indices {
-                if let Some(crl_buf) = self.read_crl_at_index(*index) {
+                if let Some(crl_buf) = inner.read_crl_at_index(*index) {
                     retval.push(crl_buf);
                 }
             }

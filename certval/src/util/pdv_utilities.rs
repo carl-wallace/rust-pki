@@ -5,7 +5,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::str::FromStr;
 
-use log::{debug, error};
+use log::error;
 
 use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
 use const_oid::db::rfc3280::{EMAIL_ADDRESS, PSEUDONYM};
@@ -453,30 +453,17 @@ pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Opti
                 // diff number of attributes
                 return false;
             }
-            // every attribute in the RDN must match, either exactly or via one of the
-            // tolerances below; a single mismatched attribute fails the whole RDN
+            // every attribute in the RDN must match; a single mismatched attribute fails the whole
+            // RDN. atav_values_equal applies the same tolerances (differing character set, case, and
+            // insignificant whitespace) that compare_names uses for chaining, so a subject that
+            // chains to an issuer cannot simultaneously escape that issuer's name constraints.
             for (subtree_attr, name_attr) in subtree_rdn.iter().zip(name_rdn.iter()) {
-                let lau = subtree_attr;
-                let rau = name_attr;
-                if lau.oid != rau.oid {
+                if subtree_attr.oid != name_attr.oid {
                     // if the type of attribute, i.e., c, cn, o, is different, return false
                     return false;
                 }
-                let lav = &lau.value;
-                let rav = &rau.value;
-                //not checking tag on the any since that is where the issue is most likely
-                if lav.value() == rav.value() {
-                    if lav.tag() != rav.tag() {
-                        debug!("Permitting a DN name constraint match despite different character sets");
-                    }
-                } else {
-                    let llav = lau.to_string();
-                    let rlav = rau.to_string();
-                    if llav.to_lowercase() == rlav.to_lowercase() {
-                        debug!( "Permitting a DN name constraint match despite different capitalization");
-                    } else {
-                        return false;
-                    }
+                if !atav_values_equal(subtree_attr, name_attr) {
+                    return false;
                 }
             }
         }
@@ -773,6 +760,26 @@ fn collapse_whitespace(s: &str) -> String {
     out
 }
 
+/// Compares the values of two DN attributes for equality under the RFC 5280 §7.1 caseIgnoreMatch-style
+/// rules shared by name chaining ([`compare_names`]) and name-constraint matching ([`descended_from_dn`]).
+/// Two values are equal when their encoded value octets are identical or when they decode to strings that
+/// are equal after unescaping a leading-space escape, trimming, case-folding, and collapsing internal
+/// whitespace runs to a single space. This is hand-rolled so std and no-std behave identically. The caller
+/// is responsible for checking that the attribute type OIDs match.
+fn atav_values_equal(l: &AttributeTypeAndValue, r: &AttributeTypeAndValue) -> bool {
+    if l.value.value() == r.value.value() {
+        return true;
+    }
+    let normalize = |a: &AttributeTypeAndValue| -> Option<String> {
+        let v = get_value_from_rdn(a).ok()?.replace("\\ ", " ");
+        Some(collapse_whitespace(v.trim().to_lowercase().as_str()))
+    };
+    match (normalize(l), normalize(r)) {
+        (Some(l), Some(r)) => l == r,
+        _ => false,
+    }
+}
+
 /// [`compare_names`] compares two Name values returning true if they match and false otherwise.
 pub fn compare_names(left: &Name, right: &Name) -> bool {
     // no match if not the same number of RDNs
@@ -791,30 +798,8 @@ pub fn compare_names(left: &Name, right: &Name) -> bool {
                 if l.oid != r.oid {
                     return false;
                 }
-
-                let l_str_val = match get_value_from_rdn(l) {
-                    Ok(val) => val.replace("\\ ", " "),
-                    Err(_e) => {
-                        return false;
-                    }
-                };
-                let r_str_val = match get_value_from_rdn(r) {
-                    Ok(val) => val.replace("\\ ", " "),
-                    Err(_e) => {
-                        return false;
-                    }
-                };
-
-                let l_val = l_str_val.trim().to_lowercase();
-                let r_val = r_str_val.trim().to_lowercase();
-
-                if l_val != r_val {
-                    // RFC 5280 4.1.2.4 insignificant-whitespace handling: collapse internal runs of
-                    // whitespace to a single space before comparing (both values are already trimmed
-                    // and lowercased above). Hand-rolled so it works identically under std and no-std.
-                    if collapse_whitespace(&l_val) != collapse_whitespace(&r_val) {
-                        return false;
-                    }
+                if !atav_values_equal(l, r) {
+                    return false;
                 }
             }
         }
@@ -1255,4 +1240,21 @@ fn compare_names_ignores_insignificant_internal_whitespace() {
     // a genuine difference is still rejected
     let c = Name::from_str("O=Test Orgs,C=US").unwrap();
     assert!(!compare_names(&a, &c));
+}
+
+// Constraint matching must agree with chaining on insignificant internal whitespace, or an excluded
+// subtree is evaded (chaining links the path, the constraint check does not fire) and a permitted
+// subtree is falsely rejected. Both directions go through the shared atav_values_equal helper.
+#[cfg(feature = "std")]
+#[test]
+fn descended_from_dn_ignores_insignificant_whitespace() {
+    let subtree = Name::from_str("O=Acme Corp").unwrap();
+    // subject differs only by a doubled internal space and case; must be treated as within subtree
+    let subject = Name::from_str("O=acme  corp").unwrap();
+    assert!(descended_from_dn(&subtree, &subject, 0, None));
+    assert!(compare_names(&subtree, &subject));
+
+    // a genuine difference is still outside the subtree
+    let other = Name::from_str("O=Acme Corps").unwrap();
+    assert!(!descended_from_dn(&subtree, &other, 0, None));
 }
