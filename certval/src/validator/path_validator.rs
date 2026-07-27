@@ -437,17 +437,18 @@ pub fn check_names(
             }
 
             // RFC 5280 4.2.1.6: dNSName and the host portion of rfc822Name use the preferred
-            // name syntax, which does not admit a trailing period. Reject rather than risk a
-            // name that other consumers regard as equal to a constrained name evading a
-            // constraint via the absolute form.
-            if let Some(san) = san {
-                if san.0.iter().any(general_name_has_trailing_dot) {
-                    log_error_for_ca(ca_cert, "trailing period in SAN dNSName or rfc822Name");
-                    cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
-                    cpr.set_failure_index(pos as u32 + 1);
-                    return Err(Error::PathValidation(
-                        PathValidationStatus::NameConstraintsViolation,
-                    ));
+            // name syntax, which does not admit a trailing period. The absolute (trailing-dot)
+            // form is rejected only when name constraints are operative on this certificate.
+            if constraint_count > 0 {
+                if let Some(san) = san {
+                    if san.0.iter().any(general_name_has_trailing_dot) {
+                        log_error_for_ca(ca_cert, "trailing period in SAN dNSName or rfc822Name");
+                        cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                        cpr.set_failure_index(pos as u32 + 1);
+                        return Err(Error::PathValidation(
+                            PathValidationStatus::NameConstraintsViolation,
+                        ));
+                    }
                 }
             }
 

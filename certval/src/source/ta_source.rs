@@ -346,11 +346,11 @@ impl TrustAnchorSource for TaSource {
             }
         }
 
-            if let Some(akid_hex) = akid_hex {
-                if let Ok(s) = self.get_trust_anchor_by_hex_skid(&akid_hex) {
-                    return Ok(s);
-                }
+        if let Some(akid_hex) = akid_hex {
+            if let Ok(s) = self.get_trust_anchor_by_hex_skid(&akid_hex) {
+                return Ok(s);
             }
+        }
 
         for n in name_vec {
             let r = self.get_trust_anchor_by_name(n);
