@@ -737,7 +737,8 @@ impl CertSource {
             }
         } else {
             let fname = get_filename_from_cert_metadata(target);
-            error!("Missing AKID in target and failed to find by name - {fname}");
+            let issuer = get_leaf_rdn(target.decoded().tbs_certificate().issuer());
+            debug!("Missing AKID in target and failed to find issuer by name - {issuer} ({fname})");
         }
 
         for (i, c) in self.certs.iter().enumerate() {
@@ -1471,10 +1472,13 @@ impl CertificateSource for CertSource {
                                             }
                                         } else {
                                             let fname = get_filename_from_cert_metadata(cert);
-                                            error!("Missing AKID for trust anchor - {fname}");
+                                            let issuer = get_leaf_rdn(
+                                                cert.decoded().tbs_certificate().issuer(),
+                                            );
+                                            debug!("Missing AKID for trust anchor - issuer {issuer} ({fname})");
                                             if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
                                             {
-                                                error!("Found trust anchor by name");
+                                                debug!("Found trust anchor by name for issuer {issuer}");
                                                 ta = Some(new_ta);
                                             }
                                         }
@@ -1503,7 +1507,10 @@ impl CertificateSource for CertSource {
                 }
             } else {
                 let fname = get_filename_from_cert_metadata(target);
-                error!("Missing AKID in target and failed to find by name - {fname}");
+                let issuer = get_leaf_rdn(target.decoded().tbs_certificate().issuer());
+                debug!(
+                    "Missing AKID in target and failed to find issuer by name - {issuer} ({fname})"
+                );
             }
 
             if akid_hex.is_empty() || paths_count == paths.len() {

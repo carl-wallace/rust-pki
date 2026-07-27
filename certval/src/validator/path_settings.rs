@@ -322,6 +322,14 @@ pub static PS_CHECK_CRLDP_HTTP: &str = "psCheckCrlDpHttp";
 /// from locations identified by LDAP URIs in AIA extensions.
 pub static PS_CHECK_CRLDP_LDAP: &str = "psCheckCrlDpLdap";
 
+/// `PS_RETAIN_EXPIRED_KEPT_CRLS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
+/// object. The default value is false. It governs only the opt-in in-memory kept-CRL cache (see
+/// [`CrlSourceFolders::with_options`](crate::source::CrlSourceFolders::with_options)). When false,
+/// a kept CRL whose `nextUpdate` has passed the time of interest is evicted on the next insert to
+/// bound memory. When true, expired kept CRLs are retained so a later validation at an earlier time
+/// of interest (retroactive / long-term-validation checks) can still be answered from them.
+pub static PS_RETAIN_EXPIRED_KEPT_CRLS: &str = "psRetainExpiredKeptCrls";
+
 /// `PS_CRL_GRACE_PERIODS_AS_LAST_RESORT` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is true. When true, certification path validation should process CRLs
 /// using grace periods only after exhausting other notionally current options.
@@ -755,6 +763,7 @@ cps_gets_and_sets_with_default!(PS_RETRIEVE_FROM_AIA_SIA_LDAP, bool, false);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_HTTP, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_LDAP, bool, false);
+cps_gets_and_sets_with_default!(PS_RETAIN_EXPIRED_KEPT_CRLS, bool, false);
 cps_gets_and_sets_with_default!(PS_CRL_GRACE_PERIODS_AS_LAST_RESORT, bool, true);
 cps_gets_and_sets_with_default!(PS_IGNORE_EXPIRED, bool, false);
 cps_gets_and_sets_with_default!(

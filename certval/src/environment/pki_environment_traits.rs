@@ -188,6 +188,8 @@ pub trait CrlSource {
         _crl_buf: &[u8],
         _crl: &CertificateList<Raw>,
         _verifier: &dyn SubjectNameAndKey,
+        _toi: TimeOfInterest,
+        _retain_expired: bool,
     ) -> Result<()> {
         Ok(())
     }

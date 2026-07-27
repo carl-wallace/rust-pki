@@ -27,7 +27,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 use core::str;
-use log::{error, info, warn};
+use log::{error, info};
 
 use ciborium::from_reader;
 
@@ -347,11 +347,8 @@ impl TrustAnchorSource for TaSource {
         }
 
         if let Some(akid_hex) = akid_hex {
-            match self.get_trust_anchor_by_hex_skid(&akid_hex) {
-                Ok(s) => return Ok(s),
-                Err(_e) => {
-                    warn!("Failed to find trust anchor by key identifier {akid_hex}");
-                }
+            if let Ok(s) = self.get_trust_anchor_by_hex_skid(&akid_hex) {
+                return Ok(s);
             }
         }
 

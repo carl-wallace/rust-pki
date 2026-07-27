@@ -1777,61 +1777,17 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// FN-DSA (Falcon) self-signed trust anchors from the IETF hackathon pqc-certificates project
-// (BouncyCastle provider), covering the round-5 padded OIDs 1.3.9999.3.11 (512) and .14 (1024).
-// These drive pittv3's --validate-self-signed path, which verifies the cert's own signature via
-// the FN-DSA callback registered by populate_5280_pki_environment under the `pqc` feature.
-// See certval/tests/fndsa.rs for the callback-level counterparts.
-#[cfg(feature = "pqc")]
-#[test]
-fn fndsa_falcon_512_self_signed() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::new(cargo::cargo_bin!());
-    cmd.arg("--validate-self-signed");
-    cmd.arg("-e")
-        .arg("tests/examples/fndsa/falcon-512-1.3.9999.3.11_ta.der");
-    cmd.assert()
-        .stdout(predicate::str::contains("is self-signed"));
-    Ok(())
-}
-
-#[cfg(feature = "pqc")]
-#[test]
-fn fndsa_falcon_1024_self_signed() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::new(cargo::cargo_bin!());
-    cmd.arg("--validate-self-signed");
-    cmd.arg("-e")
-        .arg("tests/examples/fndsa/falcon-1024-1.3.9999.3.14_ta.der");
-    cmd.assert()
-        .stdout(predicate::str::contains("is self-signed"));
-    Ok(())
-}
-
-// Flip a byte in the FN-DSA signature and confirm the self-signature no longer verifies.
-#[cfg(feature = "pqc")]
-#[test]
-fn fndsa_falcon_512_broken_signature_rejected() -> Result<(), Box<dyn std::error::Error>> {
-    let mut der = fs::read("tests/examples/fndsa/falcon-512-1.3.9999.3.11_ta.der")?;
-    let last = der.len() - 1;
-    der[last] ^= 0x01; // corrupt the trailing signature byte
-    let broken = Path::new(env!("CARGO_TARGET_TMPDIR")).join("falcon-512-broken_ta.der");
-    fs::write(&broken, &der)?;
-
-    let mut cmd = Command::new(cargo::cargo_bin!());
-    cmd.arg("--validate-self-signed");
-    cmd.arg("-e").arg(&broken);
-    cmd.assert()
-        .stdout(predicate::str::contains("is not self-signed"));
-
-    fs::remove_file(&broken)?;
-    Ok(())
-}
+// FN-DSA (Falcon) self-signed tests were removed when pre-standard Falcon support was relocated
+// out of certval into kemri_toy (see kemri_toy src/misc/fndsa_verify.rs). pittv3 no longer verifies
+// Falcon; the callback-level coverage lives in kemri_toy. Reintroduce here if a FIPS 206
+// implementation lands back in certval.
 
 // Removed: pqc_hackathon_r3_ipd. It validated the round-3 IETF hackathon "IPD" artifacts (the
 // tests/examples/artifacts_certs_r3 fixtures, pre-standardization Dilithium OIDs 1.3.6.1.4.1.2.267.*),
 // which predate the standardized ML-DSA and SLH-DSA algorithms/OIDs and no longer represent what we
 // ship; both the test and the r3 fixtures have been pruned. The intent to test PQC self-signatures is
-// preserved with current standardized artifacts: FN-DSA via fndsa_falcon_*_self_signed, ML-DSA via
-// pqc_mldsa_self_signed, and SLH-DSA via pqc_slhdsa_self_signed (all above).
+// preserved with current standardized artifacts: ML-DSA via pqc_mldsa_self_signed and SLH-DSA via
+// pqc_slhdsa_self_signed (all above).
 
 // Composite (ML-DSA + traditional) self-signed trust anchors from the IETF hackathon, covering the
 // finalized composite OIDs 1.3.6.1.5.5.7.6.37..54 (fixtures shared with certval/tests/composite.rs,

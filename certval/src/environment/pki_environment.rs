@@ -60,7 +60,6 @@ use crate::{
 #[cfg(feature = "pqc")]
 use crate::util::{
     crypto_composite::verify_signature_message_composite_rustcrypto,
-    crypto_fndsa::verify_signature_message_fndsa,
     crypto_pqc::{verify_signature_message_ctx_rustcrypto, verify_signature_message_rustcrypto},
 };
 
@@ -631,9 +630,11 @@ impl PkiEnvironment {
         crl_buf: &[u8],
         crl: &CertificateList<Raw>,
         verifier: &dyn SubjectNameAndKey,
+        toi: TimeOfInterest,
+        retain_expired: bool,
     ) {
         for f in &self.crl_sources {
-            let _ = f.keep_verified_crl(crl_buf, crl, verifier);
+            let _ = f.keep_verified_crl(crl_buf, crl, verifier, toi, retain_expired);
         }
     }
 
@@ -831,8 +832,6 @@ impl PkiEnvironment {
         self.add_verify_signature_message_ctx_callback(verify_signature_message_ctx_rustcrypto);
         #[cfg(feature = "pqc")]
         self.add_verify_signature_message_callback(verify_signature_message_composite_rustcrypto);
-        #[cfg(feature = "pqc")]
-        self.add_verify_signature_message_callback(verify_signature_message_fndsa);
     }
 }
 

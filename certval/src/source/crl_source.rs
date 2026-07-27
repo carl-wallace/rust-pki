@@ -436,6 +436,8 @@ impl CrlSource for CrlSourceFolders {
         _crl_buf: &[u8],
         crl: &CertificateList<Raw>,
         verifier: &dyn SubjectNameAndKey,
+        toi: TimeOfInterest,
+        retain_expired: bool,
     ) -> Result<()> {
         #[cfg(feature = "revocation")]
         {
@@ -464,6 +466,12 @@ impl CrlSource for CrlSourceFolders {
             };
             let key = crl_key(&info, &verifier_spki);
             let mut inner = self.inner.write().map_err(|_| Error::Unrecognized)?;
+            // unless configured to retain expired entries (for retroactive / past-time-of-interest
+            // checks such as long-term validation), drop stale CRLs.
+            if !retain_expired {
+                let toi_secs = toi.as_unix_secs();
+                inner.kept.retain(|_, k| k.next_update > toi_secs);
+            }
             // Latest-verified wins so a reissued CRL replaces stale serials for the same scope.
             // Replacement only ever compares CRLs verified by the same key, since the key is part
             // of the slot identity.
@@ -866,8 +874,10 @@ impl CrlSource for Arc<CrlSourceFolders> {
         crl_buf: &[u8],
         crl: &CertificateList<Raw>,
         verifier: &dyn SubjectNameAndKey,
+        toi: TimeOfInterest,
+        retain_expired: bool,
     ) -> Result<()> {
-        (**self).keep_verified_crl(crl_buf, crl, verifier)
+        (**self).keep_verified_crl(crl_buf, crl, verifier, toi, retain_expired)
     }
 }
 
