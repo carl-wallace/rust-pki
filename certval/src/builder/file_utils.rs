@@ -117,8 +117,10 @@ fn cert_or_ta_folder_to_vec(
 
                     // A file that cannot be read or PEM-decoded must not abort the whole folder
                     // scan (with `?` a single stray file left the store empty); skip it and go on.
-                    let buffer = match get_file_as_byte_vec_pem(path) {
-                        Ok(buffer) => buffer,
+                    // A file may hold several concatenated PEM objects (a fullchain or root-CA
+                    // bundle); load every one, deferring per-object accept/reject to the loop below.
+                    let buffers = match get_file_as_der_certs_pem(path) {
+                        Ok(buffers) => buffers,
                         Err(e) => {
                             error!(
                                 "Ignoring {} as it could not be read or decoded: {e:?}",
@@ -128,50 +130,55 @@ fn cert_or_ta_folder_to_vec(
                         }
                     };
 
-                    // make sure it parses before saving buffer
-                    if collect_tas {
-                        let r = TrustAnchorChoice::<Raw>::from_der(buffer.as_slice());
-                        if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
-                            let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
-                            if let Err(_e) = r {
-                                error!(
-                                    "Ignored {} as not valid at indicated time of interest",
-                                    path.to_str().unwrap_or("")
-                                );
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        let r = CertificateInner::from_der(buffer.as_slice());
-                        if let Ok(cert) = r {
-                            let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
-                            if let Err(_e) = r {
-                                error!(
-                                    "Ignored {} as not valid at indicated time of interest",
-                                    path.to_str().unwrap_or("")
-                                );
-                                continue;
-                            }
-
-                            if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
-                                if let Some(s) = path.to_str() {
-                                    info!("Ignoring {s} as self-signed");
+                    for buffer in buffers {
+                        // make sure it parses before saving buffer; a rejected object skips only
+                        // itself, not the rest of a bundle.
+                        if collect_tas {
+                            let r = TrustAnchorChoice::<Raw>::from_der(buffer.as_slice());
+                            if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
+                                let r =
+                                    valid_at_time(cert.tbs_certificate(), time_of_interest, true);
+                                if let Err(_e) = r {
+                                    error!(
+                                        "Ignored an object in {} as not valid at indicated time of interest",
+                                        path.to_str().unwrap_or("")
+                                    );
+                                    continue;
                                 }
+                            } else {
                                 continue;
                             }
                         } else {
-                            continue;
-                        }
-                    }
+                            let r = CertificateInner::from_der(buffer.as_slice());
+                            if let Ok(cert) = r {
+                                let r =
+                                    valid_at_time(cert.tbs_certificate(), time_of_interest, true);
+                                if let Err(_e) = r {
+                                    error!(
+                                        "Ignored an object in {} as not valid at indicated time of interest",
+                                        path.to_str().unwrap_or("")
+                                    );
+                                    continue;
+                                }
 
-                    let cf = CertFile {
-                        filename: path.to_str().unwrap_or("").to_string(),
-                        bytes: buffer,
-                    };
-                    if !certsvec.contains(&cf) {
-                        certsvec.push(cf);
+                                if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
+                                    if let Some(s) = path.to_str() {
+                                        info!("Ignoring a self-signed object in {s}");
+                                    }
+                                    continue;
+                                }
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        let cf = CertFile {
+                            filename: path.to_str().unwrap_or("").to_string(),
+                            bytes: buffer,
+                        };
+                        if !certsvec.contains(&cf) {
+                            certsvec.push(cf);
+                        }
                     }
                 }
             }
@@ -265,6 +272,11 @@ pub fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
 /// `get_file_as_byte_vec_pem` takes a Path containing a file name and returns a vector of bytes containing
 /// the contents of that file or an [Error::StdIoError]. If the file is PEM encoded, it is decoded
 /// prior to returning the vector of bytes. To read without PEM support, use `get_file_as_byte_vec`.
+///
+/// This returns a *single* object. If the file holds a multi-object PEM bundle, only the first object
+/// is returned (and, depending on byte alignment, some bundles fail to decode entirely) — see
+/// [`decode_pem_to_der`]. This suits CRL files, which hold exactly one CRL; to load every object from a
+/// certificate or trust-anchor bundle use [`get_file_as_der_certs_pem`].
 #[cfg(feature = "std")]
 pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
     let b = get_file_as_byte_vec(filename)?;
@@ -272,6 +284,19 @@ pub fn get_file_as_byte_vec_pem(filename: &Path) -> Result<Vec<u8>> {
     // fallback for real-world PEM OpenSSL accepts but strict RFC 7468 rejects, and outer-SEQUENCE
     // trailing-byte trimming.
     decode_pem_to_der(&b).inspect_err(|e| {
+        error!("Failed to PEM decode data from {filename:?}: {e:?}");
+    })
+}
+
+/// `get_file_as_der_certs_pem` is the multi-object counterpart to [`get_file_as_byte_vec_pem`]: it
+/// returns one DER buffer per object in the file (see [`decode_pem_to_ders`]), so a concatenated
+/// certificate or trust-anchor bundle contributes every object rather than silently only its first.
+/// A bare-DER file yields a single-element vector. CRL loading uses the single-object
+/// [`get_file_as_byte_vec_pem`] because a CRL file holds exactly one CRL.
+#[cfg(feature = "std")]
+pub fn get_file_as_der_certs_pem(filename: &Path) -> Result<Vec<Vec<u8>>> {
+    let b = get_file_as_byte_vec(filename)?;
+    decode_pem_to_ders(&b).inspect_err(|e| {
         error!("Failed to PEM decode data from {filename:?}: {e:?}");
     })
 }
@@ -328,4 +353,48 @@ fn with_expired() {
     );
     assert!(r.is_ok());
     assert_eq!(4, r.unwrap());
+}
+
+// A concatenated PEM bundle (an OpenSSL fullchain or a CA bundle) must contribute every certificate,
+// not just the first. Build a two-cert bundle from known non-self-signed fixtures and confirm the
+// folder scan loads both.
+#[test]
+fn loads_all_certs_from_pem_bundle() {
+    use base64ct::{Base64, Encoding};
+    use std::io::Write;
+
+    let to_pem = |der: &[u8]| -> String {
+        format!(
+            "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+            Base64::encode_string(der)
+        )
+    };
+
+    let der1 =
+        get_file_as_byte_vec(Path::new("tests/examples/cert_store_with_expired/178.der")).unwrap();
+    let der2 =
+        get_file_as_byte_vec(Path::new("tests/examples/cert_store_with_expired/45.der")).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut f = std::fs::File::create(dir.path().join("bundle.crt")).unwrap();
+    f.write_all(to_pem(&der1).as_bytes()).unwrap();
+    f.write_all(to_pem(&der2).as_bytes()).unwrap();
+    drop(f);
+
+    let pe = PkiEnvironment::default();
+    let mut certsvec = CertSource::default();
+    let toi = TimeOfInterest::disabled();
+    let n = cert_or_ta_folder_to_vec(&pe, dir.path().to_str().unwrap(), &mut certsvec, toi, false)
+        .unwrap();
+
+    // both certificates from the single bundle file were loaded (content-keyed dedup)
+    assert_eq!(2, n);
+    assert!(certsvec.contains(&CertFile {
+        filename: String::new(),
+        bytes: der1,
+    }));
+    assert!(certsvec.contains(&CertFile {
+        filename: String::new(),
+        bytes: der2,
+    }));
 }

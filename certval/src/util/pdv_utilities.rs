@@ -860,6 +860,10 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 /// blank line, or base64 wrapped at a width other than 64, as some DoD/FPKI tools emit) — drop the
 /// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. Any bytes past the
 /// outer DER SEQUENCE are then trimmed (see [`trim_to_outer_der_sequence`]). Available in no_std.
+///
+/// This decodes a *single* object. A multi-object PEM (a concatenated bundle) is not supported here:
+/// depending on byte alignment it yields only the first object or fails outright, so treat a bundle as
+/// unsupported input. Use [`decode_pem_to_ders`] to load every object in a bundle.
 pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     use base64ct::{Base64, Encoding};
 
@@ -885,6 +889,46 @@ pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     };
 
     Ok(trim_to_outer_der_sequence(der))
+}
+
+/// Decodes every object in a possibly multi-object PEM input, in file order, returning one DER buffer
+/// per object. A bare-DER input (no `-----BEGIN` marker) yields a single-element vector. Each PEM block
+/// is decoded through [`decode_pem_to_der`], so the same strict-then-lenient handling and outer-SEQUENCE
+/// trimming apply per block. This is the loader for certificate and trust-anchor folders, where a
+/// concatenated bundle (an OpenSSL fullchain, or a root-CA bundle) must contribute every object rather
+/// than silently only its first; CRL loading stays single-object via [`decode_pem_to_der`]. A block
+/// that fails to decode fails the whole call (the caller skips the file), matching the single-object
+/// contract. Available in no_std.
+pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let text = String::from_utf8_lossy(bytes);
+    // No PEM armor anywhere: defer to the single-object decoder (handles bare DER and passthrough).
+    if !text.contains("-----BEGIN") {
+        return Ok(alloc::vec![decode_pem_to_der(bytes)?]);
+    }
+
+    let mut ders: Vec<Vec<u8>> = Vec::new();
+    let mut block = String::new();
+    let mut in_block = false;
+    for line in text.lines() {
+        if line.contains("-----BEGIN") {
+            in_block = true;
+            block.clear();
+        }
+        if in_block {
+            block.push_str(line);
+            block.push('\n');
+            if line.contains("-----END") {
+                in_block = false;
+                ders.push(decode_pem_to_der(block.as_bytes())?);
+                block.clear();
+            }
+        }
+    }
+    if ders.is_empty() {
+        // a `-----BEGIN` marker was present but no complete block decoded
+        return Err(Error::Unrecognized);
+    }
+    Ok(ders)
 }
 
 /// Truncates `der` to the encoded length of its outer DER SEQUENCE when the buffer carries spurious
@@ -964,6 +1008,46 @@ fn decode_pem_to_der_lenient_and_passthrough() {
         .join("\r\n");
     let odd_width = format!("-----BEGIN X-----\r\n{wrapped}\r\n-----END X-----\r\n");
     assert_eq!(decode_pem_to_der(odd_width.as_bytes()).unwrap(), der);
+}
+
+#[test]
+fn decode_pem_to_ders_splits_bundle() {
+    use base64ct::{Base64, Encoding};
+    // two distinct DER SEQUENCEs, each exactly its own encoded length (no trailing trim needed)
+    let der1 = alloc::vec![0x30, 0x03, 0x01, 0x02, 0x03];
+    let der2 = alloc::vec![0x30, 0x02, 0x0a, 0x0b];
+
+    // a two-object PEM bundle contributes both objects, in order
+    let bundle = format!(
+        "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n\
+         -----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+        Base64::encode_string(&der1),
+        Base64::encode_string(&der2),
+    );
+    assert_eq!(
+        decode_pem_to_ders(bundle.as_bytes()).unwrap(),
+        alloc::vec![der1.clone(), der2.clone()]
+    );
+
+    // a single PEM object yields a one-element vector
+    let single = format!(
+        "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n",
+        Base64::encode_string(&der1)
+    );
+    assert_eq!(
+        decode_pem_to_ders(single.as_bytes()).unwrap(),
+        alloc::vec![der1.clone()]
+    );
+
+    // bare DER (no armor) also yields a one-element vector
+    assert_eq!(
+        decode_pem_to_ders(&der1).unwrap(),
+        alloc::vec![der1.clone()]
+    );
+
+    // a malformed block fails the whole call (caller skips the file)
+    let malformed = "-----BEGIN CERTIFICATE-----\n!!!notbase64!!!\n-----END CERTIFICATE-----\n";
+    assert!(decode_pem_to_ders(malformed.as_bytes()).is_err());
 }
 
 #[test]
