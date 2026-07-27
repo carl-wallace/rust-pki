@@ -36,10 +36,10 @@ pub enum CertificationPathResultsTypes {
     U32(u32),
     /// Represents a terminal name-constraints working set (permitted or excluded subtrees)
     NameConstraintsSet(NameConstraintsSet),
-    /// Represents per-position CRL metadata records ([`Crls`]) -- notes which CRLs were consulted
-    /// without retaining the CRL bodies
+    /// Represents per-position CRL metadata records ([`CrlInfoLists`]) -- notes which CRLs were
+    /// consulted without retaining the CRL bodies
     #[cfg(feature = "revocation")]
-    Crls(Crls),
+    CrlInfoLists(CrlInfoLists),
 }
 
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
@@ -177,7 +177,7 @@ impl CertificationPathResults {
 }
 
 #[cfg(feature = "revocation")]
-cpr_gets_and_sets!(PR_FAILED_CRLS, Crls);
+cpr_gets_and_sets!(PR_FAILED_CRLS, CrlInfoLists);
 #[cfg(feature = "revocation")]
 impl CertificationPathResults {
     /// Notes a CRL that was consulted but did not yield a status determination (i.e., was discarded
@@ -185,7 +185,7 @@ impl CertificationPathResults {
     /// [`CrlInfo`](crate::revocation::crl::CrlInfo) metadata is
     /// retained, not the (potentially very large) CRL body.
     pub fn add_failed_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
-        let mut v: Crls = if let Some(v) = self.get_failed_crls() {
+        let mut v: CrlInfoLists = if let Some(v) = self.get_failed_crls() {
             v
         } else {
             return;
@@ -198,7 +198,7 @@ impl CertificationPathResults {
 }
 
 #[cfg(feature = "revocation")]
-cpr_gets_and_sets!(PR_CRL, Crls);
+cpr_gets_and_sets!(PR_CRL, CrlInfoLists);
 #[cfg(feature = "revocation")]
 impl CertificationPathResults {
     /// Notes a CRL that contributed to a revocation status determination (valid or revoked). Only
@@ -206,7 +206,7 @@ impl CertificationPathResults {
     /// body; the metadata carries a
     /// [`CrlInfo::uri`](crate::revocation::crl::CrlInfo::uri) clue for where the full CRL was obtained.
     pub fn add_crl(&mut self, crl: crate::revocation::crl::CrlInfo, pos: usize) {
-        let mut v: Crls = if let Some(v) = self.get_crl() {
+        let mut v: CrlInfoLists = if let Some(v) = self.get_crl() {
             v
         } else {
             return;
