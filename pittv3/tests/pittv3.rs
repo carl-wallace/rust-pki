@@ -70,21 +70,50 @@ fn list_trust_anchors() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "std")]
 #[test]
 fn process_mozilla_csv() -> Result<(), Box<dyn std::error::Error>> {
-    let dp = Path::new("tests/examples/downloads_mozilla");
-    if Path::exists(dp) {
-        fs::remove_dir_all(dp).unwrap();
-    }
-    fs::create_dir_all(dp).unwrap();
+    // --mozilla-csv is a purely local parse: it reads the CSV, locates the certificate column by
+    // header name, decodes the PEM in each row, and writes each cert as `{i}.der` into --ca-folder.
+    // No network. Two fixtures are kept so both CCADB export schemas stay exercised:
+    //   * MozillaIntermediateCerts.csv        — older 5-column export, "PEM" column, no cell prefix.
+    //   * MozillaAllIntermediateCertsWithPEM.csv — current export, "PEM Info" column, apostrophe-
+    //                                              prefixed cells. Downloaded from CCADB (the report
+    //     linked off <https://wiki.mozilla.org/CA/Intermediate_Certificates>):
+    //     <https://ccadb.my.salesforce-sites.com/mozilla/PublicAllIntermediateCertsWithPEMCSV>
+    // The fixtures are pinned in-repo, so extraction is deterministic: assert the EXACT cert count
+    // written from each (one `.der` per certificate row). A loose lower bound (e.g. `> 100`) is too
+    // weak here — it would pass even if a parser regression silently dropped half the certs, which is
+    // exactly the failure this test now guards against. Output goes to an OS temp dir (not
+    // tests/examples/) so a mid-test panic can't strand thousands of files in-repo.
+    for (fixture, expected) in [
+        ("tests/examples/MozillaIntermediateCerts.csv", 1312),
+        (
+            "tests/examples/MozillaAllIntermediateCertsWithPEM.csv",
+            2535,
+        ),
+    ] {
+        let dp = std::env::temp_dir().join(format!(
+            "pittv3_mozilla_csv_{}_{}",
+            std::process::id(),
+            Path::new(fixture).file_stem().unwrap().to_str().unwrap()
+        ));
+        if dp.exists() {
+            fs::remove_dir_all(&dp).unwrap();
+        }
+        fs::create_dir_all(&dp).unwrap();
 
-    {
         let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("-t")
-            .arg("tests/examples/MozillaIntermediateCerts.csv");
+        cmd.arg("--mozilla-csv").arg(fixture);
         cmd.arg("-c").arg(dp.to_str().unwrap());
-        let _ = cmd.assert();
-    }
-    if Path::exists(dp) {
-        fs::remove_dir_all(dp).unwrap();
+        cmd.assert().success();
+
+        let written = fs::read_dir(&dp)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "der"))
+            .count();
+        fs::remove_dir_all(&dp).unwrap();
+        assert_eq!(
+            written, expected,
+            "expected {expected} certs written from {fixture}, got {written}"
+        );
     }
     Ok(())
 }

@@ -189,6 +189,44 @@ use crate::std_utils::*;
 #[cfg(feature = "sha1_sig")]
 use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
 
+/// Normalizes a PEM block so its base64 body is wrapped at the 64 columns that RFC 7468 (and the
+/// strict `pem-rfc7468` decoder) requires. Some CCADB CSV exports wrap the certificate PEM at a
+/// non-standard width (e.g. 65 columns), which the strict decoder rejects; re-wrapping lets those
+/// rows be ingested without loosening the decoder used everywhere else. Returns `None` if the input
+/// does not look like a single `-----BEGIN <label>----- … -----END <label>-----` block.
+#[cfg(feature = "std")]
+fn normalize_pem_wrap(pem: &str) -> Option<String> {
+    let mut lines = pem.lines().map(|l| l.trim());
+    let begin = lines.next()?.trim();
+    let label = begin
+        .strip_prefix("-----BEGIN ")
+        .and_then(|l| l.strip_suffix("-----"))?;
+    let end = format!("-----END {label}-----");
+
+    let mut body = String::new();
+    let mut saw_end = false;
+    for line in lines {
+        if line == end {
+            saw_end = true;
+            break;
+        }
+        body.push_str(line);
+    }
+    if !saw_end {
+        return None;
+    }
+
+    let mut out = format!("-----BEGIN {label}-----\n");
+    let bytes = body.as_bytes();
+    for chunk in bytes.chunks(64) {
+        out.push_str(core::str::from_utf8(chunk).ok()?);
+        out.push('\n');
+    }
+    out.push_str(&end);
+    out.push('\n');
+    Some(out)
+}
+
 /// The `options_std` function provides argument parsing and corresponding actions when `PITTv3` and
 /// `certval` are built with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
 ///
@@ -502,10 +540,41 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
                 let mut rdr = ReaderBuilder::new()
                     .delimiter(b',')
                     .from_reader(data.as_slice());
+
+                // Locate the certificate column by header name rather than a fixed index.
+                // CCADB has shipped more than one schema for this report: the older export
+                // used a "PEM" column (5 columns, PEM at index 4), while the current
+                // PublicAllIntermediateCertsWithPEMCSV export uses a "PEM Info" column at a
+                // different position (26 columns). A hardcoded index silently stops
+                // producing certificates when the format changes.
+                let pem_col = rdr.headers().ok().and_then(|h| {
+                    h.iter().position(|c| {
+                        let c = c.trim();
+                        c.eq_ignore_ascii_case("PEM") || c.eq_ignore_ascii_case("PEM Info")
+                    })
+                });
+                let pem_col = match pem_col {
+                    Some(c) => c,
+                    None => {
+                        eprintln!("error: could not find a \"PEM\" or \"PEM Info\" column in the Mozilla CSV header");
+                        std::process::exit(1)
+                    }
+                };
+
                 for (i, result) in rdr.records().enumerate() {
                     if let Ok(record) = result {
-                        if let Some(s) = record.get(4) {
-                            match pem::decode_vec(s.as_bytes()) {
+                        if let Some(s) = record.get(pem_col) {
+                            // The current CCADB export wraps the cell in literal apostrophes
+                            // (Salesforce's escape so a spreadsheet won't treat the leading
+                            // '-' as a formula); strip them from both ends, plus any
+                            // surrounding whitespace, before decoding. Older exports have no
+                            // such wrapping, so this is a no-op for them.
+                            let s = s.trim().trim_matches('\'').trim();
+                            // Re-wrap the base64 body to the 64-column width the strict decoder
+                            // expects; fall back to the raw cell if it isn't a PEM block.
+                            let normalized = normalize_pem_wrap(s);
+                            let pem_bytes = normalized.as_deref().unwrap_or(s);
+                            match pem::decode_vec(pem_bytes.as_bytes()) {
                                 Ok((label, der_bytes)) => {
                                     if label == "CERTIFICATE" {
                                         match Certificate::from_der(&der_bytes) {
