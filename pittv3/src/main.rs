@@ -77,7 +77,13 @@ cfg_if! {
 
             // process options available under std, revocation,std and remote features
             #[cfg(feature = "std")]
-            options_std(&args).await;
+            {
+                let report = options_std(&args).await;
+                if let Some(e) = &report.error {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+            }
 
             #[cfg(not(feature = "std"))]
             options_std_app(&args);

@@ -244,6 +244,7 @@ fn build_report(targets: &[TargetReport], toi: u64) -> ValidationReport {
         totals,
         time_of_interest: toi,
         duration_ms: 0,
+        error: None,
     }
 }
 

@@ -4587,6 +4587,7 @@ dependencies = [
  "pittv3_gui_lib",
  "pittv3_lib",
  "rfd",
+ "serde_json",
  "tokio",
 ]
 

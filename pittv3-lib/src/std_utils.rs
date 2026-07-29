@@ -401,6 +401,7 @@ pub async fn validate_targets(
         totals,
         time_of_interest: cps.get_time_of_interest().as_unix_secs(),
         duration_ms: (Instant::now() - start).as_millis() as u64,
+        error: None,
     }
 }
 

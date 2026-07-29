@@ -64,6 +64,26 @@ input[type="text"] {
   box-sizing: border-box;
 }
 
+/* Input column absorbs the remaining row width; the aux/button column hugs its content, so fields
+   fill the fieldset instead of leaving dead space to the right. */
+td.grow {
+  width: 100%;
+}
+td.nowrap {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Checkbox cell: label + box together, left-aligned and content-width (overrides the 230px
+   right-aligned first-column rule when a checkbox row leads a table). A trailing td.grow in the
+   row soaks up the slack so the groups hug the left instead of spreading across the width. */
+td.check {
+  width: 1%;
+  white-space: nowrap;
+  text-align: left;
+  padding-right: 1.25rem;
+}
+
 input[type="checkbox"] {
   vertical-align: middle;
 }
@@ -80,6 +100,12 @@ button[type="submit"] {
 }
 
 /* ---- results view ---- */
+
+.results-header {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem 0;
+}
 
 .badge {
   display: inline-block;

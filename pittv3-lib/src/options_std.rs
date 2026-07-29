@@ -312,8 +312,7 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let cbor_file: &String = if let Some(cbor) = &args.cbor {
             cbor
         } else {
-            eprintln!("error: --cbor is required when using a diagnostic command");
-            std::process::exit(1)
+            return ValidationReport::failed("--cbor is required when using a diagnostic command");
         };
 
         let download_folder = if let Some(download_folder) = &args.download_folder {
@@ -336,8 +335,9 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
             Ok(cbor_data) => cbor_data,
             Err(e) => {
-                eprintln!("error: failed to parse CBOR file at {cbor_file}: {e}");
-                std::process::exit(1)
+                return ValidationReport::failed(format!(
+                    "failed to parse CBOR file at {cbor_file}: {e}"
+                ));
             }
         };
         let r = cert_source.initialize(&cps);
@@ -408,7 +408,11 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
                 let p = Path::new(&download_folder);
                 let fname = format!("{index}.der");
                 let f = p.join(fname);
-                fs::write(f, cert.as_bytes()).expect("Unable to write certificate file");
+                if let Err(e) = fs::write(f, cert.as_bytes()) {
+                    return ValidationReport::failed(format!(
+                        "unable to write certificate file: {e}"
+                    ));
+                }
             } else {
                 println!("Requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file");
                 return ValidationReport::default();
@@ -453,16 +457,18 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
                     let json_lmm = serde_json::to_string(&lmm);
                     if !lmm_file.is_empty() {
                         if let Ok(json_lmm) = &json_lmm {
-                            fs::write(lmm_file, json_lmm)
-                                .expect("Unable to write last modified map file");
+                            if let Err(e) = fs::write(lmm_file, json_lmm) {
+                                error!("Unable to write last modified map file: {e}");
+                            }
                         }
                     }
 
                     let json_blocklist = serde_json::to_string(&blocklist);
                     if !blocklist_file.is_empty() {
                         if let Ok(json_blocklist) = &json_blocklist {
-                            fs::write(blocklist_file, json_blocklist)
-                                .expect("Unable to write blocklist file");
+                            if let Err(e) = fs::write(blocklist_file, json_blocklist) {
+                                error!("Unable to write blocklist file: {e}");
+                            }
                         }
                     }
                 }
@@ -526,8 +532,9 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let ca_folder = if let Some(ca_folder) = &args.ca_folder {
             ca_folder.clone()
         } else {
-            eprintln!("error: --ca-folder is required when parsing a Mozilla CSV file (to receive the certificate files)");
-            std::process::exit(1)
+            return ValidationReport::failed(
+                "--ca-folder is required when parsing a Mozilla CSV file (to receive the certificate files)",
+            );
         };
 
         use csv::ReaderBuilder;
@@ -556,8 +563,9 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
                 let pem_col = match pem_col {
                     Some(c) => c,
                     None => {
-                        eprintln!("error: could not find a \"PEM\" or \"PEM Info\" column in the Mozilla CSV header");
-                        std::process::exit(1)
+                        return ValidationReport::failed(
+                            "could not find a \"PEM\" or \"PEM Info\" column in the Mozilla CSV header",
+                        );
                     }
                 };
 
@@ -692,17 +700,15 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
 
     #[cfg(feature = "remote")]
     if args.dynamic_build && download_folder.is_empty() {
-        eprintln!(
-            "error: --ca-folder or --download-folder is required when --dynamic-build (-y) is used"
+        return ValidationReport::failed(
+            "a CA folder or download folder is required when dynamic build is enabled",
         );
-        std::process::exit(1);
     }
 
     let mut cps = match read_settings(&args.settings) {
         Ok(cps) => cps,
         Err(e) => {
-            eprintln!("error: failed to parse settings file: {e:?}");
-            std::process::exit(1)
+            return ValidationReport::failed(format!("failed to parse settings file: {e:?}"));
         }
     };
 
@@ -1138,6 +1144,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         totals: ReportTotals::default(),
         time_of_interest: cps.get_time_of_interest().as_unix_secs(),
         duration_ms: duration.as_millis() as u64,
+        error: None,
     };
     for (name, s) in stats.iter_mut() {
         let paths_found = s.paths_per_target > 0;
