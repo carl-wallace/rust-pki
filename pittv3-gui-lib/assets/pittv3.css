@@ -426,3 +426,70 @@ button[type="submit"] {
 .help-view li {
   line-height: 1.45;
 }
+
+/* ---- Check URIs modal ---- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3vh 1rem;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.modal {
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  padding: 1rem 1.25rem 1.25rem;
+  width: min(920px, 96vw);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+  margin: 0.2rem 0 0.4rem 0;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+
+.uri-results {
+  margin-top: 0.75rem;
+  max-height: 45vh;
+  overflow: auto;
+}
+
+.uri-results .cert-table {
+  width: 100%;
+}
+
+.tool-actions {
+  display: flex;
+  justify-content: center;
+  margin: 0.5rem 0;
+}

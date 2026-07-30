@@ -222,6 +222,24 @@ pub struct Pittv3CliArgs {
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "TOOLS")]
     pub mozilla_csv: Option<String>,
+
+    /// Checks the HTTP URIs in the AIA, SIA, CRL DP and freshest-CRL extensions of the certificate at
+    /// the given path, reporting per-URI reachability and correctness. Runs independently of path
+    /// processing; no CBOR store or trust anchors are required.
+    #[cfg(feature = "remote")]
+    #[clap(long, help_heading = "TOOLS")]
+    pub check_uris: Option<String>,
+
+    /// Optional issuer certificate (path) for --check-uris, used to verify CRL signatures and check
+    /// OCSP URIs. Auto-discovered from AIA caIssuers when omitted.
+    #[cfg(feature = "remote")]
+    #[clap(long, help_heading = "TOOLS")]
+    pub issuer: Option<String>,
+
+    /// Disables auto-discovery of the issuer certificate from AIA caIssuers during --check-uris.
+    #[cfg(feature = "remote")]
+    #[clap(long, help_heading = "TOOLS")]
+    pub no_auto_discover: bool,
 }
 
 impl From<Pittv3CliArgs> for Pittv3Args {
@@ -289,6 +307,12 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             list_partial_paths_for_leaf_ca: v.list_partial_paths_for_leaf_ca,
             #[cfg(feature = "std")]
             mozilla_csv: v.mozilla_csv,
+            #[cfg(feature = "remote")]
+            check_uris: v.check_uris,
+            #[cfg(feature = "remote")]
+            issuer: v.issuer,
+            #[cfg(feature = "remote")]
+            no_auto_discover: v.no_auto_discover,
         }
     }
 }

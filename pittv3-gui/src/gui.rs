@@ -22,6 +22,7 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
+use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport, UriStatus};
 
 /// Presents a folder selection dialog and assigns the selection, if any, to `sig`
 async fn pick_folder_into(mut sig: Signal<String>) {
@@ -262,6 +263,180 @@ fn CheckboxCell(label: String, name: String, sig: Signal<bool>) -> Element {
     }
 }
 
+/// CSS class selecting the color for a URI-check result, reusing the validation badge palette.
+fn uri_status_class(status: UriStatus) -> &'static str {
+    match status {
+        UriStatus::CorrectData => "badge-valid",
+        UriStatus::IncorrectData
+        | UriStatus::UnknownAccessMethod
+        | UriStatus::ResponderCertPolicyError => "badge-invalid",
+        UriStatus::NotAvailable | UriStatus::BlacklistedHost => "badge-revoked",
+        UriStatus::Warning
+        | UriStatus::WarningMissingAia
+        | UriStatus::WarningMissingCrlDp
+        | UriStatus::CrlNotCheckedNoIssuerCert => "badge-undetermined",
+    }
+}
+
+/// PITTv1/PITTv2-style "Check URIs in certificate" modal dialog: pick a target certificate (and,
+/// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
+/// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
+#[component]
+fn UriCheckModal(open: Signal<bool>) -> Element {
+    let mut open = open;
+    let s_target = use_signal(String::new);
+    let s_issuer = use_signal(String::new);
+    let s_auto = use_signal(|| true);
+    let mut s_running = use_signal(|| false);
+    let mut s_report = use_signal(|| None::<UriCheckReport>);
+
+    if !open() {
+        return rsx! {};
+    }
+
+    let run_check = move |_| async move {
+        let target = s_target();
+        if target.is_empty() {
+            return;
+        }
+        s_running.set(true);
+        s_report.set(None);
+        let issuer_path = s_issuer();
+        let auto = s_auto();
+        let report = match std::fs::read(&target) {
+            Ok(target_der) => {
+                let issuer_der = if issuer_path.is_empty() {
+                    None
+                } else {
+                    match std::fs::read(&issuer_path) {
+                        Ok(b) => Some(b),
+                        Err(e) => {
+                            s_report.set(Some(UriCheckReport::failed(format!(
+                                "failed to read issuer certificate {issuer_path}: {e}"
+                            ))));
+                            s_running.set(false);
+                            return;
+                        }
+                    }
+                };
+                check_uris_from_bytes(
+                    &target_der,
+                    issuer_der.as_deref(),
+                    auto,
+                    get_now_as_unix_epoch(),
+                    &[],
+                )
+                .await
+            }
+            Err(e) => UriCheckReport::failed(format!("failed to read target certificate: {e}")),
+        };
+        s_report.set(Some(report));
+        s_running.set(false);
+    };
+
+    rsx! {
+        div { class: "modal-overlay",
+            div { class: "modal",
+                div { class: "modal-header",
+                    h2 { "Check URIs in certificate" }
+                    button {
+                        r#type: "button",
+                        class: "modal-close",
+                        onclick: move |_| open.set(false),
+                        "\u{00d7}"
+                    }
+                }
+                p { class: "hint",
+                    "Fetches the HTTP URIs in the target certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports per-URI reachability and correctness, independent of path processing. Supplying (or auto-discovering) the issuer enables CRL-signature verification and OCSP checks."
+                }
+                table {
+                    tbody {
+                        FileRow {
+                            label: "Target certificate",
+                            name: "uri-target",
+                            sig: s_target,
+                            filter_name: "Certificate File",
+                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                        }
+                        FileRow {
+                            label: "Issuer certificate (optional)",
+                            name: "uri-issuer",
+                            sig: s_issuer,
+                            filter_name: "Certificate File",
+                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                        }
+                        tr {
+                            CheckboxCell {
+                                label: "Attempt auto-discovery if issuer not specified",
+                                name: "uri-auto",
+                                sig: s_auto,
+                            }
+                            td { class: "grow" }
+                        }
+                    }
+                }
+                div { class: "modal-actions",
+                    button {
+                        r#type: "button",
+                        disabled: s_running(),
+                        onclick: run_check,
+                        if s_running() { "Checking\u{2026}" } else { "Check URIs" }
+                    }
+                    button {
+                        r#type: "button",
+                        onclick: move |_| s_report.set(None),
+                        "Clear Results"
+                    }
+                }
+                if let Some(report) = s_report() {
+                    div { class: "uri-results",
+                        p { class: "results-summary", "Target: {report.target.subject}" }
+                        if let Some(issuer) = &report.issuer {
+                            p { class: "results-summary",
+                                if report.issuer_auto_discovered {
+                                    "Issuer (auto-discovered): {issuer.subject}"
+                                } else {
+                                    "Issuer: {issuer.subject}"
+                                }
+                            }
+                        }
+                        if let Some(err) = &report.error {
+                            p { class: "badge badge-invalid", "{err}" }
+                        } else if report.results.is_empty() {
+                            p { class: "hint", "No URIs found to check." }
+                        } else {
+                            table { class: "cert-table",
+                                thead {
+                                    tr {
+                                        th { "URI" }
+                                        th { "Result" }
+                                        th { "Timing (ms)" }
+                                        th { "Extension" }
+                                    }
+                                }
+                                tbody {
+                                    for r in report.results.iter() {
+                                        tr {
+                                            td { "{r.uri}" }
+                                            td {
+                                                span { class: "badge {uri_status_class(r.status)}",
+                                                    "{r.status.label()}"
+                                                }
+                                            }
+                                            td { "{r.timing_ms}" }
+                                            td { "{r.extension.label()}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Hosts the [`EditSettingsFile`] form in a child window, closing the window when the form is done
 #[component]
 fn EditSettingsWindow(path: String) -> Element {
@@ -370,6 +545,7 @@ pub(crate) fn App() -> Element {
     let mut s_view = use_signal(|| View::Validate);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<ValidationReport>);
+    let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
     let run_command = move |_: ()| {
@@ -411,6 +587,9 @@ pub(crate) fn App() -> Element {
             list_partial_paths_for_target: string_or_none(s_list_partial_paths_for_target),
             list_partial_paths_for_leaf_ca: usize_or_none(s_list_partial_paths_for_leaf_ca),
             mozilla_csv: string_or_none(s_mozilla_csv),
+            check_uris: None,
+            issuer: None,
+            no_auto_discover: false,
         };
 
         let _ = save_args(&args);
@@ -788,6 +967,19 @@ pub(crate) fn App() -> Element {
                                 "Parses the Mozilla intermediate CA CSV report and writes the certificates to the CA folder."
                             }
                         }
+                        fieldset {
+                            legend { "Check URIs in certificate" }
+                            p { class: "hint",
+                                "Fetches and evaluates the HTTP URIs (AIA, SIA, CRL DP, freshest CRL) carried in a certificate, independent of path processing."
+                            }
+                            div { class: "tool-actions",
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| s_uri_dialog_open.set(true),
+                                    "Check URIs in certificate\u{2026}"
+                                }
+                            }
+                        }
                         RunButton { running: s_running(), onrun: run_command }
                     },
                     View::Settings => rsx! {
@@ -884,5 +1076,6 @@ pub(crate) fn App() -> Element {
                 }
             }
         }
+        UriCheckModal { open: s_uri_dialog_open }
     }
 }

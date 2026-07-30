@@ -42,7 +42,7 @@ tokio-test = "0.4.5"
 # Default is set to be the most all encompassing (i.e., remote,webpki).
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
-default = ["remote", "webpki"]
+default = ["remote", "webpki", "pqc", "rsa", "eddsa"]
 revocation = ["pittv3_lib/revocation"]
 std_app = ["pittv3_lib/std_app", "tokio", "log4rs"]
 std = ["std_app", "revocation", "pittv3_lib/std"]

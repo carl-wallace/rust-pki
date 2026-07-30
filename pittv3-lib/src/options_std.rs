@@ -249,6 +249,43 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         ta_cleanup(&pe, args);
     }
 
+    // The SIA/AIA URI checker runs independently of certification path processing: it needs neither a
+    // CBOR store nor trust anchors, so it is handled before any store is loaded and returns directly.
+    #[cfg(feature = "remote")]
+    if let Some(target_path) = &args.check_uris {
+        let target_der = match fs::read(target_path) {
+            Ok(b) => b,
+            Err(e) => {
+                return ValidationReport::failed(format!(
+                    "failed to read target certificate {target_path}: {e}"
+                ))
+            }
+        };
+        let issuer_der = match &args.issuer {
+            Some(p) => match fs::read(p) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    return ValidationReport::failed(format!(
+                        "failed to read issuer certificate {p}: {e}"
+                    ))
+                }
+            },
+            None => None,
+        };
+
+        let report = crate::uri_check::check_uris_from_bytes(
+            &target_der,
+            issuer_der.as_deref(),
+            !args.no_auto_discover,
+            args.time_of_interest,
+            &[],
+        )
+        .await;
+
+        print!("{}", report.to_table_string());
+        return ValidationReport::default();
+    }
+
     #[cfg(feature = "std")]
     if args.list_trust_anchors {
         let pe = PkiEnvironment::default();

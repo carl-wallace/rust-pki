@@ -14,6 +14,7 @@ pub mod pitt_log;
 pub mod report;
 pub mod stats;
 pub mod std_utils;
+pub mod uri_check;
 
 #[cfg(feature = "sha1_sig")]
 pub mod sha1_sig;

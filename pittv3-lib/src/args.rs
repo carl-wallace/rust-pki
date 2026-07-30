@@ -162,6 +162,23 @@ pub struct Pittv3Args {
     #[cfg(feature = "std")]
     pub list_name_constraints: bool,
 
+    /// Checks the HTTP URIs carried in the AIA, SIA, CRL DP and freshest-CRL extensions of the
+    /// certificate at the given path, reporting per-URI reachability and correctness (the SIA/AIA URI
+    /// checker). Runs independently of certification path processing; no CBOR store or trust anchors
+    /// are required.
+    #[cfg(feature = "remote")]
+    pub check_uris: Option<String>,
+
+    /// Optional issuer certificate (path) used by `check_uris` to verify CRL signatures and check
+    /// OCSP URIs. When absent, the issuer is auto-discovered from AIA caIssuers unless
+    /// `no_auto_discover` is set.
+    #[cfg(feature = "remote")]
+    pub issuer: Option<String>,
+
+    /// Disables auto-discovery of the issuer certificate from AIA caIssuers during `check_uris`.
+    #[cfg(feature = "remote")]
+    pub no_auto_discover: bool,
+
     /// Outputs all buffers present in trust anchors folder.
     #[cfg(feature = "std")]
     pub list_trust_anchors: bool,
