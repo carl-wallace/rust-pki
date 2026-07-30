@@ -17,8 +17,12 @@
 
 extern crate alloc;
 
+#[cfg(feature = "remote")]
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
+#[cfg(feature = "remote")]
+use alloc::string::ToString;
+#[cfg(feature = "remote")]
 use alloc::vec;
 use alloc::vec::Vec;
 
