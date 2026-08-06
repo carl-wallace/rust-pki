@@ -4587,6 +4587,7 @@ dependencies = [
  "pittv3_gui_lib",
  "pittv3_lib",
  "rfd",
+ "serde_json",
  "tokio",
 ]
 
@@ -4635,12 +4636,14 @@ dependencies = [
  "bytes",
  "certval",
  "ciborium",
+ "cms",
  "const-oid",
  "csv",
  "der",
  "hex-literal",
  "log",
  "pem-rfc7468",
+ "reqwest 0.13.4",
  "rsa",
  "serde",
  "serde_json",

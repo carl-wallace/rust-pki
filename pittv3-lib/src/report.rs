@@ -324,6 +324,23 @@ pub struct ValidationReport {
     pub time_of_interest: u64,
     /// Time expended on the run in milliseconds
     pub duration_ms: u64,
+    /// Set when the run could not be carried out (e.g. a required input was missing or an output
+    /// could not be written). A frontend should surface this as a failure rather than an empty
+    /// result. `None` on a report that ran to completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ValidationReport {
+    /// Builds a report describing a run that could not be carried out, carrying `message` for a
+    /// frontend to display. Used in place of aborting the process so both the CLI and GUI can
+    /// report the failure through their own channels.
+    pub fn failed(message: impl Into<String>) -> Self {
+        ValidationReport {
+            error: Some(message.into()),
+            ..Default::default()
+        }
+    }
 }
 
 /// Events emitted while a validation run progresses, for consumption by interactive frontends.
@@ -623,6 +640,7 @@ mod tests {
             },
             time_of_interest: 1_770_000_000,
             duration_ms: 15,
+            error: None,
         };
 
         let json = serde_json::to_string(&report).unwrap();

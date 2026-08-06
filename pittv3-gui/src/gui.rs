@@ -22,6 +22,7 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
+use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport, UriStatus};
 
 /// Presents a folder selection dialog and assigns the selection, if any, to `sig`
 async fn pick_folder_into(mut sig: Signal<String>) {
@@ -51,6 +52,25 @@ async fn pick_file_into(
     }
 }
 
+/// Serializes the validation report to pretty JSON and writes it to a user-chosen file.
+async fn save_report(report: ValidationReport) {
+    let file = AsyncFileDialog::new()
+        .add_filter("JSON", &["json"])
+        .set_file_name("pittv3-results.json")
+        .save_file()
+        .await;
+    if let Some(file) = file {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(file.path(), json) {
+                    error!("Failed to write results file: {e}");
+                }
+            }
+            Err(e) => error!("Failed to serialize results: {e}"),
+        }
+    }
+}
+
 /// Returns the value of `sig` if it is not empty and None otherwise
 fn string_or_none(sig: Signal<String>) -> Option<String> {
     let s = sig();
@@ -69,15 +89,44 @@ fn usize_or_none(sig: Signal<String>) -> Option<usize> {
     }
 }
 
-/// Renders seconds since Unix epoch as an RFC 3339 string, or an em dash if unparseable
-fn human_time(epoch: &str) -> String {
-    let dt = epoch
-        .parse::<u64>()
+/// Formats Unix-epoch seconds as a `datetime-local` value (`YYYY-MM-DDTHH:MM:SS`), or empty if
+/// unparseable. UTC, to match the RFC 3339 `Z` rendering shown alongside it.
+fn epoch_to_datetime_local(secs: u64) -> String {
+    match der::DateTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
+        Ok(dt) => format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minutes(),
+            dt.seconds()
+        ),
+        Err(_) => String::new(),
+    }
+}
+
+/// Parses a `datetime-local` value (`YYYY-MM-DDTHH:MM` or `...:SS`, interpreted as UTC) back to
+/// Unix-epoch seconds; inverse of [`epoch_to_datetime_local`].
+fn datetime_local_to_epoch(value: &str) -> Option<u64> {
+    let v = value.trim();
+    let rfc3339 = match v.len() {
+        16 => format!("{v}:00Z"), // picker omitted the seconds component
+        19 => format!("{v}Z"),
+        _ => return None,
+    };
+    rfc3339
+        .parse::<der::DateTime>()
         .ok()
-        .and_then(|s| der::DateTime::from_unix_duration(core::time::Duration::from_secs(s)).ok());
-    match dt {
-        Some(dt) => dt.to_string(),
-        None => "—".to_string(),
+        .map(|dt| dt.unix_duration().as_secs())
+}
+
+/// The `datetime-local` value mirroring the time-of-interest epoch string, so the picker shows the
+/// selected time; empty when the time is disabled (0) or mid-edit (not yet a valid epoch).
+fn toi_datetime_value(toi: &str) -> String {
+    match toi.trim().parse::<u64>() {
+        Ok(secs) if secs != 0 => epoch_to_datetime_local(secs),
+        _ => String::new(),
     }
 }
 
@@ -87,7 +136,7 @@ fn TimeRow(label: String, name: String, sig: Signal<String>) -> Element {
     rsx! {
         tr {
             td { label { r#for: name.clone(), "{label}: " } }
-            td {
+            td { class: "grow",
                 input {
                     r#type: "text",
                     name,
@@ -95,13 +144,24 @@ fn TimeRow(label: String, name: String, sig: Signal<String>) -> Element {
                     oninput: move |ev| sig.set(ev.value()),
                 }
             }
-            td {
+            td { class: "nowrap",
                 button {
                     r#type: "button",
                     onclick: move |_| sig.set(get_now_as_unix_epoch().to_string()),
                     "Now"
                 }
-                span { class: "hint", "{human_time(&sig())}" }
+                // Editable human-readable picker mirroring the epoch field (UTC). onchange fires
+                // only on a complete datetime, so it never clobbers a mid-edit epoch value.
+                input {
+                    r#type: "datetime-local",
+                    step: "1",
+                    value: toi_datetime_value(&sig()),
+                    onchange: move |ev| {
+                        if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                            sig.set(secs.to_string());
+                        }
+                    },
+                }
             }
         }
     }
@@ -113,7 +173,7 @@ fn TextRow(label: String, name: String, sig: Signal<String>) -> Element {
     rsx! {
         tr {
             td { label { r#for: name.clone(), "{label}: " } }
-            td {
+            td { class: "grow",
                 input {
                     r#type: "text",
                     name,
@@ -140,7 +200,7 @@ fn FolderRow(
                     label { r#for: name.clone(), "{label}: " }
                 }
             }
-            td {
+            td { class: "grow",
                 input {
                     r#type: "text",
                     name,
@@ -148,7 +208,7 @@ fn FolderRow(
                     oninput: move |ev| sig.set(ev.value()),
                 }
             }
-            td {
+            td { class: "nowrap",
                 button { r#type: "button", onclick: move |_| pick_folder_into(sig), "..." }
             }
         }
@@ -168,7 +228,7 @@ fn FileRow(
     rsx! {
         tr {
             td { label { r#for: name.clone(), "{label}: " } }
-            td {
+            td { class: "grow",
                 input {
                     r#type: "text",
                     name,
@@ -176,7 +236,7 @@ fn FileRow(
                     oninput: move |ev| sig.set(ev.value()),
                 }
             }
-            td {
+            td { class: "nowrap",
                 button {
                     r#type: "button",
                     onclick: move |_| pick_file_into(sig, filter_name, extensions),
@@ -191,13 +251,187 @@ fn FileRow(
 #[component]
 fn CheckboxCell(label: String, name: String, sig: Signal<bool>) -> Element {
     rsx! {
-        td { label { r#for: name.clone(), "{label}: " } }
-        td {
+        td { class: "check",
+            label { r#for: name.clone(), "{label}: " }
             input {
                 r#type: "checkbox",
                 name,
                 checked: sig(),
                 onchange: move |ev| sig.set(ev.checked()),
+            }
+        }
+    }
+}
+
+/// CSS class selecting the color for a URI-check result, reusing the validation badge palette.
+fn uri_status_class(status: UriStatus) -> &'static str {
+    match status {
+        UriStatus::CorrectData => "badge-valid",
+        UriStatus::IncorrectData
+        | UriStatus::UnknownAccessMethod
+        | UriStatus::ResponderCertPolicyError => "badge-invalid",
+        UriStatus::NotAvailable | UriStatus::BlacklistedHost => "badge-revoked",
+        UriStatus::Warning
+        | UriStatus::WarningMissingAia
+        | UriStatus::WarningMissingCrlDp
+        | UriStatus::CrlNotCheckedNoIssuerCert => "badge-undetermined",
+    }
+}
+
+/// PITTv1/PITTv2-style "Check URIs in certificate" modal dialog: pick a target certificate (and,
+/// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
+/// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
+#[component]
+fn UriCheckModal(open: Signal<bool>) -> Element {
+    let mut open = open;
+    let s_target = use_signal(String::new);
+    let s_issuer = use_signal(String::new);
+    let s_auto = use_signal(|| true);
+    let mut s_running = use_signal(|| false);
+    let mut s_report = use_signal(|| None::<UriCheckReport>);
+
+    if !open() {
+        return rsx! {};
+    }
+
+    let run_check = move |_| async move {
+        let target = s_target();
+        if target.is_empty() {
+            return;
+        }
+        s_running.set(true);
+        s_report.set(None);
+        let issuer_path = s_issuer();
+        let auto = s_auto();
+        let report = match std::fs::read(&target) {
+            Ok(target_der) => {
+                let issuer_der = if issuer_path.is_empty() {
+                    None
+                } else {
+                    match std::fs::read(&issuer_path) {
+                        Ok(b) => Some(b),
+                        Err(e) => {
+                            s_report.set(Some(UriCheckReport::failed(format!(
+                                "failed to read issuer certificate {issuer_path}: {e}"
+                            ))));
+                            s_running.set(false);
+                            return;
+                        }
+                    }
+                };
+                check_uris_from_bytes(
+                    &target_der,
+                    issuer_der.as_deref(),
+                    auto,
+                    get_now_as_unix_epoch(),
+                    &[],
+                )
+                .await
+            }
+            Err(e) => UriCheckReport::failed(format!("failed to read target certificate: {e}")),
+        };
+        s_report.set(Some(report));
+        s_running.set(false);
+    };
+
+    rsx! {
+        div { class: "modal-overlay",
+            div { class: "modal",
+                div { class: "modal-header",
+                    h2 { "Check URIs in certificate" }
+                    button {
+                        r#type: "button",
+                        class: "modal-close",
+                        onclick: move |_| open.set(false),
+                        "\u{00d7}"
+                    }
+                }
+                p { class: "hint",
+                    "Fetches the HTTP URIs in the target certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports per-URI reachability and correctness, independent of path processing. Supplying (or auto-discovering) the issuer enables CRL-signature verification and OCSP checks."
+                }
+                table {
+                    tbody {
+                        FileRow {
+                            label: "Target certificate",
+                            name: "uri-target",
+                            sig: s_target,
+                            filter_name: "Certificate File",
+                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                        }
+                        FileRow {
+                            label: "Issuer certificate (optional)",
+                            name: "uri-issuer",
+                            sig: s_issuer,
+                            filter_name: "Certificate File",
+                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                        }
+                        tr {
+                            CheckboxCell {
+                                label: "Attempt auto-discovery if issuer not specified",
+                                name: "uri-auto",
+                                sig: s_auto,
+                            }
+                            td { class: "grow" }
+                        }
+                    }
+                }
+                div { class: "modal-actions",
+                    button {
+                        r#type: "button",
+                        disabled: s_running(),
+                        onclick: run_check,
+                        if s_running() { "Checking\u{2026}" } else { "Check URIs" }
+                    }
+                    button {
+                        r#type: "button",
+                        onclick: move |_| s_report.set(None),
+                        "Clear Results"
+                    }
+                }
+                if let Some(report) = s_report() {
+                    div { class: "uri-results",
+                        p { class: "results-summary", "Target: {report.target.subject}" }
+                        if let Some(issuer) = &report.issuer {
+                            p { class: "results-summary",
+                                if report.issuer_auto_discovered {
+                                    "Issuer (auto-discovered): {issuer.subject}"
+                                } else {
+                                    "Issuer: {issuer.subject}"
+                                }
+                            }
+                        }
+                        if let Some(err) = &report.error {
+                            p { class: "badge badge-invalid", "{err}" }
+                        } else if report.results.is_empty() {
+                            p { class: "hint", "No URIs found to check." }
+                        } else {
+                            table { class: "cert-table",
+                                thead {
+                                    tr {
+                                        th { "URI" }
+                                        th { "Result" }
+                                        th { "Timing (ms)" }
+                                        th { "Extension" }
+                                    }
+                                }
+                                tbody {
+                                    for r in report.results.iter() {
+                                        tr {
+                                            td { "{r.uri}" }
+                                            td {
+                                                span { class: "badge {uri_status_class(r.status)}",
+                                                    "{r.status.label()}"
+                                                }
+                                            }
+                                            td { "{r.timing_ms}" }
+                                            td { "{r.extension.label()}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -311,6 +545,7 @@ pub(crate) fn App() -> Element {
     let mut s_view = use_signal(|| View::Validate);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<ValidationReport>);
+    let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
     let run_command = move |_: ()| {
@@ -352,6 +587,9 @@ pub(crate) fn App() -> Element {
             list_partial_paths_for_target: string_or_none(s_list_partial_paths_for_target),
             list_partial_paths_for_leaf_ca: usize_or_none(s_list_partial_paths_for_leaf_ca),
             mozilla_csv: string_or_none(s_mozilla_csv),
+            check_uris: None,
+            issuer: None,
+            no_auto_discover: false,
         };
 
         let _ = save_args(&args);
@@ -426,7 +664,13 @@ pub(crate) fn App() -> Element {
             };
             let report = rt.block_on(options_std(&args));
             debug!("PITTv3 end");
-            let _ = tx.unbounded_send(RunEvent::Done(Box::new(report)));
+            // A report carrying an error means the run could not be carried out (e.g. a missing
+            // required input). Surface it as a failure instead of an empty Results view.
+            let event = match report.error.clone() {
+                Some(msg) => RunEvent::Failed(msg),
+                None => RunEvent::Done(Box::new(report)),
+            };
+            let _ = tx.unbounded_send(event);
         });
 
         // apply run events and log lines to signals from tasks on the UI executor (signals must
@@ -500,7 +744,7 @@ pub(crate) fn App() -> Element {
                                     FolderRow { label: "CRL Folder", name: "crl-folder", sig: s_crl_folder }
                                     tr {
                                         td { label { r#for: "settings", "Settings: " } }
-                                        td {
+                                        td { class: "grow",
                                             input {
                                                 r#type: "text",
                                                 name: "settings",
@@ -508,14 +752,12 @@ pub(crate) fn App() -> Element {
                                                 oninput: move |ev| s_settings.set(ev.value()),
                                             }
                                         }
-                                        td {
+                                        td { class: "nowrap",
                                             button {
                                                 r#type: "button",
                                                 onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
                                                 "..."
                                             }
-                                        }
-                                        td {
                                             button {
                                                 r#type: "button",
                                                 disabled: s_settings().is_empty(),
@@ -530,6 +772,10 @@ pub(crate) fn App() -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+                            table {
+                                tbody {
                                     TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                                 }
                             }
@@ -538,7 +784,22 @@ pub(crate) fn App() -> Element {
                                     tr {
                                         CheckboxCell { label: "Validate All", name: "validate-all", sig: s_validate_all }
                                         CheckboxCell { label: "Dynamic Build", name: "dynamic-build", sig: s_dynamic_build }
+                                        td { class: "grow" }
                                     }
+                                }
+                            }
+                            // Dynamic build fetches missing intermediates at run time and needs a
+                            // place to store them; either a download folder or a CA folder satisfies
+                            // this, so both are shown only while dynamic build is enabled.
+                            if s_dynamic_build() {
+                                table {
+                                    tbody {
+                                        FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                                        FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
+                                    }
+                                }
+                                p { class: "hint",
+                                    "Dynamic build stores fetched intermediates here. Provide a download folder or a CA folder."
                                 }
                             }
                             details { class: "advanced",
@@ -547,7 +808,6 @@ pub(crate) fn App() -> Element {
                                     tbody {
                                         FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
                                         FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                                        FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
                                         FileRow {
                                             label: "Logging Configuration",
                                             name: "logging-config",
@@ -562,6 +822,7 @@ pub(crate) fn App() -> Element {
                                         tr {
                                             CheckboxCell { label: "WebPKI TAs", name: "webpki-tas", sig: s_webpki_tas }
                                             CheckboxCell { label: "Validate Self-Signed", name: "validate-self-signed", sig: s_validate_self_signed }
+                                            td { class: "grow" }
                                         }
                                     }
                                 }
@@ -584,6 +845,10 @@ pub(crate) fn App() -> Element {
                                         extensions: ["cbor", "pki"].as_slice(),
                                     }
                                     FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                                }
+                            }
+                            table {
+                                tbody {
                                     TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                                 }
                             }
@@ -593,6 +858,7 @@ pub(crate) fn App() -> Element {
                                         CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
                                         CheckboxCell { label: "Chase SIA and AIA", name: "chase-aia-and-sia", sig: s_chase_aia_and_sia }
                                         CheckboxCell { label: "CBOR TA store", name: "cbor-ta-store", sig: s_cbor_ta_store }
+                                        td { class: "grow" }
                                     }
                                 }
                             }
@@ -610,6 +876,10 @@ pub(crate) fn App() -> Element {
                                     FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
                                     FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
                                     FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                                }
+                            }
+                            table {
+                                tbody {
                                     TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                                 }
                             }
@@ -619,6 +889,7 @@ pub(crate) fn App() -> Element {
                                         CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
                                         CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
                                         CheckboxCell { label: "Report Only", name: "report-only", sig: s_report_only }
+                                        td { class: "grow" }
                                     }
                                 }
                             }
@@ -639,6 +910,10 @@ pub(crate) fn App() -> Element {
                                     }
                                     FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
                                     FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                                }
+                            }
+                            table {
+                                tbody {
                                     TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                                 }
                             }
@@ -648,10 +923,12 @@ pub(crate) fn App() -> Element {
                                         CheckboxCell { label: "List Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
                                         CheckboxCell { label: "List Buffers", name: "list-buffers", sig: s_list_buffers }
                                         CheckboxCell { label: "List SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
+                                        td { class: "grow" }
                                     }
                                     tr {
                                         CheckboxCell { label: "List Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
                                         CheckboxCell { label: "List Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
+                                        td { class: "grow" }
                                     }
                                 }
                             }
@@ -688,6 +965,19 @@ pub(crate) fn App() -> Element {
                             }
                             p { class: "hint",
                                 "Parses the Mozilla intermediate CA CSV report and writes the certificates to the CA folder."
+                            }
+                        }
+                        fieldset {
+                            legend { "Check URIs in certificate" }
+                            p { class: "hint",
+                                "Fetches and evaluates the HTTP URIs (AIA, SIA, CRL DP, freshest CRL) carried in a certificate, independent of path processing."
+                            }
+                            div { class: "tool-actions",
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| s_uri_dialog_open.set(true),
+                                    "Check URIs in certificate\u{2026}"
+                                }
                             }
                         }
                         RunButton { running: s_running(), onrun: run_command }
@@ -732,6 +1022,27 @@ pub(crate) fn App() -> Element {
                     View::Results => rsx! {
                         fieldset {
                             legend { "Results" }
+                            div { class: "results-header",
+                                button {
+                                    r#type: "button",
+                                    disabled: s_report().is_none(),
+                                    onclick: move |_| {
+                                        if let Some(r) = s_report() {
+                                            spawn(save_report(r));
+                                        }
+                                    },
+                                    "Save"
+                                }
+                                button {
+                                    r#type: "button",
+                                    disabled: s_report().is_none() && s_log().is_empty(),
+                                    onclick: move |_| {
+                                        s_report.set(None);
+                                        s_log.write().clear();
+                                    },
+                                    "Clear"
+                                }
+                            }
                             if s_running() {
                                 div { class: "progress-line",
                                     span { class: "spinner" }
@@ -765,5 +1076,6 @@ pub(crate) fn App() -> Element {
                 }
             }
         }
+        UriCheckModal { open: s_uri_dialog_open }
     }
 }

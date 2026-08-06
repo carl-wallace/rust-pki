@@ -26,6 +26,8 @@ spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
+cms = { version = "0.3.0-pre.2", optional = true }
+reqwest = { version = "0.13.4", optional = true }
 rsa = { version = "0.10.0-rc.18", optional = true, features = ["encoding"] }
 sha1 = {version = "0.11.0", default-features = false, features = ["oid"]}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
@@ -60,7 +62,7 @@ default = ["remote", "webpki"]
 revocation = ["certval/revocation"]
 std_app = ["certval/revocation"]
 std = ["std_app", "certval/std", "revocation", "walkdir", "csv"]
-remote = ["certval/remote", "revocation", "std"]
+remote = ["certval/remote", "revocation", "std", "dep:reqwest", "dep:cms"]
 pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]
 sha1_sig = ["rsa"]
