@@ -727,7 +727,7 @@ pub(crate) fn App() -> Element {
                                         title: "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR file containing partial certification paths and when validating certification paths.",
                                     }
                                     FileRow {
-                                        label: "CBOR",
+                                        label: "CA CBOR",
                                         name: "cbor",
                                         sig: s_cbor,
                                         filter_name: "PITTv3 CBOR-serialized PKI",
@@ -838,7 +838,7 @@ pub(crate) fn App() -> Element {
                                     FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
                                     FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
                                     FileRow {
-                                        label: "CBOR",
+                                        label: "CA CBOR",
                                         name: "cbor",
                                         sig: s_cbor,
                                         filter_name: "PITTv3 CBOR-serialized PKI",
@@ -902,7 +902,7 @@ pub(crate) fn App() -> Element {
                             table {
                                 tbody {
                                     FileRow {
-                                        label: "CBOR",
+                                        label: "CA CBOR",
                                         name: "cbor",
                                         sig: s_cbor,
                                         filter_name: "PITTv3 CBOR-serialized PKI",
