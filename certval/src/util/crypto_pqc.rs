@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256, Sha512};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use slh_dsa::signature::Verifier;
 
+use crate::util::error::PathValidationStatus;
 use crate::{Error, PkiEnvironment};
 use const_oid::db::{
     fips204::{
@@ -36,7 +37,9 @@ macro_rules! pqverify_mldsa {
                         true => return Ok(()),
                         false => {
                             error!("Failed to verify ML DSA signature with context");
-                            return Err(Error::Unrecognized);
+                            return Err(Error::PathValidation(
+                                PathValidationStatus::SignatureVerificationFailure,
+                            ));
                         }
                     }
                 } else {
@@ -44,14 +47,18 @@ macro_rules! pqverify_mldsa {
                         Ok(_) => return Ok(()),
                         Err(e) => {
                             error!("Failed to verify ML DSA signature: {}", e);
-                            return Err(Error::Unrecognized);
+                            return Err(Error::PathValidation(
+                                PathValidationStatus::SignatureVerificationFailure,
+                            ));
                         }
                     }
                 };
             }
             None => {
                 error!("Failed to decode signature");
-                return Err(Error::Unrecognized);
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ));
             }
         }
     }};
@@ -83,13 +90,17 @@ macro_rules! pqverify_ph_mldsa {
                     true => return Ok(()),
                     false => {
                         error!("Failed to verify Hash ML DSA signature");
-                        return Err(Error::Unrecognized);
+                        return Err(Error::PathValidation(
+                            PathValidationStatus::SignatureVerificationFailure,
+                        ));
                     }
                 }
             }
             None => {
                 error!("Failed to decode signature");
-                return Err(Error::Unrecognized);
+                return Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure,
+                ));
             }
         }
     }};
@@ -113,7 +124,9 @@ macro_rules! pqverify_slhdsa {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!("Failed to verify SLH DSA signature: {}", e);
-                    Err(Error::Unrecognized)
+                    Err(Error::PathValidation(
+                        PathValidationStatus::SignatureVerificationFailure,
+                    ))
                 }
             }
         }
@@ -149,7 +162,9 @@ macro_rules! pqverify_ph_slhdsa {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!("Failed to verify SLH DSA signature: {}", e);
-                    Err(Error::Unrecognized)
+                    Err(Error::PathValidation(
+                        PathValidationStatus::SignatureVerificationFailure,
+                    ))
                 }
             }
         }
@@ -189,7 +204,9 @@ macro_rules! pqverify_ph_slhdsa_shake {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!("Failed to verify SLH DSA signature: {}", e);
-                    Err(Error::Unrecognized)
+                    Err(Error::PathValidation(
+                        PathValidationStatus::SignatureVerificationFailure,
+                    ))
                 }
             }
         }
