@@ -69,20 +69,22 @@ pub struct PkiEnvironment {
     //--------------------------------------------------------------------------
     //Crypto interfaces
     //--------------------------------------------------------------------------
-    /// List of functions that provide a message digest functionality
-    calculate_hash_callbacks: Vec<CalculateHash>,
+    /// List of implementations that provide a message digest functionality
+    calculate_hash_callbacks: Vec<Box<dyn CalculateHash + Send + Sync>>,
 
-    /// List of functions that provide a signature verification functionality given a digest
-    verify_signature_digest_callbacks: Vec<VerifySignatureDigest>,
+    /// List of implementations that provide a signature verification functionality given a digest
+    verify_signature_digest_callbacks: Vec<Box<dyn VerifySignatureDigest + Send + Sync>>,
 
-    /// List of functions that provide a signature verification functionality given a message
-    verify_signature_message_callbacks: Vec<VerifySignatureMessage>,
+    /// List of implementations that provide a signature verification functionality given a message
+    verify_signature_message_callbacks: Vec<Box<dyn VerifySignatureMessage + Send + Sync>>,
 
-    /// List of functions that provide a signature verification functionality given a digest and optional context
-    verify_signature_digest_ctx_callbacks: Vec<VerifySignatureDigestWithContext>,
+    /// List of implementations that provide a signature verification functionality given a digest and optional context
+    verify_signature_digest_ctx_callbacks:
+        Vec<Box<dyn VerifySignatureDigestWithContext + Send + Sync>>,
 
-    /// List of functions that provide a signature verification functionality given a message and optional context
-    verify_signature_message_ctx_callbacks: Vec<VerifySignatureMessageWithContext>,
+    /// List of implementations that provide a signature verification functionality given a message and optional context
+    verify_signature_message_ctx_callbacks:
+        Vec<Box<dyn VerifySignatureMessageWithContext + Send + Sync>>,
 
     //--------------------------------------------------------------------------
     //Certification path processing interfaces
@@ -223,8 +225,8 @@ impl PkiEnvironment {
     }
 
     /// add_calculate_hash_callback adds a [`CalculateHash`] callback to the list used by calculate_hash.
-    pub fn add_calculate_hash_callback(&mut self, c: CalculateHash) {
-        self.calculate_hash_callbacks.push(c);
+    pub fn add_calculate_hash_callback<C: CalculateHash + Send + Sync + 'static>(&mut self, c: C) {
+        self.calculate_hash_callbacks.push(Box::new(c));
     }
 
     /// clear_calculate_hash_callbacks clears the list of [`CalculateHash`] callbacks used by calculate_hash.
@@ -241,7 +243,7 @@ impl PkiEnvironment {
         buffer_to_hash: &[u8],
     ) -> Result<Vec<u8>> {
         for f in &self.calculate_hash_callbacks {
-            let r = f(pe, hash_alg, buffer_to_hash);
+            let r = f.calculate_hash(pe, hash_alg, buffer_to_hash);
             if let Ok(r) = r {
                 return Ok(r);
             }
@@ -250,8 +252,13 @@ impl PkiEnvironment {
     }
 
     /// add_verify_signature_digest_callback adds a [`VerifySignatureDigest`] callback to the list used by verify_signature_digest.
-    pub fn add_verify_signature_digest_callback(&mut self, c: VerifySignatureDigest) {
-        self.verify_signature_digest_callbacks.push(c);
+    pub fn add_verify_signature_digest_callback<
+        C: VerifySignatureDigest + Send + Sync + 'static,
+    >(
+        &mut self,
+        c: C,
+    ) {
+        self.verify_signature_digest_callbacks.push(Box::new(c));
     }
 
     /// clear_verify_signature_digest_callbacks clears the list of [`VerifySignatureDigest`] callbacks used by verify_signature_digest.
@@ -270,7 +277,9 @@ impl PkiEnvironment {
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_digest_callbacks {
-            if f(pe, hash_to_verify, signature, signature_alg, spki).is_ok() {
+            if f.verify_signature_digest(pe, hash_to_verify, signature, signature_alg, spki)
+                .is_ok()
+            {
                 return Ok(());
             }
         }
@@ -278,11 +287,13 @@ impl PkiEnvironment {
     }
 
     /// add_verify_signature_digest_ctx_callback adds a [`VerifySignatureDigestWithContext`] callback to the list used by verify_signature_ctx_digest.
-    pub fn add_verify_signature_digest_ctx_callback(
+    pub fn add_verify_signature_digest_ctx_callback<
+        C: VerifySignatureDigestWithContext + Send + Sync + 'static,
+    >(
         &mut self,
-        c: VerifySignatureDigestWithContext,
+        c: C,
     ) {
-        self.verify_signature_digest_ctx_callbacks.push(c);
+        self.verify_signature_digest_ctx_callbacks.push(Box::new(c));
     }
 
     /// clear_verify_signature_digest_ctx_callbacks clears the list of [`VerifySignatureDigestWithContext`] callbacks used by verify_signature_ctx_digest.
@@ -302,15 +313,29 @@ impl PkiEnvironment {
         ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_digest_ctx_callbacks {
-            if f(pe, hash_to_verify, signature, signature_alg, spki, ctx).is_ok() {
+            if f.verify_signature_digest_with_context(
+                pe,
+                hash_to_verify,
+                signature,
+                signature_alg,
+                spki,
+                ctx,
+            )
+            .is_ok()
+            {
                 return Ok(());
             }
         }
         Err(Error::Unrecognized)
     }
     /// add_verify_signature_message_callback adds a [`VerifySignatureMessage`] callback to the list used by verify_signature_message.
-    pub fn add_verify_signature_message_callback(&mut self, c: VerifySignatureMessage) {
-        self.verify_signature_message_callbacks.push(c);
+    pub fn add_verify_signature_message_callback<
+        C: VerifySignatureMessage + Send + Sync + 'static,
+    >(
+        &mut self,
+        c: C,
+    ) {
+        self.verify_signature_message_callbacks.push(Box::new(c));
     }
 
     /// clear_verify_signature_message_callbacks clears the list of [`VerifySignatureMessage`] callbacks used by verify_signature_message.
@@ -329,7 +354,8 @@ impl PkiEnvironment {
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_message_callbacks {
-            let r = f(pe, message_to_verify, signature, signature_alg, spki);
+            let r =
+                f.verify_signature_message(pe, message_to_verify, signature, signature_alg, spki);
             if let Ok(r) = r {
                 return Ok(r);
             }
@@ -338,11 +364,14 @@ impl PkiEnvironment {
     }
 
     /// add_verify_signature_message_ctx_callback adds a [`VerifySignatureMessageWithContext`] callback to the list used by verify_signature_message_ctx.
-    pub fn add_verify_signature_message_ctx_callback(
+    pub fn add_verify_signature_message_ctx_callback<
+        C: VerifySignatureMessageWithContext + Send + Sync + 'static,
+    >(
         &mut self,
-        c: VerifySignatureMessageWithContext,
+        c: C,
     ) {
-        self.verify_signature_message_ctx_callbacks.push(c);
+        self.verify_signature_message_ctx_callbacks
+            .push(Box::new(c));
     }
 
     /// clear_verify_signature_message_ctx_callbacks clears the list of [`VerifySignatureMessageWithContext`] callbacks used by verify_signature_message_ctx.
@@ -362,7 +391,14 @@ impl PkiEnvironment {
         ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_message_ctx_callbacks {
-            let r = f(pe, message_to_verify, signature, signature_alg, spki, ctx);
+            let r = f.verify_signature_message_with_context(
+                pe,
+                message_to_verify,
+                signature,
+                signature_alg,
+                spki,
+                ctx,
+            );
             if let Ok(r) = r {
                 return Ok(r);
             }

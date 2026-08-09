@@ -73,7 +73,7 @@ pub(crate) fn is_eddsa(oid: &ObjectIdentifier) -> bool {
     }
 }
 
-/// calculate_hash_rust_crypto implements the [`CalculateHash`](../certval/pki_environment_traits/type.CalculateHash.html) interface for [`PkiEnvironment`] using
+/// calculate_hash_rust_crypto implements the [`CalculateHash`](crate::CalculateHash) interface for [`PkiEnvironment`] using
 /// implementations from the Rust Crypto project.
 ///
 /// It supports [`PKIXALG_SHA224`], [`PKIXALG_SHA256`], [`PKIXALG_SHA384`] and [`PKIXALG_SHA512`].
@@ -103,7 +103,7 @@ pub fn calculate_hash_rust_crypto(
     }
 }
 
-/// verify_signature_digest_rust_crypto implements the [`VerifySignatureDigest`](../certval/pki_environment_traits/type.VerifySignatureDigest.html) interface for [`PkiEnvironment`] using
+/// verify_signature_digest_rust_crypto implements the [`VerifySignatureDigest`](crate::VerifySignatureDigest) interface for [`PkiEnvironment`] using
 /// implementations from the [Rust Crypto](https://github.com/RustCrypto) project.
 ///
 /// Only RSA is supported by this function. To verify ECDSA signatures, use [`verify_signature_message_rust_crypto`].
@@ -149,7 +149,7 @@ fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<Object
     Err(Error::PathValidation(PathValidationStatus::EncodingError))
 }
 
-/// verify_signature_digest_rust_crypto implements the [`VerifySignatureMessage`](../certval/pki_environment_traits/type.VerifySignatureMessage.html) interface for [`PkiEnvironment`] using
+/// verify_signature_digest_rust_crypto implements the [`VerifySignatureMessage`](crate::VerifySignatureMessage) interface for [`PkiEnvironment`] using
 /// implementations from the [Rust Crypto](https://github.com/RustCrypto) project.
 ///
 /// RSA, P256, and P384 signatures are supported at present.

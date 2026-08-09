@@ -2,7 +2,7 @@
 //! by [`PkiEnvironment`] to provide functionality that supports building and/or validating X.509
 //! certification paths.
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use der::asn1::ObjectIdentifier;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -23,54 +23,286 @@ pub type ValidatePath = fn(
     &mut CertificationPathResults, // path validation results
 ) -> Result<()>;
 
-/// `CalculateHash` provides a function signature for implementations that perform hashing
-pub type CalculateHash = fn(
-    &PkiEnvironment,
-    &AlgorithmIdentifierOwned, // hash alg
-    &[u8],                     // buffer to hash
-) -> Result<Vec<u8>>;
+/// `CalculateHash` provides an interface for implementations that perform hashing.
+///
+/// A blanket implementation covers every function with a matching signature, so a bare function
+/// (like `calculate_hash_rust_crypto`) can still be handed to
+/// [`PkiEnvironment::add_calculate_hash_callback`] directly. Implement the trait on a type when the
+/// implementation needs to carry state that a function pointer cannot, e.g. a handle to a hardware
+/// module.
+pub trait CalculateHash {
+    /// calculate_hash returns the hash of `buffer_to_hash` using the algorithm named by `hash_alg`.
+    fn calculate_hash(
+        &self,
+        pe: &PkiEnvironment,
+        hash_alg: &AlgorithmIdentifierOwned,
+        buffer_to_hash: &[u8],
+    ) -> Result<Vec<u8>>;
+}
 
-/// `VerifySignatureDigest` provides a function signature for implementations that perform signature
+impl<F> CalculateHash for F
+where
+    F: Fn(&PkiEnvironment, &AlgorithmIdentifierOwned, &[u8]) -> Result<Vec<u8>>,
+{
+    fn calculate_hash(
+        &self,
+        pe: &PkiEnvironment,
+        hash_alg: &AlgorithmIdentifierOwned,
+        buffer_to_hash: &[u8],
+    ) -> Result<Vec<u8>> {
+        self(pe, hash_alg, buffer_to_hash)
+    }
+}
+
+impl<T: CalculateHash + ?Sized> CalculateHash for Arc<T> {
+    fn calculate_hash(
+        &self,
+        pe: &PkiEnvironment,
+        hash_alg: &AlgorithmIdentifierOwned,
+        buffer_to_hash: &[u8],
+    ) -> Result<Vec<u8>> {
+        (**self).calculate_hash(pe, hash_alg, buffer_to_hash)
+    }
+}
+
+/// `VerifySignatureDigest` provides an interface for implementations that perform signature
 /// verification over a message digest.
-pub type VerifySignatureDigest = fn(
-    &PkiEnvironment,
-    &[u8],                      // buffer to verify
-    &[u8],                      // signature
-    &AlgorithmIdentifierOwned,  // signature algorithm
-    &SubjectPublicKeyInfoOwned, // public key
-) -> Result<()>;
+///
+/// A blanket implementation covers every function with a matching signature, so a bare function
+/// (like `verify_signature_digest_rust_crypto`) can still be handed to
+/// [`PkiEnvironment::add_verify_signature_digest_callback`] directly. Implement the trait on a type
+/// when the implementation needs to carry state that a function pointer cannot, e.g. a handle to a
+/// hardware module along with a cache of the key objects it has already imported.
+pub trait VerifySignatureDigest {
+    /// verify_signature_digest verifies `signature` over `hash_to_verify` using the algorithm named
+    /// by `signature_alg` and the public key conveyed in `spki`.
+    fn verify_signature_digest(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()>;
+}
 
-/// `VerifySignatureWithContext` provides a function signature for implementations that perform
+impl<F> VerifySignatureDigest for F
+where
+    F: Fn(
+        &PkiEnvironment,
+        &[u8],
+        &[u8],
+        &AlgorithmIdentifierOwned,
+        &SubjectPublicKeyInfoOwned,
+    ) -> Result<()>,
+{
+    fn verify_signature_digest(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()> {
+        self(pe, hash_to_verify, signature, signature_alg, spki)
+    }
+}
+
+impl<T: VerifySignatureDigest + ?Sized> VerifySignatureDigest for Arc<T> {
+    fn verify_signature_digest(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()> {
+        (**self).verify_signature_digest(pe, hash_to_verify, signature, signature_alg, spki)
+    }
+}
+
+/// `VerifySignatureDigestWithContext` provides an interface for implementations that perform
 /// signature verification over a message digest with an optional context provided.
-pub type VerifySignatureDigestWithContext = fn(
-    &PkiEnvironment,
-    &[u8],                      // buffer to verify
-    &[u8],                      // signature
-    &AlgorithmIdentifierOwned,  // signature algorithm
-    &SubjectPublicKeyInfoOwned, // public key
-    &Option<Vec<u8>>,           // Optional context
-) -> Result<()>;
+///
+/// See [`VerifySignatureDigest`] for the blanket implementation that keeps bare functions
+/// registrable.
+pub trait VerifySignatureDigestWithContext {
+    /// verify_signature_digest_with_context verifies `signature` over `hash_to_verify` using the
+    /// algorithm named by `signature_alg`, the public key conveyed in `spki` and the context in
+    /// `ctx`.
+    fn verify_signature_digest_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()>;
+}
 
-/// `VerifySignature` provides a function signature for implementations that perform signature verification
-/// over a message digest.
-pub type VerifySignatureMessage = fn(
-    &PkiEnvironment,
-    &[u8],                      // message to hash and verify
-    &[u8],                      // signature
-    &AlgorithmIdentifierOwned,  // signature algorithm
-    &SubjectPublicKeyInfoOwned, // public key
-) -> Result<()>;
+impl<F> VerifySignatureDigestWithContext for F
+where
+    F: Fn(
+        &PkiEnvironment,
+        &[u8],
+        &[u8],
+        &AlgorithmIdentifierOwned,
+        &SubjectPublicKeyInfoOwned,
+        &Option<Vec<u8>>,
+    ) -> Result<()>,
+{
+    fn verify_signature_digest_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()> {
+        self(pe, hash_to_verify, signature, signature_alg, spki, ctx)
+    }
+}
 
-/// `VerifySignatureMessageWithContext` provides a function signature for implementations that
-/// perform signature verification over a message digest with an optional context provided.
-pub type VerifySignatureMessageWithContext = fn(
-    &PkiEnvironment,
-    &[u8],                      // message to hash and verify
-    &[u8],                      // signature
-    &AlgorithmIdentifierOwned,  // signature algorithm
-    &SubjectPublicKeyInfoOwned, // public key
-    &Option<Vec<u8>>,
-) -> Result<()>;
+impl<T: VerifySignatureDigestWithContext + ?Sized> VerifySignatureDigestWithContext for Arc<T> {
+    fn verify_signature_digest_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        hash_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()> {
+        (**self).verify_signature_digest_with_context(
+            pe,
+            hash_to_verify,
+            signature,
+            signature_alg,
+            spki,
+            ctx,
+        )
+    }
+}
+
+/// `VerifySignatureMessage` provides an interface for implementations that perform signature
+/// verification over a message, i.e., where the implementation hashes the message itself.
+///
+/// See [`VerifySignatureDigest`] for the blanket implementation that keeps bare functions
+/// registrable.
+pub trait VerifySignatureMessage {
+    /// verify_signature_message verifies `signature` over `message_to_verify` using the algorithm
+    /// named by `signature_alg` and the public key conveyed in `spki`.
+    fn verify_signature_message(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()>;
+}
+
+impl<F> VerifySignatureMessage for F
+where
+    F: Fn(
+        &PkiEnvironment,
+        &[u8],
+        &[u8],
+        &AlgorithmIdentifierOwned,
+        &SubjectPublicKeyInfoOwned,
+    ) -> Result<()>,
+{
+    fn verify_signature_message(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()> {
+        self(pe, message_to_verify, signature, signature_alg, spki)
+    }
+}
+
+impl<T: VerifySignatureMessage + ?Sized> VerifySignatureMessage for Arc<T> {
+    fn verify_signature_message(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+    ) -> Result<()> {
+        (**self).verify_signature_message(pe, message_to_verify, signature, signature_alg, spki)
+    }
+}
+
+/// `VerifySignatureMessageWithContext` provides an interface for implementations that perform
+/// signature verification over a message with an optional context provided.
+///
+/// See [`VerifySignatureDigest`] for the blanket implementation that keeps bare functions
+/// registrable.
+pub trait VerifySignatureMessageWithContext {
+    /// verify_signature_message_with_context verifies `signature` over `message_to_verify` using
+    /// the algorithm named by `signature_alg`, the public key conveyed in `spki` and the context in
+    /// `ctx`.
+    fn verify_signature_message_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()>;
+}
+
+impl<F> VerifySignatureMessageWithContext for F
+where
+    F: Fn(
+        &PkiEnvironment,
+        &[u8],
+        &[u8],
+        &AlgorithmIdentifierOwned,
+        &SubjectPublicKeyInfoOwned,
+        &Option<Vec<u8>>,
+    ) -> Result<()>,
+{
+    fn verify_signature_message_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()> {
+        self(pe, message_to_verify, signature, signature_alg, spki, ctx)
+    }
+}
+
+impl<T: VerifySignatureMessageWithContext + ?Sized> VerifySignatureMessageWithContext for Arc<T> {
+    fn verify_signature_message_with_context(
+        &self,
+        pe: &PkiEnvironment,
+        message_to_verify: &[u8],
+        signature: &[u8],
+        signature_alg: &AlgorithmIdentifierOwned,
+        spki: &SubjectPublicKeyInfoOwned,
+        ctx: &Option<Vec<u8>>,
+    ) -> Result<()> {
+        (**self).verify_signature_message_with_context(
+            pe,
+            message_to_verify,
+            signature,
+            signature_alg,
+            spki,
+            ctx,
+        )
+    }
+}
 
 /// `GetTrustAnchors` provides a function signature for implementations that return a list of trust anchors
 pub type GetTrustAnchors = fn(&PkiEnvironment, &mut Vec<Vec<u8>>) -> Result<()>;
