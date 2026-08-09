@@ -5,7 +5,6 @@ description = """
 Pure Rust implementation of X.509 Public Key Infrastructure Certificate validation as described in [RFC 5280] and
 as augmented by [RFC 5937], including support for certification path building and revocation status determination.
 """
-authors = [""]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/carl-wallace/rust-pki"
 categories = ["cryptography", "pki", "no-std"]

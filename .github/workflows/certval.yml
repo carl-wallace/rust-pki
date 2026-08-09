@@ -63,6 +63,35 @@ jobs:
           toolchain: ${{ matrix.rust }}
       - run: cargo test -p certval --features std,rsa,revocation,pqc,eddsa
 
+  # Lints run on stable only, deliberately not across the MSRV matrix: clippy's diagnostics differ
+  # between toolchains, so linting against the 1.85 pin reports on a compiler nobody develops with.
+  # The pre-commit hook runs the same commands locally so they fail before a push — an early warning,
+  # not a replacement for these jobs.
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: rustfmt }
+      # --all covers every workspace member, including the UI crates the compiling jobs exclude:
+      # rustfmt parses rather than builds, so neither the dioxus MSRV nor the missing system
+      # packages apply.
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy (-D warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy }
+      # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
+      - run: cargo clippy --workspace --all-targets --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm -- -D warnings
+      # --all-features cannot catch warnings that only exist when a feature is ABSENT (an import
+      # used solely by a gated path), which is why the default-feature run above is kept as well.
+      - run: cargo clippy --workspace --all-targets --all-features --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm -- -D warnings
+
   # certval is no_std-capable; prove it links for an embedded target. Build-only
   # (no test runner on the target). thumbv7em-none-eabihf deliberately — an
   # x86_64-unknown-none check can silently tolerate std leakage this catches.
