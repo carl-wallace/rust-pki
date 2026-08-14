@@ -302,6 +302,9 @@ fn App() -> Element {
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // The uploads panel's expanded state is deliberately NOT tracked here — see the store
+    // dropdown's `onchange`, which pushes it open once when "None" is selected and otherwise
+    // leaves the browser to own it.
     // True while a validation is running, to show a busy state (the parse/validation is synchronous
     // and can take a moment on a large store).
     let mut validating = use_signal(|| false);
@@ -684,7 +687,22 @@ fn App() -> Element {
                                 id: "store",
                                 onchange: move |ev| {
                                     let v = ev.value();
-                                    mode.set(v.parse::<usize>().unwrap_or(NO_STORE));
+                                    let selected = v.parse::<usize>().unwrap_or(NO_STORE);
+                                    mode.set(selected);
+                                    // "None" means uploaded material is the only trust source, so
+                                    // open the panel holding it rather than leaving the user to
+                                    // discover they have to expand it. Pushed straight at the DOM
+                                    // rather than bound to a signal: `open` is left uncontrolled so
+                                    // the browser stays the single owner of the panel's state. A
+                                    // controlled `open` has to be re-asserted on every render,
+                                    // which fights the user's own toggling — and because the
+                                    // `toggle` event fires for programmatic changes too, syncing it
+                                    // back from `ontoggle` oscillates instead of settling.
+                                    if selected == NO_STORE {
+                                        let _ = dioxus::document::eval(
+                                            "const d = document.getElementById('uploads-panel'); if (d) d.open = true;",
+                                        );
+                                    }
                                 },
                                 for (i, s) in STORES.iter().enumerate() {
                                     option { value: "{i}", selected: mode() == i, "{s.label}" }
@@ -693,7 +711,7 @@ fn App() -> Element {
                             }
                         }
 
-                        details { class: "panel",
+                        details { class: "panel", id: "uploads-panel",
                             summary { "Additional trust anchors and intermediates (certificates or .cbor stores)" }
                             div { class: "controls custom",
                                 label { "Trust anchor(s): " }
