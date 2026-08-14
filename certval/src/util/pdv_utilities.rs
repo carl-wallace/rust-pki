@@ -813,26 +813,38 @@ pub fn get_leaf_rdn(name: &Name) -> String {
     rdn.map(|r| r.to_string()).unwrap_or_default()
 }
 
-/// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of interest.
+/// ta_valid_at_time checks the validity of the given trust anchor relative to the given time of
+/// interest.
+///
+/// Trust anchors need not assert a validity period: an RFC 5914 [`TrustAnchorInfo`] carrying no
+/// certificate (a name and public key, as a webpki-roots anchor is expressed) has none to check.
+/// That is not the same as failing the check, so the three outcomes are distinct:
+///
+/// - `Ok(Some(ttl))` — a validity period is present and covers `toi`, with the seconds remaining
+/// - `Ok(None)` — the anchor asserts no validity period, so there is nothing to enforce
+/// - `Err(Error::PathValidation(_))` — a validity period is present and `toi` falls outside it
+///
+/// [`TrustAnchorInfo`]: x509_cert::anchor::TrustAnchorInfo
 pub fn ta_valid_at_time(
     ta: &TrustAnchorChoice<Raw>,
     toi: TimeOfInterest,
     stifle_log: bool,
-) -> Result<u64> {
+) -> Result<Option<u64>> {
     match ta {
         TrustAnchorChoice::Certificate(c) => {
-            return valid_at_time(c.tbs_certificate(), toi, stifle_log);
+            valid_at_time(c.tbs_certificate(), toi, stifle_log).map(Some)
         }
-        TrustAnchorChoice::TaInfo(tai) => {
-            if let Some(cp) = &tai.cert_path {
-                if let Some(c) = &cp.certificate {
-                    return valid_at_time(c.tbs_certificate(), toi, stifle_log);
-                }
-            }
-        }
-        _ => {}
+        // The tbsCert alternative carries a validity like any certificate does
+        TrustAnchorChoice::TbsCertificate(tbs) => valid_at_time(tbs, toi, stifle_log).map(Some),
+        TrustAnchorChoice::TaInfo(tai) => match tai
+            .cert_path
+            .as_ref()
+            .and_then(|cp| cp.certificate.as_ref())
+        {
+            Some(c) => valid_at_time(c.tbs_certificate(), toi, stifle_log).map(Some),
+            None => Ok(None),
+        },
     }
-    Err(Error::Unrecognized)
 }
 
 pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
@@ -1341,4 +1353,50 @@ fn descended_from_dn_ignores_insignificant_whitespace() {
     // a genuine difference is still outside the subtree
     let other = Name::from_str("O=Acme Corps").unwrap();
     assert!(!descended_from_dn(&subtree, &other, 0, None));
+}
+
+// A trust anchor that asserts no validity period is not an invalid trust anchor. The distinction is
+// load-bearing in three places: path validation must not fail such a path, the folder loader must
+// not skip such a file, and pittv3's --ta-cleanup deletes or moves what it rejects, so conflating
+// the two would destroy exactly the anchors that carry only a name and a public key.
+#[cfg(feature = "std")]
+#[test]
+fn ta_validity_distinguishes_absent_from_failed() {
+    use der::{Decode, Encode};
+    use x509_cert::anchor::TrustAnchorInfo;
+    use x509_cert::certificate::CertificateInner;
+
+    let der =
+        include_bytes!("../../tests/examples/PKITS_data_2048/certs/TrustAnchorRootCertificate.crt");
+    let ta = TrustAnchorChoice::<Raw>::from_der(der).unwrap();
+    assert!(matches!(ta, TrustAnchorChoice::Certificate(_)));
+
+    // a certificate anchor inside its validity reports the time it has left
+    let toi = TimeOfInterest::from_unix_secs(1647264981).unwrap();
+    assert!(matches!(ta_valid_at_time(&ta, toi, true), Ok(Some(_))));
+
+    // and outside it, a validity failure -- not merely "no answer"
+    let expired = TimeOfInterest::from_unix_secs(1930000000).unwrap();
+    assert!(matches!(
+        ta_valid_at_time(&ta, expired, true),
+        Err(Error::PathValidation(
+            PathValidationStatus::InvalidNotAfterDate
+        ))
+    ));
+
+    // an RFC 5914 anchor carrying a key but no certificate has nothing to check, at any time
+    let cert = CertificateInner::<Raw>::from_der(der).unwrap();
+    let tai: TrustAnchorInfo<Raw> = TrustAnchorInfo {
+        version: Default::default(),
+        pub_key: cert.tbs_certificate().subject_public_key_info().clone(),
+        key_id: der::asn1::OctetString::new(&[0x01, 0x02, 0x03][..]).unwrap(),
+        ta_title: None,
+        cert_path: None,
+        extensions: None,
+        ta_title_lang_tag: None,
+    };
+    let bytes = TrustAnchorChoice::TaInfo(tai).to_der().unwrap();
+    let no_validity = TrustAnchorChoice::<Raw>::from_der(&bytes).unwrap();
+    assert_eq!(Ok(None), ta_valid_at_time(&no_validity, toi, true));
+    assert_eq!(Ok(None), ta_valid_at_time(&no_validity, expired, true));
 }
