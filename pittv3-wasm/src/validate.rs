@@ -29,8 +29,14 @@ pub const STORES: &[Store] = &[
         ta_url: "resources/pkits_ml_dsa_44_ta.cbor",
         ca_url: Some("resources/pkits_ml_dsa_44_ca.cbor"),
     },
+    // The anchors are the provider's MOZILLA_ALL environment — every root carrying a websites
+    // OR an email trust bit — so the anchor set does not gate purpose: a TLS certificate can
+    // validate here against a root Mozilla trusts only for S/MIME, and vice versa. The label
+    // says "TLS + S/MIME" for that reason. Judging the purpose means reading the trust bits
+    // Mozilla records beside each root, which are out-of-band policy that RFC 5280 processing
+    // cannot see and a certval CBOR store does not carry.
     Store {
-        label: "Web PKI (Mozilla roots + CCADB intermediates)",
+        label: "Web PKI (Mozilla roots, TLS + S/MIME, + CCADB intermediates)",
         ta_url: "resources/webpki_ta.cbor",
         // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
         // fetch proxy lands) will cover anything not preloaded here

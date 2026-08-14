@@ -1,0 +1,85 @@
+PITTv3 WASM — trust material in resources/
+Third-party attribution
+
+The application itself is licensed Apache-2.0 OR MIT (see the repository
+README). The files in this directory are not application code: they are trust
+material generated from, or derived from, third-party sources, and some of it
+is redistributed under different terms. This file records what each artifact
+is, where it came from, and under what license it travels.
+
+The artifacts are binary CBOR and DER, so none of them can carry a license
+header in the file itself. As MPL-2.0 Exhibit A provides for, the notice is
+placed where a recipient would look for it instead. Trunk copies this whole
+directory verbatim into dist/ (index.html: rel="copy-dir"), so this file is
+published alongside the artifacts it describes and is fetched from the same
+URL prefix.
+
+The CBOR stores are regenerated from their provider crates by build.rs; only
+the ML-DSA-44 PKITS material below is a committed file with no provider.
+
+
+webpki_ta.cbor, webpki_ca.cbor — Mozilla Root Store / CCADB
+-----------------------------------------------------------
+
+This Source Code Form is subject to the terms of the Mozilla Public License,
+v. 2.0. If a copy of the MPL was not distributed with these files, You can
+obtain one at https://mozilla.org/MPL/2.0/.
+
+Generated from certval_stores_mozilla (MPL-2.0),
+https://github.com/carl-wallace/certval-stores-mozilla, which embeds trust
+material published by the Mozilla Foundation as part of the Mozilla Root Store
+and redistributes it under the same license Mozilla applies to that material
+in NSS. CCADB snapshot 2026-08-13.
+
+  webpki_ta.cbor
+    The 170 trust anchors of that crate's MOZILLA_ALL environment: every root
+    in the Mozilla Root Store carrying a websites or an email trust bit (172
+    included roots, less the two that carry neither). Source:
+    https://ccadb.my.salesforce-sites.com/mozilla/IncludedRootCertificateReportPEMCSV
+
+  webpki_ca.cbor
+    2,563 CCADB-disclosed intermediate CA certificates plus the partial
+    certification paths over them. Source, as a union of two reports:
+    https://ccadb.my.salesforce-sites.com/mozilla/PublicAllIntermediateCertsWithPEMCSV
+    https://ccadb.my.salesforce-sites.com/mozilla/MozillaIntermediateCertsCSVReport
+
+The individual root and intermediate certificates are the works of the
+certification authorities that issued them. Mozilla's contribution, and what
+these stores reproduce, is the selection of those certificates and the trust
+decisions recorded beside them.
+
+What these two files do NOT carry is Mozilla's out-of-band policy: the
+per-root trust bits (websites/email), any distrust-for-TLS-after date, and any
+Mozilla-applied name constraints live in the provider crate's metadata table
+and have no representation in a certval CBOR store. A path that validates
+against an anchor here has satisfied RFC 5280, which is not the same as the
+root being trusted by Mozilla for the purpose at hand.
+
+CCADB publishes its reports under its own data usage terms, which are separate
+from and additional to the MPL-2.0 terms above. See https://www.ccadb.org/.
+
+
+dod_nipr_prod_ta.cbor, dod_nipr_prod_ca.cbor — U.S. DoD PKI (NIPR)
+-------------------------------------------------------------------
+
+Generated from certval_stores_nipr (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: the three production DoD
+roots (DoD Root CA 3, 5 and 6) and the 37 intermediate CAs beneath them, with
+one partial path each. The certificates are public artifacts of the U.S.
+Department of Defense PKI and are the works of the CAs that issued them.
+
+
+pkits_ml_dsa_44_ta.cbor, pkits_ml_dsa_44_ca.cbor,
+sample_valid_ml_dsa_44.der, sample_invalid_ml_dsa_44.der — PKITS, ML-DSA-44
+-----------------------------------------------------------------------------
+
+Test collateral, not trust material. Derived from the NIST Public Key
+Interoperability Test Suite (PKITS), a work of the U.S. Government published
+by NIST for interoperability testing, re-issued with ML-DSA-44 (FIPS 204) keys
+and signatures; the certificates keep the PKITS distinguished names ("Test
+Certificates 2011") and the PKITS 2010–2030 validity period, so the PKITS
+reference time of interest applies to them unchanged.
+
+The two sample end entity certificates are the PKITS 4.1 cases: the valid
+path test and the bad-end-entity-signature test. Nothing in this group is
+intended to be trusted for any purpose outside this application.
