@@ -4,9 +4,9 @@
 
 use crate::crypto::{is_ecdsa, is_eddsa, is_rsa};
 use crate::{
-    Error, PkiEnvironment, RsaPssParams, TrailerField, PKIXALG_ECDSA_WITH_SHA256,
-    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1,
-    PKIXALG_SECP521R1, PKIXALG_SHA256_WITH_RSA_ENCRYPTION, PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
+    Error, PkiEnvironment, PKIXALG_ECDSA_WITH_SHA256, PKIXALG_ECDSA_WITH_SHA384,
+    PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1, PKIXALG_SECP521R1,
+    PKIXALG_SHA256_WITH_RSA_ENCRYPTION, PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
 };
 use alloc::{vec, vec::Vec};
 use const_oid::db::fips204::*;
@@ -22,53 +22,45 @@ use der::Encode;
 use der::{Any, AnyRef};
 use hex_literal::hex;
 use log::error;
+use pkcs1::{RsaPssParams, TrailerField};
 use pqckeys::pqc_oids::*;
 use sha2::Digest;
 use sha2::{Sha256, Sha512};
-use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
+use spki::{
+    AlgorithmIdentifier, AlgorithmIdentifierOwned, AlgorithmIdentifierRef,
+    SubjectPublicKeyInfoOwned,
+};
 
 /// Returns DER encoded RSA PSS parameters for use with 2048-bit RSA keys or other as per section
 /// [7.3 of draft-ietf-lamps-pq-composite-sigs-06](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-06#section-7.3).
+/// The composite spec fixes these parameters per algorithm rather than carrying
+/// them on the wire; they are encoded here only so the traditional half can be
+/// handed to the `AlgorithmIdentifier`-shaped verification interface, which then
+/// decodes them again. Generator and consumer are therefore both this crate.
+///
+/// The spec states salt lengths in **bits** (256 and 384); `saltLength` is an
+/// octet count, as its RFC 8017 default of 20 for SHA-1 shows, so they are
+/// converted here. Both work out to the digest length.
 fn get_rss_params(for_4096: bool) -> crate::Result<Vec<u8>> {
-    if !for_4096 {
-        let mfg_param = AlgorithmIdentifierOwned {
-            oid: ID_SHA_256,
-            parameters: Some(Any::from(AnyRef::NULL)),
-        };
-        let der_mfg_param = mfg_param.to_der()?;
-        let params = RsaPssParams {
-            hash: AlgorithmIdentifierOwned {
-                oid: ID_SHA_256,
-                parameters: None,
-            },
-            mask_gen: AlgorithmIdentifierOwned {
-                oid: ID_MGF_1,
-                parameters: Some(Any::from_der(&der_mfg_param)?),
-            },
-            salt_len: 256,
-            trailer_field: TrailerField::BC,
-        };
-        Ok(params.to_der()?)
-    } else {
-        let mfg_param = AlgorithmIdentifierOwned {
-            oid: ID_SHA_384,
-            parameters: Some(Any::from(AnyRef::NULL)),
-        };
-        let der_mfg_param = mfg_param.to_der()?;
-        let params = RsaPssParams {
-            hash: AlgorithmIdentifierOwned {
-                oid: ID_SHA_384,
-                parameters: None,
-            },
-            mask_gen: AlgorithmIdentifierOwned {
-                oid: ID_MGF_1,
-                parameters: Some(Any::from_der(&der_mfg_param)?),
-            },
-            salt_len: 384,
-            trailer_field: TrailerField::BC,
-        };
-        Ok(params.to_der()?)
-    }
+    let hash_oid = if for_4096 { ID_SHA_384 } else { ID_SHA_256 };
+    // 384 and 256 bits respectively, as octets.
+    let salt_len: u8 = if for_4096 { 48 } else { 32 };
+    let params = RsaPssParams {
+        hash: AlgorithmIdentifierRef {
+            oid: hash_oid,
+            parameters: None,
+        },
+        mask_gen: AlgorithmIdentifier {
+            oid: ID_MGF_1,
+            parameters: Some(AlgorithmIdentifierRef {
+                oid: hash_oid,
+                parameters: Some(AnyRef::NULL),
+            }),
+        },
+        salt_len,
+        trailer_field: TrailerField::BC,
+    };
+    Ok(params.to_der()?)
 }
 
 /// Takes a composite OID and returns a pair of AlgorithmIdentifiers representing the two algorithms

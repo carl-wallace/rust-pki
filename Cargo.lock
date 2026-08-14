@@ -568,6 +568,7 @@ dependencies = [
  "p384",
  "p521",
  "pem-rfc7468",
+ "pkcs1",
  "pkiprocmacros",
  "pqckeys",
  "pretty_env_logger",
