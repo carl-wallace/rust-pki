@@ -3,7 +3,7 @@
 use alloc::collections::BTreeMap;
 use certval::CertificationPathResults;
 
-use crate::report::PathReport;
+use crate::report::{CertSummary, PathReport};
 
 /// `PathValidationStats` enables collection of some basic statistics related to path validation.
 pub struct PathValidationStats {
@@ -22,6 +22,15 @@ pub struct PathValidationStats {
     pub results: Vec<CertificationPathResults>,
     /// Structured report for each certification path processed for the target
     pub path_reports: Vec<PathReport>,
+    /// Summary details for the target certificate. Recorded when the target is parsed so that a
+    /// target for which no path was found can still be named in the report; the path reports are
+    /// the only other source and they are empty in exactly that case.
+    pub target_summary: Option<CertSummary>,
+    /// Why no certification path was found for the target, when none was. Recorded where the
+    /// builder returns nothing, since the environment is fully populated there and is torn down
+    /// before the report is assembled. Cleared as soon as a path is found, so a diagnosis from an
+    /// early pass of the dynamic-building loop does not survive a later pass that succeeds.
+    pub no_paths_hints: Vec<String>,
 }
 
 impl Default for PathValidationStats {
@@ -42,6 +51,8 @@ impl PathValidationStats {
             target_is_revoked: false,
             results: vec![],
             path_reports: vec![],
+            target_summary: None,
+            no_paths_hints: vec![],
         }
     }
 }

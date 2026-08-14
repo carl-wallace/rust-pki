@@ -3,7 +3,7 @@
 use std::io::{Cursor, Read};
 
 use certval::*;
-use pittv3_lib::report::{CertSummary, PathReport, TargetReport};
+use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport};
 use serde::{Deserialize, Serialize};
 use web_time::Instant;
 
@@ -377,6 +377,28 @@ pub fn validate_prepared(
     (reports, out)
 }
 
+/// Reports a target for which the builder produced no candidate path, carrying the diagnosis of
+/// why. The environment is queried here rather than at display time because it holds the trust
+/// material the run actually used, which is the thing the answer turns on.
+///
+/// Chasing is reported as unavailable (`None`) rather than off: the browser build has no fetch path
+/// for AIA and SIA, so proposing it would name an option this frontend does not have.
+fn no_paths_report(
+    pe: &PkiEnvironment,
+    target: &PDVCertificate,
+    toi: TimeOfInterest,
+    ee_name: &str,
+    target_summary: CertSummary,
+) -> TargetReport {
+    TargetReport {
+        name: ee_name.to_string(),
+        target: Some(target_summary),
+        status: TargetReport::compute_status(&[], false),
+        paths: vec![],
+        no_paths_hints: NoPathsContext::collect(pe, target, toi, None).hints(),
+    }
+}
+
 /// Builds and validates certification path(s) for a single target certificate against a fully
 /// prepared [`PkiEnvironment`](certval::PkiEnvironment), returning a structured report for the
 /// target (absent when the certificate could not be parsed) along with displayable notes
@@ -454,34 +476,21 @@ fn validate_target(
                     target: Some(target_summary),
                     status: TargetReport::compute_status(std::slice::from_ref(&path), true),
                     paths: vec![path],
+                    no_paths_hints: vec![],
                 }),
                 out,
             );
         }
         out.push(err(format!("Failed to find certification paths: {e:?}")));
-        return (
-            Some(TargetReport {
-                name: ee_name.to_string(),
-                target: Some(target_summary),
-                status: TargetReport::compute_status(&[], false),
-                paths: vec![],
-            }),
-            out,
-        );
+        let report = no_paths_report(pe, &target, toi, ee_name, target_summary);
+        out.extend(report.no_paths_hints.iter().map(|h| err(h.clone())));
+        return (Some(report), out);
     }
     if paths.is_empty() {
-        out.push(err(
-            "No certification paths found (check trust anchors and time of interest)".to_string(),
-        ));
-        return (
-            Some(TargetReport {
-                name: ee_name.to_string(),
-                target: Some(target_summary),
-                status: TargetReport::compute_status(&[], false),
-                paths: vec![],
-            }),
-            out,
-        );
+        out.push(err("No certification paths found".to_string()));
+        let report = no_paths_report(pe, &target, toi, ee_name, target_summary);
+        out.extend(report.no_paths_hints.iter().map(|h| err(h.clone())));
+        return (Some(report), out);
     }
 
     let mut valid = 0;
@@ -559,6 +568,7 @@ fn validate_target(
             target: Some(target_summary),
             status,
             paths: path_reports,
+            no_paths_hints: vec![],
         }),
         out,
     )

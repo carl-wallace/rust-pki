@@ -193,6 +193,15 @@ button[type="submit"] {
   margin: 0.2rem 0 0.4rem 0;
 }
 
+/* Why a target found no paths. Muted rather than red: this describes the run's inputs, not a
+   defect in the certificate, and long distinguished names appear inline. */
+.no-paths-hints {
+  color: var(--muted);
+  margin: 0.2rem 0 0.4rem 0;
+  padding-left: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
 .cert-table th {
   text-align: left;
   border-bottom: 1px solid var(--border);

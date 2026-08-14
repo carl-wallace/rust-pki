@@ -189,6 +189,26 @@ use crate::std_utils::*;
 #[cfg(feature = "sha1_sig")]
 use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
 
+/// Added to the no-paths diagnosis when the run was given a CA folder and nothing to do with it.
+/// Named here because it is reported twice: once in the run log beside the zero count, and once in
+/// the structured report for a frontend to display.
+/// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
+/// was supplied and yielded nothing. The filtering happens quietly in `ta_folder_to_vec`, which
+/// returns `Ok(0)` for a folder it emptied — indistinguishable from no folder at all by the time the
+/// environment is queried. Note the validity filter there is not governed by
+/// `PS_ENFORCE_TRUST_ANCHOR_VALIDITY`: that setting applies during path validation, where it also
+/// (correctly) passes an anchor that asserts no validity to enforce.
+const TA_FOLDER_EMPTY: &str =
+    "A trust anchor folder was supplied but no anchor was read from it: objects that do not parse \
+     as a trust anchor, or that are expired at the time of interest, are dropped when the folder \
+     is read.";
+
+const CA_FOLDER_INCOMPLETE: &str =
+    "A CA folder was supplied but no CBOR store: the CA folder is a generate-time input and \
+     contributes nothing to path building on its own. Generate a store from it first \
+     (--generate --cbor <file>), then validate against that store, or turn on dynamic building \
+     (--dynamic-build) to fetch issuers as needed.";
+
 /// Normalizes a PEM block so its base64 body is wrapped at the 64 columns that RFC 7468 (and the
 /// strict `pem-rfc7468` decoder) requires. Some CCADB CSV exports wrap the certificate PEM at a
 /// non-standard width (e.g. 65 columns), which the strict decoder rejects; re-wrapping lets those
@@ -794,6 +814,12 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
             return ValidationReport::default();
         }
+        // A folder whose objects were all filtered returns Ok(0), which is otherwise indistinguishable
+        // from having supplied no folder at all — and is the loudest thing that can be said at the
+        // point where the anchors went missing.
+        if let Ok(0) = r {
+            error!("No trust anchors were loaded from {ta_folder}. {TA_FOLDER_EMPTY}");
+        }
         if let Err(e) = ta_store.initialize() {
             println!("Failed to initialize trust anchor source from {ta_folder} with error {e:?}");
             return ValidationReport::default();
@@ -1137,6 +1163,19 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         error_indices.insert(key, index_map);
     }
 
+    // The one cause a zero-path run cannot read off its own environment: a CA folder is a
+    // generate-time input, so supplying one without a store to write (or to read) leaves the graph
+    // empty while the user has every reason to believe they provided the intermediates.
+    #[cfg(feature = "remote")]
+    let dynamic_build = args.dynamic_build;
+    #[cfg(not(feature = "remote"))]
+    let dynamic_build = false;
+    let ca_folder_incomplete =
+        args.ca_folder.is_some() && args.cbor.is_none() && !args.generate && !dynamic_build;
+    // Distinguishes "no folder was given" from "the folder was given and nothing survived reading
+    // it", which the shared diagnosis cannot tell apart because both leave the environment empty
+    let ta_folder_empty = args.ta_folder.is_some() && pe.get_trust_anchors().is_empty();
+
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
         let s = &stats[k];
@@ -1144,6 +1183,19 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         info!("\t * Paths found: {}", s.paths_per_target);
         info!("\t * Valid paths found: {}", s.valid_paths_per_target);
         info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
+
+        // Say why the count is zero where the count is reported, not only in the structured report
+        if 0 == s.paths_per_target {
+            for hint in &s.no_paths_hints {
+                info!("\t * {hint}");
+            }
+            if !s.no_paths_hints.is_empty() && ta_folder_empty {
+                info!("\t * {TA_FOLDER_EMPTY}");
+            }
+            if !s.no_paths_hints.is_empty() && ca_folder_incomplete {
+                info!("\t * {CA_FOLDER_INCOMPLETE}");
+            }
+        }
         totals.paths_per_target += s.paths_per_target;
         totals.valid_paths_per_target += s.valid_paths_per_target;
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
@@ -1187,7 +1239,18 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         let paths_found = s.paths_per_target > 0;
         let path_reports = core::mem::take(&mut s.path_reports);
         let status = TargetReport::compute_status(&path_reports, paths_found);
-        let target_summary = path_reports.iter().find_map(|p| p.certs.last().cloned());
+        let target_summary = s
+            .target_summary
+            .clone()
+            .or_else(|| path_reports.iter().find_map(|p| p.certs.last().cloned()));
+
+        let mut no_paths_hints = core::mem::take(&mut s.no_paths_hints);
+        if !no_paths_hints.is_empty() && ta_folder_empty {
+            no_paths_hints.push(TA_FOLDER_EMPTY.to_string());
+        }
+        if !no_paths_hints.is_empty() && ca_folder_incomplete {
+            no_paths_hints.push(CA_FOLDER_INCOMPLETE.to_string());
+        }
 
         report.totals.targets += 1;
         report.totals.paths_found += s.paths_per_target;
@@ -1199,6 +1262,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             target: target_summary,
             status,
             paths: path_reports,
+            no_paths_hints,
         });
     }
     report

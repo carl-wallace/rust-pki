@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use certval::{
     get_certificate_from_trust_anchor, name_constraints_set_to_name_constraints_settings,
-    name_to_string, source::ta_source::buffer_to_hex, CertificationPath, CertificationPathResults,
-    Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate, PDVTrustAnchorChoice,
-    PathValidationStatus,
+    name_to_string, source::ta_source::buffer_to_hex, valid_at_time, CertificationPath,
+    CertificationPathResults, Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate,
+    PDVTrustAnchorChoice, PathValidationStatus, PkiEnvironment, TimeOfInterest,
 };
 
 /// Summary details for one certificate (or trust anchor) in a certification path.
@@ -258,6 +258,157 @@ pub struct TargetReport {
     pub status: TargetStatus,
     /// Results for each certification path processed for the target
     pub paths: Vec<PathReport>,
+    /// Why no certification path was found, when the status is
+    /// [`NoPathsFound`](TargetStatus::NoPathsFound). Empty otherwise, and empty when the outcome
+    /// could not be attributed (a diagnosis is best-effort, never a substitute for the status).
+    /// See [`NoPathsContext`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub no_paths_hints: Vec<String>,
+}
+
+/// What the path builder had to work with, used to explain a zero-path outcome.
+///
+/// "No paths found" is the one outcome that says nothing about the certificate: it reports the
+/// absence of a result, and the cause is almost always in the run's inputs rather than in the
+/// target. This type collects the few facts that separate the causes — whether any trust anchor is
+/// loaded, whether any loaded certificate could even have issued the target, whether the target is
+/// within its validity period at the time of interest — so that [`hints`](NoPathsContext::hints)
+/// can say which one applies.
+///
+/// The facts come from the [`PkiEnvironment`] the run used, so the diagnosis reflects the material
+/// actually in play rather than what the caller believes it configured. That distinction is the
+/// point: the common cause is trust material a frontend accepted but never routed into path
+/// building.
+///
+/// The hints are deliberately free of any frontend's vocabulary — no flags, no field names — so
+/// the CLI, desktop and browser can all render them. A frontend that wants to name its own input
+/// appends its own line to [`TargetReport::no_paths_hints`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NoPathsContext {
+    /// Number of trust anchors available to the run
+    pub trust_anchors: usize,
+    /// Number of intermediate CA certificates available to the run
+    pub intermediates: usize,
+    /// The target's issuer name, rendered for display
+    pub issuer_name: String,
+    /// Whether a trust anchor matches the target's issuer name
+    pub issuer_is_trust_anchor: bool,
+    /// Number of available certificates whose subject matches the target's issuer name, i.e., the
+    /// candidate issuers the builder had to work with
+    pub issuer_certs: usize,
+    /// Why the target is outside its validity period at the time of interest, when it is. Path
+    /// building excludes such certificates, so this alone explains a zero-path outcome.
+    pub target_invalid_at_toi: Option<String>,
+    /// Whether the frontend can chase AIA and SIA URIs to fetch missing issuers: `None` when it
+    /// cannot (so suggesting it would be noise), `Some(false)` when it can but the run did not, and
+    /// `Some(true)` when the run already did.
+    pub dynamic_build: Option<bool>,
+}
+
+impl NoPathsContext {
+    /// Collects the diagnosis inputs from the environment a run used. `toi` is the time of interest
+    /// the run validated against, expressed as it is in the settings.
+    pub fn collect(
+        pe: &PkiEnvironment,
+        target: &PDVCertificate,
+        toi: TimeOfInterest,
+        dynamic_build: Option<bool>,
+    ) -> NoPathsContext {
+        let issuer = target.decoded().tbs_certificate().issuer();
+        NoPathsContext {
+            trust_anchors: pe.get_trust_anchors().len(),
+            intermediates: pe.get_intermediates().map(|i| i.len()).unwrap_or_default(),
+            issuer_name: name_to_string(issuer),
+            issuer_is_trust_anchor: pe.get_trust_anchor_by_name(issuer).is_ok(),
+            issuer_certs: pe.get_cert_by_name(issuer).len(),
+            // stifle_log: the caller has already logged the failure to find a path, and this is a
+            // question about the target rather than a fresh error
+            target_invalid_at_toi: valid_at_time(target.decoded().tbs_certificate(), toi, true)
+                .err()
+                .map(|e| format!("{e:?}")),
+            dynamic_build,
+        }
+    }
+
+    /// Explains the zero-path outcome as one or more display-ready sentences, most specific first.
+    ///
+    /// Returns an empty vector when the facts do not distinguish a cause, which is why the caller
+    /// treats this as an addition to the status rather than a replacement for it.
+    pub fn hints(&self) -> Vec<String> {
+        let mut hints = vec![];
+
+        // Ordered as the builder fails: nothing to terminate at, then a target that cannot enter
+        // path building at all, then the gap between the target and the material on hand.
+        if 0 == self.trust_anchors {
+            // Deliberately says only what is true of every frontend. Why a supplied anchor did not
+            // survive loading depends on the source it came from, so the frontend that owns that
+            // source appends the explanation; this layer cannot know it.
+            hints.push(
+                "No trust anchors are loaded, so no certification path can terminate.".to_string(),
+            );
+        }
+
+        if let Some(reason) = &self.target_invalid_at_toi {
+            hints.push(format!(
+                "The target certificate is not valid at the time of interest ({reason}); \
+                 certificates outside their validity period are excluded from path building."
+            ));
+        }
+
+        // A missing issuer and a present-but-unusable issuer are different problems with different
+        // remedies, and reporting a bare zero conflates them.
+        let material_missing = if 0 == self.trust_anchors {
+            false
+        } else if self.issuer_is_trust_anchor {
+            hints.push(format!(
+                "A trust anchor matches the target's issuer name ({}), so the missing link is not \
+                 the issuer certificate: the anchor's key identifier or signature does not match \
+                 the target, or the anchor is not valid at the time of interest.",
+                self.issuer_name
+            ));
+            false
+        } else if 0 == self.intermediates {
+            hints.push(format!(
+                "No intermediate CA certificates are loaded and no trust anchor has subject {}, \
+                 the target's issuer.",
+                self.issuer_name
+            ));
+            true
+        } else if 0 == self.issuer_certs {
+            hints.push(format!(
+                "None of the {} loaded intermediate CA certificates has subject {}, the target's \
+                 issuer.",
+                self.intermediates, self.issuer_name
+            ));
+            true
+        } else {
+            hints.push(format!(
+                "{} loaded certificate(s) have subject {}, the target's issuer, but no chain from \
+                 any of them reaches a loaded trust anchor.",
+                self.issuer_certs, self.issuer_name
+            ));
+            true
+        };
+
+        // Only worth raising when the gap is material the builder could have fetched.
+        if material_missing {
+            match self.dynamic_build {
+                Some(false) => hints.push(
+                    "Chasing AIA and SIA URIs is off; enabling it lets the builder fetch the \
+                     missing certificates."
+                        .to_string(),
+                ),
+                Some(true) => hints.push(
+                    "Chasing AIA and SIA URIs was enabled and still produced no issuer, so the \
+                     missing certificates are not reachable from the URIs on hand."
+                        .to_string(),
+                ),
+                None => {}
+            }
+        }
+
+        hints
+    }
 }
 
 impl TargetReport {
@@ -631,6 +782,7 @@ mod tests {
                     }),
                     duration_ms: 12,
                 }],
+                no_paths_hints: vec![],
             }],
             totals: ReportTotals {
                 targets: 1,
@@ -667,6 +819,98 @@ mod tests {
         // Some(vec![]) survives the round trip, preserving "nothing permitted" vs. unconstrained
         assert_eq!(nc.excluded.directory_name, Some(vec![]));
         assert_eq!(round_tripped.totals, report.totals);
+    }
+
+    /// A context with material on hand, i.e., the shape where the diagnosis has to discriminate
+    fn ctx() -> NoPathsContext {
+        NoPathsContext {
+            trust_anchors: 3,
+            intermediates: 40,
+            issuer_name: "CN=Some CA".to_string(),
+            issuer_is_trust_anchor: false,
+            issuer_certs: 0,
+            target_invalid_at_toi: None,
+            dynamic_build: Some(false),
+        }
+    }
+
+    #[test]
+    fn no_paths_hints_name_the_missing_piece() {
+        // no anchors: nothing for a path to terminate at, and the issuer analysis is beside the
+        // point until that is fixed
+        let hints = NoPathsContext {
+            trust_anchors: 0,
+            intermediates: 0,
+            ..ctx()
+        }
+        .hints();
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].contains("No trust anchors are loaded"));
+
+        // anchors but an empty graph: the case a CA folder that was never compiled produces
+        let hints = NoPathsContext {
+            intermediates: 0,
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[0].contains("No intermediate CA certificates are loaded"));
+        assert!(hints[0].contains("CN=Some CA"));
+        assert!(hints[1].contains("Chasing AIA and SIA URIs is off"));
+
+        // a populated graph that does not happen to contain the issuer
+        let hints = ctx().hints();
+        assert!(hints[0].contains("None of the 40 loaded intermediate CA certificates"));
+
+        // the issuer is present but nothing above it reaches an anchor, which is a different
+        // problem from the issuer being absent
+        let hints = NoPathsContext {
+            issuer_certs: 2,
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[0].contains("2 loaded certificate(s) have subject"));
+        assert!(hints[0].contains("no chain from any of them reaches"));
+    }
+
+    #[test]
+    fn no_paths_hints_distinguish_target_and_anchor_problems() {
+        // an anchor issued the target, so no amount of extra material will help
+        let hints = NoPathsContext {
+            issuer_is_trust_anchor: true,
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[0].contains("A trust anchor matches the target's issuer name"));
+        // fetching is not proposed: the material is present, it just does not fit
+        assert_eq!(hints.len(), 1);
+
+        // a target outside its validity period never enters path building at all
+        let hints = NoPathsContext {
+            target_invalid_at_toi: Some("PathValidation(InvalidNotAfterDate)".to_string()),
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[0].contains("not valid at the time of interest"));
+        assert!(hints[0].contains("InvalidNotAfterDate"));
+    }
+
+    #[test]
+    fn no_paths_hints_respect_what_the_frontend_can_do() {
+        // None: a frontend that cannot fetch is not told to fetch
+        let hints = NoPathsContext {
+            dynamic_build: None,
+            ..ctx()
+        }
+        .hints();
+        assert_eq!(hints.len(), 1);
+
+        // already chasing: the remedy has been tried, so say that instead of suggesting it
+        let hints = NoPathsContext {
+            dynamic_build: Some(true),
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[1].contains("was enabled and still produced no issuer"));
     }
 
     #[test]
