@@ -36,6 +36,16 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 # getrandom 0.4 (pulled in transitively via the RustCrypto 0.3/0.8 wave, e.g. crypto-common) has no
 # default backend on wasm32-unknown-unknown; the wasm_js feature opts into the JS (wasm-bindgen)
 # backend. Target-gated so native builds (e.g. the ziptest bin) do not pull in wasm-bindgen/js-sys.
+# Regenerates resources/*.cbor from the trust-store providers; see build.rs.
+# Host-only (build scripts never target wasm), so the wasm/reqwest constraints
+# that apply to the runtime dependencies above do not apply here. Still built
+# with default-features = false: the client stack is 60% of these crates'
+# dependency graph and a build script has no use for it.
+[build-dependencies]
+certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false }
+certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr"] }
+certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_all", "mozilla_cas"] }
+
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
 # Browser fetch for pulling store CBOR on demand (see fetch_bytes). wasm-only; native builds use a

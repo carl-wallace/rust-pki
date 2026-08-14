@@ -569,7 +569,7 @@ dependencies = [
  "p521",
  "pem-rfc7468",
  "pkcs1",
- "pkiprocmacros",
+ "pkiprocmacros 0.1.2",
  "pqckeys",
  "pretty_env_logger",
  "readonly",
@@ -592,6 +592,66 @@ dependencies = [
  "webpki-roots",
  "x509-cert",
  "x509-ocsp",
+]
+
+[[package]]
+name = "certval"
+version = "0.1.4"
+source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#4b6ace03770cf4fdbaf7f5cde3d7087e3e58d86e"
+dependencies = [
+ "base64ct",
+ "bitvec",
+ "cfg-if",
+ "ciborium",
+ "cidr",
+ "cms",
+ "const-oid",
+ "der",
+ "ecdsa",
+ "flagset",
+ "hex-literal",
+ "log",
+ "p256",
+ "p384",
+ "p521",
+ "pem-rfc7468",
+ "pkiprocmacros 0.1.2 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
+ "readonly",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
+ "signature",
+ "spki",
+ "subtle-encoding",
+ "walkdir",
+ "x509-cert",
+ "x509-ocsp",
+]
+
+[[package]]
+name = "certval_stores_core"
+version = "0.1.0"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#c2cf89235e14c6bb47f4abfcb933725e628abb23"
+dependencies = [
+ "certval 0.1.4 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
+ "log",
+]
+
+[[package]]
+name = "certval_stores_mozilla"
+version = "0.1.0"
+source = "git+https://github.com/carl-wallace/certval-stores-mozilla.git?branch=main#23473b69c92a262aecb695cffd030d8d2d65b4f5"
+dependencies = [
+ "certval_stores_core",
+]
+
+[[package]]
+name = "certval_stores_nipr"
+version = "0.1.0"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#c2cf89235e14c6bb47f4abfcb933725e628abb23"
+dependencies = [
+ "certval_stores_core",
 ]
 
 [[package]]
@@ -4596,7 +4656,10 @@ dependencies = [
 name = "pittv3-wasm"
 version = "0.1.3"
 dependencies = [
- "certval",
+ "certval 0.1.4",
+ "certval_stores_core",
+ "certval_stores_mozilla",
+ "certval_stores_nipr",
  "dioxus",
  "getrandom 0.4.3",
  "gloo-net",
@@ -4618,7 +4681,7 @@ name = "pittv3_gui_lib"
 version = "0.1.3"
 dependencies = [
  "anyhow",
- "certval",
+ "certval 0.1.4",
  "dioxus",
  "futures-channel",
  "home",
@@ -4635,7 +4698,7 @@ version = "0.1.3"
 dependencies = [
  "async-recursion",
  "bytes",
- "certval",
+ "certval 0.1.4",
  "ciborium",
  "cms",
  "const-oid",
@@ -4686,6 +4749,15 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 [[package]]
 name = "pkiprocmacros"
 version = "0.1.2"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "pkiprocmacros"
+version = "0.1.2"
+source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#4b6ace03770cf4fdbaf7f5cde3d7087e3e58d86e"
 dependencies = [
  "quote",
  "syn 2.0.119",
