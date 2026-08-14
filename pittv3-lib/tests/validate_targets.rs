@@ -151,6 +151,70 @@ fn validate_targets_report_shapes() {
     assert_eq!(round_tripped.targets[1].paths[0].failure_index, Some(2));
 }
 
+/// A zero-path outcome carries the reason, drawn from the environment the run actually used. The
+/// unit tests cover the phrasing of each branch; this covers the collection step, i.e., that the
+/// counts and the issuer lookup come back from a real `PkiEnvironment` as the diagnosis assumes.
+#[test]
+fn validate_targets_no_paths_are_explained() {
+    let flavor = "PKITS_data_p256/certs";
+    let mut cps = base_settings();
+    cps.set_check_revocation_status(false);
+
+    // the trust anchor is loaded but the intermediate that issued the target is not, so the
+    // builder has an anchor to aim at and no way to reach it
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: read_example(flavor, "TrustAnchorRootCertificate.crt"),
+    });
+    ta_store.initialize().unwrap();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    let targets = vec![(
+        "orphan".to_string(),
+        read_example(flavor, "ValidCertificatePathTest1EE.crt"),
+    )];
+
+    let report = tokio_test::block_on(validate_targets(
+        &pe,
+        &cps,
+        &targets,
+        &ValidateOpts::default(),
+        None,
+    ));
+
+    let target = &report.targets[0];
+    assert_eq!(target.status, TargetStatus::NoPathsFound);
+    // the target is still named, which is the other half of not reporting a bare zero
+    assert!(target.target.is_some());
+    assert!(!target.no_paths_hints.is_empty());
+    let hints = target.no_paths_hints.join(" ");
+    assert!(hints.contains("No intermediate CA certificates are loaded"));
+    // the diagnosis names the issuer it could not find rather than describing the gap in general
+    assert!(hints.contains("Good CA"));
+    // and it survives to a frontend by way of the serialized report
+    let json = serde_json::to_string(&report).unwrap();
+    let round_tripped: ValidationReport = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        round_tripped.targets[0].no_paths_hints,
+        target.no_paths_hints
+    );
+
+    // a target that does find a path carries no diagnosis
+    let pe = build_pe(flavor, &cps);
+    let report = tokio_test::block_on(validate_targets(
+        &pe,
+        &cps,
+        &targets,
+        &ValidateOpts::default(),
+        None,
+    ));
+    assert_eq!(report.targets[0].status, TargetStatus::Valid);
+    assert!(report.targets[0].no_paths_hints.is_empty());
+}
+
 #[cfg(feature = "revocation")]
 #[test]
 fn validate_targets_revocation_undetermined_rollup() {

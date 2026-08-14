@@ -155,6 +155,13 @@ pub fn options_no_std(args: &Pittv3Args) {
         totals.valid_paths_per_target += s.valid_paths_per_target;
         totals.invalid_paths_per_target += s.invalid_paths_per_target;
 
+        // say why the count is zero, where the count is reported
+        if 0 == s.paths_per_target {
+            for hint in &s.no_paths_hints {
+                info!("\t * {}", hint);
+            }
+        }
+
         if 0 < s.paths_per_target {
             info!("\t * Status codes");
             let ec = &error_counts[k];

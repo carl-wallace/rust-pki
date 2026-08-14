@@ -264,6 +264,15 @@ pub fn TargetCard(target: TargetReport, #[props(default)] open: bool) -> Element
                     "No certification paths were processed for this target."
                 }
             }
+            // A zero-path outcome describes the run's inputs rather than the certificate, so the
+            // reasons belong on the card itself: there is no path row for them to hang off.
+            if !target.no_paths_hints.is_empty() {
+                ul { class: "no-paths-hints",
+                    for hint in target.no_paths_hints.iter() {
+                        li { "{hint}" }
+                    }
+                }
+            }
             for (i , path) in target.paths.iter().enumerate() {
                 PathDetail { path: path.clone(), path_index: i }
             }

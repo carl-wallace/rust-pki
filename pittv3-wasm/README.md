@@ -8,8 +8,12 @@ All processing occurs in the browser; certificates never leave the page.
 A hosted instance is available at <https://pittv3.redhoundsoftware.com>; no local build is required
 to try it.
 
-Trust anchor and CA certificate stores for several PKITS editions (ML-DSA-44, ML-DSA-65, ML-DSA-87
-and SLH-DSA-SHA2-128s) are baked into the application as CBOR. Trust anchors and intermediate CA
+Trust anchor and CA certificate stores are shipped as CBOR files in `resources/`, which Trunk
+copies into `dist/` and the app fetches by relative URL when a store is selected (rather than
+embedding them, which would be paid on every page load): an ML-DSA-44 PKITS edition, the Web PKI
+(Mozilla roots and CCADB intermediates) and U.S. DoD (NIPR). The two trust-community stores are
+regenerated from their provider crates by `build.rs`; see `resources/NOTICE` for what each artifact
+is, where it came from and the terms it travels under. Trust anchors and intermediate CA
 certificates can also be uploaded and are used together with the selected built-in store (or alone
 when no store is selected) to validate certificates from other sources, e.g., artifacts produced by
 other implementations during interoperability testing. Uploads and certificates to validate

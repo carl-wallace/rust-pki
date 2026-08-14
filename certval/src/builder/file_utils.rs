@@ -134,18 +134,21 @@ fn cert_or_ta_folder_to_vec(
                         // make sure it parses before saving buffer; a rejected object skips only
                         // itself, not the rest of a bundle.
                         if collect_tas {
-                            let r = TrustAnchorChoice::<Raw>::from_der(buffer.as_slice());
-                            if let Ok(TrustAnchorChoice::Certificate(cert)) = r {
-                                let r =
-                                    valid_at_time(cert.tbs_certificate(), time_of_interest, true);
-                                if let Err(_e) = r {
-                                    error!(
-                                        "Ignored an object in {} as not valid at indicated time of interest",
-                                        path.to_str().unwrap_or("")
-                                    );
-                                    continue;
-                                }
-                            } else {
+                            // Every TrustAnchorChoice alternative is a trust anchor here, not only
+                            // the Certificate one: an RFC 5914 TrustAnchorInfo is how trust anchor
+                            // constraints are expressed, which is most of the reason to hold anchors
+                            // in this form at all, and .ta is an accepted extension for exactly that
+                            // material. An anchor asserting no validity period (Ok(None)) is kept --
+                            // there is nothing to check, which is not the same as failing a check.
+                            let ta = match TrustAnchorChoice::<Raw>::from_der(buffer.as_slice()) {
+                                Ok(ta) => ta,
+                                Err(_e) => continue,
+                            };
+                            if ta_valid_at_time(&ta, time_of_interest, true).is_err() {
+                                error!(
+                                    "Ignored an object in {} as not valid at indicated time of interest",
+                                    path.to_str().unwrap_or("")
+                                );
                                 continue;
                             }
                         } else {
@@ -299,6 +302,39 @@ pub fn get_file_as_der_certs_pem(filename: &Path) -> Result<Vec<Vec<u8>>> {
     decode_pem_to_ders(&b).inspect_err(|e| {
         error!("Failed to PEM decode data from {filename:?}: {e:?}");
     })
+}
+
+// An RFC 5914 TrustAnchorInfo is a trust anchor, and is the form that carries trust anchor
+// constraints, so a folder of .ta files must load as anchors. It previously loaded as nothing: only
+// the Certificate alternative was accepted, and everything else was skipped without a word.
+#[test]
+fn loads_rfc5914_trust_anchors() {
+    let pe = PkiEnvironment::default();
+    let mut tasvec = TaSource::new();
+    let toi = TimeOfInterest::from_unix_secs(1647264981).unwrap();
+    let n = cert_or_ta_folder_to_vec(
+        &pe,
+        "tests/examples/PKITS_data_2048/5914_tas",
+        &mut tasvec,
+        toi,
+        true,
+    )
+    .unwrap();
+    assert!(n > 0);
+    assert!(tasvec.initialize().is_ok());
+
+    // the same folder read as certificates yields nothing, i.e., these are TaInfo objects rather
+    // than certificates that happen to parse either way
+    let mut certsvec = CertSource::default();
+    let n = cert_or_ta_folder_to_vec(
+        &pe,
+        "tests/examples/PKITS_data_2048/5914_tas",
+        &mut certsvec,
+        toi,
+        false,
+    )
+    .unwrap();
+    assert_eq!(0, n);
 }
 
 #[test]

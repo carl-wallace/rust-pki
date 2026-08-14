@@ -2,7 +2,7 @@
 
 #![cfg(any(not(feature = "std"), doc))]
 
-use crate::{stats::PathValidationStats, Pittv3Args};
+use crate::{report::NoPathsContext, stats::PathValidationStats, Pittv3Args};
 use certval::*;
 use log::{error, info};
 
@@ -31,6 +31,12 @@ pub(crate) fn validate_cert(
 
     stats.files_processed += 1;
 
+    // Same diagnosis as the std build, from the same feature-free helper. The trust material here is
+    // compiled in rather than read from folders, so the causes are narrower -- but "which piece is
+    // missing" is exactly as opaque from a zero, and there is no filesystem to go rummage through.
+    // Chasing is None: a no-std build has no fetching to suggest.
+    let diagnose = || NoPathsContext::collect(pe, &target_cert, time_of_interest, None).hints();
+
     let mut paths: Vec<CertificationPath> = vec![];
     let r = pe.get_paths_for_target(&target_cert, &mut paths, 0, time_of_interest);
     if let Err(e) = r {
@@ -38,13 +44,18 @@ pub(crate) fn validate_cert(
             "Failed to find certification paths for target with error {:?}",
             e
         );
+        stats.no_paths_hints = diagnose();
         return Err(Error::Unrecognized);
     }
 
     if paths.is_empty() {
         info!("Failed to find any certification paths for target",);
+        stats.no_paths_hints = diagnose();
         return Err(Error::Unrecognized);
     }
+
+    // a path was found, so an earlier diagnosis for this target is stale
+    stats.no_paths_hints.clear();
 
     // the index is only consumed by the std_app log_path call below
     #[allow(clippy::unused_enumerate_index)]

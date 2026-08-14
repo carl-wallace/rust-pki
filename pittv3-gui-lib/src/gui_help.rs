@@ -31,7 +31,8 @@ pub fn HelpView() -> Element {
                 li {
                     "Select the certificate to validate (End Entity File) or a folder of "
                     "certificates (End Entity Folder), then run. Results appear in the Results "
-                    "view with one card per target."
+                    "view, one expandable entry per certificate validated, showing its status and "
+                    "the paths considered for it."
                 }
             }
 
@@ -58,8 +59,10 @@ pub fn HelpView() -> Element {
                 }
                 li {
                     strong { "No paths found" }
-                    " — the builder could not connect the target to any trust anchor; check the "
-                    "trust anchor selection and intermediate store."
+                    " — the builder could not connect the target to any trust anchor. The result "
+                    "lists what was missing: whether any trust anchor was loaded, whether any "
+                    "loaded certificate has the target's issuer name, and whether the target is "
+                    "within its validity period at the time of interest."
                 }
             }
 
@@ -102,10 +105,13 @@ pub fn HelpView() -> Element {
             h2 { "FAQ" }
             p { strong { "Why did my run report no paths found?" } }
             p {
-                "The most common causes: the trust anchor folder does not contain the root that "
-                "issued the chain, the CBOR store lacks the needed intermediates (regenerate it "
-                "or enable Dynamic Build), or the certificates are not valid at the selected "
-                "time of interest."
+                "Expand that certificate's entry in the Results view: the reasons are listed "
+                "there, beneath its status. The most common causes: the "
+                "trust anchor folder does not contain the root that issued the chain, the CBOR "
+                "store lacks the needed intermediates (regenerate it or enable Dynamic Build), or "
+                "the certificates are not valid at the selected time of interest. Note that a CA "
+                "folder on its own is a generate-time input: it populates a CBOR store, and path "
+                "building reads the store."
             }
             p { strong { "What does the time of interest do?" } }
             p {

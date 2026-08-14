@@ -20,7 +20,8 @@ use crate::pitt_log::*;
 use crate::{
     args::Pittv3Args,
     report::{
-        CertSummary, PathReport, ProgressEvent, ReportTotals, TargetReport, ValidationReport,
+        CertSummary, NoPathsContext, PathReport, ProgressEvent, ReportTotals, TargetReport,
+        ValidationReport,
     },
     stats::{PVStats, PathValidationStats, PathValidationStatsGroup},
 };
@@ -62,6 +63,20 @@ impl ValidateOpts {
             crls: vec![],
         }
     }
+}
+
+/// Whether chasing AIA and SIA URIs is a remedy worth suggesting when path building comes up empty,
+/// in the form [`NoPathsContext`] takes: `None` when the build cannot fetch at all, so proposing it
+/// would send the user after an option that does not exist.
+#[cfg(feature = "remote")]
+fn dynamic_build_state(opts: &ValidateOpts) -> Option<bool> {
+    Some(opts.dynamic_build)
+}
+
+/// Without the `remote` feature there is no fetching to enable, whatever the option says.
+#[cfg(not(feature = "remote"))]
+fn dynamic_build_state(_opts: &ValidateOpts) -> Option<bool> {
+    None
 }
 
 /// `staple_crls` staples caller-provided DER-encoded CRLs into a candidate certification path by
@@ -179,19 +194,42 @@ pub async fn validate_cert_bytes(
 
     let start2 = Instant::now();
     stats.files_processed += 1;
+    if stats.target_summary.is_none() {
+        stats.target_summary = Some(CertSummary::from_cert(&target_cert));
+    }
+
+    // Diagnose a zero-path outcome here rather than where the report is assembled: this is where
+    // the environment still holds the trust material, and where the target is parsed. Chasing is
+    // reported as available-but-off from `opts` because this entry point performs no fetching
+    // itself; the CLI's dynamic-building loop calls back in after each fetch, so the last pass
+    // leaves the diagnosis that reflects everything that was retrieved.
+    let diagnose = |pe: &PkiEnvironment| {
+        NoPathsContext::collect(
+            pe,
+            &target_cert,
+            time_of_interest,
+            dynamic_build_state(opts),
+        )
+        .hints()
+    };
 
     let mut paths: Vec<CertificationPath> = vec![];
     let r = pe.get_paths_for_target(&target_cert, &mut paths, threshold, time_of_interest);
     if let Err(e) = r {
         error!("Failed to find certification paths for target with error {e:?}");
+        stats.no_paths_hints = diagnose(pe);
         return Err(Error::Unrecognized);
     }
 
     if paths.is_empty() {
         collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
         info!("Failed to find any certification paths for target",);
+        stats.no_paths_hints = diagnose(pe);
         return Err(Error::Unrecognized);
     }
+
+    // A path was found, so any diagnosis from an earlier pass of the dynamic-building loop is stale
+    stats.no_paths_hints.clear();
 
     for (i, path) in paths.iter_mut().enumerate() {
         info!(
@@ -382,6 +420,7 @@ pub async fn validate_targets(
             Ok(target_cert) => Some(CertSummary::from_cert(&target_cert)),
             Err(_e) => None,
         };
+        let no_paths_hints = core::mem::take(&mut stats_for_target.no_paths_hints);
 
         totals.targets += 1;
         totals.paths_found += paths_found;
@@ -393,6 +432,7 @@ pub async fn validate_targets(
             target: target_summary,
             status,
             paths: path_reports,
+            no_paths_hints,
         });
     }
 
@@ -666,6 +706,10 @@ pub fn cleanup_tas(
                     let mut delete_file = false;
                     match TrustAnchorChoice::from_der(target.as_slice()) {
                         Ok(ta) => {
+                            // Only a failed validity check condemns the file. An anchor that asserts
+                            // no validity period returns Ok(None) and must be kept: cleanup deletes
+                            // or moves what it rejects, so treating "nothing to check" as "expired"
+                            // would destroy every RFC 5914 anchor carrying only a name and key.
                             let r = ta_valid_at_time(&ta, t, true);
                             if r.is_err() {
                                 delete_file = true;

@@ -27,6 +27,10 @@ struct Artifact {
     ca: Option<&'static str>,
 }
 
+/// Adding an entry here adds a redistributed trust set to `dist/`, so it also
+/// wants a paragraph in `resources/NOTICE` — that file is the attribution for
+/// everything this build script writes, and for the Mozilla material it is the
+/// MPL-2.0 Exhibit A notice the CBOR itself cannot carry.
 fn artifacts() -> Vec<Artifact> {
     vec![
         Artifact {
