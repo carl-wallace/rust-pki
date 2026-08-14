@@ -243,9 +243,15 @@ impl PkiEnvironment {
         buffer_to_hash: &[u8],
     ) -> Result<Vec<u8>> {
         for f in &self.calculate_hash_callbacks {
-            let r = f.calculate_hash(pe, hash_alg, buffer_to_hash);
-            if let Ok(r) = r {
-                return Ok(r);
+            match f.calculate_hash(pe, hash_alg, buffer_to_hash) {
+                Ok(r) => return Ok(r),
+                // Unrecognized is a callback saying it does not implement this
+                // algorithm, which is the only reason to ask the next one. Any
+                // other error is the authoritative answer this loop is looking
+                // for; returning it beats continuing and reporting Unrecognized,
+                // which would misdescribe a real failure as an unsupported one.
+                Err(Error::Unrecognized) => continue,
+                Err(e) => return Err(e),
             }
         }
         Err(Error::Unrecognized)
@@ -277,10 +283,13 @@ impl PkiEnvironment {
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_digest_callbacks {
-            if f.verify_signature_digest(pe, hash_to_verify, signature, signature_alg, spki)
-                .is_ok()
-            {
-                return Ok(());
+            match f.verify_signature_digest(pe, hash_to_verify, signature, signature_alg, spki) {
+                Ok(()) => return Ok(()),
+                // See calculate_hash: only an Unrecognized means "ask the next
+                // callback". A SignatureVerificationFailure here is a fact about
+                // the signature, not about this callback's capabilities.
+                Err(Error::Unrecognized) => continue,
+                Err(e) => return Err(e),
             }
         }
         Err(Error::Unrecognized)
@@ -313,17 +322,17 @@ impl PkiEnvironment {
         ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_digest_ctx_callbacks {
-            if f.verify_signature_digest_with_context(
+            match f.verify_signature_digest_with_context(
                 pe,
                 hash_to_verify,
                 signature,
                 signature_alg,
                 spki,
                 ctx,
-            )
-            .is_ok()
-            {
-                return Ok(());
+            ) {
+                Ok(()) => return Ok(()),
+                Err(Error::Unrecognized) => continue,
+                Err(e) => return Err(e),
             }
         }
         Err(Error::Unrecognized)
@@ -354,10 +363,11 @@ impl PkiEnvironment {
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
         for f in &self.verify_signature_message_callbacks {
-            let r =
-                f.verify_signature_message(pe, message_to_verify, signature, signature_alg, spki);
-            if let Ok(r) = r {
-                return Ok(r);
+            match f.verify_signature_message(pe, message_to_verify, signature, signature_alg, spki)
+            {
+                Ok(r) => return Ok(r),
+                Err(Error::Unrecognized) => continue,
+                Err(e) => return Err(e),
             }
         }
         Err(Error::Unrecognized)
@@ -391,16 +401,17 @@ impl PkiEnvironment {
         ctx: &Option<Vec<u8>>,                    // context
     ) -> Result<()> {
         for f in &self.verify_signature_message_ctx_callbacks {
-            let r = f.verify_signature_message_with_context(
+            match f.verify_signature_message_with_context(
                 pe,
                 message_to_verify,
                 signature,
                 signature_alg,
                 spki,
                 ctx,
-            );
-            if let Ok(r) = r {
-                return Ok(r);
+            ) {
+                Ok(r) => return Ok(r),
+                Err(Error::Unrecognized) => continue,
+                Err(e) => return Err(e),
             }
         }
         Err(Error::Unrecognized)

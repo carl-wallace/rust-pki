@@ -6,7 +6,6 @@ use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 use alloc::vec::Vec;
 use const_oid::db::rfc5912::ID_RSASSA_PSS;
 use der::{asn1::ObjectIdentifier, AnyRef, Encode};
-use der::{Enumerated, Sequence};
 use log::{debug, error};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -17,8 +16,9 @@ use const_oid::db::rfc8410::ID_ED_25519;
 #[cfg(feature = "rsa")]
 use {
     alloc::string::ToString,
-    const_oid::db::rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512},
+    const_oid::db::rfc5912::{ID_MGF_1, ID_SHA_256, ID_SHA_384, ID_SHA_512},
     der::Decode,
+    pkcs1::RsaPssParams,
 };
 
 #[cfg(feature = "rsa")]
@@ -179,41 +179,78 @@ pub fn verify_signature_message_rust_crypto(
         }
     } else if ID_RSASSA_PSS == signature_alg.oid {
         #[cfg(feature = "rsa")]
-        use rsa::pkcs8::DecodePublicKey as _;
-        #[cfg(feature = "rsa")]
-        if let Ok(enc_spki) = spki.to_der() {
-            let rsa = rsa::RsaPublicKey::from_public_key_der(&enc_spki);
-            if let Ok(rsa) = rsa {
-                let enc_params = signature_alg.parameters.to_der()?;
-                let params = RsaPssParams::from_der(&enc_params)?;
-                let hash_to_verify =
-                    calculate_hash_rust_crypto(pe, &params.hash, message_to_verify)?;
+        {
+            use rsa::pkcs8::DecodePublicKey as _;
 
-                if ID_SHA_256 == params.hash.oid {
-                    let pss: rsa::pss::VerifyingKey<Sha256> = rsa::pss::VerifyingKey::new(rsa);
-                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
-                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
+            // Unrecognized rather than an encoding error: a key this callback
+            // cannot decode is a statement about this callback, and the
+            // environment only moves on to the next one (an offloaded
+            // implementation, say) on Unrecognized.
+            let enc_spki = spki.to_der()?;
+            let Ok(rsa) = rsa::RsaPublicKey::from_public_key_der(&enc_spki) else {
+                error!("Could not decode an RSA verifying key for an RSASSA-PSS signature");
+                return Err(Error::Unrecognized);
+            };
+
+            // RFC 4055 section 3.1 makes the parameters field mandatory for
+            // id-RSASSA-PSS, and the salt length and MGF live only there, so an
+            // absent one is not a case to paper over with defaults.
+            let Some(parameters) = &signature_alg.parameters else {
+                error!("RSASSA-PSS AlgorithmIdentifier carries no parameters");
+                return Err(Error::PathValidation(PathValidationStatus::EncodingError));
+            };
+            let enc_params = parameters.to_der()?;
+            let params = RsaPssParams::from_der(&enc_params).map_err(|e| {
+                error!("Could not decode RSASSA-PSS parameters: {e:?}");
+                Error::PathValidation(PathValidationStatus::EncodingError)
+            })?;
+
+            // rsa::pss::VerifyingKey<D> always masks with MGF1-D, so a signature
+            // whose parameters name a different MGF would be verified under
+            // parameters the signer did not state. Reject rather than silently
+            // substitute.
+            if ID_MGF_1 != params.mask_gen.oid
+                || params.mask_gen.parameters.map(|p| p.oid) != Some(params.hash.oid)
+            {
+                error!(
+                    "Unsupported RSASSA-PSS mask generation function {:?}; only MGF1 over the same hash as hashAlgorithm is supported",
+                    params.mask_gen.oid.to_string()
+                );
+                return Err(Error::Unrecognized);
+            }
+
+            // The salt length is carried in the parameters and is not always the
+            // digest length, so it has to be taken from there rather than left to
+            // VerifyingKey::new's default.
+            let salt_len = params.salt_len as usize;
+            macro_rules! verify_pss {
+                ($digest:ty) => {{
+                    let key = rsa::pss::VerifyingKey::<$digest>::new_with_salt_len(rsa, salt_len);
+                    // Signature length comes from the certificate under
+                    // validation, so a length that does not match the modulus is
+                    // a verification failure rather than a fault.
+                    let sig = rsa::pss::Signature::try_from(signature).map_err(|_err| {
+                        error!("Could not decode RSASSA-PSS signature");
+                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
+                    })?;
+                    return key.verify(message_to_verify, &sig).map_err(|_err| {
                         Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
                     });
-                } else if ID_SHA_384 == params.hash.oid {
-                    let pss: rsa::pss::VerifyingKey<Sha384> = rsa::pss::VerifyingKey::new(rsa);
-                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
-                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
-                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
-                    });
-                } else if ID_SHA_512 == params.hash.oid {
-                    let pss: rsa::pss::VerifyingKey<Sha512> = rsa::pss::VerifyingKey::new(rsa);
-                    let pss_sig = rsa::pss::Signature::try_from(signature).unwrap();
-                    return pss.verify(message_to_verify, &pss_sig).map_err(|_err| {
-                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
-                    });
-                } else {
-                    error!(
-                        "Unrecognized hash algorithm in RSA PSS parameters {:?}",
-                        params.hash.oid.to_string()
-                    );
-                    return Err(Error::Unrecognized);
-                }
+                }};
+            }
+
+            if ID_SHA_256 == params.hash.oid {
+                verify_pss!(Sha256)
+            } else if ID_SHA_384 == params.hash.oid {
+                verify_pss!(Sha384)
+            } else if ID_SHA_512 == params.hash.oid {
+                verify_pss!(Sha512)
+            } else {
+                error!(
+                    "Unrecognized hash algorithm in RSA PSS parameters {:?}",
+                    params.hash.oid.to_string()
+                );
+                return Err(Error::Unrecognized);
             }
         }
     } else if is_ecdsa(&signature_alg.oid) {
@@ -292,41 +329,6 @@ pub fn verify_signature_message_rust_crypto(
 
     debug!("Unrecognized signature algorithm: {}", signature_alg.oid);
     Err(Error::Unrecognized)
-}
-
-/// Parameters to support use of the RSA PSS signature scheme as defined in [RFC 5912 Section 8].
-///
-/// ```text
-///    RSASSA-PSS-params  ::=  SEQUENCE  {
-//        hashAlgorithm     [0] HashAlgorithm DEFAULT sha1Identifier,
-//        maskGenAlgorithm  [1] MaskGenAlgorithm DEFAULT mgf1SHA1,
-//        saltLength        [2] INTEGER DEFAULT 20,
-//        trailerField      [3] INTEGER DEFAULT 1
-//    }
-/// ```
-/// [RFC 5912 Section 8]: https://www.rfc-editor.org/rfc/rfc5912#section-8
-#[derive(Clone, Debug, Eq, PartialEq, Sequence)]
-pub struct RsaPssParams {
-    /// Hash Algorithm
-    pub hash: AlgorithmIdentifierOwned,
-
-    /// Mask Generation Function (MGF)
-    pub mask_gen: AlgorithmIdentifierOwned,
-
-    /// Salt length
-    pub salt_len: u32,
-
-    /// Trailer field (i.e. [`TrailerField::BC`])
-    pub trailer_field: TrailerField,
-}
-
-/// todo
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Enumerated)]
-#[asn1(type = "INTEGER")]
-#[repr(u8)]
-pub enum TrailerField {
-    /// the only supported value (0xbc, default)
-    BC = 1,
 }
 
 #[test]
