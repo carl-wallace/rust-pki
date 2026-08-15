@@ -4687,9 +4687,13 @@ dependencies = [
  "home",
  "log",
  "log4rs",
+ "pem-rfc7468",
  "pittv3_lib",
+ "serde",
  "serde_json",
+ "web-time",
  "x509-cert",
+ "zip",
 ]
 
 [[package]]

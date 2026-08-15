@@ -10,6 +10,7 @@ pub mod gui_settings;
 pub mod gui_settings_model;
 pub mod gui_shell;
 pub mod gui_utils;
+pub mod validate;
 
 /// Shared stylesheet for GUI frontends; embed via a `style` element so each frontend ships one
 /// consistent look without a filesystem or network dependency.

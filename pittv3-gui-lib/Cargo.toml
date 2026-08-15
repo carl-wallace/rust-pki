@@ -25,7 +25,14 @@ x509-cert = { version = "0.3.0", default-features = false }
 dioxus = "0.7.9"
 
 log = {version = "0.4.33"}
+# PEM decoding for uploaded trust material, and the PQC-hackathon zip reader; both are inputs
+# to the shared validation path in validate.rs rather than anything frontend-specific.
+pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
+# Instant that works on wasm as well as the host, for the validation timing in validate.rs.
+web-time = "1.1.0"
 
 anyhow = {version = "1.0.103", optional = true}
 futures-channel = {version = "0.3.31", optional = true}
