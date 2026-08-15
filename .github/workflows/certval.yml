@@ -92,6 +92,24 @@ jobs:
       # used solely by a gated path), which is why the default-feature run above is kept as well.
       - run: cargo clippy --workspace --all-targets --all-features --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm -- -D warnings
 
+  # Broken doc links are invisible to check, clippy and test: they surface only when rustdoc
+  # resolves them, so a dead `[Foo]` ships in the published docs. certval declares
+  # `all-features = true` for docs.rs, so the second run is the shape docs.rs will build.
+  doc:
+    name: rustdoc (-D warnings)
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
+      - run: cargo doc --workspace --no-deps --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm
+      # A link to a `#[cfg(feature = ...)]` item resolves only when that feature is on, so the two
+      # runs catch different things: this one the links that need a feature, the one above the
+      # links that break without it.
+      - run: cargo doc --workspace --no-deps --all-features --exclude pittv3-gui --exclude pittv3_gui_lib --exclude pittv3-wasm
+
   # certval is no_std-capable; prove it links for an embedded target. Build-only
   # (no test runner on the target). thumbv7em-none-eabihf deliberately — an
   # x86_64-unknown-none check can silently tolerate std leakage this catches.
