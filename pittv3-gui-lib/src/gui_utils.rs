@@ -6,12 +6,13 @@ use dioxus::prelude::*;
 #[cfg(feature = "std")]
 use std::fs;
 #[cfg(feature = "std")]
-use std::fs::{create_dir_all, File};
+use std::fs::File;
 
 #[cfg(feature = "std")]
-use home::home_dir;
-#[cfg(feature = "std")]
 use log::error;
+
+#[cfg(feature = "std")]
+use crate::settings_store::app_home;
 
 #[cfg(feature = "std")]
 use certval::{Error, Result};
@@ -23,12 +24,8 @@ use pittv3_lib::args::Pittv3Args;
 /// there is no home directory, no saved configuration or the saved configuration cannot be parsed.
 #[cfg(feature = "std")]
 pub fn read_saved_args() -> Result<Pittv3Args> {
-    if let Some(hd) = home_dir() {
-        let app_home = hd.join(".pittv3");
-        if !app_home.exists() {
-            let _ = create_dir_all(app_home);
-        }
-        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
+    if let Some(app_home) = app_home() {
+        let app_cfg = app_home.join("pittv3.cfg");
         if let Ok(f) = File::open(app_cfg) {
             if let Ok(a) = serde_json::from_reader(&f) {
                 return Ok(a);
@@ -44,8 +41,8 @@ pub fn read_saved_args() -> Result<Pittv3Args> {
 /// user's home directory.
 #[cfg(feature = "std")]
 pub fn save_args(args: &Pittv3Args) -> Result<()> {
-    if let Some(hd) = home_dir() {
-        let app_cfg = hd.join(".pittv3").join("pittv3.cfg");
+    if let Some(app_home) = app_home() {
+        let app_cfg = app_home.join("pittv3.cfg");
         if let Ok(json_args) = serde_json::to_string(&args) {
             if let Err(e) = fs::write(app_cfg, json_args) {
                 error!("Unable to write args to file: {e}");

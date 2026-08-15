@@ -18,6 +18,7 @@ use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, read_saved_args, save_args, set_log_sink, ChannelAppender,
 };
+use pittv3_gui_lib::settings_store::default_settings_path;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::options_std::options_std;
@@ -514,7 +515,16 @@ pub(crate) fn App() -> Element {
     let s_end_entity_file = use_signal(|| sa.end_entity_file.clone().unwrap_or_default());
     let s_end_entity_folder = use_signal(|| sa.end_entity_folder.clone().unwrap_or_default());
     let s_results_folder = use_signal(|| sa.results_folder.clone().unwrap_or_default());
-    let mut s_settings = use_signal(|| sa.settings.clone().unwrap_or_default());
+    // Effective settings file. Saved args win; otherwise the default in ~/.pittv3 so the app always
+    // has settings, matching the browser frontend where localStorage always answers. The file need
+    // not exist — read_settings treats a missing path as "all defaults".
+    let mut s_settings = use_signal(|| {
+        sa.settings
+            .clone()
+            .filter(|p| !p.is_empty())
+            .or_else(default_settings_path)
+            .unwrap_or_default()
+    });
     let s_crl_folder = use_signal(|| sa.crl_folder.clone().unwrap_or_default());
     let s_cleanup = use_signal(|| sa.cleanup);
     let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
@@ -772,6 +782,21 @@ pub(crate) fn App() -> Element {
                                             }
                                         }
                                     }
+                                    // A run honors this file, so name it rather than leaving the
+                                    // user to infer it from a path field they never filled in.
+                                    tr {
+                                        td { }
+                                        td { class: "grow",
+                                            span { class: "hint",
+                                                if s_settings().is_empty() {
+                                                    "This run will use certval defaults."
+                                                } else {
+                                                    "This run will use the settings above."
+                                                }
+                                            }
+                                        }
+                                        td { }
+                                    }
                                 }
                             }
                             table {
@@ -1007,9 +1032,13 @@ pub(crate) fn App() -> Element {
                                     }
                                 }
                             }
+                            // Always shown: settings are app state, not a document you must open
+                            // first. The path above selects which file backs them and defaults to
+                            // ~/.pittv3/settings.json, which is created on save if it does not
+                            // exist. The empty case is only reachable with no home directory.
                             if s_settings().is_empty() {
                                 p { class: "hint",
-                                    "Choose (or type the path of) a JSON settings file to edit. A new file is created on save if it does not exist."
+                                    "No home directory is available, so there is no default settings file. Choose (or type the path of) a JSON settings file to edit."
                                 }
                             } else {
                                 EditSettingsFile {

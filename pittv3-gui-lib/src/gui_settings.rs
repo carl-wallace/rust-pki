@@ -10,20 +10,181 @@
 //! certval default), editing a field records an override, and Reset to defaults discards all
 //! overrides. The revocation tab presents a composed mode selection with the individual settings
 //! under an advanced disclosure.
+//!
+//! Every frontend presents every tab, including settings it cannot act on: a browser has no
+//! filesystem and, until a fetch relay exists, no way to retrieve CRLs or OCSP responses. Those
+//! groups carry a notice saying so rather than being hidden, for two reasons. A user
+//! who learned the form in one frontend finds the same tabs in the next, and the settings file is
+//! shared across all of them (`pittv3 -s`, the desktop editor, the browser's import/export), so
+//! authoring a value that only takes effect elsewhere is a legitimate thing to do. What each
+//! frontend can actually act on is declared by [`Capabilities`].
 
 use dioxus::prelude::*;
 
 use certval::{NameConstraintsSettings, OcspNonceSetting};
+use x509_cert::der::DateTime;
 use x509_cert::ext::pkix::KeyUsages;
 
 use crate::gui_settings_model::{RevocationMode, SettingsModel};
 
 #[cfg(feature = "std")]
-use certval::read_settings;
+use crate::settings_store::{FileSettingsStore, SettingsStore};
 #[cfg(feature = "std")]
 use log::error;
+
+/// What the hosting frontend can act on, so the form can present every setting while marking the
+/// groups that cannot take effect where it is running.
+///
+/// This is deliberately a statement about the *environment*, not about a privacy tier or a
+/// packaging choice: a browser gains `network` when a fetch relay is available to it, and the
+/// hosted variant selecting a different mode is one of the things that can flip that bit. Keeping
+/// the form's input in these terms means a tier selector becomes something that *sets*
+/// capabilities rather than something the form has to know about.
+///
+/// [`Default`] is the most restrictive combination — a browser with no relay — so a frontend that
+/// says nothing gets accurate notices rather than silently promising more than it can do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Capabilities {
+    /// Local filesystem paths are meaningful, so the folders and files settings can take effect
+    pub filesystem: bool,
+    /// Outbound requests are available, directly or through a relay, so CRLs, OCSP responses and
+    /// AIA/SIA certificates can be retrieved
+    pub network: bool,
+    /// certval was built with revocation support, so revocation settings are honored at all
+    pub revocation: bool,
+}
+
+impl Capabilities {
+    /// Everything available: the desktop and CLI frontends, built with `std` and `remote`
+    pub fn desktop() -> Self {
+        Self {
+            filesystem: true,
+            network: true,
+            revocation: true,
+        }
+    }
+
+    /// A browser with no relay: no filesystem, no outbound requests, and certval built without
+    /// revocation support. Same as [`Default`], named for the call sites that mean it explicitly.
+    pub fn browser_local() -> Self {
+        Self::default()
+    }
+}
+
+/// Explains that a group of settings is recorded but cannot take effect in this frontend. Rendered
+/// above the group rather than in place of it — see the module documentation for why the fields
+/// stay visible and editable.
+#[component]
+fn CapabilityNotice(message: String) -> Element {
+    rsx! {
+        p { class: "hint capability-notice", "{message}" }
+    }
+}
+
+/// Formats Unix-epoch seconds as a `datetime-local` value (`YYYY-MM-DDTHH:MM:SS`) in UTC.
+///
+/// Built on `der::DateTime` rather than a platform clock API so the same rendering serves the
+/// desktop and the browser; the browser previously showed local time here and the desktop UTC,
+/// which made the same stored setting read differently in the two frontends.
+fn epoch_to_datetime_local(secs: u64) -> String {
+    match DateTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
+        Ok(dt) => format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minutes(),
+            dt.seconds()
+        ),
+        Err(_) => String::new(),
+    }
+}
+
+/// Parses a `datetime-local` value (`YYYY-MM-DDTHH:MM` or `...:SS`, interpreted as UTC) back to
+/// Unix-epoch seconds; inverse of [`epoch_to_datetime_local`].
+fn datetime_local_to_epoch(value: &str) -> Option<u64> {
+    let v = value.trim();
+    let rfc3339 = match v.len() {
+        16 => format!("{v}:00Z"), // picker omitted the seconds component
+        19 => format!("{v}Z"),
+        _ => return None,
+    };
+    rfc3339
+        .parse::<DateTime>()
+        .ok()
+        .map(|dt| dt.unix_duration().as_secs())
+}
+
+/// Table row for the time of interest: the epoch value, a Now button, and a human-readable picker
+/// mirroring it. An empty value clears the override, which means "the time of the run".
+#[component]
+fn TimeOfInterestRow(value: Option<u64>, now: u64, onchange: EventHandler<Option<u64>>) -> Element {
+    let display = value.map(|v| v.to_string()).unwrap_or_default();
+    // Empty while the value is absent or disabled (0), so the picker does not claim a time that is
+    // not in effect.
+    let picker = match value {
+        Some(secs) if secs != 0 => epoch_to_datetime_local(secs),
+        _ => String::new(),
+    };
+    rsx! {
+        tr {
+            td { label { "Time of interest (Unix epoch, 0 disables): " } }
+            td {
+                input {
+                    r#type: "number",
+                    min: "0",
+                    value: display,
+                    placeholder: "run time",
+                    oninput: move |ev| {
+                        let v = ev.value();
+                        if v.trim().is_empty() {
+                            onchange.call(None);
+                        } else if let Ok(parsed) = v.trim().parse::<u64>() {
+                            onchange.call(Some(parsed));
+                        }
+                    },
+                }
+                button {
+                    r#type: "button",
+                    onclick: move |_| onchange.call(Some(now)),
+                    "Now"
+                }
+                // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
+                input {
+                    r#type: "datetime-local",
+                    step: "1",
+                    value: picker,
+                    onchange: move |ev| {
+                        if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                            onchange.call(Some(secs));
+                        }
+                    },
+                }
+            }
+            td {
+                span { class: "hint",
+                    if value.is_some() {
+                        "override (UTC)"
+                    } else {
+                        "default: the time of the run"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Current time in Unix-epoch seconds, for the time-of-interest Now button. `web_time` so the same
+/// call works in the browser and on the host. Only the file-backed wrapper needs it; frontends that
+/// mount [`EditSettings`] directly pass their own `now`.
 #[cfg(feature = "std")]
-use std::io::Write;
+fn now_as_unix_epoch() -> u64 {
+    match web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH) {
+        Ok(n) => n.as_secs(),
+        Err(_) => 0,
+    }
+}
 
 /// Returns true if `s` is plausibly a dotted-decimal OID
 fn looks_like_oid(s: &str) -> bool {
@@ -407,12 +568,14 @@ const TABS: &[(SettingsTab, &str)] = &[
 ];
 
 /// Renderer-agnostic settings editor over a [`SettingsModel`]. The `on_save` handler receives the
-/// edited model; persistence (file, server, browser storage) is the frontend's concern. Set
-/// `show_folders` to present the desktop-only folders/files tab.
+/// edited model; persistence (file, server, browser storage) is the frontend's concern. `caps`
+/// declares what this frontend can act on, which drives the per-group notices; it defaults to the
+/// most restrictive combination.
 #[component]
 pub fn EditSettings(
     initial: SettingsModel,
-    #[props(default)] show_folders: bool,
+    #[props(default)] caps: Capabilities,
+    now: u64,
     on_save: EventHandler<SettingsModel>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -426,16 +589,14 @@ pub fn EditSettings(
         div { class: "settings-editor",
             div { class: "tab-bar",
                 for (t , label) in TABS.iter() {
-                    if *t != SettingsTab::Folders || show_folders {
-                        button {
-                            r#type: "button",
-                            class: if tab() == *t { "tab tab-active" } else { "tab" },
-                            onclick: {
-                                let t = *t;
-                                move |_| tab.set(t)
-                            },
-                            "{label}"
-                        }
+                    button {
+                        r#type: "button",
+                        class: if tab() == *t { "tab tab-active" } else { "tab" },
+                        onclick: {
+                            let t = *t;
+                            move |_| tab.set(t)
+                        },
+                        "{label}"
                     }
                 }
             }
@@ -554,10 +715,9 @@ pub fn EditSettings(
                                 overridden: m.enforce_alg_and_key_size_constraints.is_some(),
                                 onchange: move |v| model.write().enforce_alg_and_key_size_constraints = Some(v),
                             }
-                            NumberRow {
-                                label: "Time of interest (Unix epoch, 0 disables)",
+                            TimeOfInterestRow {
                                 value: m.time_of_interest,
-                                placeholder: "run time",
+                                now,
                                 onchange: move |v| model.write().time_of_interest = v,
                             }
                             BoolRow {
@@ -570,6 +730,23 @@ pub fn EditSettings(
                     }
                 },
                 SettingsTab::Revocation => rsx! {
+                    // Two distinct reasons revocation can be inert, reported separately because
+                    // the remedies differ: one is how certval was built, the other is whether
+                    // anything can reach a responder from here.
+                    if !caps.revocation {
+                        CapabilityNotice {
+                            message: "This frontend was built without revocation support, so these settings are \
+                                      recorded in the settings file but not applied to a run here."
+                                .to_string(),
+                        }
+                    } else if !caps.network {
+                        CapabilityNotice {
+                            message: "Retrieving CRLs and OCSP responses needs outbound network access, which is \
+                                      not available here. Revocation data supplied with the certificates is still \
+                                      honored; these settings otherwise apply only where the tool can fetch."
+                                .to_string(),
+                        }
+                    }
                     div { class: "radio-group",
                         strong { "Revocation mode: " }
                         for (value , label) in [
@@ -669,6 +846,15 @@ pub fn EditSettings(
                     }
                 },
                 SettingsTab::Fetching => rsx! {
+                    if !caps.network {
+                        CapabilityNotice {
+                            message: "Chasing AIA and SIA needs outbound network access, which is not available \
+                                      here: certificate repositories are served over plain http and send no CORS \
+                                      headers, so a browser cannot reach them without a relay. Paths are built \
+                                      from the selected store and any uploaded certificates instead."
+                                .to_string(),
+                        }
+                    }
                     table {
                         tbody {
                             BoolRow {
@@ -715,6 +901,14 @@ pub fn EditSettings(
                     }
                 },
                 SettingsTab::Folders => rsx! {
+                    if !caps.filesystem {
+                        CapabilityNotice {
+                            message: "This frontend has no filesystem access, so these paths do not resolve here. \
+                                      They are kept in the settings file, which is the same format the CLI and the \
+                                      desktop app read, so a path set here takes effect when the file is used there."
+                                .to_string(),
+                        }
+                    }
                     table {
                         tbody {
                             TextRow {
@@ -777,31 +971,17 @@ pub fn EditSettings(
 pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
     let initial = use_hook({
         let path = path.clone();
-        move || {
-            let cps = read_settings(&Some(path)).unwrap_or_default();
-            SettingsModel::from_cps(&cps)
-        }
+        move || SettingsModel::from_cps(&FileSettingsStore::new(path).load())
     });
 
     let save_path = path.clone();
     let on_save = move |edited: SettingsModel| {
-        // start from the file contents so settings not surfaced in the form are preserved
-        let mut cps = read_settings(&Some(save_path.clone())).unwrap_or_default();
+        let store = FileSettingsStore::new(save_path.clone());
+        // start from the stored contents so settings not surfaced in the form are preserved
+        let mut cps = store.load();
         edited.apply(&mut cps);
-        match serde_json::to_string(&cps) {
-            Ok(json_ps) => match std::fs::File::create(&save_path) {
-                Ok(mut final_file) => {
-                    if let Err(e) = final_file.write_all(json_ps.as_bytes()) {
-                        error!("Failed to save settings: {e}");
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to create file to receive settings: {e}");
-                }
-            },
-            Err(e) => {
-                error!("Failed to encode settings: {e}");
-            }
+        if let Err(e) = store.save(&cps) {
+            error!("{e}");
         }
         on_close.call(());
     };
@@ -809,7 +989,8 @@ pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
     rsx! {
         EditSettings {
             initial,
-            show_folders: true,
+            caps: Capabilities::desktop(),
+            now: now_as_unix_epoch(),
             on_save,
             on_close: move |_| on_close.call(()),
         }

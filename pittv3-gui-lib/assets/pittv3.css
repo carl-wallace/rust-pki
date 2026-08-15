@@ -93,6 +93,15 @@ input[type="checkbox"] {
   padding-left: 0.5rem;
 }
 
+/* Explains that a group of settings cannot take effect in this frontend. Set apart from a plain
+   hint because it qualifies everything below it rather than annotating one field. */
+.capability-notice {
+  border-left: 3px solid var(--muted);
+  padding: 0.4rem 0.6rem;
+  margin: 0.5rem 0;
+  max-width: 60rem;
+}
+
 button[type="submit"] {
   font-size: 1rem;
   padding: 0.35rem 1.5rem;

@@ -70,6 +70,7 @@ mod tests {
     // glob-importing certval the way the pre-split file did.
     use super::*;
     use certval::*;
+    use pittv3_gui_lib::gui_settings_model::SettingsModel;
     use pittv3_lib::report::{TargetReport, TargetStatus};
 
     // The app fetches store CBOR at runtime; the native tests read it straight from the resources
@@ -80,21 +81,16 @@ mod tests {
         include_bytes!("../resources/pkits_ml_dsa_44_ca.cbor"),
     );
 
-    fn test_settings() -> ValidationSettings {
-        ValidationSettings {
+    /// The settings a test run uses, built through the same SettingsModel the settings form edits.
+    fn test_settings() -> CertificationPathSettings {
+        let model = SettingsModel {
             // 0 disables validity period checks so the baked PKITS edition stays usable
-            toi: 0,
-            toi_custom: false,
-            validate_all: true,
-            initial_explicit_policy: false,
-            initial_policy_mapping_inhibit: false,
-            initial_inhibit_any_policy: false,
-            initial_policy_set: String::new(),
-            enforce_trust_anchor_constraints: false,
-            enforce_trust_anchor_validity: true,
-            permitted_subtrees: NameConstraintInputs::default(),
-            excluded_subtrees: NameConstraintInputs::default(),
-        }
+            time_of_interest: Some(0),
+            ..SettingsModel::default()
+        };
+        let mut cps = CertificationPathSettings::default();
+        model.apply(&mut cps);
+        cps
     }
 
     /// Prepares an environment for `store` and validates `ees` against it in one call, as the
@@ -102,13 +98,12 @@ mod tests {
     fn validate_batch(
         store: (&str, &[u8], &[u8]),
         ees: &[(String, Vec<u8>)],
-        vs: &ValidationSettings,
+        cps: &CertificationPathSettings,
     ) -> (Vec<TargetReport>, Vec<ResultLine>) {
         let mut notes = vec![];
-        let cps = make_cps(vs, &mut notes);
-        let (prepared, prep_notes) = prepare_validation(Some(store), &[], &[], &cps).unwrap();
+        let (prepared, prep_notes) = prepare_validation(Some(store), &[], &[], cps).unwrap();
         notes.extend(prep_notes);
-        let (reports, lines) = validate_prepared(&prepared, &cps, ees, vs.validate_all);
+        let (reports, lines) = validate_prepared(&prepared, cps, ees, true);
         notes.extend(lines);
         (reports, notes)
     }
@@ -155,15 +150,14 @@ mod tests {
 
     #[test]
     fn cps_json_round_trips_no_std() {
-        let vs = ValidationSettings {
-            toi: 1647264981,
-            toi_custom: true,
-            initial_explicit_policy: true,
-            initial_policy_set: "2.16.840.1.101.3.2.1.48.1".to_string(),
-            ..test_settings()
+        let model = SettingsModel {
+            time_of_interest: Some(1647264981),
+            initial_explicit_policy_indicator: Some(true),
+            initial_policy_set: Some(vec!["2.16.840.1.101.3.2.1.48.1".to_string()]),
+            ..SettingsModel::default()
         };
-        let mut notes = vec![];
-        let cps = make_cps(&vs, &mut notes);
+        let mut cps = CertificationPathSettings::default();
+        model.apply(&mut cps);
         let json = serde_json::to_string(&cps).unwrap();
         // current certval stores the time of interest as the TimeOfInterest variant (a bare u64),
         // not the legacy psTimeOfInterest {"U64": ...} form that predates the TimeOfInterest type
