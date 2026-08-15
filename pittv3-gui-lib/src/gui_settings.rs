@@ -13,7 +13,7 @@
 //!
 //! Every frontend presents every tab, including settings it cannot act on: a browser has no
 //! filesystem and, until a fetch relay exists, no way to retrieve CRLs or OCSP responses. Those
-//! groups carry a [`CapabilityNotice`] saying so rather than being hidden, for two reasons. A user
+//! groups carry a notice saying so rather than being hidden, for two reasons. A user
 //! who learned the form in one frontend finds the same tabs in the next, and the settings file is
 //! shared across all of them (`pittv3 -s`, the desktop editor, the browser's import/export), so
 //! authoring a value that only takes effect elsewhere is a legitimate thing to do. What each
