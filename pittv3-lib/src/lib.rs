@@ -6,6 +6,7 @@
 extern crate alloc;
 
 pub mod args;
+pub mod help;
 pub mod no_std_utils;
 pub mod options_no_std;
 pub mod options_std;

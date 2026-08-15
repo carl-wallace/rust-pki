@@ -6,6 +6,7 @@
 
 pub mod gui_help;
 pub mod gui_results;
+pub mod gui_rows;
 pub mod gui_settings;
 pub mod gui_settings_model;
 pub mod gui_shell;

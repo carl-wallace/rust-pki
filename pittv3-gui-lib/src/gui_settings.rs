@@ -22,9 +22,9 @@
 use dioxus::prelude::*;
 
 use certval::{NameConstraintsSettings, OcspNonceSetting};
-use x509_cert::der::DateTime;
 use x509_cert::ext::pkix::KeyUsages;
 
+use crate::gui_rows::{datetime_local_to_epoch, epoch_to_datetime_local, now_as_unix_epoch};
 use crate::gui_settings_model::{RevocationMode, SettingsModel};
 
 #[cfg(feature = "std")]
@@ -81,45 +81,10 @@ fn CapabilityNotice(message: String) -> Element {
     }
 }
 
-/// Formats Unix-epoch seconds as a `datetime-local` value (`YYYY-MM-DDTHH:MM:SS`) in UTC.
-///
-/// Built on `der::DateTime` rather than a platform clock API so the same rendering serves the
-/// desktop and the browser; the browser previously showed local time here and the desktop UTC,
-/// which made the same stored setting read differently in the two frontends.
-fn epoch_to_datetime_local(secs: u64) -> String {
-    match DateTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
-        Ok(dt) => format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-            dt.year(),
-            dt.month(),
-            dt.day(),
-            dt.hour(),
-            dt.minutes(),
-            dt.seconds()
-        ),
-        Err(_) => String::new(),
-    }
-}
-
-/// Parses a `datetime-local` value (`YYYY-MM-DDTHH:MM` or `...:SS`, interpreted as UTC) back to
-/// Unix-epoch seconds; inverse of [`epoch_to_datetime_local`].
-fn datetime_local_to_epoch(value: &str) -> Option<u64> {
-    let v = value.trim();
-    let rfc3339 = match v.len() {
-        16 => format!("{v}:00Z"), // picker omitted the seconds component
-        19 => format!("{v}Z"),
-        _ => return None,
-    };
-    rfc3339
-        .parse::<DateTime>()
-        .ok()
-        .map(|dt| dt.unix_duration().as_secs())
-}
-
 /// Table row for the time of interest: the epoch value, a Now button, and a human-readable picker
 /// mirroring it. An empty value clears the override, which means "the time of the run".
 #[component]
-fn TimeOfInterestRow(value: Option<u64>, now: u64, onchange: EventHandler<Option<u64>>) -> Element {
+fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>) -> Element {
     let display = value.map(|v| v.to_string()).unwrap_or_default();
     // Empty while the value is absent or disabled (0), so the picker does not claim a time that is
     // not in effect.
@@ -147,7 +112,7 @@ fn TimeOfInterestRow(value: Option<u64>, now: u64, onchange: EventHandler<Option
                 }
                 button {
                     r#type: "button",
-                    onclick: move |_| onchange.call(Some(now)),
+                    onclick: move |_| onchange.call(Some(now_as_unix_epoch())),
                     "Now"
                 }
                 // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
@@ -172,17 +137,6 @@ fn TimeOfInterestRow(value: Option<u64>, now: u64, onchange: EventHandler<Option
                 }
             }
         }
-    }
-}
-
-/// Current time in Unix-epoch seconds, for the time-of-interest Now button. `web_time` so the same
-/// call works in the browser and on the host. Only the file-backed wrapper needs it; frontends that
-/// mount [`EditSettings`] directly pass their own `now`.
-#[cfg(feature = "std")]
-fn now_as_unix_epoch() -> u64 {
-    match web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => 0,
     }
 }
 
@@ -280,7 +234,7 @@ fn NumberRow(
 
 /// Table row with a labeled text input; an empty value clears the override
 #[component]
-fn TextRow(
+fn SettingTextRow(
     label: &'static str,
     value: Option<String>,
     onchange: EventHandler<Option<String>>,
@@ -575,7 +529,6 @@ const TABS: &[(SettingsTab, &str)] = &[
 pub fn EditSettings(
     initial: SettingsModel,
     #[props(default)] caps: Capabilities,
-    now: u64,
     on_save: EventHandler<SettingsModel>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -717,7 +670,6 @@ pub fn EditSettings(
                             }
                             TimeOfInterestRow {
                                 value: m.time_of_interest,
-                                now,
                                 onchange: move |v| model.write().time_of_interest = v,
                             }
                             BoolRow {
@@ -911,27 +863,27 @@ pub fn EditSettings(
                     }
                     table {
                         tbody {
-                            TextRow {
+                            SettingTextRow {
                                 label: "Trust anchor folder",
                                 value: m.trust_anchor_folder.clone(),
                                 onchange: move |v| model.write().trust_anchor_folder = v,
                             }
-                            TextRow {
+                            SettingTextRow {
                                 label: "CA folder",
                                 value: m.certification_authority_folder.clone(),
                                 onchange: move |v| model.write().certification_authority_folder = v,
                             }
-                            TextRow {
+                            SettingTextRow {
                                 label: "Download folder",
                                 value: m.download_folder.clone(),
                                 onchange: move |v| model.write().download_folder = v,
                             }
-                            TextRow {
+                            SettingTextRow {
                                 label: "Last-modified map file",
                                 value: m.last_modified_map_file.clone(),
                                 onchange: move |v| model.write().last_modified_map_file = v,
                             }
-                            TextRow {
+                            SettingTextRow {
                                 label: "URI blocklist file",
                                 value: m.uri_blocklist_file.clone(),
                                 onchange: move |v| model.write().uri_blocklist_file = v,
@@ -990,7 +942,6 @@ pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
         EditSettings {
             initial,
             caps: Capabilities::desktop(),
-            now: now_as_unix_epoch(),
             on_save,
             on_close: move |_| on_close.call(()),
         }
