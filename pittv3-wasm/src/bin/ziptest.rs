@@ -5,28 +5,21 @@
 #[path = "../validate.rs"]
 mod validate;
 
-use validate::{validate_hackathon_zip, ValidationSettings};
+use certval::{CertificationPathSettings, TimeOfInterest};
+use validate::validate_hackathon_zip;
 
 fn main() {
     let path = std::env::args().nth(1).expect("usage: ziptest <zip>");
     let bytes = std::fs::read(&path).expect("failed to read zip");
-    let vs = ValidationSettings {
-        toi: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-        toi_custom: false,
-        validate_all: true,
-        initial_explicit_policy: false,
-        initial_policy_mapping_inhibit: false,
-        initial_inhibit_any_policy: false,
-        initial_policy_set: "2.5.29.32.0".to_string(),
-        enforce_trust_anchor_constraints: false,
-        enforce_trust_anchor_validity: true,
-        permitted_subtrees: Default::default(),
-        excluded_subtrees: Default::default(),
-    };
-    let (reports, lines) = validate_hackathon_zip(&path, bytes, &vs);
+    // certval defaults, with the time of interest pinned to now: an absent value means
+    // TimeOfInterest::disabled() in this no-std configuration, which would skip validity checking.
+    let mut cps = CertificationPathSettings::default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(now).expect("valid time"));
+    let (reports, lines) = validate_hackathon_zip(&path, bytes, &cps, true);
     for line in lines {
         println!("[{}] {}", line.class, line.text);
     }

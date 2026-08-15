@@ -10,59 +10,7 @@ use std::io::{Cursor, Read};
 
 use certval::*;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport};
-use serde::{Deserialize, Serialize};
 use web_time::Instant;
-
-/// User-editable values that feed the RFC 5280 path validation inputs plus app-level options.
-///
-/// Serialized only as the localStorage snapshot that persists the settings tab across reloads: it
-/// carries app-level state (the custom-time flag and validate-all) that the interchange format does
-/// not. The downloadable settings file uses certval's `CertificationPathSettings` JSON instead —
-/// the same format the CLI and desktop apps read.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ValidationSettings {
-    /// True when `toi` is a time the user chose, as opposed to the run-time default. Only a custom
-    /// time is restored on reload; otherwise the time of interest is recomputed as the current time.
-    #[serde(default)]
-    pub toi_custom: bool,
-    /// Time of interest as seconds since Unix epoch; 0 disables validity period checks
-    pub toi: u64,
-    /// Validate every discovered path instead of stopping at the first valid one
-    pub validate_all: bool,
-    /// initial-explicit-policy input
-    pub initial_explicit_policy: bool,
-    /// initial-policy-mapping-inhibit input
-    pub initial_policy_mapping_inhibit: bool,
-    /// initial-any-policy-inhibit input
-    pub initial_inhibit_any_policy: bool,
-    /// user-initial-policy-set input as whitespace- or comma-separated OIDs; empty means anyPolicy
-    pub initial_policy_set: String,
-    /// Enforce constraints expressed in trust anchors per RFC 5937
-    pub enforce_trust_anchor_constraints: bool,
-    /// Require trust anchors to be valid at the time of interest
-    pub enforce_trust_anchor_validity: bool,
-    /// RFC 5280 initial-permitted-subtrees, one entry per line per name form
-    pub permitted_subtrees: NameConstraintInputs,
-    /// RFC 5280 initial-excluded-subtrees, one entry per line per name form
-    pub excluded_subtrees: NameConstraintInputs,
-}
-
-/// Raw text (one entry per line) for the name-constraint forms exposed in the UI. UPN and the
-/// "not supported" catch-all are omitted: UPN has been removed from certval, and the
-/// unsupported-forms bucket needs custom enforcement.
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct NameConstraintInputs {
-    /// dNSName subtrees
-    pub dns_name: String,
-    /// rfc822Name (email) subtrees
-    pub rfc822_name: String,
-    /// directoryName (DN) subtrees
-    pub directory_name: String,
-    /// uniformResourceIdentifier subtrees
-    pub uniform_resource_identifier: String,
-    /// iPAddress subtrees (CIDR form)
-    pub ip_address: String,
-}
 
 // Re-exported so callers taking the validation API from this module keep getting the line type it
 // returns; the type itself lives beside the other UI-facing run output.
@@ -93,88 +41,6 @@ fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
             Err(_e) => Err(Error::Unrecognized),
         }
     }
-}
-
-/// Returns true if `s` is plausibly a dotted-decimal OID
-fn looks_like_oid(s: &str) -> bool {
-    s.contains('.') && s.chars().all(|c| c.is_ascii_digit() || c == '.')
-}
-
-/// Splits a textarea value into one entry per non-empty trimmed line (line-per-entry avoids
-/// ambiguity with directoryName values, which contain commas). None when there are no entries.
-fn lines_to_vec(s: &str) -> Option<Vec<String>> {
-    let v: Vec<String> = s
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect();
-    (!v.is_empty()).then_some(v)
-}
-
-/// Builds a [`NameConstraintsSettings`] from the UI inputs, or None when every form is empty.
-fn to_name_constraints(nc: &NameConstraintInputs) -> Option<NameConstraintsSettings> {
-    let s = NameConstraintsSettings {
-        rfc822_name: lines_to_vec(&nc.rfc822_name),
-        dns_name: lines_to_vec(&nc.dns_name),
-        directory_name: lines_to_vec(&nc.directory_name),
-        uniform_resource_identifier: lines_to_vec(&nc.uniform_resource_identifier),
-        ip_address: lines_to_vec(&nc.ip_address),
-        ..Default::default()
-    };
-    let empty = s.rfc822_name.is_none()
-        && s.dns_name.is_none()
-        && s.directory_name.is_none()
-        && s.uniform_resource_identifier.is_none()
-        && s.ip_address.is_none();
-    (!empty).then_some(s)
-}
-
-/// Builds a [`CertificationPathSettings`] from user-supplied
-/// values, appending a note for any value that could not be applied as given
-pub fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> CertificationPathSettings {
-    let toi = match TimeOfInterest::from_unix_secs(vs.toi) {
-        Ok(t) => t,
-        Err(_) => TimeOfInterest::disabled(),
-    };
-    if toi.is_disabled() {
-        out.push(info(
-            "Time of interest is 0 (or invalid): validity period checks are disabled".to_string(),
-        ));
-    }
-    let mut cps = CertificationPathSettings::default();
-    cps.set_time_of_interest(toi);
-    cps.set_initial_explicit_policy_indicator(vs.initial_explicit_policy);
-    cps.set_initial_policy_mapping_inhibit_indicator(vs.initial_policy_mapping_inhibit);
-    cps.set_initial_inhibit_any_policy_indicator(vs.initial_inhibit_any_policy);
-    cps.set_enforce_trust_anchor_constraints(vs.enforce_trust_anchor_constraints);
-    cps.set_enforce_trust_anchor_validity(vs.enforce_trust_anchor_validity);
-    if let Some(p) = to_name_constraints(&vs.permitted_subtrees) {
-        cps.set_initial_permitted_subtrees(p);
-    }
-    if let Some(e) = to_name_constraints(&vs.excluded_subtrees) {
-        cps.set_initial_excluded_subtrees(e);
-    }
-
-    let mut oids = vec![];
-    for tok in vs
-        .initial_policy_set
-        .split(|c: char| c.is_whitespace() || c == ',')
-        .filter(|s| !s.is_empty())
-    {
-        if looks_like_oid(tok) {
-            oids.push(tok.to_string());
-        } else {
-            out.push(err(format!(
-                "Ignoring initial policy set entry that is not a dotted-decimal OID: {tok}"
-            )));
-        }
-    }
-    // when no usable OIDs are given, leave the default in place (anyPolicy)
-    if !oids.is_empty() {
-        cps.set_initial_policy_set(oids);
-    }
-    cps
 }
 
 /// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
@@ -555,7 +421,8 @@ fn validate_self_signed(pe: &PkiEnvironment, name: &str, der: &[u8]) -> Vec<Resu
 pub fn validate_hackathon_zip(
     zip_name: &str,
     bytes: Vec<u8>,
-    vs: &ValidationSettings,
+    cps: &CertificationPathSettings,
+    validate_all: bool,
 ) -> (Vec<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
     let mut reports = vec![];
@@ -630,7 +497,6 @@ pub fn validate_hackathon_zip(
         });
     }
 
-    let cps = make_cps(vs, &mut out);
     if let Err(e) = ta_store.initialize() {
         out.push(err(format!("Failed to initialize TA store: {e:?}")));
         return (reports, out);
@@ -642,7 +508,7 @@ pub fn validate_hackathon_zip(
     // path building for TA-issued targets happens in the certificate source, so one must be
     // registered even though the R5 format carries no intermediate CA certificates
     let mut cert_source = CertSource::new();
-    if let Err(e) = cert_source.initialize(&cps) {
+    if let Err(e) = cert_source.initialize(cps) {
         out.push(err(format!("Failed to initialize CA store: {e:?}")));
         return (reports, out);
     }
@@ -654,7 +520,7 @@ pub fn validate_hackathon_zip(
         out.extend(validate_self_signed(&pe, name, der));
     }
     for (name, der) in &ees {
-        let (report, lines) = validate_target(&pe, &cps, name, der, vs.validate_all);
+        let (report, lines) = validate_target(&pe, cps, name, der, validate_all);
         out.extend(lines);
         if let Some(report) = report {
             reports.push(report);

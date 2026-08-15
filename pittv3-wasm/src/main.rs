@@ -7,28 +7,35 @@ mod validate;
 use dioxus::prelude::*;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use certval::{CertificationPathSettings, PS_TIME_OF_INTEREST};
+use certval::{CertificationPathSettings, TimeOfInterest};
 use pittv3_gui_lib::gui_results::ResultsView;
+use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
+use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{TargetReport, ValidationReport};
 
 use crate::validate::{
-    make_cps, prepare_validation, validate_hackathon_zip, validate_prepared, NameConstraintInputs,
-    PreparedValidation, ResultLine, ValidationSettings, SAMPLE_INVALID, SAMPLE_VALID, STORES,
+    prepare_validation, validate_hackathon_zip, validate_prepared, PreparedValidation, ResultLine,
+    SAMPLE_INVALID, SAMPLE_VALID, STORES,
 };
 
 /// Store selection value indicating no baked-in store, i.e., uploaded trust anchors only
 const NO_STORE: usize = usize::MAX;
 
-/// OID for anyPolicy, the default user-initial-policy-set value
-const ANY_POLICY_OID: &str = "2.5.29.32.0";
-
-/// localStorage key under which the settings tab is persisted across reloads (used only by the
-/// wasm-gated storage helpers, hence unused on the host test build)
+/// localStorage key under which the settings are persisted across reloads, as the same
+/// `CertificationPathSettings` JSON the CLI's `--settings` reads and the Download button writes
+/// (used only by the wasm-gated storage helpers, hence unused on the host test build)
 #[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
 const SETTINGS_KEY: &str = "pittv3.settings";
+
+/// localStorage key for the validate-all choice. Separate from [`SETTINGS_KEY`] because it is not a
+/// `CertificationPathSettings` value — it selects how many paths a run explores, not what a path
+/// must satisfy — and keeping it out preserves the settings key as an exact copy of the shared
+/// interchange format.
+#[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+const VALIDATE_ALL_KEY: &str = "pittv3.validate_all";
 
 /// Sidebar views in display order
 const VIEW_LABELS: &[&str] = &[
@@ -50,99 +57,83 @@ fn now_as_unix_epoch() -> u64 {
     }
 }
 
-/// The settings tab's default state: the certval defaults plus the current time as the (non-custom)
-/// time of interest. Used for a fresh visit and by Reset to defaults.
-fn default_settings() -> ValidationSettings {
-    ValidationSettings {
-        toi: now_as_unix_epoch(),
-        toi_custom: false,
-        validate_all: true,
-        initial_explicit_policy: false,
-        initial_policy_mapping_inhibit: false,
-        initial_inhibit_any_policy: false,
-        initial_policy_set: ANY_POLICY_OID.to_string(),
-        enforce_trust_anchor_constraints: false,
-        enforce_trust_anchor_validity: true,
-        permitted_subtrees: NameConstraintInputs::default(),
-        excluded_subtrees: NameConstraintInputs::default(),
+/// Reads a string from localStorage. None when storage is unavailable or the key is absent; native
+/// builds (cargo check/test on the host) have no browser storage, and the app only runs as wasm.
+#[cfg(target_family = "wasm")]
+fn storage_get(key: &str) -> Option<String> {
+    web_sys::window()?
+        .local_storage()
+        .ok()??
+        .get_item(key)
+        .ok()?
+}
+
+/// Writes a string to localStorage. Best-effort: storage may be unavailable or full.
+#[cfg(target_family = "wasm")]
+fn storage_set(key: &str, value: &str) -> Result<(), String> {
+    let storage = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .ok_or_else(|| "Browser storage is unavailable".to_string())?;
+    storage
+        .set_item(key, value)
+        .map_err(|_| "Browser storage is full or blocked".to_string())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn storage_get(_key: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn storage_set(_key: &str, _value: &str) -> Result<(), String> {
+    Ok(())
+}
+
+/// The browser frontend's [`SettingsStore`]: localStorage holding the same
+/// `CertificationPathSettings` JSON that the CLI reads, the desktop editor writes and this app's
+/// own Download/Load controls exchange. Storing the interchange format rather than a private
+/// encoding is what lets a settings file move between the frontends unchanged.
+struct LocalStorageSettingsStore;
+
+impl SettingsStore for LocalStorageSettingsStore {
+    fn load(&self) -> CertificationPathSettings {
+        storage_get(SETTINGS_KEY)
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, cps: &CertificationPathSettings) -> Result<(), String> {
+        let json =
+            serde_json::to_string(cps).map_err(|e| format!("Failed to encode settings: {e}"))?;
+        storage_set(SETTINGS_KEY, &json)
     }
 }
 
-/// Reads the persisted settings tab from localStorage, or None when absent, unreadable or invalid.
-#[cfg(target_family = "wasm")]
-fn load_persisted_settings() -> Option<ValidationSettings> {
-    let storage = web_sys::window()?.local_storage().ok()??;
-    let json = storage.get_item(SETTINGS_KEY).ok()??;
-    serde_json::from_str(&json).ok()
+/// Reads the persisted validate-all choice, defaulting to true (explore every discovered path)
+fn load_validate_all() -> bool {
+    storage_get(VALIDATE_ALL_KEY)
+        .map(|v| v == "true")
+        .unwrap_or(true)
 }
 
-/// Writes the settings tab to localStorage so it survives a reload. Best-effort: storage may be
-/// unavailable or full, in which case persistence is silently skipped.
-#[cfg(target_family = "wasm")]
-fn persist_settings(vs: &ValidationSettings) {
-    if let Ok(json) = serde_json::to_string(vs) {
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let _ = storage.set_item(SETTINGS_KEY, &json);
+/// Builds the settings for a run from the edited model.
+///
+/// A model with no time of interest means "use the current time", and this is where that is
+/// materialized. It matters because certval's default for an absent `PS_TIME_OF_INTEREST` is
+/// `TimeOfInterest::disabled()` in a no-std build like this one but `TimeOfInterest::now()` under
+/// std: leaving the value out would silently disable validity-period checking in the browser while
+/// the very same settings file checked against the current time on the desktop. Filling it in at
+/// run time keeps the two frontends in agreement and still leaves the stored file portable, since
+/// the value is not written back to the model.
+fn run_settings(model: &SettingsModel) -> CertificationPathSettings {
+    let mut cps = CertificationPathSettings::default();
+    model.apply(&mut cps);
+    if model.time_of_interest.is_none() {
+        if let Ok(toi) = TimeOfInterest::from_unix_secs(now_as_unix_epoch()) {
+            cps.set_time_of_interest(toi);
         }
     }
-}
-
-// Native builds (cargo check/test on the host) have no browser storage; the app only runs as wasm.
-#[cfg(not(target_family = "wasm"))]
-fn load_persisted_settings() -> Option<ValidationSettings> {
-    None
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn persist_settings(_vs: &ValidationSettings) {}
-
-/// Parses a `datetime-local` value (local time) into Unix-epoch seconds. None on host builds.
-#[cfg(target_family = "wasm")]
-fn datetime_local_to_epoch(value: &str) -> Option<u64> {
-    let ms = js_sys::Date::parse(value);
-    if ms.is_nan() {
-        None
-    } else {
-        Some((ms / 1000.0) as u64)
-    }
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn datetime_local_to_epoch(_value: &str) -> Option<u64> {
-    None
-}
-
-/// Formats Unix-epoch seconds as a `datetime-local` value (`YYYY-MM-DDTHH:MM:SS`) in local time,
-/// the inverse of [`datetime_local_to_epoch`]. Empty on host builds.
-#[cfg(target_family = "wasm")]
-fn epoch_to_datetime_local(secs: u64) -> String {
-    // new_0() then set_time avoids needing a JsValue import just to build the Date from millis.
-    let date = js_sys::Date::new_0();
-    date.set_time(secs as f64 * 1000.0);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-        date.get_full_year(),
-        date.get_month() + 1, // getMonth is 0-based
-        date.get_date(),
-        date.get_hours(),
-        date.get_minutes(),
-        date.get_seconds(),
-    )
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn epoch_to_datetime_local(_secs: u64) -> String {
-    String::new()
-}
-
-/// The `datetime-local` value mirroring the time-of-interest epoch string, so the picker shows the
-/// selected time and the user need not decode the number. Empty when the time is disabled (0) or
-/// not yet a valid epoch (e.g. mid-edit in the epoch field).
-fn toi_datetime_value(toi: &str) -> String {
-    match toi.trim().parse::<u64>() {
-        Ok(secs) if secs != 0 => epoch_to_datetime_local(secs),
-        _ => String::new(),
-    }
+    cps
 }
 
 fn main() {
@@ -227,47 +218,16 @@ fn App() -> Element {
     let mut view = use_signal(|| 0usize);
     let mut mode = use_signal(|| 0usize);
 
-    // Restore the settings tab from localStorage (or fall back to defaults) so a custom time of
-    // interest and the RFC 5280 inputs survive a reload. Destructure once and seed each signal.
-    let ValidationSettings {
-        toi_custom: init_toi_custom,
-        toi: init_toi,
-        validate_all: init_validate_all,
-        initial_explicit_policy: init_iep,
-        initial_policy_mapping_inhibit: init_ipmi,
-        initial_inhibit_any_policy: init_iiap,
-        initial_policy_set: init_ips,
-        enforce_trust_anchor_constraints: init_etac,
-        enforce_trust_anchor_validity: init_etav,
-        permitted_subtrees: init_perm,
-        excluded_subtrees: init_excl,
-    } = use_hook(|| load_persisted_settings().unwrap_or_else(default_settings));
-    let NameConstraintInputs {
-        dns_name: init_perm_dns,
-        rfc822_name: init_perm_email,
-        directory_name: init_perm_dn,
-        uniform_resource_identifier: init_perm_uri,
-        ip_address: init_perm_ip,
-    } = init_perm;
-    let NameConstraintInputs {
-        dns_name: init_excl_dns,
-        rfc822_name: init_excl_email,
-        directory_name: init_excl_dn,
-        uniform_resource_identifier: init_excl_uri,
-        ip_address: init_excl_ip,
-    } = init_excl;
-
-    // A custom time of interest is restored as-is; otherwise it is (re)initialized to the current
-    // time so a stale stored time cannot silently drive validation. `toi_custom` tracks which.
-    let mut toi_custom = use_signal(move || init_toi_custom);
-    let mut toi = use_signal(move || {
-        if init_toi_custom {
-            init_toi.to_string()
-        } else {
-            now_as_unix_epoch().to_string()
-        }
-    });
-    let mut validate_all = use_signal(move || init_validate_all);
+    // The settings are held as a single SettingsModel, edited through the shared EditSettings form
+    // and persisted as CertificationPathSettings JSON. A stored time of interest is restored as-is;
+    // its absence means "current time", which run_settings materializes per run, so a stale stored
+    // time can never silently drive validation.
+    let mut settings = use_signal(|| SettingsModel::from_cps(&LocalStorageSettingsStore.load()));
+    // Bumped whenever the model is replaced wholesale (loading a settings file, Reset). EditSettings
+    // seeds its own working copy from `initial` once per mount, so the form is keyed on this to
+    // remount and pick the new values up.
+    let mut form_gen = use_signal(|| 0usize);
+    let mut validate_all = use_signal(load_validate_all);
     // Transient status line for the settings-file load/save controls (cleared on next action)
     let mut settings_status = use_signal(String::new);
     let mut targets = use_signal(Vec::<TargetReport>::new);
@@ -294,58 +254,24 @@ fn App() -> Element {
     // because nothing is prepared yet.
     let mut env_dirty = use_signal(|| true);
 
-    // RFC 5280 path validation inputs (defaults match CertificationPathSettings::default())
-    let mut initial_explicit_policy = use_signal(move || init_iep);
-    let mut initial_policy_mapping_inhibit = use_signal(move || init_ipmi);
-    let mut initial_inhibit_any_policy = use_signal(move || init_iiap);
-    let mut initial_policy_set = use_signal(move || init_ips);
-    let mut enforce_ta_constraints = use_signal(move || init_etac);
-    let mut enforce_ta_validity = use_signal(move || init_etav);
-
-    // RFC 5280 initial-permitted / initial-excluded subtrees, one entry per line per name form
-    let mut perm_dns = use_signal(move || init_perm_dns);
-    let mut perm_email = use_signal(move || init_perm_email);
-    let mut perm_dn = use_signal(move || init_perm_dn);
-    let mut perm_uri = use_signal(move || init_perm_uri);
-    let mut perm_ip = use_signal(move || init_perm_ip);
-    let mut excl_dns = use_signal(move || init_excl_dns);
-    let mut excl_email = use_signal(move || init_excl_email);
-    let mut excl_dn = use_signal(move || init_excl_dn);
-    let mut excl_uri = use_signal(move || init_excl_uri);
-    let mut excl_ip = use_signal(move || init_excl_ip);
-
-    let current_settings = move || ValidationSettings {
-        toi: toi().parse::<u64>().unwrap_or_else(|_| now_as_unix_epoch()),
-        toi_custom: toi_custom(),
-        validate_all: validate_all(),
-        initial_explicit_policy: initial_explicit_policy(),
-        initial_policy_mapping_inhibit: initial_policy_mapping_inhibit(),
-        initial_inhibit_any_policy: initial_inhibit_any_policy(),
-        initial_policy_set: initial_policy_set(),
-        enforce_trust_anchor_constraints: enforce_ta_constraints(),
-        enforce_trust_anchor_validity: enforce_ta_validity(),
-        permitted_subtrees: NameConstraintInputs {
-            dns_name: perm_dns(),
-            rfc822_name: perm_email(),
-            directory_name: perm_dn(),
-            uniform_resource_identifier: perm_uri(),
-            ip_address: perm_ip(),
-        },
-        excluded_subtrees: NameConstraintInputs {
-            dns_name: excl_dns(),
-            rfc822_name: excl_email(),
-            directory_name: excl_dn(),
-            uniform_resource_identifier: excl_uri(),
-            ip_address: excl_ip(),
-        },
-    };
-
-    // Persist the settings tab to localStorage whenever any of its inputs change, and mark the
-    // prepared environment stale (settings can affect partial-path discovery). Reading every field
-    // through current_settings() subscribes this effect to all of them, so any edit fires it.
+    // Persist the settings whenever the model changes, and mark the prepared environment stale
+    // (settings can affect partial-path discovery). Reading the model here subscribes this effect
+    // to every field at once — the single-signal equivalent of the per-field reads this replaced.
     use_effect(move || {
-        persist_settings(&current_settings());
+        let mut cps = LocalStorageSettingsStore.load();
+        settings().apply(&mut cps);
+        if let Err(e) = LocalStorageSettingsStore.save(&cps) {
+            settings_status.set(e);
+        }
         env_dirty.set(true);
+    });
+
+    // Validate-all is persisted separately; it is not a CertificationPathSettings value.
+    use_effect(move || {
+        let _ = storage_set(
+            VALIDATE_ALL_KEY,
+            if validate_all() { "true" } else { "false" },
+        );
     });
 
     // The store selection and uploaded trust anchors / CA certificates also feed the prepared
@@ -357,24 +283,19 @@ fn App() -> Element {
         env_dirty.set(true);
     });
 
-    // Restores every setting to its initial default (time of interest reset to the current time).
-    let reset_settings = move |_| {
-        toi.set(now_as_unix_epoch().to_string());
-        toi_custom.set(false);
-        validate_all.set(true);
-        initial_explicit_policy.set(false);
-        initial_policy_mapping_inhibit.set(false);
-        initial_inhibit_any_policy.set(false);
-        initial_policy_set.set(ANY_POLICY_OID.to_string());
-        enforce_ta_constraints.set(false);
-        enforce_ta_validity.set(true);
-        settings_status.set(String::new());
-        for mut s in [
-            perm_dns, perm_email, perm_dn, perm_uri, perm_ip, excl_dns, excl_email, excl_dn,
-            excl_uri, excl_ip,
-        ] {
-            s.set(String::new());
-        }
+    // Replaces the whole model, remounting the form so it reseeds from the new values. Used by
+    // Reset to defaults and by loading a settings file.
+    let mut replace_settings = move |model: SettingsModel| {
+        settings.set(model);
+        form_gen += 1;
+    };
+
+    // The time a run validates against, for stamping reports: the chosen time of interest, or the
+    // current time when none is set. Mirrors what run_settings materializes into the settings.
+    let effective_toi = move || {
+        settings()
+            .time_of_interest
+            .unwrap_or_else(now_as_unix_epoch)
     };
 
     // Ensures the selected built-in store's CBOR is available, fetching (and caching) it on first
@@ -418,10 +339,7 @@ fn App() -> Element {
     // downloads the accumulated results as a JSON-serialized ValidationReport via a synthesized
     // anchor click
     let save_results = move |_| {
-        let report = ValidationReport::from_targets(
-            &targets.read(),
-            toi().parse::<u64>().unwrap_or_else(|_| now_as_unix_epoch()),
-        );
+        let report = ValidationReport::from_targets(&targets.read(), effective_toi());
         let json = serde_json::to_string_pretty(&report).unwrap_or_default();
         let uri = format!(
             "data:application/json;charset=utf-8,{}",
@@ -439,12 +357,10 @@ fn App() -> Element {
     // time of interest is omitted so the file stays portable (the reader supplies its own current
     // time); an explicitly set one is written so it travels with the file.
     let save_settings_file = move |_| {
-        let vs = current_settings();
-        let mut discard = vec![];
-        let mut cps = make_cps(&vs, &mut discard);
-        if !vs.toi_custom {
-            cps.0.remove(PS_TIME_OF_INTEREST);
-        }
+        // Written from the model, not from run_settings: a time of interest the user did not choose
+        // stays absent so the file remains portable, and the reader supplies its own current time.
+        let mut cps = LocalStorageSettingsStore.load();
+        settings().apply(&mut cps);
         let json = serde_json::to_string_pretty(&cps).unwrap_or_default();
         let uri = format!(
             "data:application/json;charset=utf-8,{}",
@@ -458,11 +374,10 @@ fn App() -> Element {
         settings_status.set("Settings downloaded".to_string());
     };
 
-    // loads settings from a certval CertificationPathSettings JSON file (the CLI/desktop format),
-    // replacing every field above. A setting absent from the file takes its certval default, so the
-    // loaded state matches the file exactly. The time of interest is honored (and marked custom)
-    // when present, or reset to the current time when absent; validate-all is not part of the format
-    // and is left unchanged.
+    // loads settings from a certval CertificationPathSettings JSON file (the same format the CLI's
+    // --settings reads and the desktop editor writes), replacing the model wholesale. A setting
+    // absent from the file takes its certval default, so the loaded state matches the file exactly.
+    // Validate-all is not part of the format and is left unchanged.
     let load_settings_file = move |ev: FormEvent| async move {
         let Some((name, bytes)) = read_files(&ev).await.into_iter().next() else {
             return;
@@ -481,57 +396,7 @@ fn App() -> Element {
                 return;
             }
         };
-        let m = SettingsModel::from_cps(&cps);
-        match m.time_of_interest {
-            Some(secs) => {
-                toi.set(secs.to_string());
-                toi_custom.set(true);
-            }
-            None => {
-                toi.set(now_as_unix_epoch().to_string());
-                toi_custom.set(false);
-            }
-        }
-        initial_explicit_policy.set(m.initial_explicit_policy_indicator.unwrap_or(false));
-        initial_policy_mapping_inhibit
-            .set(m.initial_policy_mapping_inhibit_indicator.unwrap_or(false));
-        initial_inhibit_any_policy.set(m.initial_inhibit_any_policy_indicator.unwrap_or(false));
-        initial_policy_set.set(
-            m.initial_policy_set
-                .map(|v| v.join(" "))
-                .unwrap_or_else(|| ANY_POLICY_OID.to_string()),
-        );
-        enforce_ta_constraints.set(m.enforce_trust_anchor_constraints.unwrap_or(false));
-        enforce_ta_validity.set(m.enforce_trust_anchor_validity.unwrap_or(true));
-        // one entry per line per name form; the unsupported-forms bucket is not surfaced
-        let perm = m.initial_permitted_subtrees.unwrap_or_default();
-        perm_dns.set(perm.dns_name.map(|v| v.join("\n")).unwrap_or_default());
-        perm_email.set(perm.rfc822_name.map(|v| v.join("\n")).unwrap_or_default());
-        perm_dn.set(
-            perm.directory_name
-                .map(|v| v.join("\n"))
-                .unwrap_or_default(),
-        );
-        perm_uri.set(
-            perm.uniform_resource_identifier
-                .map(|v| v.join("\n"))
-                .unwrap_or_default(),
-        );
-        perm_ip.set(perm.ip_address.map(|v| v.join("\n")).unwrap_or_default());
-        let excl = m.initial_excluded_subtrees.unwrap_or_default();
-        excl_dns.set(excl.dns_name.map(|v| v.join("\n")).unwrap_or_default());
-        excl_email.set(excl.rfc822_name.map(|v| v.join("\n")).unwrap_or_default());
-        excl_dn.set(
-            excl.directory_name
-                .map(|v| v.join("\n"))
-                .unwrap_or_default(),
-        );
-        excl_uri.set(
-            excl.uniform_resource_identifier
-                .map(|v| v.join("\n"))
-                .unwrap_or_default(),
-        );
-        excl_ip.set(excl.ip_address.map(|v| v.join("\n")).unwrap_or_default());
+        replace_settings(SettingsModel::from_cps(&cps));
         settings_status.set(format!("Loaded settings from {name}"));
     };
 
@@ -547,9 +412,9 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let vs = current_settings();
+        let cps = run_settings(&settings());
         for (name, bytes) in loaded_zips() {
-            let (reports, lines) = validate_hackathon_zip(&name, bytes, &vs);
+            let (reports, lines) = validate_hackathon_zip(&name, bytes, &cps, validate_all());
             notes.write().extend(lines);
             targets.write().extend(reports);
         }
@@ -572,9 +437,8 @@ fn App() -> Element {
         #[cfg(target_family = "wasm")]
         gloo_timers::future::TimeoutFuture::new(16).await;
 
-        let vs = current_settings();
-        let mut base_notes = vec![];
-        let cps = make_cps(&vs, &mut base_notes);
+        let base_notes: Vec<ResultLine> = vec![];
+        let cps = run_settings(&settings());
 
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
@@ -615,7 +479,7 @@ fn App() -> Element {
         let guard = prepared_env.read();
         let (prepared, prep_notes) = guard.as_ref().unwrap();
         notes.write().extend(prep_notes.iter().cloned());
-        let (reports, lines) = validate_prepared(prepared, &cps, &loaded_ees(), vs.validate_all);
+        let (reports, lines) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
         drop(guard);
         notes.write().extend(lines);
         targets.write().extend(reports);
@@ -753,6 +617,23 @@ fn App() -> Element {
                             }
                         }
 
+                        // Validate All sits beside the Validate button rather than in Settings: it
+                        // chooses how much of a run to do, not what a path must satisfy, and it is
+                        // not a CertificationPathSettings value. The desktop app surfaces it the
+                        // same way, on its Validate view.
+                        div { class: "controls center-row",
+                            label { r#for: "validate-all", "Validate all paths: " }
+                            input {
+                                id: "validate-all",
+                                r#type: "checkbox",
+                                checked: validate_all(),
+                                onchange: move |ev| validate_all.set(ev.checked()),
+                            }
+                            span { class: "hint",
+                                "Off stops at the first valid path; on reports every path found."
+                            }
+                        }
+
                         div { class: "controls center-row",
                             button {
                                 class: "validate-button",
@@ -767,147 +648,20 @@ fn App() -> Element {
                         }
                     },
                     1 => rsx! {
-                        fieldset {
-                            legend { "Path validation settings (RFC 5280 / RFC 5937 inputs)" }
-                            fieldset {
-                                legend { "General" }
-                                div { class: "controls",
-                                    label { r#for: "toi", "Time of interest (Unix epoch): " }
-                                    span {
-                                        input {
-                                            id: "toi",
-                                            r#type: "text",
-                                            value: "{toi}",
-                                            oninput: move |ev| {
-                                                toi.set(ev.value());
-                                                toi_custom.set(true);
-                                            },
-                                        }
-                                        button {
-                                            onclick: move |_| {
-                                                toi.set(now_as_unix_epoch().to_string());
-                                                toi_custom.set(false);
-                                            },
-                                            "Now"
-                                        }
-                                        // Value mirrors the epoch field so the picker shows the selected
-                                        // time (no need to decode the number). Controlled binding is safe
-                                        // here because only onchange (a complete datetime) writes back:
-                                        // editing the sub-fields triggers no re-render until commit, so the
-                                        // value is not reset mid-edit. step=1 keeps second precision.
-                                        input {
-                                            r#type: "datetime-local",
-                                            step: "1",
-                                            value: toi_datetime_value(&toi()),
-                                            onchange: move |ev| {
-                                                if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
-                                                    toi.set(secs.to_string());
-                                                    toi_custom.set(true);
-                                                }
-                                            },
-                                        }
-                                    }
-
-                                    label { r#for: "validate-all", "Validate all paths: " }
-                                    input {
-                                        id: "validate-all",
-                                        r#type: "checkbox",
-                                        checked: validate_all(),
-                                        onchange: move |ev| validate_all.set(ev.checked()),
-                                    }
-
-                                    label { r#for: "enforce-ta-constraints", "Enforce trust anchor constraints: " }
-                                    input {
-                                        id: "enforce-ta-constraints",
-                                        r#type: "checkbox",
-                                        checked: enforce_ta_constraints(),
-                                        onchange: move |ev| enforce_ta_constraints.set(ev.checked()),
-                                    }
-
-                                    label { r#for: "enforce-ta-validity", "Enforce trust anchor validity: " }
-                                    input {
-                                        id: "enforce-ta-validity",
-                                        r#type: "checkbox",
-                                        checked: enforce_ta_validity(),
-                                        onchange: move |ev| enforce_ta_validity.set(ev.checked()),
-                                    }
-                                }
-                            }
-                            fieldset {
-                                legend { "Certificate Policy-related constraints" }
-                                div { class: "controls",
-                                    label { r#for: "initial-explicit-policy", "Require explicit policy: " }
-                                    input {
-                                        id: "initial-explicit-policy",
-                                        r#type: "checkbox",
-                                        checked: initial_explicit_policy(),
-                                        onchange: move |ev| initial_explicit_policy.set(ev.checked()),
-                                    }
-
-                                    label { r#for: "inhibit-policy-mapping", "Inhibit policy mapping: " }
-                                    input {
-                                        id: "inhibit-policy-mapping",
-                                        r#type: "checkbox",
-                                        checked: initial_policy_mapping_inhibit(),
-                                        onchange: move |ev| initial_policy_mapping_inhibit.set(ev.checked()),
-                                    }
-
-                                    label { r#for: "inhibit-any-policy", "Inhibit anyPolicy: " }
-                                    input {
-                                        id: "inhibit-any-policy",
-                                        r#type: "checkbox",
-                                        checked: initial_inhibit_any_policy(),
-                                        onchange: move |ev| initial_inhibit_any_policy.set(ev.checked()),
-                                    }
-
-                                    label { r#for: "initial-policy-set", "Initial policy set (OIDs): " }
-                                    input {
-                                        id: "initial-policy-set",
-                                        r#type: "text",
-                                        value: "{initial_policy_set}",
-                                        oninput: move |ev| initial_policy_set.set(ev.value()),
-                                    }
-
-                                    span { class: "hint",
-                                        "Separate policy OIDs with spaces or commas; {ANY_POLICY_OID} is anyPolicy."
-                                    }
-                                }
-                            }
-                            // Initial permitted/excluded subtrees are RFC 5280 name-constraint inputs,
-                            // so they live inside the RFC 5280 group rather than as standalone boxes.
-                            fieldset {
-                                legend { "Initial permitted subtrees (name constraints)" }
-                                div { class: "controls",
-                                    label { "dNSName: " }
-                                    textarea { rows: "2", value: "{perm_dns}", oninput: move |ev| perm_dns.set(ev.value()) }
-                                    label { "rfc822Name (email): " }
-                                    textarea { rows: "2", value: "{perm_email}", oninput: move |ev| perm_email.set(ev.value()) }
-                                    label { "directoryName (DN): " }
-                                    textarea { rows: "2", value: "{perm_dn}", oninput: move |ev| perm_dn.set(ev.value()) }
-                                    label { "URI: " }
-                                    textarea { rows: "2", value: "{perm_uri}", oninput: move |ev| perm_uri.set(ev.value()) }
-                                    label { "iPAddress (CIDR): " }
-                                    textarea { rows: "2", value: "{perm_ip}", oninput: move |ev| perm_ip.set(ev.value()) }
-                                    span { class: "hint",
-                                        "One entry per line; an empty box imposes no initial permitted constraint for that name form."
-                                    }
-                                }
-                            }
-                            fieldset {
-                                legend { "Initial excluded subtrees (name constraints)" }
-                                div { class: "controls",
-                                    label { "dNSName: " }
-                                    textarea { rows: "2", value: "{excl_dns}", oninput: move |ev| excl_dns.set(ev.value()) }
-                                    label { "rfc822Name (email): " }
-                                    textarea { rows: "2", value: "{excl_email}", oninput: move |ev| excl_email.set(ev.value()) }
-                                    label { "directoryName (DN): " }
-                                    textarea { rows: "2", value: "{excl_dn}", oninput: move |ev| excl_dn.set(ev.value()) }
-                                    label { "URI: " }
-                                    textarea { rows: "2", value: "{excl_uri}", oninput: move |ev| excl_uri.set(ev.value()) }
-                                    label { "iPAddress (CIDR): " }
-                                    textarea { rows: "2", value: "{excl_ip}", oninput: move |ev| excl_ip.set(ev.value()) }
-                                    span { class: "hint", "One entry per line." }
-                                }
+                        // The shared settings form, the same component the desktop app mounts. It
+                        // presents every tab including the ones this frontend cannot act on, each
+                        // carrying a notice saying so — see Capabilities. Keyed on form_gen so a
+                        // wholesale model replacement (Reset, or loading a file) remounts it.
+                        div { key: "{form_gen}",
+                            EditSettings {
+                                initial: settings(),
+                                caps: Capabilities::browser_local(),
+                                now: now_as_unix_epoch(),
+                                on_save: move |edited| {
+                                    settings.set(edited);
+                                    settings_status.set("Settings saved".to_string());
+                                },
+                                on_close: move |_| view.set(0),
                             }
                         }
                         fieldset {
@@ -932,9 +686,6 @@ fn App() -> Element {
                                     span { class: "hint", "{settings_status}" }
                                 }
                             }
-                        }
-                        div { class: "controls center-row",
-                            button { onclick: reset_settings, "Reset to defaults" }
                         }
                     },
                     2 => rsx! {
@@ -965,7 +716,7 @@ fn App() -> Element {
                                 ResultsView {
                                     report: ValidationReport::from_targets(
                                         &targets.read(),
-                                        toi().parse::<u64>().unwrap_or_else(|_| now_as_unix_epoch()),
+                                        effective_toi(),
                                     ),
                                 }
                             }
