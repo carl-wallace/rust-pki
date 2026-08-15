@@ -7,12 +7,12 @@ mod validate;
 use dioxus::prelude::*;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use certval::{CertificationPathSettings, PathValidationStatus, PS_TIME_OF_INTEREST};
+use certval::{CertificationPathSettings, PS_TIME_OF_INTEREST};
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::PITTV3_CSS;
-use pittv3_lib::report::{ReportTotals, TargetReport, ValidationReport};
+use pittv3_lib::report::{TargetReport, ValidationReport};
 
 use crate::validate::{
     make_cps, prepare_validation, validate_hackathon_zip, validate_prepared, NameConstraintInputs,
@@ -222,32 +222,6 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
     }
 }
 
-/// Assembles a [`ValidationReport`] from the accumulated per-target reports. The report is built
-/// on demand because targets accumulate across interactions rather than arriving from one run.
-fn build_report(targets: &[TargetReport], toi: u64) -> ValidationReport {
-    let mut totals = ReportTotals {
-        targets: targets.len(),
-        ..Default::default()
-    };
-    for target in targets {
-        totals.paths_found += target.paths.len();
-        for path in &target.paths {
-            if path.error.is_none() && path.status == Some(PathValidationStatus::Valid) {
-                totals.valid_paths += 1;
-            } else {
-                totals.invalid_paths += 1;
-            }
-        }
-    }
-    ValidationReport {
-        targets: targets.to_vec(),
-        totals,
-        time_of_interest: toi,
-        duration_ms: 0,
-        error: None,
-    }
-}
-
 #[component]
 fn App() -> Element {
     let mut view = use_signal(|| 0usize);
@@ -444,7 +418,7 @@ fn App() -> Element {
     // downloads the accumulated results as a JSON-serialized ValidationReport via a synthesized
     // anchor click
     let save_results = move |_| {
-        let report = build_report(
+        let report = ValidationReport::from_targets(
             &targets.read(),
             toi().parse::<u64>().unwrap_or_else(|_| now_as_unix_epoch()),
         );
@@ -989,7 +963,7 @@ fn App() -> Element {
                             }
                             if !targets.read().is_empty() {
                                 ResultsView {
-                                    report: build_report(
+                                    report: ValidationReport::from_targets(
                                         &targets.read(),
                                         toi().parse::<u64>().unwrap_or_else(|_| now_as_unix_epoch()),
                                     ),

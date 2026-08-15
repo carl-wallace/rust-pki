@@ -34,3 +34,24 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo build -p pittv3-wasm --target wasm32-unknown-unknown
+
+  # The doc half of certval.yml's rustdoc job, for the crates it excludes. Broken doc links are
+  # invisible to check and clippy; only rustdoc resolves them. pittv3-wasm is documented for
+  # wasm32 because that is the target its cfg'd items exist on.
+  doc:
+    name: rustdoc (-D warnings)
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      # documenting pittv3-gui compiles its dependencies, so the same packages the gui job needs
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo doc -p pittv3_gui_lib -p pittv3-gui --no-deps
+      # pittv3_gui_lib gates items on `std`, and a link to one resolves only when it is enabled;
+      # the run above covers the links that must hold without it.
+      - run: cargo doc -p pittv3_gui_lib --no-deps --all-features
+      - run: cargo doc -p pittv3-wasm --target wasm32-unknown-unknown --no-deps

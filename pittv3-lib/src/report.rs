@@ -156,8 +156,8 @@ pub struct PathReport {
     pub status: Option<PathValidationStatus>,
     /// Rendering of the error returned by path validation, absent when the path validated
     pub error: Option<String>,
-    /// Certificates comprising the path in trust-anchor-first order, i.e., certs[0] is the trust
-    /// anchor and certs[certs.len() - 1] is the target certificate
+    /// Certificates comprising the path in trust-anchor-first order, i.e., `certs[0]` is the trust
+    /// anchor and `certs[certs.len() - 1]` is the target certificate
     pub certs: Vec<CertSummary>,
     /// Revocation status outcomes for the certificates in the path (empty when revocation checking
     /// was not performed)
@@ -490,6 +490,38 @@ impl ValidationReport {
         ValidationReport {
             error: Some(message.into()),
             ..Default::default()
+        }
+    }
+
+    /// Aggregates per-target reports into a run-level report, deriving the totals from the path
+    /// reports themselves.
+    ///
+    /// This is for a frontend whose targets accumulate across interactions rather than arriving
+    /// from a single run: the totals have to be recomputed whenever the set changes, and there are
+    /// no certval run statistics to read them from — unlike [`crate::options_std`], which
+    /// accumulates the same counts from `paths_per_target` and friends as it goes. `duration_ms`
+    /// is left at zero for the same reason: there is no one run to have timed.
+    pub fn from_targets(targets: &[TargetReport], time_of_interest: u64) -> Self {
+        let mut totals = ReportTotals {
+            targets: targets.len(),
+            ..Default::default()
+        };
+        for target in targets {
+            totals.paths_found += target.paths.len();
+            for path in &target.paths {
+                if path.error.is_none() && path.status == Some(PathValidationStatus::Valid) {
+                    totals.valid_paths += 1;
+                } else {
+                    totals.invalid_paths += 1;
+                }
+            }
+        }
+        ValidationReport {
+            targets: targets.to_vec(),
+            totals,
+            time_of_interest,
+            duration_ms: 0,
+            error: None,
         }
     }
 }

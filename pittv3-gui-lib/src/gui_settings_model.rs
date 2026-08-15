@@ -1,4 +1,4 @@
-//! Form-friendly model of [`CertificationPathSettings`](certval::CertificationPathSettings)
+//! Form-friendly model of [`CertificationPathSettings`]
 //! values.
 //!
 //! [`SettingsModel`] carries one `Option` per setting, where `None` means the setting is absent

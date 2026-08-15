@@ -445,7 +445,7 @@ pub async fn validate_targets(
     }
 }
 
-/// validate_cert_folder recursively traverses the given `certs_folder` and invokes [validate_cert_file]
+/// validate_cert_folder recursively traverses the given `certs_folder` and invokes `validate_cert_file`
 /// for each .der, .crt or .cer file that is found.
 #[async_recursion::async_recursion]
 #[cfg(feature = "std")]

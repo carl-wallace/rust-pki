@@ -1,5 +1,5 @@
 //! Renderer-agnostic components for displaying a
-//! [`ValidationReport`](pittv3_lib::report::ValidationReport) produced by a validation run.
+//! [`ValidationReport`] produced by a validation run.
 //!
 //! These components are feature-free so that every GUI frontend (desktop WebView, web) can share
 //! them; file system access and run orchestration remain with the frontends.
@@ -11,6 +11,21 @@ use pittv3_lib::report::{
     PathReport, ProgressEvent, RevocationMethod, RevocationOutcome, RevocationStatus, TargetReport,
     TargetStatus, ValidationReport,
 };
+
+/// A line of validation output along with a CSS class used to render it, i.e., "ok", "err" or
+/// "info".
+///
+/// This is the running commentary a frontend shows alongside a run — notes, warnings and the
+/// per-step narration — and is distinct from [`ValidationReport`], which is the structured result
+/// [`ResultsView`] renders. A line is for reading; the report is for inspecting, serializing and
+/// downloading.
+#[derive(Clone, Debug)]
+pub struct ResultLine {
+    /// CSS class: "ok", "err" or "info"
+    pub class: &'static str,
+    /// Text to display
+    pub text: String,
+}
 
 /// Events conveyed from a validation run to the UI. Frontends send these over a channel from
 /// whatever context executes the run and consume them on the UI side to update signals.
