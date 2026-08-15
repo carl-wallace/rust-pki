@@ -656,7 +656,6 @@ fn App() -> Element {
                             EditSettings {
                                 initial: settings(),
                                 caps: Capabilities::browser_local(),
-                                now: now_as_unix_epoch(),
                                 on_save: move |edited| {
                                     settings.set(edited);
                                     settings_status.set("Settings saved".to_string());

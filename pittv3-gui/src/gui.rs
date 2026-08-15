@@ -13,6 +13,7 @@ use rfd::AsyncFileDialog;
 
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, TextRow, TimeRow};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_utils::{
@@ -90,103 +91,9 @@ fn usize_or_none(sig: Signal<String>) -> Option<usize> {
     }
 }
 
-/// Formats Unix-epoch seconds as a `datetime-local` value (`YYYY-MM-DDTHH:MM:SS`), or empty if
-/// unparseable. UTC, to match the RFC 3339 `Z` rendering shown alongside it.
-fn epoch_to_datetime_local(secs: u64) -> String {
-    match der::DateTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
-        Ok(dt) => format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-            dt.year(),
-            dt.month(),
-            dt.day(),
-            dt.hour(),
-            dt.minutes(),
-            dt.seconds()
-        ),
-        Err(_) => String::new(),
-    }
-}
-
-/// Parses a `datetime-local` value (`YYYY-MM-DDTHH:MM` or `...:SS`, interpreted as UTC) back to
-/// Unix-epoch seconds; inverse of [`epoch_to_datetime_local`].
-fn datetime_local_to_epoch(value: &str) -> Option<u64> {
-    let v = value.trim();
-    let rfc3339 = match v.len() {
-        16 => format!("{v}:00Z"), // picker omitted the seconds component
-        19 => format!("{v}Z"),
-        _ => return None,
-    };
-    rfc3339
-        .parse::<der::DateTime>()
-        .ok()
-        .map(|dt| dt.unix_duration().as_secs())
-}
-
-/// The `datetime-local` value mirroring the time-of-interest epoch string, so the picker shows the
-/// selected time; empty when the time is disabled (0) or mid-edit (not yet a valid epoch).
-fn toi_datetime_value(toi: &str) -> String {
-    match toi.trim().parse::<u64>() {
-        Ok(secs) if secs != 0 => epoch_to_datetime_local(secs),
-        _ => String::new(),
-    }
-}
-
-/// Table row featuring the time of interest with a human-readable rendering and a Now button
-#[component]
-fn TimeRow(label: String, name: String, sig: Signal<String>) -> Element {
-    rsx! {
-        tr {
-            td { label { r#for: name.clone(), "{label}: " } }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
-            }
-            td { class: "nowrap",
-                button {
-                    r#type: "button",
-                    onclick: move |_| sig.set(get_now_as_unix_epoch().to_string()),
-                    "Now"
-                }
-                // Editable human-readable picker mirroring the epoch field (UTC). onchange fires
-                // only on a complete datetime, so it never clobbers a mid-edit epoch value.
-                input {
-                    r#type: "datetime-local",
-                    step: "1",
-                    value: toi_datetime_value(&sig()),
-                    onchange: move |ev| {
-                        if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
-                            sig.set(secs.to_string());
-                        }
-                    },
-                }
-            }
-        }
-    }
-}
-
-/// Table row featuring a labeled text input with no accompanying selection dialog
-#[component]
-fn TextRow(label: String, name: String, sig: Signal<String>) -> Element {
-    rsx! {
-        tr {
-            td { label { r#for: name.clone(), "{label}: " } }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
-            }
-        }
-    }
-}
-
-/// Table row featuring a labeled text input with a folder selection dialog
+/// Table row with a labeled text input and a folder selection dialog. Thin wrapper over the shared
+/// [`BrowseRow`] supplying the native picker, which is the only part of the row that is not
+/// portable.
 #[component]
 fn FolderRow(
     label: String,
@@ -195,29 +102,20 @@ fn FolderRow(
     #[props(default)] title: String,
 ) -> Element {
     rsx! {
-        tr {
-            td {
-                div { title, class: "visible",
-                    label { r#for: name.clone(), "{label}: " }
-                }
-            }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
-            }
-            td { class: "nowrap",
-                button { r#type: "button", onclick: move |_| pick_folder_into(sig), "..." }
-            }
+        BrowseRow {
+            label,
+            name,
+            sig,
+            title,
+            on_browse: move |_| {
+                spawn(pick_folder_into(sig));
+            },
         }
     }
 }
 
-/// Table row featuring a labeled text input with a file selection dialog limited to files of the
-/// indicated type
+/// Table row with a labeled text input and a file selection dialog limited to files of the
+/// indicated type. Thin wrapper over the shared [`BrowseRow`], as with [`FolderRow`].
 #[component]
 fn FileRow(
     label: String,
@@ -225,41 +123,17 @@ fn FileRow(
     sig: Signal<String>,
     filter_name: &'static str,
     extensions: &'static [&'static str],
+    #[props(default)] title: String,
 ) -> Element {
     rsx! {
-        tr {
-            td { label { r#for: name.clone(), "{label}: " } }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
-            }
-            td { class: "nowrap",
-                button {
-                    r#type: "button",
-                    onclick: move |_| pick_file_into(sig, filter_name, extensions),
-                    "..."
-                }
-            }
-        }
-    }
-}
-
-/// Labeled checkbox cell for use within a table row
-#[component]
-fn CheckboxCell(label: String, name: String, sig: Signal<bool>) -> Element {
-    rsx! {
-        td { class: "check",
-            label { r#for: name.clone(), "{label}: " }
-            input {
-                r#type: "checkbox",
-                name,
-                checked: sig(),
-                onchange: move |ev| sig.set(ev.checked()),
-            }
+        BrowseRow {
+            label,
+            name,
+            sig,
+            title,
+            on_browse: move |_| {
+                spawn(pick_file_into(sig, filter_name, extensions));
+            },
         }
     }
 }
