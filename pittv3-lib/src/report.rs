@@ -156,8 +156,8 @@ pub struct PathReport {
     pub status: Option<PathValidationStatus>,
     /// Rendering of the error returned by path validation, absent when the path validated
     pub error: Option<String>,
-    /// Certificates comprising the path in trust-anchor-first order, i.e., certs[0] is the trust
-    /// anchor and certs[certs.len() - 1] is the target certificate
+    /// Certificates comprising the path in trust-anchor-first order, i.e., `certs[0]` is the trust
+    /// anchor and `certs[certs.len() - 1]` is the target certificate
     pub certs: Vec<CertSummary>,
     /// Revocation status outcomes for the certificates in the path (empty when revocation checking
     /// was not performed)

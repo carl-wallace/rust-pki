@@ -1,9 +1,9 @@
 //! Tabbed form for editing [`CertificationPathSettings`](certval::CertificationPathSettings)
-//! values via a [`SettingsModel`](crate::gui_settings_model::SettingsModel).
+//! values via a [`SettingsModel`].
 //!
 //! [`EditSettings`] is renderer-agnostic and persistence-free: it receives an initial model and
 //! reports the edited model through `on_save`, so desktop (file-backed) and web (server- or
-//! localStorage-backed) frontends share the form. [`EditSettingsFile`] is the desktop wrapper that
+//! localStorage-backed) frontends share the form. `EditSettingsFile` (feature `std`) is the
 //! keeps today's read/write-a-JSON-file behavior.
 //!
 //! Presentation is defaults-first: each field shows its effective value (the model value or the

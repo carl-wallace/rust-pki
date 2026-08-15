@@ -1,5 +1,5 @@
 //! Renderer-agnostic components for displaying a
-//! [`ValidationReport`](pittv3_lib::report::ValidationReport) produced by a validation run.
+//! [`ValidationReport`] produced by a validation run.
 //!
 //! These components are feature-free so that every GUI frontend (desktop WebView, web) can share
 //! them; file system access and run orchestration remain with the frontends.

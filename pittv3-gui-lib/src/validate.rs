@@ -130,7 +130,7 @@ fn to_name_constraints(nc: &NameConstraintInputs) -> Option<NameConstraintsSetti
     (!empty).then_some(s)
 }
 
-/// Builds a [`CertificationPathSettings`](certval::CertificationPathSettings) from user-supplied
+/// Builds a [`CertificationPathSettings`] from user-supplied
 /// values, appending a note for any value that could not be applied as given
 pub fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> CertificationPathSettings {
     let toi = match TimeOfInterest::from_unix_secs(vs.toi) {
@@ -177,7 +177,7 @@ pub fn make_cps(vs: &ValidationSettings, out: &mut Vec<ResultLine>) -> Certifica
     cps
 }
 
-/// A [`PkiEnvironment`](certval::PkiEnvironment) prepared for validation: trust anchors and CA
+/// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
 /// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass
 /// completed. Preparing this is the expensive part of a run (parsing stores and, above all,
 /// discovering partial paths), so the frontend caches it and reuses it across Validate clicks while
