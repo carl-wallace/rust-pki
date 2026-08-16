@@ -112,6 +112,11 @@ pub fn TextRow(
 
 /// Table row with a labeled text input and a browse button. The browse action is supplied by the
 /// frontend, since choosing a file or folder is the one part of this row that is not portable.
+///
+/// An input that accepts either a file or a folder can supply a second action as `on_browse_alt`,
+/// rendered as an extra button labeled `alt_label`. That is for the frontends whose native dialog
+/// chooses one kind or the other: where a single dialog can offer both, the row keeps one button
+/// and the platform difference stays inside the frontend.
 #[component]
 pub fn BrowseRow(
     label: String,
@@ -119,6 +124,8 @@ pub fn BrowseRow(
     sig: Signal<String>,
     on_browse: EventHandler<()>,
     #[props(default)] title: String,
+    #[props(default)] on_browse_alt: Option<EventHandler<()>>,
+    #[props(default)] alt_label: String,
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
@@ -141,6 +148,13 @@ pub fn BrowseRow(
                     r#type: "button",
                     onclick: move |_| on_browse.call(()),
                     "..."
+                }
+                if let Some(on_browse_alt) = on_browse_alt {
+                    button {
+                        r#type: "button",
+                        onclick: move |_| on_browse_alt.call(()),
+                        "{alt_label}"
+                    }
                 }
             }
         }

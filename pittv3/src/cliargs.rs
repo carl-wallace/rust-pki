@@ -9,8 +9,9 @@ use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 #[command(arg_required_else_help(true))]
 #[clap(author, version, about, long_about = None)]
 pub struct Pittv3CliArgs {
-    /// Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR
-    /// file containing partial certification paths and when validating certification paths.
+    /// Full path of a folder containing binary DER-encoded trust anchors, or of a single such file,
+    /// to use when generating CBOR file containing partial certification paths and when validating
+    /// certification paths. A file may hold several concatenated PEM objects.
     #[cfg(feature = "std")]
     #[clap(short, long, help_heading = "COMMON OPTIONS")]
     pub ta_folder: Option<String>,
@@ -59,10 +60,11 @@ pub struct Pittv3CliArgs {
     #[clap(long, short, help_heading = "COMMON OPTIONS")]
     pub download_folder: Option<String>,
 
-    /// Full path of folder containing binary, DER-encoded intermediate CA certificates. Required
-    /// when generate action is performed. When path validation is performed, the certificates in
-    /// this folder are added to the graph that is built, augmenting any CBOR store in use, and the
-    /// folder doubles as a place to store downloaded files when dynamic building is used and
+    /// Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a
+    /// single such file (which may hold several concatenated PEM objects, e.g. a fullchain).
+    /// Required when generate action is performed. When path validation is performed, these
+    /// certificates are added to the graph that is built, augmenting any CBOR store in use. A folder
+    /// also doubles as a place to store downloaded files when dynamic building is used and
     /// download_folder is not specified.
     #[cfg(feature = "std")]
     #[clap(short, long, help_heading = "COMMON OPTIONS")]

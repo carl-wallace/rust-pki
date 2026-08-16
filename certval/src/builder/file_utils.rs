@@ -65,6 +65,175 @@ pub fn cert_folder_to_vec(
     cert_or_ta_folder_to_vec(pe, certs_dir, certs_vec, time_of_interest, false)
 }
 
+/// `ta_file_to_vec` is used to help process a single file containing one or more DER- or PEM-encoded
+/// trust anchors for use as a trust anchor source.
+///
+/// It is the single-file counterpart of [`ta_folder_to_vec`], for callers that let a user nominate
+/// an anchor directly rather than a folder to search. The file may hold several concatenated PEM
+/// objects, each of which is accepted or rejected on its own. Unlike the folder walk, the file name
+/// is not required to carry a recognized extension: the caller named this file, so refusing to read
+/// it on the strength of its name would be unhelpful. Objects that do not parse as a
+/// [`TrustAnchorChoice`], or that are not valid at the time of interest, are dropped. Pass 0 for
+/// `time_of_interest` to skip the validity check. Returns the number of items added.
+#[cfg(feature = "std")]
+pub fn ta_file_to_vec(
+    pe: &PkiEnvironment,
+    ta_file: &str,
+    tas_vec: &mut dyn CertVector,
+    time_of_interest: TimeOfInterest,
+) -> Result<usize> {
+    cert_or_ta_file_to_vec(pe, ta_file, tas_vec, time_of_interest, true)
+}
+
+/// `cert_file_to_vec` is used to help process a single file containing one or more DER- or PEM-encoded
+/// certificates for use as a certificate source.
+///
+/// It is the single-file counterpart of [`cert_folder_to_vec`], for callers that let a user nominate
+/// a certificate (or a PEM bundle such as a fullchain) directly rather than a folder to search. See
+/// [`ta_file_to_vec`] for the shared rules; here objects are read as [`Certificate`] and self-signed
+/// certificates are excluded, as they are when a folder is read. Returns the number of items added.
+#[cfg(feature = "std")]
+pub fn cert_file_to_vec(
+    pe: &PkiEnvironment,
+    cert_file: &str,
+    certs_vec: &mut dyn CertVector,
+    time_of_interest: TimeOfInterest,
+) -> Result<usize> {
+    cert_or_ta_file_to_vec(pe, cert_file, certs_vec, time_of_interest, false)
+}
+
+/// `cert_or_ta_file_to_vec` is used by [`ta_file_to_vec`] and [`cert_file_to_vec`] to read one file,
+/// returning [`Error::NotFound`] when the path is not a file (including when it is a folder, which
+/// the folder-taking functions handle instead).
+#[cfg(feature = "std")]
+fn cert_or_ta_file_to_vec(
+    pe: &PkiEnvironment,
+    filename: &str,
+    certsvec: &mut dyn CertVector,
+    time_of_interest: TimeOfInterest,
+    collect_tas: bool,
+) -> Result<usize> {
+    let path = Path::new(filename);
+    if !Path::is_file(path) {
+        error!("{filename} does not exist or is not a file");
+        return Err(Error::NotFound);
+    }
+    Ok(add_file_to_vec(
+        pe,
+        path,
+        certsvec,
+        time_of_interest,
+        collect_tas,
+        false,
+    ))
+}
+
+/// `add_file_to_vec` reads one file into `certsvec` and returns the number of objects it added.
+///
+/// This is the per-file half of the folder walk, shared with the single-file entry points so that
+/// one file is filtered by exactly the same rules whether it was reached by walking a folder or
+/// named outright. `check_extension` is the one difference between those two cases: a folder walk
+/// skips files whose extension does not suggest certificate material, while a named file is read on
+/// its merits.
+///
+/// A file that cannot be read or decoded is skipped rather than reported: during a folder walk one
+/// stray file must not empty the store (with `?` it did), and for a named file the count of zero
+/// tells the caller as much as an error would. A file may hold several concatenated PEM objects (a
+/// fullchain or root-CA bundle), so each object is accepted or rejected on its own.
+#[cfg(feature = "std")]
+fn add_file_to_vec(
+    pe: &PkiEnvironment,
+    path: &Path,
+    certsvec: &mut dyn CertVector,
+    time_of_interest: TimeOfInterest,
+    collect_tas: bool,
+    check_extension: bool,
+) -> usize {
+    let initial_count = certsvec.len();
+
+    if check_extension {
+        let file_exts = if collect_tas {
+            vec!["der", "crt", "cer", "ta"]
+        } else {
+            vec!["der", "crt", "cer"]
+        };
+        match path.extension().and_then(OsStr::to_str) {
+            Some(ext) => {
+                if !file_exts.contains(&ext) {
+                    return 0;
+                }
+            }
+            None => return 0,
+        }
+    }
+
+    let buffers = match get_file_as_der_certs_pem(path) {
+        Ok(buffers) => buffers,
+        Err(e) => {
+            error!(
+                "Ignoring {} as it could not be read or decoded: {e:?}",
+                path.display()
+            );
+            return 0;
+        }
+    };
+
+    for buffer in buffers {
+        // make sure it parses before saving buffer; a rejected object skips only
+        // itself, not the rest of a bundle.
+        if collect_tas {
+            // Every TrustAnchorChoice alternative is a trust anchor here, not only
+            // the Certificate one: an RFC 5914 TrustAnchorInfo is how trust anchor
+            // constraints are expressed, which is most of the reason to hold anchors
+            // in this form at all, and .ta is an accepted extension for exactly that
+            // material. An anchor asserting no validity period (Ok(None)) is kept --
+            // there is nothing to check, which is not the same as failing a check.
+            let ta = match TrustAnchorChoice::<Raw>::from_der(buffer.as_slice()) {
+                Ok(ta) => ta,
+                Err(_e) => continue,
+            };
+            if ta_valid_at_time(&ta, time_of_interest, true).is_err() {
+                error!(
+                    "Ignored an object in {} as not valid at indicated time of interest",
+                    path.to_str().unwrap_or("")
+                );
+                continue;
+            }
+        } else {
+            let r = CertificateInner::from_der(buffer.as_slice());
+            if let Ok(cert) = r {
+                let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
+                if let Err(_e) = r {
+                    error!(
+                        "Ignored an object in {} as not valid at indicated time of interest",
+                        path.to_str().unwrap_or("")
+                    );
+                    continue;
+                }
+
+                if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
+                    if let Some(s) = path.to_str() {
+                        info!("Ignoring a self-signed object in {s}");
+                    }
+                    continue;
+                }
+            } else {
+                continue;
+            }
+        }
+
+        let cf = CertFile {
+            filename: path.to_str().unwrap_or("").to_string(),
+            bytes: buffer,
+        };
+        if !certsvec.contains(&cf) {
+            certsvec.push(cf);
+        }
+    }
+
+    certsvec.len() - initial_count
+}
+
 /// `cert_or_ta_folder_to_vec` is used by [`ta_folder_to_vec`] and [`cert_folder_to_vec`] to recursively traverse
 /// a folder in search of [`Certificate`] or [`TrustAnchorChoice`] objects, as appropriate.
 fn cert_or_ta_folder_to_vec(
@@ -102,87 +271,10 @@ fn cert_or_ta_folder_to_vec(
                     }
                     continue;
                 } else {
-                    let file_exts = if collect_tas {
-                        vec!["der", "crt", "cer", "ta"]
-                    } else {
-                        vec!["der", "crt", "cer"]
-                    };
-                    if let Some(ext) = path.extension().and_then(OsStr::to_str) {
-                        if !file_exts.contains(&ext) {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
-
-                    // A file that cannot be read or PEM-decoded must not abort the whole folder
-                    // scan (with `?` a single stray file left the store empty); skip it and go on.
-                    // A file may hold several concatenated PEM objects (a fullchain or root-CA
-                    // bundle); load every one, deferring per-object accept/reject to the loop below.
-                    let buffers = match get_file_as_der_certs_pem(path) {
-                        Ok(buffers) => buffers,
-                        Err(e) => {
-                            error!(
-                                "Ignoring {} as it could not be read or decoded: {e:?}",
-                                path.display()
-                            );
-                            continue;
-                        }
-                    };
-
-                    for buffer in buffers {
-                        // make sure it parses before saving buffer; a rejected object skips only
-                        // itself, not the rest of a bundle.
-                        if collect_tas {
-                            // Every TrustAnchorChoice alternative is a trust anchor here, not only
-                            // the Certificate one: an RFC 5914 TrustAnchorInfo is how trust anchor
-                            // constraints are expressed, which is most of the reason to hold anchors
-                            // in this form at all, and .ta is an accepted extension for exactly that
-                            // material. An anchor asserting no validity period (Ok(None)) is kept --
-                            // there is nothing to check, which is not the same as failing a check.
-                            let ta = match TrustAnchorChoice::<Raw>::from_der(buffer.as_slice()) {
-                                Ok(ta) => ta,
-                                Err(_e) => continue,
-                            };
-                            if ta_valid_at_time(&ta, time_of_interest, true).is_err() {
-                                error!(
-                                    "Ignored an object in {} as not valid at indicated time of interest",
-                                    path.to_str().unwrap_or("")
-                                );
-                                continue;
-                            }
-                        } else {
-                            let r = CertificateInner::from_der(buffer.as_slice());
-                            if let Ok(cert) = r {
-                                let r =
-                                    valid_at_time(cert.tbs_certificate(), time_of_interest, true);
-                                if let Err(_e) = r {
-                                    error!(
-                                        "Ignored an object in {} as not valid at indicated time of interest",
-                                        path.to_str().unwrap_or("")
-                                    );
-                                    continue;
-                                }
-
-                                if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
-                                    if let Some(s) = path.to_str() {
-                                        info!("Ignoring a self-signed object in {s}");
-                                    }
-                                    continue;
-                                }
-                            } else {
-                                continue;
-                            }
-                        }
-
-                        let cf = CertFile {
-                            filename: path.to_str().unwrap_or("").to_string(),
-                            bytes: buffer,
-                        };
-                        if !certsvec.contains(&cf) {
-                            certsvec.push(cf);
-                        }
-                    }
+                    // Files reached by walking a folder are filtered by extension: the folder was
+                    // nominated, not the file, so anything that does not look like certificate
+                    // material is passed over rather than reported.
+                    add_file_to_vec(pe, path, certsvec, time_of_interest, collect_tas, true);
                 }
             }
             _ => {
