@@ -83,6 +83,51 @@ fn ca_folder_supplies_intermediates() {
     assert_eq!(3, report.targets[0].paths[0].certs.len());
 }
 
+/// Both inputs also take a single file, so nothing has to be assembled into a directory first. The
+/// fixtures are the reason this matters: PKITS ships no folder holding only its root, so validating
+/// against it used to mean building one.
+#[test]
+fn trust_anchor_and_ca_can_be_single_files() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let report = validate(
+        dir.path(),
+        Some(
+            example("TrustAnchorRootCertificate.crt")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+        Some(example("GoodCACert.crt").to_str().unwrap().to_string()),
+    );
+
+    assert_eq!(None, report.error);
+    assert_eq!(1, report.totals.valid_paths);
+    assert_eq!(TargetStatus::Valid, report.targets[0].status);
+    assert_eq!(3, report.targets[0].paths[0].certs.len());
+}
+
+/// A file and a folder are interchangeable on either side, so the mixed forms have to work too —
+/// this is the shape a GUI produces when one input was picked and the other typed.
+#[test]
+fn a_file_and_a_folder_mix() {
+    let dir = tempfile::tempdir().unwrap();
+    let ca_folder = folder_with(&dir.path().join("ca"), &["GoodCACert.crt"]);
+
+    let report = validate(
+        dir.path(),
+        Some(
+            example("TrustAnchorRootCertificate.crt")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+        Some(ca_folder),
+    );
+
+    assert_eq!(TargetStatus::Valid, report.targets[0].status);
+}
+
 /// The same run without the CA folder is the control: the intermediate is the only thing missing,
 /// so the outcome must be no paths rather than a path found some other way.
 #[test]

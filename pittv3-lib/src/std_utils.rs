@@ -78,7 +78,17 @@ pub fn load_trust_anchors(
     }
 
     if let Some(ta_folder) = &args.ta_folder {
-        if let Err(e) = ta_folder_to_vec(pe, ta_folder, &mut ta_store, time_of_interest) {
+        // A single anchor is as reasonable a thing to nominate as a folder of them — the material
+        // often arrives as one file — so the argument takes either and the path itself says which.
+        // Naming a file is not a lesser case: an anchor store assembled from several sources is
+        // reached by naming them, and the alternative is asking the user to build a directory
+        // around one certificate.
+        let r = if Path::new(ta_folder).is_file() {
+            ta_file_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
+        } else {
+            ta_folder_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
+        };
+        if let Err(e) = r {
             return Err(format!(
                 "failed to load trust anchors from {ta_folder} with error {e:?}"
             ));

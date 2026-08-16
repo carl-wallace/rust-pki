@@ -15,8 +15,9 @@
 pub fn arg_help(name: &str) -> &'static str {
     match name {
         "ta-folder" => concat!(
-            "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR ",
-            "file containing partial certification paths and when validating certification paths.",
+            "Full path of a folder containing binary DER-encoded trust anchors, or of a single such ",
+            "file, to use when generating CBOR file containing partial certification paths and when ",
+            "validating certification paths. A file may hold several concatenated PEM objects.",
         ),
         "ta-cbor" => concat!(
             "Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by ",
@@ -48,10 +49,11 @@ pub fn arg_help(name: &str) -> &'static str {
             "where exported buffers are written by dump_cert_at_index or list_buffers.",
         ),
         "ca-folder" => concat!(
-            "Full path of folder containing binary, DER-encoded intermediate CA certificates. Required ",
-            "when generate action is performed. When path validation is performed, the certificates in ",
-            "this folder are added to the graph that is built, augmenting any CBOR store in use, and the ",
-            "folder doubles as a place to store downloaded files when dynamic building is used and ",
+            "Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a ",
+            "single such file (which may hold several concatenated PEM objects, e.g. a fullchain). ",
+            "Required when generate action is performed. When path validation is performed, these ",
+            "certificates are added to the graph that is built, augmenting any CBOR store in use. A ",
+            "folder also doubles as a place to store downloaded files when dynamic building is used and ",
             "download_folder is not specified.",
         ),
         "generate" => concat!(

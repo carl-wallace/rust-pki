@@ -39,6 +39,20 @@ async fn pick_folder_into(mut sig: Signal<String>) {
     }
 }
 
+/// Presents a selection dialog that accepts either a file or a folder and assigns the selection,
+/// if any, to `sig`. macOS only: `rfd` implements the combined dialog for that platform alone, so
+/// other platforms offer the two dialogs as separate buttons instead (see [`PathRow`]).
+#[cfg(target_os = "macos")]
+async fn pick_file_or_folder_into(mut sig: Signal<String>) {
+    let picked = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_file_or_folder()
+        .await;
+    if let Some(picked) = picked {
+        sig.set(picked.path().to_string_lossy().to_string());
+    }
+}
+
 /// Presents a file selection dialog limited to files of the indicated type and assigns the
 /// selection, if any, to `sig`
 async fn pick_file_into(
@@ -115,6 +129,58 @@ fn FolderRow(
         }
     }
 }
+
+/// Table row for an input that accepts either a folder of certificates or a single certificate
+/// file, which is what the trust anchor and CA inputs take.
+///
+/// macOS can offer both in one dialog, so there the `...` button does; every other platform has to
+/// choose a dialog kind up front, so the row carries a second button. The distinction is only about
+/// how the path is chosen — a typed or pasted path of either kind works everywhere, because the run
+/// decides from the path itself rather than from which button produced it.
+#[component]
+fn PathRow(
+    label: String,
+    name: String,
+    sig: Signal<String>,
+    #[props(default)] title: String,
+) -> Element {
+    #[cfg(target_os = "macos")]
+    return rsx! {
+        BrowseRow {
+            label,
+            name,
+            sig,
+            title,
+            on_browse: move |_| {
+                spawn(pick_file_or_folder_into(sig));
+            },
+        }
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    return rsx! {
+        BrowseRow {
+            label,
+            name,
+            sig,
+            title,
+            on_browse: move |_| {
+                spawn(pick_folder_into(sig));
+            },
+            on_browse_alt: move |_| {
+                spawn(pick_file_into(sig, "Certificate File", CERT_EXTENSIONS));
+            },
+            alt_label: "File...",
+        }
+    };
+}
+
+/// Extensions offered when picking a certificate file as a trust anchor or CA input. `ta` is an
+/// RFC 5914 TrustAnchorInfo, which is how anchor constraints travel. Only the platforms that need a
+/// separate file dialog filter by extension; the combined macOS dialog does not, since a folder has
+/// no extension to match.
+#[cfg(not(target_os = "macos"))]
+const CERT_EXTENSIONS: &[&str] = &["der", "crt", "cer", "pem", "ta"];
 
 /// Table row with a labeled text input and a file selection dialog limited to files of the
 /// indicated type. Thin wrapper over the shared [`BrowseRow`], as with [`FolderRow`].
@@ -708,11 +774,10 @@ pub(crate) fn App() -> Element {
                                 tbody {
                                     StoreRow { sig: s_store }
                                     StoreHint { selection: s_store() }
-                                    FolderRow {
-                                        label: "TA Folder",
+                                    PathRow {
+                                        label: "TA Folder or File",
                                         name: "ta-folder",
                                         sig: s_ta_folder,
-                                        title: "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR file containing partial certification paths and when validating certification paths.",
                                     }
                                     // Shown only for a custom selection: a built-in store is itself
                                     // a trust anchor CBOR, and the run writes its path here.
@@ -743,11 +808,10 @@ pub(crate) fn App() -> Element {
                                     // same field below as the folder fetched certificates are
                                     // written to.
                                     if !s_dynamic_build() {
-                                        FolderRow {
-                                            label: "CA Folder",
+                                        PathRow {
+                                            label: "CA Folder or File",
                                             name: "ca-folder",
                                             sig: s_ca_folder,
-                                            title: "Full path of folder containing binary DER-encoded intermediate CA certificates. These are added to the graph built for path validation, augmenting the CA CBOR store when one is also supplied.",
                                         }
                                     }
                                     FileRow {

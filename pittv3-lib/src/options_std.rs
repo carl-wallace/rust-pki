@@ -939,9 +939,15 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         if 0 == pass && !args.generate {
             if let Some(ca_folder) = &args.ca_folder {
                 let before = cert_source.len();
-                if let Err(e) =
-                    cert_folder_to_vec(&pe, ca_folder, &mut cert_source, cps.get_time_of_interest())
-                {
+                // Either a folder of intermediates or a single file naming one, matching the trust
+                // anchor side; a PEM bundle such as a fullchain counts as the single file.
+                let toi = cps.get_time_of_interest();
+                let r = if Path::new(ca_folder).is_file() {
+                    cert_file_to_vec(&pe, ca_folder, &mut cert_source, toi)
+                } else {
+                    cert_folder_to_vec(&pe, ca_folder, &mut cert_source, toi)
+                };
+                if let Err(e) = r {
                     error!("Failed to read certificates from {ca_folder}: {e:?}");
                 }
                 ca_folder_certs = cert_source.len() - before;
