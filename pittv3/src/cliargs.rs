@@ -138,10 +138,13 @@ pub struct Pittv3CliArgs {
     #[clap(long, short, help_heading = "VALIDATION")]
     pub settings: Option<String>,
 
-    /// Full path of folder containing binary, DER-encoded intermediate CA certificates. Required
-    /// when generate action is performed. This is not used when path validation is performed other
-    /// than as a place to store downloaded files when dynamic building is used and download_folder
-    /// is not specified.
+    /// Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed
+    /// before path validation begins. Only files with a .crl extension are processed. The indexed
+    /// CRLs are the local revocation source, consulted before any remote retrieval, and the folder
+    /// also receives CRLs fetched remotely along with the last-modified map that makes those
+    /// fetches conditional. Note that the folder is written as well as read: indexing deletes any
+    /// CRL that is not valid at the time of interest, i.e. one whose thisUpdate is in the future or
+    /// whose nextUpdate has passed.
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "VALIDATION")]
     pub crl_folder: Option<String>,
