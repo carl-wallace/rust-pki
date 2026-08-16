@@ -75,6 +75,16 @@ pub fn validate_path_rfc5280(
     check_validity(pe, cps, cp, cpr)?;
     if cps.get_require_ta_store() {
         if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
+            // The target carries the key of an anchor in the trust store, so it is trusted on its
+            // own terms and the checks below have nothing to add. Record that outcome rather than
+            // returning success silently: a caller reading the status instead of the return value
+            // would otherwise see a path with no result recorded at all, which reads as a failure
+            // (the path was neither valid nor invalid) rather than as the acceptance it is.
+            cpr.set_validation_status(PathValidationStatus::Valid);
+            info!(
+                "Target certificate issued to {} is itself a trust anchor; accepted without further path validation checks",
+                name_to_string(cp.target.decoded().tbs_certificate().subject())
+            );
             return Ok(());
         }
         if pe.is_trust_anchor(&cp.trust_anchor).is_err() {
