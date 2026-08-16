@@ -530,3 +530,45 @@ fn colliding_skid_different_keys_is_refused() {
 
     log::set_max_level(prev_log_level);
 }
+
+/// A target certificate that is itself a trust anchor is accepted without the checks that follow,
+/// and that acceptance has to be recorded in the results. Returning success while leaving the
+/// status unset reads downstream as a path that was neither valid nor invalid, which a caller that
+/// rolls paths up into a verdict for the target reports as a failure — the opposite of what
+/// happened. Reproduces validating a root certificate against a store that holds it.
+#[test]
+fn target_that_is_a_trust_anchor_records_valid() {
+    let der = include_bytes!("examples/PKITS_data_p256/certs/TrustAnchorRootCertificate.crt");
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der.to_vec(),
+    });
+    ta_store.initialize().unwrap();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    let ta = PDVTrustAnchorChoice::try_from(der.as_slice()).unwrap();
+    let mut target =
+        PDVCertificate::try_from(CertificateInner::<Raw>::from_der(der.as_slice()).unwrap())
+            .unwrap();
+    target.parse_extensions(EXTS_OF_INTEREST);
+    let mut path = CertificationPath::new(ta, CertificateChain::default(), target);
+
+    let mut cps = CertificationPathSettings::default();
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1648039783).unwrap());
+    // The short-circuit under test is reached only when the trust store is consulted, which is the
+    // default; stating it here keeps the test honest if that default ever changes.
+    assert!(cps.get_require_ta_store());
+
+    let mut cpr = CertificationPathResults::new();
+    validate_path_rfc5280(&pe, &cps, &mut path, &mut cpr).unwrap();
+    assert_eq!(
+        Some(PathValidationStatus::Valid),
+        cpr.get_validation_status(),
+        "acceptance as a trust anchor must be recorded as a status, not only returned"
+    );
+}

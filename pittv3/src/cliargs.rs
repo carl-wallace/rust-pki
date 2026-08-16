@@ -15,6 +15,14 @@ pub struct Pittv3CliArgs {
     #[clap(short, long, help_heading = "COMMON OPTIONS")]
     pub ta_folder: Option<String>,
 
+    /// Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by
+    /// --generate --cbor-ta-store and the form the certval trust store providers serialize. This is
+    /// the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which case
+    /// the anchors from both are used.
+    #[cfg(feature = "std")]
+    #[clap(long, help_heading = "COMMON OPTIONS")]
+    pub ta_cbor: Option<String>,
+
     /// Use trust anchors from webpki-roots crate (which are from Mozilla)
     #[cfg(feature = "webpki")]
     #[clap(long, help_heading = "COMMON OPTIONS")]
@@ -52,9 +60,10 @@ pub struct Pittv3CliArgs {
     pub download_folder: Option<String>,
 
     /// Full path of folder containing binary, DER-encoded intermediate CA certificates. Required
-    /// when generate action is performed. This is not used when path validation is performed other
-    /// than as a place to store downloaded files when dynamic building is used and download_folder
-    /// is not specified.
+    /// when generate action is performed. When path validation is performed, the certificates in
+    /// this folder are added to the graph that is built, augmenting any CBOR store in use, and the
+    /// folder doubles as a place to store downloaded files when dynamic building is used and
+    /// download_folder is not specified.
     #[cfg(feature = "std")]
     #[clap(short, long, help_heading = "COMMON OPTIONS")]
     pub ca_folder: Option<String>,
@@ -247,6 +256,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
         Pittv3Args {
             #[cfg(feature = "std")]
             ta_folder: v.ta_folder,
+            #[cfg(feature = "std")]
+            ta_cbor: v.ta_cbor,
             #[cfg(feature = "webpki")]
             webpki_tas: v.webpki_tas,
             #[cfg(feature = "std")]

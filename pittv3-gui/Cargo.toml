@@ -23,6 +23,19 @@ rust-version = "1.88"
 pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
 pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
 
+# Trust material for the built-in store selector (see src/stores.rs). Unlike the browser
+# frontend, which fetches its stores by URL and so takes these as build-dependencies, a desktop
+# app has nowhere to fetch from: the bytes are linked in and written to a cache folder when a
+# store is selected. `mozilla_cas` is the bulk of that, around 6.6 MB of CCADB intermediates.
+# reqwest-client is off throughout: these crates' HTTP client is for a consumer building a TLS
+# connection against the trust material, which is not what this app does with it, and it brings
+# a second copy of the reqwest/icu stack for nothing.
+certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false }
+certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr"] }
+certval_stores_pbdev = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["dev"] }
+certval_stores_fpki = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["fpki"] }
+certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_tls", "mozilla_email", "mozilla_cas"] }
+
 der = { version = "0.8.1", default-features = false, features = ["alloc"] }
 dioxus = { version = "0.7.9", features = ["desktop"] }
 futures-channel = "0.3.31"
@@ -33,3 +46,8 @@ log4rs = "1.4.0"
 rfd = "0.17.2"
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["rt", "time"] }
+
+# Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
+# read; the app itself reaches certval through pittv3_lib.
+[dev-dependencies]
+certval = { path = "../certval", default-features = false, features = ["std"] }

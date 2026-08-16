@@ -21,12 +21,20 @@ pub fn HelpView() -> Element {
             h2 { "Quick start: validating a certificate" }
             ul {
                 li {
-                    "Choose a folder of DER-encoded trust anchors (TA Folder) or enable WebPKI "
-                    "trust anchors (Mozilla roots)."
+                    "Pick a Trust Store. The built-in stores come from the certval trust store "
+                    "providers and supply trust anchors, and for most environments the "
+                    "intermediate CA certificates as well, so nothing else need be assembled. "
+                    "Choose the custom entry to supply your own instead."
                 }
                 li {
-                    "Point CBOR at a store of intermediate CA certificates, or leave it at an "
-                    "empty file and enable Dynamic Build to fetch intermediates via AIA/SIA."
+                    "For a custom store, give trust anchors as a folder of DER-encoded anchors "
+                    "(TA Folder), as a CBOR trust anchor store (TA CBOR), or both — the two are "
+                    "combined. WebPKI trust anchors (Mozilla roots) can be enabled alongside them."
+                }
+                li {
+                    "Point CA CBOR at a store of intermediate CA certificates, or leave it empty "
+                    "and enable Dynamic Build to fetch intermediates via AIA/SIA. A built-in "
+                    "store that carries intermediates supplies these itself."
                 }
                 li {
                     "Select the certificate to validate (End Entity File) or a folder of "
@@ -108,10 +116,10 @@ pub fn HelpView() -> Element {
                 "Expand that certificate's entry in the Results view: the reasons are listed "
                 "there, beneath its status. The most common causes: the "
                 "trust anchor folder does not contain the root that issued the chain, the CBOR "
-                "store lacks the needed intermediates (regenerate it or enable Dynamic Build), or "
-                "the certificates are not valid at the selected time of interest. Note that a CA "
-                "folder on its own is a generate-time input: it populates a CBOR store, and path "
-                "building reads the store."
+                "store and CA folder lack the needed intermediates (add them or enable Dynamic "
+                "Build), or the certificates are not valid at the selected time of interest. A CA "
+                "folder needs no store: its certificates are read into the graph at validation "
+                "time, alongside those of a CBOR store when one is also supplied."
             }
             p { strong { "What does the time of interest do?" } }
             p {

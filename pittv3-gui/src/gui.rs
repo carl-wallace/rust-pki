@@ -26,6 +26,8 @@ use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport, UriStatus};
 
+use crate::stores;
+
 /// Presents a folder selection dialog and assigns the selection, if any, to `sig`
 async fn pick_folder_into(mut sig: Signal<String>) {
     let folder = AsyncFileDialog::new()
@@ -346,6 +348,75 @@ const VIEWS: &[(View, &str)] = &[
     (View::Help, "Help"),
 ];
 
+/// Table row offering the built-in trust stores, plus the custom entry that leaves the trust
+/// anchor and CA inputs below in effect.
+///
+/// The stores are named by provider environment rather than by folder, which is what makes the
+/// trust-bit-scoped Mozilla sets selectable at all: nothing in a root's DER says which purposes
+/// CCADB records it for, so a folder of roots cannot express them.
+#[component]
+fn StoreRow(sig: Signal<usize>) -> Element {
+    let mut sig = sig;
+    rsx! {
+        tr {
+            td { label { r#for: "store", "Trust Store: " } }
+            td { class: "grow",
+                select {
+                    id: "store",
+                    name: "store",
+                    onchange: move |ev| {
+                        if let Ok(i) = ev.value().parse::<usize>() {
+                            sig.set(i);
+                        }
+                    },
+                    // The selection is marked on the options rather than given as the select's
+                    // value: switching views unmounts this row, and a select built afresh shows
+                    // its first option whatever value the element carries. The signal keeps the
+                    // real selection either way, so the mismatch is only visible — a run still
+                    // uses the store last chosen.
+                    option {
+                        value: "{stores::CUSTOM}",
+                        selected: sig() == stores::CUSTOM,
+                        "{stores::CUSTOM_LABEL}"
+                    }
+                    for (i, s) in stores::STORES.iter().enumerate() {
+                        option { value: "{i + 1}", selected: sig() == i + 1, "{s.label}" }
+                    }
+                }
+            }
+            td { class: "nowrap" }
+        }
+    }
+}
+
+/// Explains what the selected built-in store supplies, and so which of the inputs beneath it are
+/// still doing work. Renders nothing for a custom selection.
+#[component]
+fn StoreHint(selection: usize) -> Element {
+    if selection == stores::CUSTOM {
+        return rsx! {};
+    }
+    let has_ca = stores::has_ca_store(selection);
+    rsx! {
+        tr {
+            td { }
+            td { class: "grow",
+                span { class: "hint",
+                    if has_ca {
+                        "This store supplies the trust anchors and the intermediate CA certificates. "
+                        "A TA folder adds anchors to it and a CA folder adds intermediates; the CA "
+                        "CBOR field is not used."
+                    } else {
+                        "This store supplies trust anchors only. Give intermediates in the CA CBOR "
+                        "or CA folder field, or turn on dynamic build to fetch them."
+                    }
+                }
+            }
+            td { }
+        }
+    }
+}
+
 /// Run button shown at the foot of each action view
 #[component]
 fn RunButton(running: bool, onrun: EventHandler<()>) -> Element {
@@ -372,9 +443,24 @@ fn RunButton(running: bool, onrun: EventHandler<()>) -> Element {
 pub(crate) fn App() -> Element {
     let sa = use_hook(|| read_saved_args().unwrap_or_default());
 
+    // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What
+    // is restored from that is the selection; showing the cache paths back as if the user had
+    // typed them would invite editing a file the next run overwrites.
+    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor));
+    let from_store = saved_store != stores::CUSTOM;
+    let saved_or_empty = |v: &Option<String>| {
+        if from_store {
+            String::new()
+        } else {
+            v.clone().unwrap_or_default()
+        }
+    };
+
     let s_ta_folder = use_signal(|| sa.ta_folder.clone().unwrap_or_default());
     let s_webpki_tas = use_signal(|| sa.webpki_tas);
-    let s_cbor = use_signal(|| sa.cbor.clone().unwrap_or_default());
+    let s_cbor = use_signal(|| saved_or_empty(&sa.cbor));
+    let s_store = use_signal(|| saved_store);
+    let s_ta_cbor = use_signal(|| saved_or_empty(&sa.ta_cbor));
     let s_time_of_interest = use_signal(|| get_now_as_unix_epoch().to_string());
     let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
     let s_error_folder = use_signal(|| sa.error_folder.clone().unwrap_or_default());
@@ -436,10 +522,26 @@ pub(crate) fn App() -> Element {
         if s_running() {
             return;
         }
+        // Resolve the store selection first: a built-in store supplies the trust anchors, and the
+        // intermediates too where its environment carries them. An anchors-only environment
+        // leaves the CA CBOR field in effect, so Mozilla's TLS or S/MIME anchor set can be paired
+        // with intermediates of the user's choosing. The TA folder is never displaced, since
+        // anchors from a store and a folder are combined.
+        let (store_ta_cbor, store_cbor) = match stores::materialize(s_store()) {
+            Ok(paths) => paths,
+            Err(msg) => {
+                error!("{msg}");
+                s_log.write().push(msg);
+                s_view.set(View::Results);
+                return;
+            }
+        };
+
         let args = Pittv3Args {
             ta_folder: string_or_none(s_ta_folder),
+            ta_cbor: store_ta_cbor.or_else(|| string_or_none(s_ta_cbor)),
             webpki_tas: s_webpki_tas(),
-            cbor: string_or_none(s_cbor),
+            cbor: store_cbor.or_else(|| string_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()
                 .parse::<u64>()
                 .unwrap_or_else(|_| get_now_as_unix_epoch()),
@@ -604,18 +706,49 @@ pub(crate) fn App() -> Element {
                             legend { "Validation" }
                             table {
                                 tbody {
+                                    StoreRow { sig: s_store }
+                                    StoreHint { selection: s_store() }
                                     FolderRow {
                                         label: "TA Folder",
                                         name: "ta-folder",
                                         sig: s_ta_folder,
                                         title: "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR file containing partial certification paths and when validating certification paths.",
                                     }
-                                    FileRow {
-                                        label: "CA CBOR",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
+                                    // Shown only for a custom selection: a built-in store is itself
+                                    // a trust anchor CBOR, and the run writes its path here.
+                                    if s_store() == stores::CUSTOM {
+                                        FileRow {
+                                            label: "TA CBOR",
+                                            name: "ta-cbor",
+                                            sig: s_ta_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                            extensions: ["cbor", "pki", "ta"].as_slice(),
+                                        }
+                                    }
+                                    if !stores::has_ca_store(s_store()) {
+                                        FileRow {
+                                            label: "CA CBOR",
+                                            name: "cbor",
+                                            sig: s_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized PKI",
+                                            extensions: ["cbor", "pki"].as_slice(),
+                                        }
+                                    }
+                                    // Intermediates as loose files, the counterpart of the CA CBOR
+                                    // row: a run reads them into the graph it builds, so no store
+                                    // has to be generated first. Shown whatever the store
+                                    // selection, unlike CA CBOR, because a folder augments a
+                                    // store's certificates rather than being displaced by them —
+                                    // and hidden only while dynamic build is on, which reveals the
+                                    // same field below as the folder fetched certificates are
+                                    // written to.
+                                    if !s_dynamic_build() {
+                                        FolderRow {
+                                            label: "CA Folder",
+                                            name: "ca-folder",
+                                            sig: s_ca_folder,
+                                            title: "Full path of folder containing binary DER-encoded intermediate CA certificates. These are added to the graph built for path validation, augmenting the CA CBOR store when one is also supplied.",
+                                        }
                                     }
                                     FileRow {
                                         label: "End Entity File",
@@ -689,12 +822,19 @@ pub(crate) fn App() -> Element {
                             }
                             // Dynamic build fetches missing intermediates at run time and needs a
                             // place to store them; either a download folder or a CA folder satisfies
-                            // this, so both are shown only while dynamic build is enabled.
+                            // this, so the download folder is shown only while dynamic build is
+                            // enabled and the CA folder moves here from its input row above, since
+                            // it then serves both roles.
                             if s_dynamic_build() {
                                 table {
                                     tbody {
                                         FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                                        FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
+                                        FolderRow {
+                                            label: "CA Folder",
+                                            name: "ca-folder",
+                                            sig: s_ca_folder,
+                                            title: "Full path of folder containing binary DER-encoded intermediate CA certificates. These are added to the graph built for path validation, and the folder receives certificates fetched during dynamic building when no download folder is given.",
+                                        }
                                     }
                                 }
                                 p { class: "hint",
@@ -800,14 +940,27 @@ pub(crate) fn App() -> Element {
                             legend { "Diagnostics" }
                             table {
                                 tbody {
-                                    FileRow {
-                                        label: "CA CBOR",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
+                                    StoreRow { sig: s_store }
+                                    StoreHint { selection: s_store() }
+                                    if !stores::has_ca_store(s_store()) {
+                                        FileRow {
+                                            label: "CA CBOR",
+                                            name: "cbor",
+                                            sig: s_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized PKI",
+                                            extensions: ["cbor", "pki"].as_slice(),
+                                        }
                                     }
                                     FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
+                                    if s_store() == stores::CUSTOM {
+                                        FileRow {
+                                            label: "TA CBOR",
+                                            name: "ta-cbor",
+                                            sig: s_ta_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                            extensions: ["cbor", "pki", "ta"].as_slice(),
+                                        }
+                                    }
                                     FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
                                 }
                             }

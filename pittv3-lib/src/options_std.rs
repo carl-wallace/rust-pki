@@ -30,9 +30,10 @@
 //!
 //!     -c, --ca-folder <CA_FOLDER>
 //!             Full path of folder containing binary, DER-encoded intermediate CA certificates.
-//!             Required when generate action is performed. This is not used when path validation is
-//!             performed other than as a place to store downloaded files when dynamic building is used
-//!             and download_folder is not specified
+//!             Required when generate action is performed. When path validation is performed, the
+//!             certificates in this folder are added to the graph that is built, augmenting any CBOR
+//!             store in use, and the folder doubles as a place to store downloaded files when dynamic
+//!             building is used and download_folder is not specified
 //!
 //!     -d, --download-folder <DOWNLOAD_FOLDER>
 //!             Full path and filename of folder to receive downloaded binary DER-encoded certificates,
@@ -189,9 +190,6 @@ use crate::std_utils::*;
 #[cfg(feature = "sha1_sig")]
 use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
 
-/// Added to the no-paths diagnosis when the run was given a CA folder and nothing to do with it.
-/// Named here because it is reported twice: once in the run log beside the zero count, and once in
-/// the structured report for a frontend to display.
 /// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
 /// was supplied and yielded nothing. The filtering happens quietly in `ta_folder_to_vec`, which
 /// returns `Ok(0)` for a folder it emptied — indistinguishable from no folder at all by the time the
@@ -203,11 +201,15 @@ const TA_FOLDER_EMPTY: &str =
      as a trust anchor, or that are expired at the time of interest, are dropped when the folder \
      is read.";
 
-const CA_FOLDER_INCOMPLETE: &str =
-    "A CA folder was supplied but no CBOR store: the CA folder is a generate-time input and \
-     contributes nothing to path building on its own. Generate a store from it first \
-     (--generate --cbor <file>), then validate against that store, or turn on dynamic building \
-     (--dynamic-build) to fetch issuers as needed.";
+/// Added to the no-paths diagnosis when a CA folder was supplied and nothing was read from it. The
+/// folder is folded into the graph at validation time, so an empty read is the one case where the
+/// user supplied intermediates and the builder still had none. Named here because it is reported
+/// twice: once in the run log beside the zero count, and once in the structured report for a
+/// frontend to display.
+const CA_FOLDER_EMPTY: &str =
+    "A CA folder was supplied but no certificate was read from it: only .der, .cer and .crt files \
+     are read, and objects that do not parse as a certificate, or that are expired at the time of \
+     interest, are dropped when the folder is read.";
 
 /// Normalizes a PEM block so its base64 body is wrapped at the 64 columns that RFC 7468 (and the
 /// strict `pem-rfc7468` decoder) requires. Some CCADB CSV exports wrap the certificate PEM at a
@@ -311,27 +313,17 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         let pe = PkiEnvironment::default();
 
         // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-        if let Some(ta_folder) = &args.ta_folder {
-            let mut ta_store = TaSource::new();
-            let r = ta_folder_to_vec(
-                &pe,
-                ta_folder,
-                &mut ta_store,
-                TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-            );
-            if let Err(e) = r {
-                println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
+        match load_trust_anchors(
+            &pe,
+            args,
+            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+        ) {
+            Ok(Some(ta_store)) => ta_store.log_tas(),
+            Ok(None) => {}
+            Err(msg) => {
+                println!("Failed to load trust anchors: {msg}");
                 return ValidationReport::default();
             }
-
-            if let Err(e) = ta_store.initialize() {
-                println!(
-                    "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
-                );
-                return ValidationReport::default();
-            }
-
-            ta_store.log_tas();
         }
 
         #[cfg(feature = "webpki")]
@@ -422,32 +414,28 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
             };
         }
 
-        let mut ta_store = TaSource::new();
-
-        if let Some(ta_folder) = &args.ta_folder {
-            let r = ta_folder_to_vec(
-                &pe,
-                ta_folder,
-                &mut ta_store,
-                TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-            );
-            if let Err(e) = r {
-                println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
+        let ta_store = match load_trust_anchors(
+            &pe,
+            args,
+            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+        ) {
+            Ok(ta_store) => ta_store,
+            Err(msg) => {
+                println!("Failed to load trust anchors: {msg}");
                 return ValidationReport::default();
             }
-            if let Err(e) = ta_store.initialize() {
-                println!(
-                    "Failed to initialize trust anchor source from {ta_folder} with error {e:?}"
-                );
-                return ValidationReport::default();
-            }
+        };
 
+        // Partial paths are recomputed against whatever anchors were supplied, since the set of
+        // paths that terminate at an anchor depends on them; a store loaded with none keeps the
+        // paths it was serialized with.
+        let ta_store_added = ta_store.is_some();
+        if let Some(ta_store) = ta_store {
             pe.add_trust_anchor_source(Box::new(ta_store));
-            cert_source.clear_paths();
-            cert_source.find_all_partial_paths(&pe, &cps);
         }
         #[cfg(feature = "webpki")]
-        if args.webpki_tas && args.ta_folder.is_none() {
+        let ta_store_added = ta_store_added || args.webpki_tas;
+        if ta_store_added {
             cert_source.clear_paths();
             cert_source.find_all_partial_paths(&pe, &cps);
         }
@@ -802,30 +790,28 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     }
 
     // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-    if let Some(ta_folder) = &args.ta_folder {
-        let mut ta_store = TaSource::new();
-        let r = ta_folder_to_vec(
-            &pe,
-            ta_folder,
-            &mut ta_store,
-            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-        );
-        if let Err(e) = r {
-            println!("Failed to load trust anchors from {ta_folder} with error {e:?}");
+    match load_trust_anchors(
+        &pe,
+        args,
+        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+    ) {
+        Ok(Some(ta_store)) => {
+            // A folder whose objects were all filtered contributes nothing, which is otherwise
+            // indistinguishable from having supplied no folder at all — and this is the loudest
+            // thing that can be said at the point where the anchors went missing.
+            if ta_store.is_empty() {
+                if let Some(ta_folder) = &args.ta_folder {
+                    error!("No trust anchors were loaded from {ta_folder}. {TA_FOLDER_EMPTY}");
+                }
+            }
+            pe.add_trust_anchor_source(Box::new(ta_store));
+            ta_store_added = true;
+        }
+        Ok(None) => {}
+        Err(msg) => {
+            println!("Failed to load trust anchors: {msg}");
             return ValidationReport::default();
         }
-        // A folder whose objects were all filtered returns Ok(0), which is otherwise indistinguishable
-        // from having supplied no folder at all — and is the loudest thing that can be said at the
-        // point where the anchors went missing.
-        if let Ok(0) = r {
-            error!("No trust anchors were loaded from {ta_folder}. {TA_FOLDER_EMPTY}");
-        }
-        if let Err(e) = ta_store.initialize() {
-            println!("Failed to initialize trust anchor source from {ta_folder} with error {e:?}");
-            return ValidationReport::default();
-        }
-        pe.add_trust_anchor_source(Box::new(ta_store));
-        ta_store_added = true;
     }
 
     // Generate can be paired with validation to ensure the CBOR file used during validation is current
@@ -840,10 +826,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
 
     if !ta_store_added {
         #[cfg(feature = "webpki")]
-        error!("Either the ta_folder argument or webpki argument must be provided");
+        error!("One of the ta_cbor, ta_folder or webpki arguments must be provided");
 
         #[cfg(not(feature = "webpki"))]
-        error!("The ta_folder argument argument must be provided");
+        error!("Either the ta_cbor or ta_folder argument must be provided");
         return ValidationReport::default();
     };
 
@@ -867,6 +853,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     let mut uri_threshold = 0;
 
     let mut stats = PathValidationStatsGroup::new();
+
+    // Number of certificates the CA folder contributed to the graph, used after the loop to tell a
+    // folder that yielded nothing from no folder at all.
+    let mut ca_folder_certs = 0;
 
     // Start the clock for entire set of validation actions
     let start = Instant::now();
@@ -916,9 +906,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         // on subsequent passes it will contain a fresh CBOR blob that features buffers downloaded
         // from AIA or SIA locations.
         let mut cert_source = if cbor.is_empty() {
-            // Empty CBOR is fine when doing dynamic building or when validating certificates
-            // issued by a trust anchor
-            if 0 == pass {
+            // Empty CBOR is fine when doing dynamic building, when the intermediates come from a
+            // CA folder, or when validating certificates issued by a trust anchor. Only worth
+            // saying when a store was actually named: a run that supplied none is not missing one.
+            if 0 == pass && !cbor_file.is_empty() {
                 info!("Empty CBOR file at {cbor_file}. Proceeding without it.");
             }
             CertSource::default()
@@ -938,6 +929,25 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 }
             }
         };
+
+        // A CA folder is the intermediates the user already has, and it fed generation only: at
+        // validation time the graph came from the CBOR store alone, so -t tas -c cas -e ee.der
+        // found no paths at all and the folder had to be compiled into a store first. Fold it into
+        // the graph here so it is a validation input in its own right; a store supplied alongside
+        // it is augmented rather than displaced, since both are just certificates to build from. A
+        // generate run is exempt because the CBOR read above was built from this same folder.
+        if 0 == pass && !args.generate {
+            if let Some(ca_folder) = &args.ca_folder {
+                let before = cert_source.len();
+                if let Err(e) =
+                    cert_folder_to_vec(&pe, ca_folder, &mut cert_source, cps.get_time_of_interest())
+                {
+                    error!("Failed to read certificates from {ca_folder}: {e:?}");
+                }
+                ca_folder_certs = cert_source.len() - before;
+                info!("Read {ca_folder_certs} certificate(s) from {ca_folder}");
+            }
+        }
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
         // Since buffers from AIA/SIA are appended to the cert_source.buffers_and_paths.buffers
@@ -1032,6 +1042,13 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         if let Err(e) = r {
             error!("Failed to populate cert map: {e}");
             break;
+        }
+
+        // Certificates read from the CA folder arrive with no partial paths, and a path that spans
+        // the folder and the store exists only once the two are searched together, so build the
+        // graph here rather than take the store's serialized paths as complete.
+        if 0 == pass && 0 < ca_folder_certs {
+            cert_source.find_all_partial_paths(&pe, &cps);
         }
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
@@ -1163,15 +1180,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         error_indices.insert(key, index_map);
     }
 
-    // The one cause a zero-path run cannot read off its own environment: a CA folder is a
-    // generate-time input, so supplying one without a store to write (or to read) leaves the graph
-    // empty while the user has every reason to believe they provided the intermediates.
-    #[cfg(feature = "remote")]
-    let dynamic_build = args.dynamic_build;
-    #[cfg(not(feature = "remote"))]
-    let dynamic_build = false;
-    let ca_folder_incomplete =
-        args.ca_folder.is_some() && args.cbor.is_none() && !args.generate && !dynamic_build;
+    // The one cause a zero-path run cannot read off its own environment: the folder was read and
+    // filtered down to nothing, which leaves the graph as empty as no folder at all while the user
+    // has every reason to believe they provided the intermediates.
+    let ca_folder_empty = args.ca_folder.is_some() && !args.generate && 0 == ca_folder_certs;
     // Distinguishes "no folder was given" from "the folder was given and nothing survived reading
     // it", which the shared diagnosis cannot tell apart because both leave the environment empty
     let ta_folder_empty = args.ta_folder.is_some() && pe.get_trust_anchors().is_empty();
@@ -1192,8 +1204,8 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             if !s.no_paths_hints.is_empty() && ta_folder_empty {
                 info!("\t * {TA_FOLDER_EMPTY}");
             }
-            if !s.no_paths_hints.is_empty() && ca_folder_incomplete {
-                info!("\t * {CA_FOLDER_INCOMPLETE}");
+            if !s.no_paths_hints.is_empty() && ca_folder_empty {
+                info!("\t * {CA_FOLDER_EMPTY}");
             }
         }
         totals.paths_per_target += s.paths_per_target;
@@ -1248,8 +1260,8 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         if !no_paths_hints.is_empty() && ta_folder_empty {
             no_paths_hints.push(TA_FOLDER_EMPTY.to_string());
         }
-        if !no_paths_hints.is_empty() && ca_folder_incomplete {
-            no_paths_hints.push(CA_FOLDER_INCOMPLETE.to_string());
+        if !no_paths_hints.is_empty() && ca_folder_empty {
+            no_paths_hints.push(CA_FOLDER_EMPTY.to_string());
         }
 
         report.totals.targets += 1;

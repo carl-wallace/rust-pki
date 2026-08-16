@@ -295,19 +295,54 @@ pub fn TargetCard(target: TargetReport, #[props(default)] open: bool) -> Element
     }
 }
 
+/// Counts the targets in each status, as (badge class, label, count) rows ordered as the statuses
+/// are declared and omitting those that did not occur.
+///
+/// The run totals count *paths*, and a target with several paths, or with none, contributes a
+/// different number to each — so the strip cannot answer "how many of my certificates were good?"
+/// from them. Counting the target cards is the only place that answer exists.
+fn target_status_counts(targets: &[TargetReport]) -> Vec<(&'static str, &'static str, usize)> {
+    let statuses = [
+        TargetStatus::Valid,
+        TargetStatus::ValidExceptRevocationUndetermined,
+        TargetStatus::Revoked,
+        TargetStatus::Invalid,
+        TargetStatus::NoPathsFound,
+    ];
+    statuses
+        .iter()
+        .filter_map(|status| {
+            let count = targets.iter().filter(|t| t.status == *status).count();
+            if 0 == count {
+                return None;
+            }
+            let (class, label) = status_parts(*status);
+            Some((class, label, count))
+        })
+        .collect()
+}
+
 /// Summary strip plus per-target accordion for an entire validation run
 #[component]
 pub fn ResultsView(report: ValidationReport) -> Element {
     let totals = &report.totals;
     let toi = human_toi(report.time_of_interest);
     let single_target = report.targets.len() == 1;
+    let by_status = target_status_counts(&report.targets);
     rsx! {
         div { class: "results-view",
-            div { class: "results-summary",
+            div { class: "results-summary summary-targets",
                 span { "Targets: {totals.targets}" }
+                for (class , label , count) in by_status.iter() {
+                    span { key: "{label}", class: "{class}", "{label}: {count}" }
+                }
+            }
+            // Paths are counted separately from targets because they do not correspond: a target
+            // can yield several paths or none at all.
+            div { class: "results-summary",
                 span { "Paths found: {totals.paths_found}" }
-                span { class: "summary-valid", "Valid: {totals.valid_paths}" }
-                span { class: "summary-invalid", "Invalid: {totals.invalid_paths}" }
+                span { class: "summary-valid", "Valid paths: {totals.valid_paths}" }
+                span { class: "summary-invalid", "Invalid paths: {totals.invalid_paths}" }
                 span { class: "hint", "Time of interest: {toi}" }
                 span { class: "hint", "{report.duration_ms} ms" }
             }

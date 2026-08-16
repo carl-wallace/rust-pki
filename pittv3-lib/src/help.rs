@@ -18,6 +18,12 @@ pub fn arg_help(name: &str) -> &'static str {
             "Full path of folder containing binary DER-encoded trust anchors to use when generating CBOR ",
             "file containing partial certification paths and when validating certification paths.",
         ),
+        "ta-cbor" => concat!(
+            "Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by ",
+            "--generate --cbor-ta-store and the form the certval trust store providers serialize. This ",
+            "is the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which ",
+            "case the anchors from both are used.",
+        ),
         "webpki-tas" => "Use trust anchors from webpki-roots crate (which are from Mozilla)",
         "cbor" => concat!(
             "Full path and filename of file to provide and/or receive CBOR-formatted representation of ",
@@ -43,9 +49,10 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "ca-folder" => concat!(
             "Full path of folder containing binary, DER-encoded intermediate CA certificates. Required ",
-            "when generate action is performed. This is not used when path validation is performed other ",
-            "than as a place to store downloaded files when dynamic building is used and download_folder ",
-            "is not specified.",
+            "when generate action is performed. When path validation is performed, the certificates in ",
+            "this folder are added to the graph that is built, augmenting any CBOR store in use, and the ",
+            "folder doubles as a place to store downloaded files when dynamic building is used and ",
+            "download_folder is not specified.",
         ),
         "generate" => concat!(
             "Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and ",
