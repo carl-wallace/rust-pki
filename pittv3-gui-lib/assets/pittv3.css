@@ -156,6 +156,13 @@ button[type="submit"] {
   margin-bottom: 0.5rem;
 }
 
+/* The target strip sits directly above the path strip; one rule divides the pair from the cards */
+.summary-targets {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
 .summary-valid {
   color: #15803d;
   font-weight: 600;

@@ -29,6 +29,71 @@ use crate::{
 #[cfg(feature = "revocation")]
 use certval::check_revocation;
 
+/// Builds the trust anchor store named by the `ta_cbor` and `ta_folder` arguments, or `None` when
+/// neither was given.
+///
+/// The two inputs are the trust anchor counterparts of `cbor` and `ca_folder`, and are combined
+/// into one [`TaSource`] rather than being registered as two sources: certval refuses to anchor on
+/// a key identifier that resolves to different keys across the sources registered on an
+/// environment, so a store and a folder that share an anchor must be deduplicated before either is
+/// added. [`CertVector::push`] does that.
+///
+/// The returned source is initialized and ready to hand to
+/// [`PkiEnvironment::add_trust_anchor_source`]. `Err` carries a message naming the input that
+/// failed, for a caller to surface; a folder that yields no anchor is not an error here (see
+/// `TA_FOLDER_EMPTY` in `options_std`), only an empty result.
+#[cfg(feature = "std")]
+pub fn load_trust_anchors(
+    pe: &PkiEnvironment,
+    args: &Pittv3Args,
+    time_of_interest: TimeOfInterest,
+) -> core::result::Result<Option<TaSource>, String> {
+    if args.ta_cbor.is_none() && args.ta_folder.is_none() {
+        return Ok(None);
+    }
+
+    let mut ta_store = TaSource::new();
+
+    if let Some(ta_cbor) = &args.ta_cbor {
+        let cbor = read_cbor(&args.ta_cbor);
+        if cbor.is_empty() {
+            return Err(format!(
+                "failed to read CBOR trust anchor store from {ta_cbor}"
+            ));
+        }
+        // new_from_cbor yields a source holding the store's buffers; move them through push so an
+        // anchor that also appears in the folder below is carried once.
+        match TaSource::new_from_cbor(cbor.as_slice()) {
+            Ok(from_cbor) => {
+                for cf in from_cbor.get_tas() {
+                    ta_store.push(cf);
+                }
+            }
+            Err(e) => {
+                return Err(format!(
+                    "failed to parse CBOR trust anchor store at {ta_cbor}: {e:?}"
+                ))
+            }
+        }
+    }
+
+    if let Some(ta_folder) = &args.ta_folder {
+        if let Err(e) = ta_folder_to_vec(pe, ta_folder, &mut ta_store, time_of_interest) {
+            return Err(format!(
+                "failed to load trust anchors from {ta_folder} with error {e:?}"
+            ));
+        }
+    }
+
+    if let Err(e) = ta_store.initialize() {
+        return Err(format!(
+            "failed to initialize trust anchor source with error {e:?}"
+        ));
+    }
+
+    Ok(Some(ta_store))
+}
+
 /// `ValidateOpts` conveys the options that govern processing of a single validation target,
 /// decoupling the core validation logic from [`Pittv3Args`] so that non-CLI callers (GUI, web
 /// server) need not fabricate a full argument structure (and never see filesystem paths unless
@@ -513,8 +578,9 @@ pub async fn validate_cert_folder(
     }
 }
 
-/// generate takes a Pittv3Args structure containing at least `cbor`, `ta-folder` and `ca-folder`
-/// options and the calls [`build_graph`](../../certval/builder/graph_builder/fn.build_graph.html).
+/// generate takes a Pittv3Args structure containing at least `cbor`, `ca-folder` and a source of
+/// trust anchors (`ta-cbor`, `ta-folder` or `webpki-tas`) and then calls
+/// [`build_graph`](../../certval/builder/graph_builder/fn.build_graph.html).
 /// Where dynamic building is in effect, the `download-folder` option will be used if present (else
 /// ca-folder is used as destination for downloaded artifacts).
 #[cfg(feature = "std")]
@@ -525,18 +591,17 @@ pub async fn generate(
 ) {
     let start = Instant::now();
 
+    let no_anchors = args.ta_cbor.is_none() && args.ta_folder.is_none();
+
     #[cfg(feature = "webpki")]
-    if args.cbor.is_none()
-        || (args.ta_folder.is_none() && !args.webpki_tas)
-        || args.ca_folder.is_none()
-    {
-        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus either ta-folder or webpki-tas");
+    if args.cbor.is_none() || (no_anchors && !args.webpki_tas) || args.ca_folder.is_none() {
+        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or webpki-tas");
         return;
     }
 
     #[cfg(not(feature = "webpki"))]
-    if args.cbor.is_none() || args.ta_folder.is_none() || args.ca_folder.is_none() {
-        println!("ERROR: The cbor, ta-folder and ca-folder options are required when generate is specified");
+    if args.cbor.is_none() || no_anchors || args.ca_folder.is_none() {
+        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus either ta-cbor or ta-folder");
         return;
     }
 
