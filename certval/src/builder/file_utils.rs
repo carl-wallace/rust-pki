@@ -90,7 +90,8 @@ pub fn ta_file_to_vec(
 ///
 /// It is the single-file counterpart of [`cert_folder_to_vec`], for callers that let a user nominate
 /// a certificate (or a PEM bundle such as a fullchain) directly rather than a folder to search. See
-/// [`ta_file_to_vec`] for the shared rules; here objects are read as [`Certificate`] and self-signed
+/// [`ta_file_to_vec`] for the shared rules; here objects are read as
+/// [`Certificate`](x509_cert::certificate::Certificate) and self-signed
 /// certificates are excluded, as they are when a folder is read. Returns the number of items added.
 #[cfg(feature = "std")]
 pub fn cert_file_to_vec(
