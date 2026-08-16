@@ -19,7 +19,7 @@ use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, read_saved_args, save_args, set_log_sink, ChannelAppender,
 };
-use pittv3_gui_lib::settings_store::default_settings_path;
+use pittv3_gui_lib::settings_store::{default_settings_path, expand_tilde};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::options_std::options_std;
@@ -97,6 +97,13 @@ fn string_or_none(sig: Signal<String>) -> Option<String> {
     } else {
         Some(s)
     }
+}
+
+/// Returns the value of `sig` as a path if it is not empty and None otherwise, resolving a leading
+/// `~` against the home directory. Every path here can be typed as readily as it can be chosen
+/// from a file dialog, and there is no shell behind a text box to expand the tilde first.
+fn path_or_none(sig: Signal<String>) -> Option<String> {
+    string_or_none(sig).map(|s| expand_tilde(&s))
 }
 
 /// Returns the value of `sig` as a usize, or None if the value is empty or cannot be parsed
@@ -604,28 +611,28 @@ pub(crate) fn App() -> Element {
         };
 
         let args = Pittv3Args {
-            ta_folder: string_or_none(s_ta_folder),
-            ta_cbor: store_ta_cbor.or_else(|| string_or_none(s_ta_cbor)),
+            ta_folder: path_or_none(s_ta_folder),
+            ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
             webpki_tas: s_webpki_tas(),
-            cbor: store_cbor.or_else(|| string_or_none(s_cbor)),
+            cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()
                 .parse::<u64>()
                 .unwrap_or_else(|_| get_now_as_unix_epoch()),
-            logging_config: string_or_none(s_logging_config),
-            error_folder: string_or_none(s_error_folder),
-            download_folder: string_or_none(s_download_folder),
-            ca_folder: string_or_none(s_ca_folder),
+            logging_config: path_or_none(s_logging_config),
+            error_folder: path_or_none(s_error_folder),
+            download_folder: path_or_none(s_download_folder),
+            ca_folder: path_or_none(s_ca_folder),
             generate: s_generate(),
             chase_aia_and_sia: s_chase_aia_and_sia(),
             cbor_ta_store: s_cbor_ta_store(),
             validate_all: s_validate_all(),
             validate_self_signed: s_validate_self_signed(),
             dynamic_build: s_dynamic_build(),
-            end_entity_file: string_or_none(s_end_entity_file),
-            end_entity_folder: string_or_none(s_end_entity_folder),
-            results_folder: string_or_none(s_results_folder),
-            settings: string_or_none(s_settings),
-            crl_folder: string_or_none(s_crl_folder),
+            end_entity_file: path_or_none(s_end_entity_file),
+            end_entity_folder: path_or_none(s_end_entity_folder),
+            results_folder: path_or_none(s_results_folder),
+            settings: path_or_none(s_settings),
+            crl_folder: path_or_none(s_crl_folder),
             keep_crl_entries_in_memory: false,
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
@@ -636,9 +643,9 @@ pub(crate) fn App() -> Element {
             list_name_constraints: s_list_name_constraints(),
             list_trust_anchors: s_list_trust_anchors(),
             dump_cert_at_index: usize_or_none(s_dump_cert_at_index),
-            list_partial_paths_for_target: string_or_none(s_list_partial_paths_for_target),
+            list_partial_paths_for_target: path_or_none(s_list_partial_paths_for_target),
             list_partial_paths_for_leaf_ca: usize_or_none(s_list_partial_paths_for_leaf_ca),
-            mozilla_csv: string_or_none(s_mozilla_csv),
+            mozilla_csv: path_or_none(s_mozilla_csv),
             check_uris: None,
             issuer: None,
             no_auto_discover: false,

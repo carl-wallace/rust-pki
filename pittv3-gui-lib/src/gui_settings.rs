@@ -926,6 +926,10 @@ pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
         move || SettingsModel::from_cps(&FileSettingsStore::new(path).load())
     });
 
+    // A failed write is reported here rather than only logged. Saving closes the form, so a silent
+    // failure looks exactly like a successful save until the settings are next read back.
+    let mut save_error = use_signal(String::new);
+
     let save_path = path.clone();
     let on_save = move |edited: SettingsModel| {
         let store = FileSettingsStore::new(save_path.clone());
@@ -934,11 +938,18 @@ pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
         edited.apply(&mut cps);
         if let Err(e) = store.save(&cps) {
             error!("{e}");
+            // leave the form open so the edits are not lost with the file they could not reach
+            save_error.set(e);
+            return;
         }
+        save_error.set(String::new());
         on_close.call(());
     };
 
     rsx! {
+        if !save_error().is_empty() {
+            p { class: "capability-notice", "{save_error}" }
+        }
         EditSettings {
             initial,
             caps: Capabilities::desktop(),
