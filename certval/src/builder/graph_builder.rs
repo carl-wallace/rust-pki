@@ -6,7 +6,9 @@ use crate::Result;
 
 use log::error;
 
+use crate::builder::file_utils::cert_file_to_vec;
 use crate::builder::file_utils::cert_folder_to_vec;
+use crate::builder::file_utils::ta_file_to_vec;
 use crate::builder::file_utils::ta_folder_to_vec;
 use crate::*;
 
@@ -21,6 +23,11 @@ use std::fs;
 /// DER-encoded CA certificate files, and a time of interest expressed as seconds since Unix epoch
 /// then attempts to find all possible partial certification paths.
 ///
+/// The CA input may name a single file instead of a folder, in which case that file is read on its
+/// merits, extension and all, exactly as it is when one is nominated at validation time. A file may
+/// hold several concatenated PEM objects. Chasing AIA and SIA needs somewhere to write what it
+/// fetches, so a run that chases with a file for its CA input must also set a download folder.
+///
 /// It returns a buffer containing CBOR-encoded partial paths. [BuffersAndPaths] features additional
 /// information regarding serialization of certificate buffers and partial paths.
 ///
@@ -34,6 +41,23 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         return Err(Error::NotFound);
     };
 
+    // The CA input may name a single file as well as a folder, as it may at validation time. The
+    // folder-taking functions return NotFound for anything that is not a directory, so the choice
+    // is made here rather than left to them.
+    let named_file = Path::new(&ca_folder).is_file();
+    let collect_tas = cps.get_cbor_ta_store();
+
+    #[cfg(feature = "remote")]
+    let chasing = cps.get_retrieve_from_aia_sia_http() && !collect_tas;
+
+    // Absent a download folder the CA folder receives what is fetched, which a file cannot do. Only
+    // a run that chases has anything to write, so this is an error for those runs alone.
+    #[cfg(feature = "remote")]
+    if named_file && chasing && cps.get_download_folder().is_none() {
+        error!("a download folder is required when AIA and SIA are chased and the CA input names a file rather than a folder");
+        return Err(Error::NotFound);
+    }
+
     #[cfg(feature = "remote")]
     let download_folder = if let Some(download_folder) = cps.get_download_folder() {
         download_folder
@@ -44,10 +68,11 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     let toi = cps.get_time_of_interest();
 
     let mut cert_store = CertSource::new();
-    let r = if cps.get_cbor_ta_store() {
-        ta_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
-    } else {
-        cert_folder_to_vec(pe, &ca_folder, &mut cert_store, toi)
+    let r = match (named_file, collect_tas) {
+        (true, true) => ta_file_to_vec(pe, &ca_folder, &mut cert_store, toi),
+        (true, false) => cert_file_to_vec(pe, &ca_folder, &mut cert_store, toi),
+        (false, true) => ta_folder_to_vec(pe, &ca_folder, &mut cert_store, toi),
+        (false, false) => cert_folder_to_vec(pe, &ca_folder, &mut cert_store, toi),
     };
     if let Err(e) = r {
         error!(
@@ -57,7 +82,7 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     }
 
     #[cfg(feature = "remote")]
-    if cps.get_retrieve_from_aia_sia_http() && !cps.get_cbor_ta_store() {
+    if chasing {
         let mut uris = Vec::new();
         let mut certs_count = 0;
         let mut uris_count = 0;
