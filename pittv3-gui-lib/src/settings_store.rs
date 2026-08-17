@@ -55,19 +55,50 @@ pub fn default_settings_path() -> Option<String> {
     Some(app_home()?.join("settings.json").to_str()?.to_string())
 }
 
+/// Resolves a leading `~` in `path` against the user's home directory, returning any other path
+/// unchanged.
+///
+/// Paths reach a GUI by hand at least as often as they do through a file dialog, and a typed
+/// `~/settings.json` is not a path the file system understands: `~` is an ordinary directory name
+/// to it, so reading such a path yields the defaults for a file that is not there and writing one
+/// fails outright for want of a parent directory. A shell expands the tilde before a command line
+/// utility ever sees it; a text box has no shell behind it, so the expansion has to happen here.
+/// `~user` is left alone, since resolving another user's home directory is a shell feature rather
+/// than a file system one.
+#[cfg(feature = "std")]
+pub fn expand_tilde(path: &str) -> String {
+    let Some(after) = path.strip_prefix('~') else {
+        return path.to_string();
+    };
+    let rest = after.trim_start_matches(['/', '\\']);
+    if !after.is_empty() && rest.len() == after.len() {
+        return path.to_string();
+    }
+    let Some(home) = home::home_dir() else {
+        return path.to_string();
+    };
+    if rest.is_empty() {
+        return home.to_string_lossy().to_string();
+    }
+    home.join(rest).to_string_lossy().to_string()
+}
+
 /// A [`SettingsStore`] backed by a JSON file holding a [`CertificationPathSettings`] — the format
 /// the CLI reads via `--settings` and the desktop app has always written.
 #[cfg(feature = "std")]
 pub struct FileSettingsStore {
-    /// Path to the settings JSON
+    /// Path to the settings JSON, with any leading `~` already resolved
     pub path: String,
 }
 
 #[cfg(feature = "std")]
 impl FileSettingsStore {
-    /// Creates a store over the settings file at `path`
+    /// Creates a store over the settings file at `path`, resolving a leading `~` so a path typed
+    /// into a text box names the same file a shell would have named
     pub fn new(path: impl Into<String>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: expand_tilde(&path.into()),
+        }
     }
 }
 
@@ -86,5 +117,62 @@ impl SettingsStore for FileSettingsStore {
             .map_err(|e| format!("Failed to create file to receive settings: {e}"))?;
         file.write_all(json.as_bytes())
             .map_err(|e| format!("Failed to save settings: {e}"))
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tilde_expands_only_where_a_shell_would() {
+        let home = home::home_dir().expect("home directory");
+        let home_str = home.to_string_lossy().to_string();
+
+        assert_eq!(
+            expand_tilde("~/.pittv3.json"),
+            home.join(".pittv3.json").to_string_lossy()
+        );
+        assert_eq!(expand_tilde("~"), home_str);
+
+        // absolute and relative paths, and another user's home, are the shell's business or
+        // nobody's
+        assert_eq!(expand_tilde("/etc/pittv3.json"), "/etc/pittv3.json");
+        assert_eq!(expand_tilde("settings.json"), "settings.json");
+        assert_eq!(
+            expand_tilde("~someone/settings.json"),
+            "~someone/settings.json"
+        );
+        // a tilde anywhere but the front is a legitimate file name character
+        assert_eq!(
+            expand_tilde("backup/~settings.json"),
+            "backup/~settings.json"
+        );
+    }
+
+    #[test]
+    fn file_store_resolves_a_typed_tilde() {
+        let home = home::home_dir().expect("home directory");
+        assert_eq!(
+            FileSettingsStore::new("~/.pittv3.json").path,
+            home.join(".pittv3.json").to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn file_store_round_trips_through_an_expanded_path() {
+        let path = std::env::temp_dir().join("pittv3-settings-store-test.json");
+        let _ = std::fs::remove_file(&path);
+
+        let store = FileSettingsStore::new(path.to_string_lossy().to_string());
+        // a missing file reads as "all defaults" rather than as an error
+        assert!(store.load().0.is_empty());
+
+        let mut cps = CertificationPathSettings::new();
+        cps.set_check_revocation_status(false);
+        store.save(&cps).expect("save");
+
+        assert!(!store.load().get_check_revocation_status());
+        let _ = std::fs::remove_file(&path);
     }
 }
