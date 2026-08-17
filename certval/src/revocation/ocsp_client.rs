@@ -25,7 +25,7 @@ use crate::{
 use alloc::vec;
 
 #[cfg(feature = "remote")]
-use der::asn1::{Ia5String, OctetString};
+use der::asn1::OctetString;
 
 #[cfg(feature = "remote")]
 use reqwest::header::CONTENT_TYPE;
@@ -33,18 +33,12 @@ use reqwest::header::CONTENT_TYPE;
 #[cfg(feature = "remote")]
 use core::time::Duration;
 
-#[cfg(feature = "remote")]
-use x509_cert::ext::pkix::name::GeneralName;
 #[cfg(feature = "revocation")]
 use x509_cert::ext::pkix::ExtendedKeyUsage;
 
 // Needed by the (stapling-capable) responder EKU check, so gated on `revocation`, not `remote`.
 #[cfg(feature = "revocation")]
 use const_oid::db::rfc5912::{ID_CE_EXT_KEY_USAGE, ID_KP_OCSP_SIGNING};
-
-// Used only when fetching an OCSP responder URL from AIA (network), so `remote`-only.
-#[cfg(feature = "remote")]
-use const_oid::db::rfc5912::{ID_AD_OCSP, ID_PE_AUTHORITY_INFO_ACCESS};
 
 #[cfg(feature = "revocation")]
 use const_oid::db::rfc6960::{ID_PKIX_OCSP_BASIC, ID_PKIX_OCSP_NOCHECK, ID_PKIX_OCSP_NONCE};
@@ -57,7 +51,7 @@ use x509_cert::serial_number::SerialNumber;
 use x509_ocsp::Version::V1;
 
 #[cfg(feature = "remote")]
-use crate::{name_to_string, pdv_extension::ExtensionProcessing, PDVExtension, PKIXALG_SHA1};
+use crate::{collect_ocsp_uris, name_to_string, PKIXALG_SHA1};
 
 #[cfg(feature = "remote")]
 use x509_cert::ext::Extension;
@@ -861,25 +855,6 @@ fn process_ocsp_response_internal(
 }
 
 #[cfg(feature = "remote")]
-fn get_ocsp_aias(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
-    let mut retval = vec![];
-    if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aias))) =
-        target_cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS)
-    {
-        for aia in &aias.0 {
-            if aia.access_method == ID_AD_OCSP {
-                if let GeneralName::UniformResourceIdentifier(aia) = &aia.access_location {
-                    if !retval.contains(&aia) {
-                        retval.push(aia);
-                    }
-                }
-            }
-        }
-    }
-    retval
-}
-
-#[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_ocsp(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -889,7 +864,8 @@ pub(crate) async fn check_revocation_ocsp(
     pos: usize,
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
-    let ocsp_aias = get_ocsp_aias(target_cert);
+    let mut ocsp_aias = vec![];
+    collect_ocsp_uris(target_cert, &mut ocsp_aias);
     if ocsp_aias.is_empty() {
         info!(
             "No OCSP AIAs found for {}",
@@ -1108,6 +1084,13 @@ pub(crate) async fn check_revocation_ocsp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The offline replay tests below parse a target's extensions before checking its status. The
+    // non-test code no longer needs this trait -- reading OCSP URIs out of AIA moved to
+    // `collect_ocsp_uris` in pdv_utilities -- so it is imported here rather than at module scope,
+    // where it would be unused in every build that is not running these tests.
+    #[cfg(all(feature = "std", feature = "rsa"))]
+    use crate::ExtensionProcessing;
 
     // ------------------------------------------------------------------------------------------
     // Nonce policy (nonce_acceptable) - fully deterministic, no network.

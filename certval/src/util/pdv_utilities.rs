@@ -20,7 +20,7 @@ use x509_cert::ext::pkix::{
         name::{GeneralSubtree, GeneralSubtrees},
         BasicConstraints, PolicyConstraints,
     },
-    name::GeneralName,
+    name::{DistributionPointName, GeneralName},
     InhibitAnyPolicy,
 };
 use x509_cert::name::Name;
@@ -99,6 +99,64 @@ pub fn collect_uris_from_aia_and_sia(cert: &PDVCertificate, uris: &mut Vec<Strin
                     let s = uri.to_string();
                     if !uris.contains(&s) && s.starts_with("http") {
                         uris.push(uri.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `collect_crl_dp_uris` collects unique URIs from the full names of the CRL distribution points
+/// extension of the presented certificate and returns them via the `uris` parameter.
+///
+/// Unlike [`collect_uris_from_aia_and_sia`], no scheme filtering is applied. CRL DPs routinely name
+/// `ldap://` locations, and what a caller can reach is the caller's business: a client with an LDAP
+/// implementation, or a relay fetching on a browser's behalf, can use one where a direct HTTP
+/// fetcher cannot. certval's own CRL retrieval filters for itself, rejecting anything but HTTP with
+/// [`Error::InvalidUriScheme`], which also keeps the URIs it declined visible in the log rather
+/// than silently absent.
+///
+/// This is deliberately available in every build, revocation feature or not, for the same reason
+/// [`collect_uris_from_aia_and_sia`] is: reading a URI out of an extension is parsing, not
+/// fetching, and the callers that need it most are the ones that cannot fetch for themselves.
+pub fn collect_crl_dp_uris(cert: &PDVCertificate, uris: &mut Vec<String>) {
+    if let Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) =
+        cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS)
+    {
+        for crl_dp in &crl_dps.0 {
+            if let Some(DistributionPointName::FullName(gns)) = &crl_dp.distribution_point {
+                for gn in gns {
+                    if let GeneralName::UniformResourceIdentifier(uri) = gn {
+                        let s = uri.to_string();
+                        if !uris.contains(&s) {
+                            uris.push(s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `collect_ocsp_uris` collects unique URIs from the `id-ad-ocsp` access descriptions of the
+/// presented certificate's authority information access extension and returns them via the `uris`
+/// parameter.
+///
+/// Scheme filtering and build availability are as described for [`collect_crl_dp_uris`].
+///
+/// Note that an OCSP URI alone is not enough to retrieve a response: unlike a CRL, which is a plain
+/// GET, an OCSP request must be constructed for the specific certificate and posted. A caller
+/// driving its own retrieval needs both this and a means of building that request.
+pub fn collect_ocsp_uris(cert: &PDVCertificate, uris: &mut Vec<String>) {
+    if let Ok(Some(PDVExtension::AuthorityInfoAccessSyntax(aias))) =
+        cert.get_extension(&ID_PE_AUTHORITY_INFO_ACCESS)
+    {
+        for aia in &aias.0 {
+            if ID_AD_OCSP == aia.access_method {
+                if let GeneralName::UniformResourceIdentifier(uri) = &aia.access_location {
+                    let s = uri.to_string();
+                    if !uris.contains(&s) {
+                        uris.push(s);
                     }
                 }
             }
@@ -1399,4 +1457,43 @@ fn ta_validity_distinguishes_absent_from_failed() {
     let no_validity = TrustAnchorChoice::<Raw>::from_der(&bytes).unwrap();
     assert_eq!(Ok(None), ta_valid_at_time(&no_validity, toi, true));
     assert_eq!(Ok(None), ta_valid_at_time(&no_validity, expired, true));
+}
+
+/// The revocation URI collectors read the two extensions a caller needs to retrieve revocation data
+/// for itself. Both accumulate into a caller-supplied vector and skip duplicates, so a caller can
+/// sweep a whole certification path into one list without post-processing.
+#[test]
+fn revocation_uris_collected() {
+    let der = include_bytes!("../../tests/examples/ocsp_dod/47.der");
+    let cert = parse_cert(der, "47.der").unwrap();
+
+    let mut crl_dps = alloc::vec![];
+    collect_crl_dp_uris(&cert, &mut crl_dps);
+    assert_eq!(
+        crl_dps,
+        alloc::vec![String::from("http://crl.disa.mil/crl/DODEMAILCA_63.crl")]
+    );
+
+    let mut ocsp = alloc::vec![];
+    collect_ocsp_uris(&cert, &mut ocsp);
+    assert_eq!(ocsp, alloc::vec![String::from("http://ocsp.disa.mil")]);
+
+    // Accumulating the same certificate again adds nothing: sweeping a path whose certificates
+    // share a responder must not queue the same fetch repeatedly.
+    collect_crl_dp_uris(&cert, &mut crl_dps);
+    collect_ocsp_uris(&cert, &mut ocsp);
+    assert_eq!(1, crl_dps.len());
+    assert_eq!(1, ocsp.len());
+}
+
+/// A certificate carrying neither extension contributes nothing rather than failing, so a caller
+/// can run the collectors across every position in a path without checking first.
+#[test]
+fn revocation_uris_absent_is_not_an_error() {
+    let der = include_bytes!("../../tests/examples/PKITS_data_2048/certs/GoodCACert.crt");
+    let cert = parse_cert(der, "GoodCACert.crt").unwrap();
+
+    let mut ocsp = alloc::vec![];
+    collect_ocsp_uris(&cert, &mut ocsp);
+    assert!(ocsp.is_empty());
 }
