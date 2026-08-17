@@ -15,10 +15,11 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use certval::{
-    get_certificate_from_trust_anchor, name_constraints_set_to_name_constraints_settings,
-    name_to_string, source::ta_source::buffer_to_hex, valid_at_time, CertificationPath,
-    CertificationPathResults, Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate,
-    PDVTrustAnchorChoice, PathValidationStatus, PkiEnvironment, TimeOfInterest,
+    get_certificate_from_trust_anchor, is_self_signed,
+    name_constraints_set_to_name_constraints_settings, name_to_string,
+    source::ta_source::buffer_to_hex, valid_at_time, CertificationPath, CertificationPathResults,
+    Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate, PDVTrustAnchorChoice,
+    PathValidationStatus, PkiEnvironment, TimeOfInterest,
 };
 
 /// Summary details for one certificate (or trust anchor) in a certification path.
@@ -299,6 +300,10 @@ pub struct NoPathsContext {
     /// Why the target is outside its validity period at the time of interest, when it is. Path
     /// building excludes such certificates, so this alone explains a zero-path outcome.
     pub target_invalid_at_toi: Option<String>,
+    /// Whether the target signed itself, in which case its issuer is itself and the only thing that
+    /// can anchor it is the trust store. Worth separating because the generic advice — find the
+    /// issuer certificate, fetch it if need be — is advice that cannot possibly work here.
+    pub target_self_signed: bool,
     /// Whether the frontend can chase AIA and SIA URIs to fetch missing issuers: `None` when it
     /// cannot (so suggesting it would be noise), `Some(false)` when it can but the run did not, and
     /// `Some(true)` when the run already did.
@@ -326,6 +331,7 @@ impl NoPathsContext {
             target_invalid_at_toi: valid_at_time(target.decoded().tbs_certificate(), toi, true)
                 .err()
                 .map(|e| format!("{e:?}")),
+            target_self_signed: is_self_signed(pe, target),
             dynamic_build,
         }
     }
@@ -357,7 +363,18 @@ impl NoPathsContext {
 
         // A missing issuer and a present-but-unusable issuer are different problems with different
         // remedies, and reporting a bare zero conflates them.
+        // A self-signed target is its own issuer, so the whole issuer-hunting line of explanation
+        // below is beside the point: there is no certificate to go and find, and no URI to find it
+        // at. Either it is an anchor of this run or it cannot be validated at all.
         let material_missing = if 0 == self.trust_anchors {
+            false
+        } else if self.target_self_signed && !self.issuer_is_trust_anchor {
+            hints.push(
+                "The target is self-signed, so it is its own issuer: nothing can vouch for it but \
+                 a trust anchor, and no loaded anchor matches it. Validate it by adding it to the \
+                 trust store, or select a store that carries it."
+                    .to_string(),
+            );
             false
         } else if self.issuer_is_trust_anchor {
             hints.push(format!(
@@ -862,6 +879,7 @@ mod tests {
             issuer_is_trust_anchor: false,
             issuer_certs: 0,
             target_invalid_at_toi: None,
+            target_self_signed: false,
             dynamic_build: Some(false),
         }
     }
@@ -924,6 +942,35 @@ mod tests {
         .hints();
         assert!(hints[0].contains("not valid at the time of interest"));
         assert!(hints[0].contains("InvalidNotAfterDate"));
+    }
+
+    /// A root validated as a target has itself for an issuer, so the issuer-hunting explanation is
+    /// advice that cannot work: there is no certificate to find and no URI to find it at. Real
+    /// case — `DoDRootCA4.der` against a store that does not carry it was told that none of the 37
+    /// loaded intermediates had its subject, and to switch on AIA chasing.
+    #[test]
+    fn a_self_signed_target_is_told_it_needs_an_anchor_not_an_issuer() {
+        let hints = NoPathsContext {
+            target_self_signed: true,
+            ..ctx()
+        }
+        .hints();
+
+        assert_eq!(hints.len(), 1, "{hints:?}");
+        assert!(hints[0].contains("self-signed"));
+        assert!(hints[0].contains("trust store"));
+        // the two things that would be wrong to say here
+        assert!(!hints[0].contains("intermediate CA certificates"));
+        assert!(hints.iter().all(|h| !h.contains("Chasing AIA and SIA")));
+
+        // an anchor that matches it is a different outcome, and keeps the existing explanation
+        let hints = NoPathsContext {
+            target_self_signed: true,
+            issuer_is_trust_anchor: true,
+            ..ctx()
+        }
+        .hints();
+        assert!(hints[0].contains("A trust anchor matches the target's issuer name"));
     }
 
     #[test]

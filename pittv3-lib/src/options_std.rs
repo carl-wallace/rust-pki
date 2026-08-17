@@ -183,6 +183,7 @@ use std::time::Instant;
 use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
+use crate::graph_cache;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
@@ -761,6 +762,12 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
     }
 
+    // Keyed here, on the settings as read, because what follows adjusts them for the run — turning
+    // off AIA/SIA retrieval, and anchor validity for webpki anchors — and a caller outside a run
+    // has no way to reproduce those adjustments. Both are covered by the key anyway: chasing runs
+    // are not cached at all, and webpki_tas is hashed in its own right.
+    let graph_fingerprint = graph_cache::fingerprint(args, &cps);
+
     #[cfg(feature = "remote")]
     if !args.dynamic_build {
         cps.set_retrieve_from_aia_sia_http(false);
@@ -803,6 +810,11 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 if let Some(ta_folder) = &args.ta_folder {
                     error!("No trust anchors were loaded from {ta_folder}. {TA_FOLDER_EMPTY}");
                 }
+            }
+            // Cached beside the graph and under the same key: the graph's partial paths end at
+            // these anchors, and nothing in the graph carries them.
+            if let Some(fingerprint) = &graph_fingerprint {
+                graph_cache::store_anchors(fingerprint, ta_store.get_tas());
             }
             pe.add_trust_anchor_source(Box::new(ta_store));
             ta_store_added = true;
@@ -857,6 +869,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     // Number of certificates the CA folder contributed to the graph, used after the loop to tell a
     // folder that yielded nothing from no folder at all.
     let mut ca_folder_certs = 0;
+
+    // Whether the graph came off the cache rather than being built. Its identity was settled
+    // before the settings were adjusted for the run — see `graph_fingerprint` above.
+    let mut graph_from_cache = false;
 
     // Start the clock for entire set of validation actions
     let start = Instant::now();
@@ -930,13 +946,28 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             }
         };
 
+        // The same augmented graph as last time, when nothing it was built from has changed. What
+        // is skipped is the folder walk and the partial-path search, which is the expensive half of
+        // preparing a run; the certificates are still parsed, since they have to be.
+        if 0 == pass && !graph_from_cache {
+            if let Some(cached) = graph_fingerprint.as_deref().and_then(graph_cache::load) {
+                match CertSource::new_from_cbor(cached.as_slice()) {
+                    Ok(from_cache) => {
+                        cert_source = from_cache;
+                        graph_from_cache = true;
+                    }
+                    Err(e) => debug!("Ignoring an unusable cached graph: {e:?}"),
+                }
+            }
+        }
+
         // A CA folder is the intermediates the user already has, and it fed generation only: at
         // validation time the graph came from the CBOR store alone, so -t tas -c cas -e ee.der
         // found no paths at all and the folder had to be compiled into a store first. Fold it into
         // the graph here so it is a validation input in its own right; a store supplied alongside
         // it is augmented rather than displaced, since both are just certificates to build from. A
         // generate run is exempt because the CBOR read above was built from this same folder.
-        if 0 == pass && !args.generate {
+        if 0 == pass && !args.generate && !graph_from_cache {
             if let Some(ca_folder) = &args.ca_folder {
                 let before = cert_source.len();
                 // Either a folder of intermediates or a single file naming one, matching the trust
@@ -950,8 +981,26 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 if let Err(e) = r {
                     error!("Failed to read certificates from {ca_folder}: {e:?}");
                 }
+                // As on the trust anchor side: a file that yielded nothing may be a CBOR
+                // certificate store, which is what this app's store export writes. Merge its
+                // certificates into the same source, so a run can draw on a selected store and an
+                // exported one at once — the `cbor` argument holds only one path.
+                let from_cbor_store = cert_source.len() == before && Path::new(ca_folder).is_file();
+                if from_cbor_store {
+                    if let Some(certs) = cbor_cert_store_certs(ca_folder) {
+                        for cf in certs {
+                            cert_source.push(cf);
+                        }
+                    }
+                }
                 ca_folder_certs = cert_source.len() - before;
-                info!("Read {ca_folder_certs} certificate(s) from {ca_folder}");
+                if from_cbor_store {
+                    info!(
+                        "Read {ca_folder_certs} certificate(s) from the CBOR store at {ca_folder}"
+                    );
+                } else {
+                    info!("Read {ca_folder_certs} certificate(s) from {ca_folder}");
+                }
             }
         }
 
@@ -1052,9 +1101,13 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
 
         // Certificates read from the CA folder arrive with no partial paths, and a path that spans
         // the folder and the store exists only once the two are searched together, so build the
-        // graph here rather than take the store's serialized paths as complete.
-        if 0 == pass && 0 < ca_folder_certs {
+        // graph here rather than take the store's serialized paths as complete. A graph off the
+        // cache already carries the result of this search, which is the point of caching it.
+        if 0 == pass && 0 < ca_folder_certs && !graph_from_cache {
             cert_source.find_all_partial_paths(&pe, &cps);
+            if let Some(fingerprint) = &graph_fingerprint {
+                graph_cache::store(fingerprint, &cert_source);
+            }
         }
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
@@ -1189,7 +1242,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     // The one cause a zero-path run cannot read off its own environment: the folder was read and
     // filtered down to nothing, which leaves the graph as empty as no folder at all while the user
     // has every reason to believe they provided the intermediates.
-    let ca_folder_empty = args.ca_folder.is_some() && !args.generate && 0 == ca_folder_certs;
+    // A graph off the cache did not read the folder this run, and a graph is only cached once the
+    // folder has contributed to it, so a zero count here says nothing about the folder.
+    let ca_folder_empty =
+        args.ca_folder.is_some() && !args.generate && 0 == ca_folder_certs && !graph_from_cache;
     // Distinguishes "no folder was given" from "the folder was given and nothing survived reading
     // it", which the shared diagnosis cannot tell apart because both leave the environment empty
     let ta_folder_empty = args.ta_folder.is_some() && pe.get_trust_anchors().is_empty();

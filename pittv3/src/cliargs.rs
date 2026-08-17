@@ -54,8 +54,9 @@ pub struct Pittv3CliArgs {
     pub error_folder: Option<String>,
 
     /// Full path and filename of folder to receive downloaded binary DER-encoded certificates, if
-    /// absent at generate time, the ca_folder is used. Additionally, this is used to designate where
-    /// exported buffers are written by dump_cert_at_index or list_buffers.
+    /// absent at generate time, the ca_folder is used, which requires it to name a folder rather
+    /// than a single file. Additionally, this is used to designate where exported buffers are
+    /// written by dump_cert_at_index or list_buffers.
     #[cfg(feature = "std")]
     #[clap(long, short, help_heading = "COMMON OPTIONS")]
     pub download_folder: Option<String>,
@@ -84,7 +85,8 @@ pub struct Pittv3CliArgs {
     pub chase_aia_and_sia: bool,
 
     /// Flag that indicates generated CBOR file will contain only trust anchors  (so no need for
-    /// partial paths and no need to exclude self-signed certificates).
+    /// partial paths and no need to exclude self-signed certificates). The anchors are read from
+    /// the ca_folder input, which may name a single file, and the result is the form ta_cbor takes.
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "GENERATION")]
     pub cbor_ta_store: bool,

@@ -6,6 +6,8 @@
 extern crate alloc;
 
 pub mod args;
+#[cfg(feature = "std")]
+pub mod graph_cache;
 pub mod help;
 pub mod no_std_utils;
 pub mod options_no_std;

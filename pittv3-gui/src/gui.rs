@@ -22,6 +22,7 @@ use pittv3_gui_lib::gui_utils::{
 use pittv3_gui_lib::settings_store::{default_settings_path, expand_tilde};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
+use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport, UriStatus};
@@ -36,6 +37,104 @@ async fn pick_folder_into(mut sig: Signal<String>) {
         .await;
     if let Some(folder) = folder {
         sig.set(folder.path().to_string_lossy().to_string());
+    }
+}
+
+/// Asks for a folder and writes the selected built-in store's material into it, reporting the
+/// outcome through `status` either way — a dialog that closes with nothing said is the shape of
+/// failure this app has already been bitten by once (see the tilde expansion in `settings_store`).
+async fn export_store_into(index: usize, mut status: Signal<String>) {
+    let folder = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_folder()
+        .await;
+    let Some(folder) = folder else {
+        return;
+    };
+    match stores::export(index, folder.path()) {
+        Ok(e) => {
+            let cas = if e.ca_store {
+                format!(
+                    ", the CA store and {} intermediate CA certificate(s)",
+                    e.intermediates
+                )
+            } else {
+                String::new()
+            };
+            status.set(format!(
+                "Wrote {} trust anchor(s){cas} to {}",
+                e.anchors, e.folder
+            ));
+        }
+        Err(msg) => {
+            error!("{msg}");
+            status.set(format!("Export failed: {msg}"));
+        }
+    }
+}
+
+/// Writes the environment a run over the current inputs validates against, as the two files that
+/// describe it: `ta.cbor`, every anchor the run assembled, and `ca.cbor`, the certificates it
+/// searched together with the partial paths it found among them.
+///
+/// Two files because the anchors sit outside the graph: partial paths terminate at them, but they
+/// live in a `TaSource` that never enters the `CertSource`, so a graph on its own describes paths
+/// to certificates it does not carry. Both come from the run's cache under one key, so they are
+/// necessarily each other's halves — and both are what the validation actually used rather than a
+/// reconstruction, which is the point of exporting them at all. That does mean there has to have
+/// been a run: nothing is cached for inputs nothing has been validated against yet.
+async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
+    let Some(fingerprint) = graph_cache::fingerprint_for_args(&args) else {
+        status.set(
+            "These inputs build no graph to export: a store used on its own already carries its \
+             partial paths, and dynamic build changes the graph as it runs."
+                .to_string(),
+        );
+        return;
+    };
+    let Some(graph) = graph_cache::cached(&fingerprint) else {
+        status.set(
+            "Nothing has been built for these inputs yet — run a validation first, then export."
+                .to_string(),
+        );
+        return;
+    };
+    let anchors = graph_cache::cached_anchors(&fingerprint);
+
+    let folder = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_folder()
+        .await;
+    let Some(folder) = folder else {
+        return;
+    };
+
+    let ca_path = folder.path().join("ca.cbor");
+    if let Err(e) = std::fs::write(&ca_path, &graph) {
+        error!("Failed to write {}: {e}", ca_path.display());
+        status.set(format!("Export failed: {e}"));
+        return;
+    }
+    // Anchors are cached whenever a run loaded any, so their absence means the run had none of its
+    // own — webpki anchors, which certval builds rather than reads, are the case that reaches here.
+    let Some(anchors) = anchors else {
+        status.set(format!(
+            "Wrote the graph to {}. No trust anchor file: this run's anchors are built by certval \
+             rather than read from material that can be written out.",
+            ca_path.display()
+        ));
+        return;
+    };
+    let ta_path = folder.path().join("ta.cbor");
+    match std::fs::write(&ta_path, &anchors) {
+        Ok(()) => status.set(format!(
+            "Wrote ta.cbor and ca.cbor to {}",
+            folder.path().to_string_lossy()
+        )),
+        Err(e) => {
+            error!("Failed to write {}: {e}", ta_path.display());
+            status.set(format!("Export failed: {e}"));
+        }
     }
 }
 
@@ -297,7 +396,7 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
                     }
                 }
                 p { class: "hint",
-                    "Fetches the HTTP URIs in the target certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports per-URI reachability and correctness, independent of path processing. Supplying (or auto-discovering) the issuer enables CRL-signature verification and OCSP checks."
+                    "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. An issuer, supplied or auto-discovered, adds CRL signature verification and OCSP checks."
                 }
                 table {
                     tbody {
@@ -410,14 +509,23 @@ enum View {
     Help,
 }
 
+/// Sidebar views in display order.
+///
+/// The head of the list is the ordinary path through the app — validate something, read the
+/// outcome, adjust what a run does — and everything after it is a tool for working on the material
+/// rather than a step in that path. Results sat seventh, below every tool, which put the thing a
+/// run navigates to on its own five entries away from the thing that produced it.
+///
+/// Nothing indexes this list positionally; the selected entry and the Results index are both found
+/// by lookup, so the order is presentation only.
 const VIEWS: &[(View, &str)] = &[
     (View::Validate, "Validate"),
+    (View::Results, "Results"),
+    (View::Settings, "Settings"),
     (View::Generate, "Generate"),
     (View::Cleanup, "Cleanup"),
     (View::Diagnostics, "Diagnostics"),
     (View::Tools, "Tools"),
-    (View::Settings, "Settings"),
-    (View::Results, "Results"),
     (View::Help, "Help"),
 ];
 
@@ -428,7 +536,7 @@ const VIEWS: &[(View, &str)] = &[
 /// trust-bit-scoped Mozilla sets selectable at all: nothing in a root's DER says which purposes
 /// CCADB records it for, so a folder of roots cannot express them.
 #[component]
-fn StoreRow(sig: Signal<usize>) -> Element {
+fn StoreRow(sig: Signal<usize>, status: Signal<String>) -> Element {
     let mut sig = sig;
     rsx! {
         tr {
@@ -457,32 +565,87 @@ fn StoreRow(sig: Signal<usize>) -> Element {
                     }
                 }
             }
-            td { class: "nowrap" }
+            // Offered for a built-in store alone: a custom selection is already files on disk, so
+            // there would be nothing to write that the user does not have, and webpki's anchors
+            // are built during a run rather than held here.
+            td { class: "nowrap",
+                if sig() != stores::CUSTOM && !stores::is_webpki(sig()) {
+                    button {
+                        r#type: "button",
+                        title: "Write this store's trust anchors and CBOR stores into a folder",
+                        onclick: move |_| {
+                            spawn(export_store_into(sig(), status));
+                        },
+                        "Export..."
+                    }
+                }
+            }
         }
     }
 }
 
-/// Explains what the selected built-in store supplies, and so which of the inputs beneath it are
-/// still doing work. Renders nothing for a custom selection.
+/// Outcome of the last store export, shown until another one replaces it. A row of its own rather
+/// than part of [`StoreHint`], which describes the store itself and should not be rewritten by an
+/// action taken against it.
+#[component]
+fn StoreStatusRow(status: Signal<String>) -> Element {
+    if status().is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        tr {
+            td { }
+            td { class: "grow",
+                div { class: "hint", "{status}" }
+            }
+            td { }
+        }
+    }
+}
+
+/// Heading for a run of rows within a fieldset, spanning the full width.
+///
+/// For what the rows have in common and the fields cannot each restate — that everything below is
+/// *additional* to a store already supplying trust material, say. Stating that per field, or worse
+/// per store, is the thing this exists to avoid.
+#[component]
+fn SubgroupRow(title: String) -> Element {
+    rsx! {
+        tr { class: "subgroup",
+            td { class: "subgroup", colspan: "3", "{title}" }
+        }
+    }
+}
+
+/// Says what the selected built-in store is, and whether it carries intermediates as well as
+/// anchors. Renders nothing for a custom selection.
+///
+/// It does **not** say what the fields beneath it do: that is the same sentence for every store, so
+/// it belongs to the group heading rather than to each blurb. The intermediates sentence names the
+/// CA CBOR field only when the store carries none, which is the same condition that puts that row
+/// on the screen — a hint should not send the reader looking for a field the view is not showing.
 #[component]
 fn StoreHint(selection: usize) -> Element {
     if selection == stores::CUSTOM {
         return rsx! {};
     }
+    let Some(store) = stores::STORES.get(selection - 1) else {
+        return rsx! {};
+    };
     let has_ca = stores::has_ca_store(selection);
     rsx! {
         tr {
             td { }
             td { class: "grow",
-                span { class: "hint",
+                // A block rather than a span: `.hint` carries a left padding, and on an inline box
+                // that indents the first line alone, leaving the wrapped lines hanging to its left.
+                div { class: "hint",
                     if has_ca {
-                        "This store supplies the trust anchors and the intermediate CA certificates. "
-                        "A TA folder adds anchors to it and a CA folder adds intermediates; the CA "
-                        "CBOR field is not used."
+                        "Trust anchors and intermediate CAs from {store.pki}. "
                     } else {
-                        "This store supplies trust anchors only. Give intermediates in the CA CBOR "
-                        "or CA folder field, or turn on dynamic build to fetch them."
+                        "Trust anchors from {store.pki}. Supply intermediates below or turn on dynamic build. "
                     }
+                    "{store.note}"
                 }
             }
             td { }
@@ -519,7 +682,7 @@ pub(crate) fn App() -> Element {
     // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What
     // is restored from that is the selection; showing the cache paths back as if the user had
     // typed them would invite editing a file the next run overwrites.
-    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor));
+    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas));
     let from_store = saved_store != stores::CUSTOM;
     let saved_or_empty = |v: &Option<String>| {
         if from_store {
@@ -530,9 +693,13 @@ pub(crate) fn App() -> Element {
     };
 
     let s_ta_folder = use_signal(|| sa.ta_folder.clone().unwrap_or_default());
-    let s_webpki_tas = use_signal(|| sa.webpki_tas);
     let s_cbor = use_signal(|| saved_or_empty(&sa.cbor));
     let s_store = use_signal(|| saved_store);
+    // Outcome of the last store export. Not persisted with the arguments: it describes something
+    // that happened, not something the next run should do.
+    let s_store_export = use_signal(String::new);
+    // The same, for the graph export in the Advanced group
+    let mut s_graph_export = use_signal(String::new);
     let s_ta_cbor = use_signal(|| saved_or_empty(&sa.ta_cbor));
     let s_time_of_interest = use_signal(|| get_now_as_unix_epoch().to_string());
     let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
@@ -591,29 +758,25 @@ pub(crate) fn App() -> Element {
     let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
-    let run_command = move |_: ()| {
-        if s_running() {
-            return;
-        }
-        // Resolve the store selection first: a built-in store supplies the trust anchors, and the
-        // intermediates too where its environment carries them. An anchors-only environment
-        // leaves the CA CBOR field in effect, so Mozilla's TLS or S/MIME anchor set can be paired
-        // with intermediates of the user's choosing. The TA folder is never displaced, since
-        // anchors from a store and a folder are combined.
-        let (store_ta_cbor, store_cbor) = match stores::materialize(s_store()) {
-            Ok(paths) => paths,
-            Err(msg) => {
-                error!("{msg}");
-                s_log.write().push(msg);
-                s_view.set(View::Results);
-                return;
-            }
-        };
+    // The arguments the form currently describes. Shared by the run and by anything else that has
+    // to reason about what a run *would* do — exporting the graph asks which graph this form keys
+    // to, and an answer assembled a second way would be an answer to a different question.
+    //
+    // Resolves the store selection first: a built-in store supplies the trust anchors, and the
+    // intermediates too where its environment carries them. An anchors-only environment leaves the
+    // CA CBOR field in effect, so Mozilla's TLS or S/MIME anchor set can be paired with
+    // intermediates of the user's choosing. The TA folder is never displaced, since anchors from a
+    // store and a folder are combined.
+    let current_args = move || -> Result<Pittv3Args, String> {
+        let (store_ta_cbor, store_cbor) = stores::materialize(s_store())?;
 
-        let args = Pittv3Args {
+        Ok(Pittv3Args {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
-            webpki_tas: s_webpki_tas(),
+            // Set by the store selector alone. As a checkbox this could be combined with any other
+            // anchor set, which is the two-TaSource case load_trust_anchors merges its own inputs
+            // to avoid; a single-select control cannot express it.
+            webpki_tas: stores::is_webpki(s_store()),
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()
                 .parse::<u64>()
@@ -649,6 +812,21 @@ pub(crate) fn App() -> Element {
             check_uris: None,
             issuer: None,
             no_auto_discover: false,
+        })
+    };
+
+    let run_command = move |_: ()| {
+        if s_running() {
+            return;
+        }
+        let args = match current_args() {
+            Ok(args) => args,
+            Err(msg) => {
+                error!("{msg}");
+                s_log.write().push(msg);
+                s_view.set(View::Results);
+                return;
+            }
         };
 
         let _ = save_args(&args);
@@ -775,12 +953,25 @@ pub(crate) fn App() -> Element {
             {
                 match s_view() {
                     View::Validate => rsx! {
+                        // Two boxes rather than one: the first is the PKI a run is judged against —
+                        // certval's own PkiEnvironment, anchors and intermediates and revocation
+                        // material — and the second is what is judged and how. "Validation" named
+                        // the view rather than either of them.
                         fieldset {
-                            legend { "Validation" }
+                            legend { "PKI Environment" }
                             table {
                                 tbody {
-                                    StoreRow { sig: s_store }
+                                    StoreRow { sig: s_store, status: s_store_export }
                                     StoreHint { selection: s_store() }
+                                    StoreStatusRow { status: s_store_export }
+                                    // "Additional" only when a store is supplying material to add
+                                    // to: for a custom selection these fields are the trust
+                                    // material, not a supplement to it.
+                                    if s_store() == stores::CUSTOM {
+                                        SubgroupRow { title: "Trust Anchors and Certification Authorities" }
+                                    } else {
+                                        SubgroupRow { title: "Additional Trust Anchors and Certification Authorities" }
+                                    }
                                     PathRow {
                                         label: "TA Folder or File",
                                         name: "ta-folder",
@@ -821,6 +1012,15 @@ pub(crate) fn App() -> Element {
                                             sig: s_ca_folder,
                                         }
                                     }
+                                    SubgroupRow { title: "Revocation" }
+                                    FolderRow { label: "CRL Folder", name: "crl-folder", sig: s_crl_folder }
+                                }
+                            }
+                        }
+                        fieldset {
+                            legend { "Target and Settings" }
+                            table {
+                                tbody {
                                     FileRow {
                                         label: "End Entity File",
                                         name: "end-entity-file",
@@ -829,7 +1029,6 @@ pub(crate) fn App() -> Element {
                                         extensions: ["der", "crt"].as_slice(),
                                     }
                                     FolderRow { label: "End Entity Folder", name: "end-entity-folder", sig: s_end_entity_folder }
-                                    FolderRow { label: "CRL Folder", name: "crl-folder", sig: s_crl_folder }
                                     tr {
                                         td { label { r#for: "settings", "Settings: " } }
                                         td { class: "grow",
@@ -865,7 +1064,10 @@ pub(crate) fn App() -> Element {
                                     tr {
                                         td { }
                                         td { class: "grow",
-                                            span { class: "hint",
+                                            // Block, for the reason given on StoreHint: an inline
+                                            // .hint indents its first line only. Both lines here
+                                            // are short enough not to wrap today.
+                                            div { class: "hint",
                                                 if s_settings().is_empty() {
                                                     "This run will use certval defaults."
                                                 } else {
@@ -930,9 +1132,45 @@ pub(crate) fn App() -> Element {
                                 table {
                                     tbody {
                                         tr {
-                                            CheckboxCell { label: "WebPKI TAs", name: "webpki-tas", sig: s_webpki_tas }
+                                            // "WebPKI TAs" was here. It is an anchor set, so it is
+                                            // an entry in the store selector now — see StoreSource.
                                             CheckboxCell { label: "Validate Self-Signed", name: "validate-self-signed", sig: s_validate_self_signed }
                                             td { class: "grow" }
+                                        }
+                                        // The environment the last run over these inputs used,
+                                        // which exists as files only because it is cached: nothing
+                                        // else writes the assembled anchors and the merged graph
+                                        // out as a pair.
+                                        tr {
+                                            td { }
+                                            td { class: "grow",
+                                                button {
+                                                    r#type: "button",
+                                                    title: "Write this run's trust anchors and its certificate graph to a folder, as ta.cbor and ca.cbor",
+                                                    onclick: move |_| {
+                                                        match current_args() {
+                                                            Ok(args) => {
+                                                                spawn(export_environment_into(args, s_graph_export));
+                                                            }
+                                                            Err(msg) => {
+                                                                error!("{msg}");
+                                                                s_graph_export.set(msg);
+                                                            }
+                                                        }
+                                                    },
+                                                    "Export PKI Environment..."
+                                                }
+                                            }
+                                            td { }
+                                        }
+                                        if !s_graph_export().is_empty() {
+                                            tr {
+                                                td { }
+                                                td { class: "grow",
+                                                    div { class: "hint", "{s_graph_export}" }
+                                                }
+                                                td { }
+                                            }
                                         }
                                     }
                                 }
@@ -945,14 +1183,38 @@ pub(crate) fn App() -> Element {
                             legend { "Generation" }
                             table {
                                 tbody {
-                                    FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                                    FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                                    FileRow {
-                                        label: "CA CBOR",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
+                                    PathRow {
+                                        label: "TA Folder or File",
+                                        name: "ta-folder",
+                                        sig: s_ta_folder,
+                                    }
+                                    PathRow {
+                                        label: "CA Folder or File",
+                                        name: "ca-folder",
+                                        sig: s_ca_folder,
+                                    }
+                                    // The file the run writes — labelled as such, since it sits
+                                    // among inputs and is otherwise indistinguishable from one.
+                                    // Which store it holds follows the CBOR TA store checkbox
+                                    // below, so it is named for the row it will be loaded into on
+                                    // the Validate view. (Same "(output)" convention as the
+                                    // Mozilla CSV view's CA Folder.)
+                                    if s_cbor_ta_store() {
+                                        FileRow {
+                                            label: "TA CBOR (output)",
+                                            name: "cbor",
+                                            sig: s_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                            extensions: ["cbor", "pki", "ta"].as_slice(),
+                                        }
+                                    } else {
+                                        FileRow {
+                                            label: "CA CBOR (output)",
+                                            name: "cbor",
+                                            sig: s_cbor,
+                                            filter_name: "PITTv3 CBOR-serialized PKI",
+                                            extensions: ["cbor", "pki"].as_slice(),
+                                        }
                                     }
                                     FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
                                 }
@@ -973,7 +1235,11 @@ pub(crate) fn App() -> Element {
                                 }
                             }
                             p { class: "hint",
-                                "Check Generate to (re)build the CBOR store from the TA and CA folders when running."
+                                if s_cbor_ta_store() {
+                                    "Generate writes a trust anchor store to the TA CBOR path above, read from the CA input; either input may be a single file."
+                                } else {
+                                    "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
+                                }
                             }
                         }
                         RunButton { running: s_running(), onrun: run_command }
@@ -1011,8 +1277,9 @@ pub(crate) fn App() -> Element {
                             legend { "Diagnostics" }
                             table {
                                 tbody {
-                                    StoreRow { sig: s_store }
+                                    StoreRow { sig: s_store, status: s_store_export }
                                     StoreHint { selection: s_store() }
+                                    StoreStatusRow { status: s_store_export }
                                     if !stores::has_ca_store(s_store()) {
                                         FileRow {
                                             label: "CA CBOR",
@@ -1022,7 +1289,11 @@ pub(crate) fn App() -> Element {
                                             extensions: ["cbor", "pki"].as_slice(),
                                         }
                                     }
-                                    FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
+                                    PathRow {
+                                        label: "TA Folder or File",
+                                        name: "ta-folder",
+                                        sig: s_ta_folder,
+                                    }
                                     if s_store() == stores::CUSTOM {
                                         FileRow {
                                             label: "TA CBOR",
@@ -1136,7 +1407,7 @@ pub(crate) fn App() -> Element {
                             // exist. The empty case is only reachable with no home directory.
                             if s_settings().is_empty() {
                                 p { class: "hint",
-                                    "No home directory is available, so there is no default settings file. Choose (or type the path of) a JSON settings file to edit."
+                                    "No home directory, so there is no default settings file. Choose or type the path of a JSON settings file to edit."
                                 }
                             } else {
                                 EditSettingsFile {

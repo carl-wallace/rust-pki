@@ -45,8 +45,9 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "download-folder" => concat!(
             "Full path and filename of folder to receive downloaded binary DER-encoded certificates, if ",
-            "absent at generate time, the ca_folder is used. Additionally, this is used to designate ",
-            "where exported buffers are written by dump_cert_at_index or list_buffers.",
+            "absent at generate time, the ca_folder is used, which requires it to name a folder rather ",
+            "than a single file. Additionally, this is used to designate where exported buffers are ",
+            "written by dump_cert_at_index or list_buffers.",
         ),
         "ca-folder" => concat!(
             "Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a ",
@@ -67,7 +68,9 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "cbor-ta-store" => concat!(
             "Flag that indicates generated CBOR file will contain only trust anchors (so no need for ",
-            "partial paths and no need to exclude self-signed certificates).",
+            "partial paths and no need to exclude self-signed certificates). The anchors are read ",
+            "from the CA input, which may name a single file, and the result is the form --ta-cbor ",
+            "takes.",
         ),
         "validate-all" => "Flag that indicates all available certification paths should be validated for each target.",
         "validate-self-signed" => "Check if certificate passed as end_entity_file is self-signed.",
