@@ -29,6 +29,57 @@ use crate::{
 #[cfg(feature = "revocation")]
 use certval::check_revocation;
 
+/// Decodes a CBOR certificate store into the certificates it carries, as `(name, DER)` pairs.
+///
+/// The store is the serialized form of a [`CertSource`], so what comes back is what a run would
+/// build paths from — one entry per buffer, in store order, carrying whatever name the store
+/// recorded (often the file the certificate was generated from). Nothing here parses or validates:
+/// a caller wanting to write the certificates out should not have to reason about the material.
+///
+/// Lives here rather than in a frontend so every frontend can offer it. `pittv3-gui`'s store export
+/// is the first caller; the browser will want the same thing, and the CLI already exposes it as
+/// `--list-buffers` with a download folder.
+#[cfg(feature = "std")]
+pub fn cbor_store_to_ders(cbor: &[u8]) -> core::result::Result<Vec<(String, Vec<u8>)>, String> {
+    let cert_source = CertSource::new_from_cbor(cbor)
+        .map_err(|e| format!("failed to parse the CBOR certificate store: {e:?}"))?;
+    Ok(cert_source
+        .get_buffers()
+        .into_iter()
+        .map(|cf| (cf.filename, cf.bytes))
+        .collect())
+}
+
+/// Reads `path` as a CBOR trust anchor store and returns its anchors, or `None` when it is not one.
+///
+/// The trust anchor and CA inputs take certificates, and a store is not one — but the two are easy
+/// to confuse, and this app invites the confusion by exporting a store as `ta.cbor` and `ca.cbor`.
+/// Rather than refuse a file the tool itself wrote, the input reads it: anchors from a store named
+/// here are merged into the same [`TaSource`] as the rest, exactly as `ta_cbor` is, so nominating
+/// one is additive and a run can draw on a built-in store and an exported one at once. Called only
+/// once a file has failed to yield certificates, so nothing about the ordinary path changes.
+#[cfg(feature = "std")]
+pub fn cbor_ta_store_anchors(path: &str) -> Option<Vec<CertFile>> {
+    let bytes = get_file_as_byte_vec_pem(Path::new(path)).ok()?;
+    TaSource::new_from_cbor(&bytes)
+        .ok()
+        .map(|from_cbor| from_cbor.get_tas())
+}
+
+/// Reads `path` as a CBOR certificate store and returns the certificates it carries, or `None` when
+/// it is not one. The CA-side counterpart of [`cbor_ta_store_anchors`].
+///
+/// Only the certificates are taken, not the partial paths recorded alongside them: they are being
+/// merged into a graph that is about to be built over the combined material, and paths computed
+/// against the store alone would not describe it.
+#[cfg(feature = "std")]
+pub fn cbor_cert_store_certs(path: &str) -> Option<Vec<CertFile>> {
+    let bytes = get_file_as_byte_vec_pem(Path::new(path)).ok()?;
+    CertSource::new_from_cbor(&bytes)
+        .ok()
+        .map(|from_cbor| from_cbor.get_buffers())
+}
+
 /// Builds the trust anchor store named by the `ta_cbor` and `ta_folder` arguments, or `None` when
 /// neither was given.
 ///
@@ -83,7 +134,9 @@ pub fn load_trust_anchors(
         // Naming a file is not a lesser case: an anchor store assembled from several sources is
         // reached by naming them, and the alternative is asking the user to build a directory
         // around one certificate.
-        let r = if Path::new(ta_folder).is_file() {
+        let named_file = Path::new(ta_folder).is_file();
+        let before = ta_store.len();
+        let r = if named_file {
             ta_file_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
         } else {
             ta_folder_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
@@ -92,6 +145,21 @@ pub fn load_trust_anchors(
             return Err(format!(
                 "failed to load trust anchors from {ta_folder} with error {e:?}"
             ));
+        }
+
+        // A file that yielded no anchor may be a CBOR trust anchor store rather than certificate
+        // material — the shape this app's own store export writes. Read it as one and merge it in,
+        // which is what `ta_cbor` does with the same bytes.
+        if named_file && ta_store.len() == before {
+            if let Some(anchors) = cbor_ta_store_anchors(ta_folder) {
+                for cf in anchors {
+                    ta_store.push(cf);
+                }
+                info!(
+                    "Read {} trust anchor(s) from the CBOR store at {ta_folder}",
+                    ta_store.len() - before
+                );
+            }
         }
     }
 
@@ -603,15 +671,17 @@ pub async fn generate(
 
     let no_anchors = args.ta_cbor.is_none() && args.ta_folder.is_none();
 
+    // Reported through the log rather than stdout: a GUI captures the log and never sees a
+    // println, so a run that stopped here looked to a user like a run that did nothing at all.
     #[cfg(feature = "webpki")]
     if args.cbor.is_none() || (no_anchors && !args.webpki_tas) || args.ca_folder.is_none() {
-        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or webpki-tas");
+        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or webpki-tas");
         return;
     }
 
     #[cfg(not(feature = "webpki"))]
     if args.cbor.is_none() || no_anchors || args.ca_folder.is_none() {
-        println!("ERROR: The cbor and ca-folder options are required when generate is specified plus either ta-cbor or ta-folder");
+        error!("The cbor and ca-folder options are required when generate is specified plus either ta-cbor or ta-folder");
         return;
     }
 
@@ -627,14 +697,21 @@ pub async fn generate(
     cps.set_cbor_ta_store(args.cbor_ta_store);
 
     let graph = build_graph(pe, cps).await;
-    if let Ok(graph) = graph {
-        if let Some(cbor) = args.cbor.as_ref() {
-            fs::write(cbor, graph.as_slice()).expect("Unable to write generated CBOR file");
+    match graph {
+        Ok(graph) => {
+            if let Some(cbor) = args.cbor.as_ref() {
+                // Not expect(): an unwritable path is a typo, not a bug, and panicking here took
+                // the run's worker thread with it. Naming the file it wrote also answers "where
+                // did the store go", which the argument alone does not.
+                match fs::write(cbor, graph.as_slice()) {
+                    Ok(()) => info!("Wrote the generated store to {cbor}"),
+                    Err(e) => error!("Failed to write the generated store to {cbor}: {e}"),
+                }
+            }
         }
-    } else {
-        println!("Failed: {graph:?}");
+        Err(e) => error!("Failed to generate the store: {e:?}"),
     }
-    println!("Generation took {:?}", Instant::now() - start);
+    info!("Generation took {:?}", Instant::now() - start);
 }
 
 /// `cleanup_certs` attempts to remove files that cannot be used from the indicated `certs_folder`

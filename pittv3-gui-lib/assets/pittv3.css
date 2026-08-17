@@ -93,6 +93,25 @@ input[type="checkbox"] {
   padding-left: 0.5rem;
 }
 
+/* Heading for a run of rows within a fieldset, for the cases where the rows share a condition the
+   fields cannot each restate. Legend vocabulary at a smaller weight, so it reads as subordinate to
+   the fieldset rather than competing with it. The rule above it is what closes the group before. */
+td.subgroup {
+  padding-top: 0.6rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: left;
+  white-space: normal;
+}
+tr.subgroup + tr td {
+  padding-top: 0.1rem;
+}
+tr.subgroup:not(:first-child) td.subgroup {
+  border-top: 1px solid var(--border);
+}
+
 /* Explains that a group of settings cannot take effect in this frontend. Set apart from a plain
    hint because it qualifies everything below it rather than annotating one field. */
 .capability-notice {

@@ -51,3 +51,4 @@ tokio = { version = "1.52.3", features = ["rt", "time"] }
 # read; the app itself reaches certval through pittv3_lib.
 [dev-dependencies]
 certval = { path = "../certval", default-features = false, features = ["std"] }
+tempfile = "3.27.0"

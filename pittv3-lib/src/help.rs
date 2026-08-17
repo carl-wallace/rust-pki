@@ -45,8 +45,9 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "download-folder" => concat!(
             "Full path and filename of folder to receive downloaded binary DER-encoded certificates, if ",
-            "absent at generate time, the ca_folder is used. Additionally, this is used to designate ",
-            "where exported buffers are written by dump_cert_at_index or list_buffers.",
+            "absent at generate time, the ca_folder is used, which requires it to name a folder rather ",
+            "than a single file. Additionally, this is used to designate where exported buffers are ",
+            "written by dump_cert_at_index or list_buffers.",
         ),
         "ca-folder" => concat!(
             "Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a ",
@@ -67,7 +68,9 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "cbor-ta-store" => concat!(
             "Flag that indicates generated CBOR file will contain only trust anchors (so no need for ",
-            "partial paths and no need to exclude self-signed certificates).",
+            "partial paths and no need to exclude self-signed certificates). The anchors are read ",
+            "from the CA input, which may name a single file, and the result is the form --ta-cbor ",
+            "takes.",
         ),
         "validate-all" => "Flag that indicates all available certification paths should be validated for each target.",
         "validate-self-signed" => "Check if certificate passed as end_entity_file is self-signed.",
@@ -91,10 +94,13 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "settings" => "Full path and filename of JSON-formatted certification path validation settings.",
         "crl-folder" => concat!(
-            "Full path of folder containing binary, DER-encoded intermediate CA certificates. Required ",
-            "when generate action is performed. This is not used when path validation is performed other ",
-            "than as a place to store downloaded files when dynamic building is used and download_folder ",
-            "is not specified.",
+            "Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed ",
+            "before path validation begins. Only files with a .crl extension are processed. The indexed ",
+            "CRLs are the local revocation source, consulted before any remote retrieval, and the folder ",
+            "also receives CRLs fetched remotely along with the last-modified map that makes those fetches ",
+            "conditional. Note that the folder is written as well as read: indexing deletes any CRL that is ",
+            "not valid at the time of interest, i.e. one whose thisUpdate is in the future or whose ",
+            "nextUpdate has passed.",
         ),
         "keep-crl-entries-in-memory" => concat!(
             "When set together with crl_folder, retain the revoked serial numbers of each verified ",
@@ -180,6 +186,16 @@ mod tests {
         assert!(arg_help("ta-folder").contains("trust anchors"));
         assert!(arg_help("ca-folder").contains("intermediate CA certificates"));
         assert_eq!(arg_help("not-an-argument"), "");
+    }
+
+    /// The CRL folder holds CRLs, not certificates. Asserting the absence as well as the presence
+    /// is what distinguishes this entry from the CA folder's, which describes a different artifact
+    /// in otherwise similar words.
+    #[test]
+    fn crl_folder_describes_crls_not_ca_certificates() {
+        let help = arg_help("crl-folder");
+        assert!(help.contains("CRLs"));
+        assert!(!help.contains("intermediate CA certificates"));
     }
 
     /// `validate_all` is declared twice in `Pittv3Args` behind opposing `std_app` gates. The help
