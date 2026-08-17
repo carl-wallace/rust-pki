@@ -59,7 +59,7 @@ getrandom = { version = "0.4", optional = true}
 serde_json = {version = "1.0.150", optional = true, default-features = false, features = ["alloc"] }
 walkdir = { version = "2.5.0", optional = true}
 
-ml-dsa = { version = "0.1.1", optional = true }
+ml-dsa = { version = "0.1.1", optional = true, default-features = false, features = ["alloc", "pkcs8"] }
 sha3 = { version = "0.11.0", default-features = false, optional = true }
 slh-dsa = { version = "0.2.0-rc.5", optional = true }
 
