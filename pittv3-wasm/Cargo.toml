@@ -20,10 +20,17 @@ rust-version = "1.88"
 # The browser frontend builds certval with no-default-features (no filesystem, network or thread
 # support) plus pqc. Trust anchor and CA stores are baked in as CBOR at build time or supplied by
 # the user via file upload.
+#
+# `revocation` is the CRL and OCSP *processing* code, and is independent of `remote`, which is the
+# fetching. It costs nothing here beyond code size and gets certval's no-std `check_revocation`
+# (a synchronous fn, unlike the async one std builds) compiled in, so revocation data supplied
+# alongside the certificates can be honored. Nothing fetches it yet, so runs leave the check off by
+# default -- see `run_settings` in main.rs. Listed on all three crates rather than relying on
+# pittv3_gui_lib's feature to fan out, so each line states what that crate is built with.
 [dependencies]
-certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "rsa"] }
-pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "rsa"] }
-pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc"] }
+certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
 
 dioxus = { version = "0.7.9", features = ["web"] }
 log = "0.4.33"
