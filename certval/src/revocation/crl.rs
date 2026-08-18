@@ -44,11 +44,12 @@ use crate::{
 
 use core::time::Duration;
 
+// The collector itself is ungated, but the only caller here is the remote CRL fetcher.
 #[cfg(feature = "remote")]
-use log::debug;
+use crate::collect_crl_dp_uris;
 
 #[cfg(feature = "remote")]
-use der::asn1::Ia5String;
+use log::debug;
 
 #[cfg(feature = "remote")]
 use alloc::vec;
@@ -369,28 +370,6 @@ pub struct CrlInfo {
 //7)	For each CRL, review revocation notifications
 //		a.	Check certificate status
 //			i.	If certificate is found on a CRL, process any CRL entry extensions
-
-/// get_crl_dps returns a list of URIs read from the CRL DP extension, if any.
-#[cfg(feature = "remote")]
-fn get_crl_dps(target_cert: &PDVCertificate) -> Vec<&Ia5String> {
-    let mut retval = vec![];
-    if let Ok(Some(PDVExtension::CrlDistributionPoints(crl_dps))) =
-        target_cert.get_extension(&ID_CE_CRL_DISTRIBUTION_POINTS)
-    {
-        for crl_dp in &crl_dps.0 {
-            if let Some(DistributionPointName::FullName(gns)) = &crl_dp.distribution_point {
-                for gn in gns {
-                    if let GeneralName::UniformResourceIdentifier(uri) = &gn {
-                        if !retval.contains(&uri) {
-                            retval.push(uri);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    retval
-}
 
 /// fetch_crl takes a string that notionally contains a URI that may be used to retrieve a CRL.
 #[cfg(feature = "remote")]
@@ -1295,7 +1274,8 @@ pub(crate) async fn check_revocation_crl_remote(
 ) -> PathValidationStatus {
     let mut target_status = PathValidationStatus::RevocationStatusNotDetermined;
     let cur_cert_subject = name_to_string(target_cert.decoded().tbs_certificate().subject());
-    let crl_dps = get_crl_dps(target_cert);
+    let mut crl_dps = vec![];
+    collect_crl_dp_uris(target_cert, &mut crl_dps);
     if crl_dps.is_empty() {
         info!(
             "No CRL DPs found for {}",

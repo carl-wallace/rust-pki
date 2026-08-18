@@ -77,5 +77,10 @@ pub use crate::revocation::subject_name_and_key::*;
 #[cfg(feature = "revocation")]
 pub use crate::crl::*;
 
-#[cfg(feature = "remote")]
+// Gated on `revocation`, which is what gates the module itself, rather than on `remote`. The
+// OCSP code divides into processing a response and going to fetch one, and only the second needs
+// `remote` — `send_ocsp_request` carries that gate itself. Re-exporting the whole module behind
+// `remote` hid the first from every build that cannot fetch, which is exactly the build that has to
+// be handed a response by its caller.
+#[cfg(feature = "revocation")]
 pub use crate::ocsp_client::*;

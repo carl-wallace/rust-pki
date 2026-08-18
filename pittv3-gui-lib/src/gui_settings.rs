@@ -64,10 +64,17 @@ impl Capabilities {
         }
     }
 
-    /// A browser with no relay: no filesystem, no outbound requests, and certval built without
-    /// revocation support. Same as [`Default`], named for the call sites that mean it explicitly.
+    /// A browser with no relay: no filesystem and no outbound requests, but certval *is* built
+    /// with revocation support, so revocation data supplied alongside the certificates is
+    /// processed and only the fetching is missing. That is why this is no longer [`Default`] —
+    /// `revocation` is the one bit a browser has without a relay, and reporting it accurately is
+    /// what makes the form show "cannot reach a responder" rather than "built without support".
     pub fn browser_local() -> Self {
-        Self::default()
+        Self {
+            filesystem: false,
+            network: false,
+            revocation: true,
+        }
     }
 }
 

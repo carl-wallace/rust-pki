@@ -125,6 +125,21 @@ fn load_validate_all() -> bool {
 /// the very same settings file checked against the current time on the desktop. Filling it in at
 /// run time keeps the two frontends in agreement and still leaves the stored file portable, since
 /// the value is not written back to the model.
+///
+/// Revocation status checking is materialized the same way and for the same class of reason:
+/// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is *true*, and nothing in the
+/// browser can fetch a CRL or an OCSP response until a relay exists, so an unstated preference
+/// means off here.
+///
+/// This is anticipatory rather than load-bearing today. The validation path this frontend uses
+/// (`pittv3_gui_lib::validate`) has no `check_revocation` call site at all -- the one that reads
+/// this setting lives in `pittv3_lib::no_std_utils`, which it does not go through -- so the
+/// setting currently decides nothing. Certval is built with `revocation` so the processing code is
+/// present for stapled data; wiring the call site is what makes this line matter, and the default
+/// should already be right when that happens rather than flipping every existing user's results to
+/// `RevocationStatusNotDetermined` on the day it lands. A user who sets it explicitly still gets
+/// what they asked for -- the settings form says outright that these settings apply only where the
+/// tool can fetch.
 fn run_settings(model: &SettingsModel) -> CertificationPathSettings {
     let mut cps = CertificationPathSettings::default();
     model.apply(&mut cps);
@@ -132,6 +147,9 @@ fn run_settings(model: &SettingsModel) -> CertificationPathSettings {
         if let Ok(toi) = TimeOfInterest::from_unix_secs(now_as_unix_epoch()) {
             cps.set_time_of_interest(toi);
         }
+    }
+    if model.check_revocation_status.is_none() {
+        cps.set_check_revocation_status(false);
     }
     cps
 }
@@ -897,5 +915,34 @@ fn App() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_settings;
+    use pittv3_gui_lib::gui_settings_model::SettingsModel;
+
+    /// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is true, so the browser would
+    /// otherwise carry a preference for a check it has no way to satisfy. The frontend's current
+    /// validation path reads the setting nowhere, so this guards the intent rather than an active
+    /// behavior: it is what keeps the day a `check_revocation` call site is wired from silently
+    /// turning every existing user's results into `RevocationStatusNotDetermined`.
+    #[test]
+    fn revocation_checking_is_off_unless_asked_for() {
+        let cps = run_settings(&SettingsModel::default());
+        assert!(!cps.get_check_revocation_status());
+    }
+
+    /// An explicit preference is still honored -- the settings form states that these settings
+    /// apply only where the tool can fetch, so a user who sets it gets what they asked for rather
+    /// than a silently discarded setting.
+    #[test]
+    fn explicit_revocation_preference_is_honored() {
+        let model = SettingsModel {
+            check_revocation_status: Some(true),
+            ..SettingsModel::default()
+        };
+        assert!(run_settings(&model).get_check_revocation_status());
     }
 }
