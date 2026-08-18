@@ -6,7 +6,7 @@
 //! asynchronous:
 //!
 //! 1. **harvest**, synchronously: read URIs out of the certificates in hand ([`harvest_chase_uris`],
-//!    [`harvest_revocation_uris`]);
+//!    [`harvest_revocation_work`]);
 //! 2. **fetch**, asynchronously and by whatever means the frontend has — the relay in a browser, a
 //!    direct client on a server. Nothing in this crate takes part;
 //! 3. **fold**, synchronously: turn a retrieved body into certificates ([`certificates_in`]) or put

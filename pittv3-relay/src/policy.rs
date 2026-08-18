@@ -183,7 +183,8 @@ impl NetworkPolicy {
         Err(PolicyError::Address(addr))
     }
 
-    /// Resolves a checked destination and returns the addresses that survive [`check_address`],
+    /// Resolves a checked destination and returns the addresses that survive
+    /// [`check_address`](Self::check_address),
     /// which are the addresses the HTTP client is then pinned to. An error is returned when the
     /// name does not resolve and when every address it resolves to is refused; the two are
     /// distinguished because a deployment that resolves everything to a private address is
