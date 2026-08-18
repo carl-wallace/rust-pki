@@ -389,20 +389,6 @@ fn validate_target(
         return (Some(report), out);
     }
 
-    // certval's revocation checker comes in two shapes: an asynchronous one in `std` builds and a
-    // synchronous one otherwise. This path is synchronous by design -- it is the path a browser
-    // runs -- so a `std` build cannot make the call, and saying so is better than validating as
-    // though revocation had been checked. A `std` frontend that wants revocation checking goes
-    // through pittv3-lib's asynchronous entry points instead.
-    #[cfg(all(feature = "revocation", feature = "std"))]
-    if cps.get_check_revocation_status() {
-        out.push(err(
-            "Revocation checking was requested but is not performed here: this build's revocation \
-             checker is asynchronous and this validation path is not"
-                .to_string(),
-        ));
-    }
-
     let mut valid = 0;
     let mut invalid = 0;
     let mut path_reports = vec![];
@@ -434,9 +420,9 @@ fn validate_target(
                 continue;
             }
         };
-        #[cfg(not(all(feature = "revocation", not(feature = "std"))))]
+        #[cfg(not(feature = "revocation"))]
         let r = pe.validate_path(pe, &path_cps, path, &mut cpr);
-        #[cfg(all(feature = "revocation", not(feature = "std")))]
+        #[cfg(feature = "revocation")]
         let mut r = pe.validate_path(pe, &path_cps, path, &mut cpr);
 
         // Revocation is checked only after the path itself validates, so a path that failed for
@@ -444,9 +430,9 @@ fn validate_target(
         // determine. The data consulted is whatever the caller has already put in the path's
         // stapled slots plus any registered CRL source; this call fetches nothing, which is why it
         // belongs in a path that a browser can run.
-        #[cfg(all(feature = "revocation", not(feature = "std")))]
+        #[cfg(feature = "revocation")]
         if r.is_ok() && path_cps.get_check_revocation_status() {
-            r = check_revocation(pe, &path_cps, path, &mut cpr);
+            r = check_revocation_local(pe, &path_cps, path, &mut cpr);
         }
 
         path_reports.push(PathReport::from_path_results(

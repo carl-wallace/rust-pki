@@ -245,8 +245,19 @@ pub async fn check_revocation(
 /// Error::PathValidation(CertificateRevokedEndEntity) or Error::PathValidation(CertificateRevokedIntermediateCa) is
 /// returned. If no certificates were found to be revoked but status could not be determined for all certificates
 /// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
-#[cfg(not(feature = "std"))]
-pub fn check_revocation(
+/// Determines revocation status from data the caller has already supplied, retrieving nothing.
+///
+/// Consulted in order: the environment's revocation status cache, an OCSP response stapled into the
+/// path, a CRL stapled into the path, and any registered [`CrlSource`](crate::CrlSource).
+///
+/// This is available whenever `revocation` is, unlike [`check_revocation`], which is asynchronous
+/// under `std` and synchronous otherwise. That split is a hazard for a caller that cannot see which
+/// one it got: a crate can `cfg` on its own features but never on a dependency's, so feature
+/// unification can hand a synchronous caller the asynchronous function and the mismatch surfaces as
+/// a type error in code that did nothing wrong. A caller that does its own retrieving — a browser
+/// going through a relay, a service that keeps egress under its own policy — should call this and
+/// stop caring which flavor of certval it was linked against.
+pub fn check_revocation_local(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cp: &mut CertificationPath,
@@ -267,11 +278,6 @@ pub fn check_revocation(
 
     let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
     let check_crls = cps.get_check_crls();
-
-    #[cfg(feature = "remote")]
-    let check_crldp_http = cps.get_check_crldp_http();
-    #[cfg(feature = "remote")]
-    let check_ocsp_from_aia = cps.get_check_ocsp_from_aia();
 
     // for convenience, combine target into array with the intermediate CA certs
     let mut v = cp.intermediates.clone();
@@ -296,7 +302,7 @@ pub fn check_revocation(
         } else {
             v[pos - 1].as_ref()
         };
-        let cur_cert_subject = name_to_string(&ca_cert_ref.decoded().tbs_certificate().subject());
+        let cur_cert_subject = name_to_string(ca_cert_ref.decoded().tbs_certificate().subject());
         let revoked_error = if pos == max_index {
             CertificateRevokedEndEntity
         } else {

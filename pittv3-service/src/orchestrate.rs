@@ -73,7 +73,7 @@ impl ValidationOutcome {
 /// `check_revocation` consults a registered CRL source and the responses stapled into a path, and
 /// this service fills both by retrieving the distribution points and querying the responders named
 /// on the paths it built — through the relay, so the same policy and budgets govern it. See
-/// [`retrieve_revocation_data`].
+/// `retrieve_revocation_data`, which is private to this module.
 pub async fn validate(state: &ServiceState, input: ValidationInput) -> ValidationOutcome {
     let started = Instant::now();
 

@@ -26,6 +26,16 @@ jobs:
       - run: cargo check -p pittv3_gui_lib
       - run: cargo check -p pittv3-gui
 
+  # The service depends on pittv3_gui_lib for the shared validation path, so it carries the same
+  # 1.88 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
+  # checked: unlike the GUI crates these have a headless test surface.
+  service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p pittv3_relay -p pittv3-service
+
   wasm:
     runs-on: ubuntu-latest
     steps:
@@ -55,3 +65,4 @@ jobs:
       # the run above covers the links that must hold without it.
       - run: cargo doc -p pittv3_gui_lib --no-deps --all-features
       - run: cargo doc -p pittv3-wasm --target wasm32-unknown-unknown --no-deps
+      - run: cargo doc -p pittv3_relay -p pittv3-service --no-deps
