@@ -90,7 +90,7 @@ pub(crate) fn validate_cert(
         #[cfg(feature = "revocation")]
         if r.is_ok() {
             if path_cps.get_check_revocation_status() {
-                r = check_revocation(pe, &path_cps, path, &mut cpr);
+                r = check_revocation_local(pe, &path_cps, path, &mut cpr);
             }
         }
 

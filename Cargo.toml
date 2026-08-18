@@ -8,6 +8,22 @@ members = [
     "pittv3-gui",
     "pittv3-gui-lib",
     "pittv3-lib",
+    "pittv3-relay",
+    "pittv3-service",
+    "pittv3-wasm",
+]
+
+# The service and the relay it mounts pull in a web server and its runtime, which nobody working on
+# the validation library needs compiled. Leaving them out of the default set keeps a bare
+# `cargo build` or `cargo test` at the weight it has always had; build them by naming them, i.e.,
+# `cargo test -p pittv3_relay -p pittv3-service`.
+default-members = [
+    "certval",
+    "pkiprocmacros",
+    "pittv3",
+    "pittv3-gui",
+    "pittv3-gui-lib",
+    "pittv3-lib",
     "pittv3-wasm",
 ]
 

@@ -4,3 +4,24 @@
 # e.g., https://downloads.redhoundsoftware.com/pittv3/. Trunk's default is "/", which breaks
 # deployments that are not at the site root.
 public_url = "./"
+
+# Development against a running pittv3-service. The app calls its endpoints by relative URL, on the
+# assumption that whatever served the page also serves them -- which is true when the service hosts
+# the app (`--client-dir`) and false under `trunk serve`, where those paths would reach trunk's own
+# dev server and come back as index.html. The app reads that correctly as "no service here" and
+# offers only the local tier, so without these entries `trunk serve` cannot exercise retrieval at
+# all.
+#
+# Both prefixes are needed: `/api/` carries health, the store listing and the relay, while the store
+# artifacts a listing points at are served from `/stores/`. Proxying only the first would offer a
+# catalogue whose stores fail to download.
+#
+# Run the service on 8081 (`cargo run -p pittv3-service -- --bind 127.0.0.1:8081 ...`), since trunk
+# serves on 8080 and the service's own default is the same port. With nothing listening on 8081 the
+# proxied requests simply fail, which is the same thing the app sees on a static host: it falls back
+# to the local tier rather than misbehaving.
+[[proxy]]
+backend = "http://127.0.0.1:8081/api/"
+
+[[proxy]]
+backend = "http://127.0.0.1:8081/stores/"

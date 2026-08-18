@@ -21,6 +21,12 @@ rust-version = "1.88"
 pittv3_lib = { path = "../pittv3-lib", default-features = false }
 certval = { path = "../certval", default-features = false }
 x509-cert = { version = "0.3.0", default-features = false }
+# For the fold half of a retrieving run in retrieval.rs: an authority information access URI
+# commonly serves a certs-only SignedData message rather than a bare certificate, and a retrieved
+# CRL is decoded once when it is stored. Both are already in the graph via certval, so naming them
+# here adds no crate to any frontend's build.
+cms = { version = "0.3.0-pre.2", default-features = false }
+der = { version = "0.8.1", default-features = false, features = ["alloc", "oid"] }
 
 dioxus = "0.7.9"
 

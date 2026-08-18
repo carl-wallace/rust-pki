@@ -944,7 +944,7 @@ fn stapled_ocsp() {
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
     let mut cpr = CertificationPathResults::new();
 
-    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = check_revocation_local(&pe, &cps, &mut cert_path, &mut cpr);
     assert!(
         r.is_ok(),
         "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"

@@ -1,0 +1,36 @@
+[package]
+name = "pittv3_relay"
+version = "0.1.3"
+description = """
+Policy-enforcing byte relay used by frontends to the PKI Interoperability Test Tool v3 (PITTv3) that
+cannot reach PKI repositories themselves, i.e., browsers. It retrieves certificates, CRLs and OCSP
+responses on a caller's behalf subject to a network policy and a set of budgets, without parsing
+what it retrieves.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "network-programming"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.88"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# This crate deliberately does not depend on certval, and must not grow such a dependency. It moves
+# bytes and enforces network policy; it does not know what a certificate is. Keeping it ignorant
+# means it cannot become a second place where PKI decisions are made, and it can be lifted into a
+# standalone sidecar for deployments whose desktop or CLI runs on a network without egress.
+[dependencies]
+log = { version = "0.4.33" }
+# reqwest is pinned to the version certval uses so a workspace build resolves one HTTP client and
+# one TLS backend rather than two.
+reqwest = { version = "0.13.4" }
+serde = { version = "1.0.228", features = ["derive"] }
+# "net" for the address resolution the policy performs itself before a socket is opened, "time" for
+# the per-request timeout.
+tokio = { version = "1.52.3", features = ["net", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.52.3", features = ["macros", "net", "rt", "time"] }

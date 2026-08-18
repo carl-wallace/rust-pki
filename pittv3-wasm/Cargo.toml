@@ -32,6 +32,8 @@ certval = { path = "../certval", default-features = false, features = ["eddsa", 
 pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
 pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
 
+# The relay exchanges JSON, so a retrieved artifact arrives base64-encoded (see relay.rs).
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 dioxus = { version = "0.7.9", features = ["web"] }
 log = "0.4.33"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }

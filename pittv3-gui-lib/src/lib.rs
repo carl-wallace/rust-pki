@@ -11,6 +11,7 @@ pub mod gui_settings;
 pub mod gui_settings_model;
 pub mod gui_shell;
 pub mod gui_utils;
+pub mod retrieval;
 pub mod settings_store;
 pub mod validate;
 
