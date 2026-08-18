@@ -21,10 +21,8 @@ use crate::{
     PathValidationStatus, PkiEnvironment, Result,
 };
 
-#[cfg(feature = "remote")]
 use alloc::vec;
 
-#[cfg(feature = "remote")]
 use der::asn1::OctetString;
 
 #[cfg(feature = "remote")]
@@ -43,20 +41,17 @@ use const_oid::db::rfc5912::{ID_CE_EXT_KEY_USAGE, ID_KP_OCSP_SIGNING};
 #[cfg(feature = "revocation")]
 use const_oid::db::rfc6960::{ID_PKIX_OCSP_BASIC, ID_PKIX_OCSP_NOCHECK, ID_PKIX_OCSP_NONCE};
 
-#[cfg(feature = "remote")]
 use spki::AlgorithmIdentifier;
 use x509_cert::serial_number::SerialNumber;
 
-#[cfg(feature = "remote")]
 use x509_ocsp::Version::V1;
 
+use crate::PKIXALG_SHA1;
 #[cfg(feature = "remote")]
-use crate::{collect_ocsp_uris, name_to_string, PKIXALG_SHA1};
+use crate::{collect_ocsp_uris, name_to_string};
 
-#[cfg(feature = "remote")]
 use x509_cert::ext::Extension;
 
-#[cfg(feature = "remote")]
 use x509_ocsp::ext::Nonce;
 
 fn get_key_hash(issuer: &dyn SubjectNameAndKey) -> Result<Vec<u8>> {
@@ -233,7 +228,35 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8], max_bytes: u64) -> R
     crate::builder::uri_utils::read_capped_body(body, max_bytes, uri_to_check).await
 }
 
-#[cfg(feature = "remote")]
+/// Builds the DER-encoded OCSP request that asks `issuer`'s responder about `target_cert`.
+///
+/// This is the request half of OCSP with the retrieval left out, for a caller that has its own way
+/// to reach a responder — a browser going through a relay, say, or anything else built without
+/// `remote`, where certval cannot open a socket of its own. Send the result to a responder as
+/// `application/ocsp-request` and hand what comes back to
+/// [`process_ocsp_response`], or put it in the path's `ocsp_responses` slot for
+/// `check_revocation` to find.
+///
+/// `issuer` is the subject that issued `target_cert` — the preceding certificate in the path, or
+/// the trust anchor for the first certificate. It is not merely a formality: an OCSP `CertID`
+/// identifies a certificate by the hash of its *issuer's* name and public key together with its
+/// serial number, so a request built against the wrong issuer asks about a different certificate
+/// and a responder will answer `unknown` at best.
+///
+/// A `nonce` is carried as a non-critical `id-pkix-ocsp-nonce` request extension when supplied.
+/// Note that [`process_ocsp_response`] does not check a nonce on a response handed to it, since
+/// such a response was not solicited by this library; a caller that solicited one and wants the
+/// guarantee has to compare it itself.
+pub fn build_ocsp_request(
+    target_cert: &CertificateInner<Raw>,
+    issuer: &dyn SubjectNameAndKey,
+    nonce: Option<&[u8]>,
+) -> Result<Vec<u8>> {
+    let name_hash = get_subject_name_hash(issuer)?;
+    let key_hash = get_key_hash(issuer)?;
+    prepare_ocsp_request(target_cert, &name_hash, &key_hash, nonce)
+}
+
 fn prepare_ocsp_request(
     target_cert: &CertificateInner<Raw>,
     name_hash: &[u8],
