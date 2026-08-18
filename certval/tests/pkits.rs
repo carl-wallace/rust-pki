@@ -798,7 +798,7 @@ pub fn pkits_guts_sync(
 
                 #[cfg(feature = "revocation")]
                 if r.is_ok() && !skip_revocation_check {
-                    r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                    r = check_revocation_local(pe, &tmp_settings, &mut cert_path, &mut cpr);
                 }
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
@@ -838,7 +838,7 @@ pub fn pkits_guts_sync(
                     let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
                     #[cfg(feature = "revocation")]
                     if r.is_ok() && !skip_revocation_check {
-                        r = check_revocation(pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                        r = check_revocation_local(pe, &tmp_settings, &mut cert_path2, &mut cpr);
                     }
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
@@ -888,7 +888,7 @@ pub fn pkits_guts_sync(
                             pe_5914.validate_path(&pe_5914, &mod_cps, &mut cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
-                            r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                            r = check_revocation_local(pe, &tmp_settings, &mut cert_path, &mut cpr);
                         }
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
