@@ -12,6 +12,8 @@ use certval::*;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport};
 use web_time::Instant;
 
+use crate::retrieval::{MemoryCrlSource, OcspResponses};
+
 // Re-exported so callers taking the validation API from this module keep getting the line type it
 // returns; the type itself lives beside the other UI-facing run output.
 pub use crate::gui_results::ResultLine;
@@ -52,6 +54,36 @@ fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
 pub struct PreparedValidation {
     /// Fully populated environment with the trust-anchor and certificate sources registered
     pe: PkiEnvironment,
+    /// CRLs the frontend has retrieved for this run. Registered on `pe` as a clone sharing these
+    /// contents, so a CRL added after preparation is consulted by the next validation without the
+    /// environment being rebuilt — which matters because rebuilding it means rediscovering partial
+    /// paths, the expensive step this type exists to avoid repeating.
+    crls: MemoryCrlSource,
+    /// OCSP responses the frontend has retrieved for this run. Not registered on `pe`, because
+    /// certval has no OCSP source to register one with: a response reaches the checker only through
+    /// a path's `ocsp_responses` slot, so [`validate_target`] fills those from here each time it
+    /// builds a path.
+    ocsp: OcspResponses,
+}
+
+impl PreparedValidation {
+    /// The environment this run validates against, for a caller that needs to ask what the run
+    /// holds — building paths to harvest revocation URIs from, say.
+    pub fn environment(&self) -> &PkiEnvironment {
+        &self.pe
+    }
+
+    /// The CRLs retrieved for this run. Adding to it is how a frontend supplies revocation data:
+    /// the checker consults it through the environment, and nothing has to be rebuilt.
+    pub fn crl_source(&self) -> &MemoryCrlSource {
+        &self.crls
+    }
+
+    /// The OCSP responses retrieved for this run. Adding to it is how a frontend supplies one; the
+    /// validation path puts it in front of the checker.
+    pub fn ocsp_responses(&self) -> &OcspResponses {
+        &self.ocsp
+    }
 }
 
 /// Prepares a validation environment from an optional baked-in store plus uploaded trust anchors and
@@ -156,6 +188,15 @@ pub fn prepare_validation(
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store));
+    // Registered empty and always, rather than only when the frontend has CRLs: the source is
+    // shared by clone, so a frontend that retrieves one later adds it to the same contents this
+    // environment already consults. An empty source answers with no candidates, which is what the
+    // checker saw before it existed.
+    let crls = MemoryCrlSource::new();
+    pe.add_crl_source(Box::new(crls.clone()));
+    // Nothing to register for OCSP -- certval has no source for it -- so this is simply carried
+    // and consulted when a path is built. See validate_target.
+    let ocsp = OcspResponses::new();
     // The baked store ships with precomputed partial paths, so discovery runs only when uploads
     // change the merged set. It rebuilds the whole merged pool's paths — but ONCE, cached by the
     // caller across runs. The TA source must be registered first (discovery consults it).
@@ -164,7 +205,7 @@ pub fn prepare_validation(
     }
     pe.add_certificate_source(Box::new(cert_source));
 
-    Ok((PreparedValidation { pe }, out))
+    Ok((PreparedValidation { pe, crls, ocsp }, out))
 }
 
 /// Validates every certificate in `ees` against an environment prepared by [`prepare_validation`].
@@ -180,7 +221,8 @@ pub fn validate_prepared(
     let mut out = vec![];
     let mut reports = vec![];
     for (name, bytes) in ees {
-        let (report, lines) = validate_target(&prepared.pe, cps, name, bytes, validate_all);
+        let (report, lines) =
+            validate_target(&prepared.pe, cps, name, bytes, validate_all, &prepared.ocsp);
         out.extend(lines);
         if let Some(r) = report {
             reports.push(r);
@@ -211,15 +253,57 @@ fn no_paths_report(
     }
 }
 
+/// Fills `path`'s OCSP slots from the responses retrieved for this run.
+///
+/// certval indexes those slots by position -- the intermediates from the one the trust anchor
+/// issued, then the target -- and identifies what a response is about by the certificate and its
+/// issuer. This is the translation between the two, and it has to be redone for each path, since a
+/// certificate can sit at a different position on each one and under a different issuer.
+///
+/// A slot already holding a response is left alone: a caller that stapled something itself meant it.
+fn staple_ocsp(path: &mut CertificationPath, ocsp: &OcspResponses) {
+    let found: Vec<Option<Vec<u8>>> = {
+        let chain: Vec<&PDVCertificate> = path
+            .intermediates
+            .iter()
+            .chain(core::iter::once(&path.target))
+            .collect();
+        chain
+            .iter()
+            .enumerate()
+            .map(|(pos, cert)| {
+                let issuer: &dyn SubjectNameAndKey = match pos {
+                    0 => &path.trust_anchor.decoded_ta,
+                    _ => chain[pos - 1].as_ref(),
+                };
+                ocsp.get(cert, issuer)
+            })
+            .collect()
+    };
+
+    for (slot, response) in path.ocsp_responses.iter_mut().zip(found) {
+        if slot.is_none() && response.is_some() {
+            *slot = response;
+        }
+    }
+}
+
 /// Builds and validates certification path(s) for a single target certificate against a fully
 /// prepared [`PkiEnvironment`](certval::PkiEnvironment), returning a structured report for the
-/// target (absent when the certificate could not be parsed) along with displayable notes
+/// target (absent when the certificate could not be parsed) along with displayable notes.
+///
+/// Revocation status is determined for a path that otherwise validates, when the settings ask for
+/// it, from data the caller has already supplied: revocation data stapled into the path and any
+/// CRL source registered in the environment. Nothing is fetched here. A path whose status cannot be
+/// determined from that data comes back as `RevocationStatusNotDetermined`, which the target rollup
+/// reports as valid-except-revocation-undetermined rather than as an outright failure
 fn validate_target(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     ee_name: &str,
     ee: &[u8],
     validate_all: bool,
+    ocsp: &OcspResponses,
 ) -> (Option<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
     let toi = cps.get_time_of_interest();
@@ -305,12 +389,32 @@ fn validate_target(
         return (Some(report), out);
     }
 
+    // certval's revocation checker comes in two shapes: an asynchronous one in `std` builds and a
+    // synchronous one otherwise. This path is synchronous by design -- it is the path a browser
+    // runs -- so a `std` build cannot make the call, and saying so is better than validating as
+    // though revocation had been checked. A `std` frontend that wants revocation checking goes
+    // through pittv3-lib's asynchronous entry points instead.
+    #[cfg(all(feature = "revocation", feature = "std"))]
+    if cps.get_check_revocation_status() {
+        out.push(err(
+            "Revocation checking was requested but is not performed here: this build's revocation \
+             checker is asynchronous and this validation path is not"
+                .to_string(),
+        ));
+    }
+
     let mut valid = 0;
     let mut invalid = 0;
     let mut path_reports = vec![];
     for (i, path) in paths.iter_mut().enumerate() {
         let path_start = Instant::now();
         let mut cpr = CertificationPathResults::new();
+        // Put any retrieved OCSP response where the checker looks for it. Its slots are indexed by
+        // position in this path, while the responses are held by what they are about, so the two
+        // are matched up here -- freshly, against whatever path building has just produced.
+        if !ocsp.is_empty() {
+            staple_ocsp(path, ocsp);
+        }
         // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
         // clone when enforcement is disabled, and validate_path does not perform it itself
         let path_cps = match enforce_trust_anchor_constraints(cps, &path.trust_anchor) {
@@ -330,7 +434,21 @@ fn validate_target(
                 continue;
             }
         };
+        #[cfg(not(all(feature = "revocation", not(feature = "std"))))]
         let r = pe.validate_path(pe, &path_cps, path, &mut cpr);
+        #[cfg(all(feature = "revocation", not(feature = "std")))]
+        let mut r = pe.validate_path(pe, &path_cps, path, &mut cpr);
+
+        // Revocation is checked only after the path itself validates, so a path that failed for
+        // another reason reports that reason rather than a revocation status nothing was going to
+        // determine. The data consulted is whatever the caller has already put in the path's
+        // stapled slots plus any registered CRL source; this call fetches nothing, which is why it
+        // belongs in a path that a browser can run.
+        #[cfg(all(feature = "revocation", not(feature = "std")))]
+        if r.is_ok() && path_cps.get_check_revocation_status() {
+            r = check_revocation(pe, &path_cps, path, &mut cpr);
+        }
+
         path_reports.push(PathReport::from_path_results(
             path,
             &cpr,
@@ -520,7 +638,8 @@ pub fn validate_hackathon_zip(
         out.extend(validate_self_signed(&pe, name, der));
     }
     for (name, der) in &ees {
-        let (report, lines) = validate_target(&pe, cps, name, der, validate_all);
+        let (report, lines) =
+            validate_target(&pe, cps, name, der, validate_all, &OcspResponses::new());
         out.extend(lines);
         if let Some(report) = report {
             reports.push(report);

@@ -1,0 +1,78 @@
+[package]
+name = "pittv3-service"
+version = "0.1.3"
+description = """
+Web service frontend for the PKI Interoperability Test Tool v3 (PITTv3). It serves the browser
+application, relays the PKI retrievals a browser cannot make itself, and validates certification
+paths server-side for callers that prefer to send certificates rather than fetch on their own
+behalf.
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki", "web-programming"]
+keywords = ["crypto", "x.509", "OCSP"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.88"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["builtin-stores"]
+# Generates the trust stores from the certval-stores providers at build time and links them in, so
+# a service started with no `--stores` directory still offers DoD NIPR, the Mozilla set, the U.S.
+# Federal PKI and the Purebred development environment. Off, the build reaches none of the trust
+# material repositories and the binary sheds 7.9 MB, leaving a service that serves whatever
+# `--stores` points at and nothing else. Configuration is unaffected either way: a store directory
+# always augments the built-ins and always wins where the two name the same store.
+builtin-stores = [
+    "dep:certval_stores_core",
+    "dep:certval_stores_nipr",
+    "dep:certval_stores_pbdev",
+    "dep:certval_stores_fpki",
+    "dep:certval_stores_mozilla",
+]
+
+# certval is built here the way the browser builds it: no-default-features plus the algorithms and
+# revocation *processing*, and deliberately without `remote`. The service validates by calling the
+# same synchronous path pittv3-wasm calls, so the two tiers cannot disagree about a certificate --
+# they are not different code. Leaving `remote` off also means certval never opens a socket of its
+# own: every retrieval the service makes goes through pittv3_relay, where the network policy and the
+# budgets live. Note that `std` would substitute certval's asynchronous check_revocation for the
+# synchronous one the shared path is written against, so it stays off for correctness as well.
+[dependencies]
+certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
+pittv3_relay = { path = "../pittv3-relay" }
+
+actix-files = "0.6.9"
+actix-web = "4.13.0"
+base64 = "0.22.1"
+# Store material is held as `Bytes` rather than `Vec<u8>` so serving a store is a reference count
+# rather than a copy: the Mozilla CA store alone is 6.6 MB, and it is served on every selection.
+# The built-in halves are `'static`, so they are shared with the binary image rather than read into
+# the heap at startup.
+bytes = "1.12.1"
+clap = { version = "4.6.2", features = ["std", "derive"] }
+env_logger = "0.11.9"
+log = { version = "0.4.33" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150" }
+
+# Trust material for the built-in stores, taken as build-dependencies rather than as dependencies:
+# the build script serializes each provider environment into OUT_DIR and the result is linked in, so
+# none of these crates — nor the certval copy they carry — end up in the service's own graph. See
+# build.rs. `reqwest-client` is off throughout: these crates' HTTP client is for a consumer building
+# a TLS connection against the trust material, which is not what this service does with it.
+[build-dependencies]
+certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, optional = true }
+certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr"], optional = true }
+certval_stores_pbdev = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["dev"], optional = true }
+certval_stores_fpki = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["fpki"], optional = true }
+certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_all", "mozilla_tls", "mozilla_email", "mozilla_cas"], optional = true }
+
+[dev-dependencies]
+actix-rt = "2.11.0"
+tempfile = "3.27.0"

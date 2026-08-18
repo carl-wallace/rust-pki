@@ -90,8 +90,21 @@ pub fn RevocationBadge(outcome: RevocationOutcome) -> Element {
         RevocationStatus::Undetermined => ("badge badge-undetermined", "undetermined"),
         RevocationStatus::NotChecked => ("badge badge-nopaths", "not checked"),
     };
+    // The method sits beside the badge rather than inside it. A badge is a pill, and a pill has to
+    // stay on one line to keep its shape -- "not revoked (OCSP no-check)" in the narrow revocation
+    // column of a table whose cells break anywhere did not, and wrapped into its own rounded
+    // corners. Outside it, the status stays one line and the method is free to wrap beneath.
+    //
+    // A method of `None` is not shown at all: it says only that nothing determined the status,
+    // which is what the badge beside it already says.
+    let show_method = !matches!(outcome.method, RevocationMethod::None);
     rsx! {
-        span { class, title: "Method: {method}", "{label} ({method})" }
+        span { class: "rev-outcome",
+            span { class, title: "Method: {method}", "{label}" }
+            if show_method {
+                span { class: "rev-method", "{method}" }
+            }
+        }
     }
 }
 

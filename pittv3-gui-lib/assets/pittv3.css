@@ -135,6 +135,10 @@ button[type="submit"] {
   margin: 0.25rem 0 0.5rem 0;
 }
 
+/* A badge is a pill, so it must never wrap: a rounded box two lines tall renders as an ellipse with
+   its own corners cutting into the text. Scoped here rather than on any container, because the
+   containers deliberately break long content -- .cert-table cells set overflow-wrap: anywhere so a
+   distinguished name has somewhere to go. */
 .badge {
   display: inline-block;
   border-radius: 999px;
@@ -144,6 +148,26 @@ button[type="submit"] {
   color: #fff;
   vertical-align: middle;
   margin: 0 0.25rem;
+  white-space: nowrap;
+}
+
+/* Revocation outcome: the status as a pill, the mechanism that determined it beside in words. The
+   pill holds its line; the method wraps under it when the column is narrow. */
+.rev-outcome {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rev-outcome .badge {
+  margin: 0;
+}
+
+.rev-method {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .badge-valid {

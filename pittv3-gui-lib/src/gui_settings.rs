@@ -76,6 +76,21 @@ impl Capabilities {
             revocation: true,
         }
     }
+
+    /// A browser working through a relay: still no filesystem, but outbound requests are available
+    /// — made by the service on the page's behalf rather than by the page — so the settings that
+    /// govern retrieval take effect and the notices that said otherwise should not appear.
+    ///
+    /// This is what a tier selector sets. It is the same shape as [`desktop`](Self::desktop) minus
+    /// the filesystem, which is the honest description: what the browser lacks at that point is
+    /// somewhere to read a folder of CRLs from, not a way to reach the network.
+    pub fn browser_relayed() -> Self {
+        Self {
+            filesystem: false,
+            network: true,
+            revocation: true,
+        }
+    }
 }
 
 /// Explains that a group of settings is recorded but cannot take effect in this frontend. Rendered

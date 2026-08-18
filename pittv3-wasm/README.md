@@ -21,6 +21,31 @@ accumulate across uploads, so a set of loaded certificates can be re-validated a
 trust configuration or settings. Values that govern the RFC 5280 path validation inputs, e.g., the
 initial policy set and related indicators, can be edited in the UI.
 
+A **Retrieval** selector on the Validate tab chooses what the app may fetch. *In this browser only*
+is the historical behavior and the only option when no service is serving the page: nothing leaves
+it, paths are built from the selected store and uploads, and revocation status stays undetermined
+unless the data was supplied. *Retrieve through the service* has `pittv3-service` fetch on the
+page's behalf — issuer certificates from AIA and SIA URIs when no path can be built, and, for the
+certificates on the paths that are built, their CRLs and an OCSP response per certificate whose
+issuer runs a responder. The certificates being validated never leave the page; the URIs they name
+do, and an OCSP request identifies the certificate being asked about even though the certificate
+itself is not sent. The setting also drives the settings form's per-capability notices, and flips
+what an unstated revocation preference means, since with a relay the check can actually be
+satisfied.
+
+The harvesting and folding around that retrieval are `pittv3_gui_lib::retrieval`, shared with the
+server-hosted tier, so the same certificate validated either way goes through the same code.
+
+When the app is served by `pittv3-service` it also asks that service, once at startup, what stores
+it holds (`GET api/stores`) and adds the ones it does not already ship to the selector. A store the
+service names with an identifier this crate already ships is not offered twice: the service
+generates its built-in stores from the same provider environments this crate's `build.rs` does, so
+the two are the same material by construction. The selector says where the selected store came from
+— published with the app, from a provider built into the service, or from the store directory that
+service was configured with — because a configured store may hold certificates whose only
+provenance is that some repository served them. A statically hosted copy asks, gets no answer, and
+carries on with the stores in `resources/`; nothing about deploying to a static host changes.
+
 Provider archives from the [IETF Hackathon PQC Certificate repo](https://github.com/IETF-Hackathon/pqc-certificates)
 in the artifacts_certs_r5.zip format can be validated wholesale: `*_ta.der` entries form a
 self-contained trust anchor store and are each validated as self-signed targets, `*_ee.der`

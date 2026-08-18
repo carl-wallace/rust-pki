@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 #![warn(rust_2018_idioms)]
 
+mod relay;
 mod validate;
 
 use dioxus::prelude::*;
@@ -16,13 +17,28 @@ use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{TargetReport, ValidationReport};
 
+use pittv3_gui_lib::retrieval::harvest_revocation_work;
+
+use crate::relay::{chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, Tier};
 use crate::validate::{
-    prepare_validation, validate_hackathon_zip, validate_prepared, PreparedValidation, ResultLine,
-    SAMPLE_INVALID, SAMPLE_VALID, STORES,
+    merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
+    validate_prepared, PreparedValidation, ResultLine, StoreDescriptor, SAMPLE_INVALID,
+    SAMPLE_VALID,
 };
 
 /// Store selection value indicating no baked-in store, i.e., uploaded trust anchors only
 const NO_STORE: usize = usize::MAX;
+
+/// Where the stores a `pittv3-service` holds are listed, relative to this application, which that
+/// service serves from its own root. A deployment that is only static hosting answers this with a
+/// 404 or with its index page, and the application carries on with the stores it ships -- so the
+/// request is made unconditionally rather than behind a setting nobody would know to turn on.
+const SERVICE_STORES_URL: &str = "api/stores";
+
+/// Where a service says it is up, relative to this application. Answering this is what makes the
+/// relayed tier selectable: the endpoint that would do the retrieving is served by the same binary,
+/// so a service that answers here has a relay.
+const SERVICE_HEALTH_URL: &str = "api/health";
 
 /// localStorage key under which the settings are persisted across reloads, as the same
 /// `CertificationPathSettings` JSON the CLI's `--settings` reads and the Download button writes
@@ -131,16 +147,18 @@ fn load_validate_all() -> bool {
 /// browser can fetch a CRL or an OCSP response until a relay exists, so an unstated preference
 /// means off here.
 ///
-/// This is anticipatory rather than load-bearing today. The validation path this frontend uses
-/// (`pittv3_gui_lib::validate`) has no `check_revocation` call site at all -- the one that reads
-/// this setting lives in `pittv3_lib::no_std_utils`, which it does not go through -- so the
-/// setting currently decides nothing. Certval is built with `revocation` so the processing code is
-/// present for stapled data; wiring the call site is what makes this line matter, and the default
-/// should already be right when that happens rather than flipping every existing user's results to
-/// `RevocationStatusNotDetermined` on the day it lands. A user who sets it explicitly still gets
-/// what they asked for -- the settings form says outright that these settings apply only where the
-/// tool can fetch.
-fn run_settings(model: &SettingsModel) -> CertificationPathSettings {
+/// This line is load-bearing: `pittv3_gui_lib::validate` calls `check_revocation` for a path that
+/// otherwise validates, and that check consults stapled revocation data and registered CRL sources
+/// rather than fetching. So what an unstated preference should mean depends on the tier. In
+/// [`Tier::Local`] nothing can be retrieved and an unstated preference means off, or every run
+/// would come back `RevocationStatusNotDetermined` for want of data the page cannot obtain. In
+/// [`Tier::Relayed`] the data can be retrieved, and checking is the point of having chosen that
+/// tier, so an unstated preference means on.
+///
+/// A stated preference is honored either way — the settings form says outright that these settings
+/// apply only where the tool can fetch, and a user who asks for checking in the local tier gets
+/// what they asked for, undetermined status included.
+fn run_settings(model: &SettingsModel, tier: Tier) -> CertificationPathSettings {
     let mut cps = CertificationPathSettings::default();
     model.apply(&mut cps);
     if model.time_of_interest.is_none() {
@@ -149,7 +167,7 @@ fn run_settings(model: &SettingsModel) -> CertificationPathSettings {
         }
     }
     if model.check_revocation_status.is_none() {
-        cps.set_check_revocation_status(false);
+        cps.set_check_revocation_status(tier.retrieves());
     }
     cps
 }
@@ -260,9 +278,26 @@ fn App() -> Element {
     // True while a validation is running, to show a busy state (the parse/validation is synchronous
     // and can take a moment on a large store).
     let mut validating = use_signal(|| false);
-    // Fetched CBOR for the most recently used built-in store, cached as (store index, ta, ca) so
-    // repeated validations with the same selection do not re-download it.
-    let mut loaded_store = use_signal(|| None::<(usize, Vec<u8>, Vec<u8>)>);
+    // Stores the selector offers: the ones published with this application, plus whatever a service
+    // serving it holds. Only ever appended to, so an index already selected keeps naming the store
+    // it named when the listing arrives.
+    let mut catalog = use_signal(shipped_catalog);
+    // Whether a service is serving this application, which is what makes the relayed tier
+    // selectable. Determined once at startup; a statically hosted copy leaves it false and the
+    // selector says why.
+    let mut service_present = use_signal(|| false);
+    // Which tier a run uses. Local until a service is found *and* the user asks for retrieval:
+    // choosing to disclose the URIs a certificate names is the user's to make, not a default that
+    // follows from a deployment happening to offer it.
+    let mut tier = use_signal(Tier::default);
+    // Certificates retrieved by following AIA and SIA URIs during this session. Held apart from the
+    // uploads so that clearing uploads does not discard them and so the notes can say where a
+    // certificate in the path came from; they feed preparation exactly as an upload does.
+    let mut chased_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Fetched CBOR for the most recently used store, cached as (store id, ta, ca) so repeated
+    // validations with the same selection do not re-download it. Keyed by identifier rather than by
+    // position, since position is a property of the catalogue rather than of the store.
+    let mut loaded_store = use_signal(|| None::<(String, Vec<u8>, Vec<u8>)>);
     // Cached prepared validation environment (parsed stores + discovered partial paths) and its
     // preparation notes. Reused across Validate clicks so re-validating with only the target
     // certificates changed skips the reparse and, above all, the partial-path discovery.
@@ -271,6 +306,69 @@ fn App() -> Element {
     // trust anchors or CA certificates) changes, so the next Validate rebuilds it. Starts true
     // because nothing is prepared yet.
     let mut env_dirty = use_signal(|| true);
+
+    // What asking a service for its stores produced, in a sentence, for the Resources view. A
+    // statically hosted copy finding no service is the ordinary case and not a failure, but "the
+    // dropdown is shorter than I expected" has to be answerable from inside the application: the
+    // alternative is a silent path whose only symptom is a missing entry.
+    let mut store_service_status = use_signal(String::new);
+
+    // Ask the service serving this application what stores it holds, once, at startup.
+    //
+    // Every outcome is recorded rather than only the interesting ones, and the messages go through
+    // `tracing` rather than the `log` crate deliberately: `dioxus::launch` installs a tracing
+    // subscriber (dioxus-logger, on by default) and nothing bridges `log` into it, so a `log::`
+    // call here reaches no sink at all and the browser console stays empty.
+    use_future(move || async move {
+        // Asked first, and separately from the store listing: a service with no stores at all still
+        // has a relay, and that is what the tier selector turns on.
+        //
+        // The answer is inspected rather than merely counted as a success. A static host that
+        // serves index.html for every path answers this with 200 as well, and treating that as a
+        // service would offer a tier whose every retrieval then fails.
+        let healthy = match fetch_bytes(SERVICE_HEALTH_URL).await {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("status")?.as_str().map(str::to_string))
+                .is_some_and(|s| s == "ok"),
+            Err(e) => {
+                dioxus::logger::tracing::info!("No service at {SERVICE_HEALTH_URL}: {e}");
+                false
+            }
+        };
+        service_present.set(healthy);
+
+        let bytes = match fetch_bytes(SERVICE_STORES_URL).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let m = format!("No service answered {SERVICE_STORES_URL} ({e}); offering the stores published with this app.");
+                dioxus::logger::tracing::info!("{m}");
+                store_service_status.set(m);
+                return;
+            }
+        };
+        let served = match serde_json::from_slice::<Vec<StoreDescriptor>>(&bytes) {
+            Ok(served) => served,
+            // A static host answering every path with index.html lands here rather than in the arm
+            // above -- the request succeeded, the answer was simply not a store listing.
+            Err(e) => {
+                let m = format!("{SERVICE_STORES_URL} answered with something other than a store listing ({e}); offering the stores published with this app.");
+                dioxus::logger::tracing::info!("{m}");
+                store_service_status.set(m);
+                return;
+            }
+        };
+        // Merged in place rather than read-modify-write, so nothing can be lost between the read
+        // and the set.
+        let offered = served.len();
+        let added = catalog.with_mut(|c| merge_service_stores(c, served));
+        let m = format!(
+            "The service offers {offered} store(s); {added} added, {} already published with this app.",
+            offered - added
+        );
+        dioxus::logger::tracing::info!("{m}");
+        store_service_status.set(m);
+    });
 
     // Persist the settings whenever the model changes, and mark the prepared environment stale
     // (settings can affect partial-path discovery). Reading the model here subscribes this effect
@@ -298,6 +396,12 @@ fn App() -> Element {
         let _ = mode();
         let _ = uploaded_tas.read();
         let _ = uploaded_cas.read();
+        // Certificates retrieved by chasing feed preparation exactly as an upload does, so the
+        // environment is as stale after a retrieval as after an upload.
+        let _ = chased_cas.read();
+        // The tier decides what an unstated revocation preference means, and the settings feed
+        // preparation, so changing it makes the prepared environment stale too.
+        let _ = tier();
         env_dirty.set(true);
     });
 
@@ -316,34 +420,34 @@ fn App() -> Element {
             .unwrap_or_else(now_as_unix_epoch)
     };
 
-    // Ensures the selected built-in store's CBOR is available, fetching (and caching) it on first
-    // use. Returns the owned (ta, ca) bytes, or None when no store is selected; an Err carries a
-    // message to surface. Reads that touch signals are scoped so no guard is held across the await.
+    // Ensures the selected store's CBOR is available, fetching (and caching) it on first use.
+    // Returns the owned (ta, ca) bytes, or None when no store is selected; an Err carries a message
+    // to surface. Reads that touch signals are scoped so no guard is held across the await, and the
+    // entry itself is cloned out for the same reason.
     let ensure_store = move || async move {
-        let cur = mode();
-        let Some(s) = STORES.get(cur) else {
+        let Some(s) = catalog().get(mode()).cloned() else {
             return Ok(None);
         };
         let cached = {
             let guard = loaded_store.read();
-            match guard.as_ref() {
-                Some((i, ta, ca)) if *i == cur => Some((ta.clone(), ca.clone())),
-                _ => None,
-            }
+            guard
+                .as_ref()
+                .filter(|(id, _, _)| id == &s.id)
+                .map(|(_, ta, ca)| (ta.clone(), ca.clone()))
         };
         if let Some(bytes) = cached {
             return Ok(Some(bytes));
         }
-        let ta = fetch_bytes(s.ta_url).await;
+        let ta = fetch_bytes(&s.ta_url).await;
         // A store without a ca_url is trust-anchor-only; represent its CA side as empty bytes
         // (validate() treats an empty CA buffer as "no CA store").
-        let ca = match s.ca_url {
+        let ca = match &s.ca_url {
             Some(url) => fetch_bytes(url).await,
             None => Ok(Vec::new()),
         };
         match (ta, ca) {
             (Ok(ta), Ok(ca)) => {
-                loaded_store.set(Some((cur, ta.clone(), ca.clone())));
+                loaded_store.set(Some((s.id.clone(), ta.clone(), ca.clone())));
                 Ok(Some((ta, ca)))
             }
             (ta, ca) => Err(format!(
@@ -430,7 +534,7 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = run_settings(&settings());
+        let cps = run_settings(&settings(), tier());
         for (name, bytes) in loaded_zips() {
             let (reports, lines) = validate_hackathon_zip(&name, bytes, &cps, validate_all());
             notes.write().extend(lines);
@@ -445,6 +549,37 @@ fn App() -> Element {
     // the last run — and otherwise reused, so re-validating different targets is fast. Async because
     // the selected store's CBOR is fetched on demand (only when rebuilding); a fetch or preparation
     // failure is surfaced as a note and aborts before validation.
+    // Rebuilds the prepared environment from the current store selection, uploads and retrieved
+    // certificates. Separated out because a retrieving run prepares more than once: what a chase
+    // brings back is an input to preparation, so folding it in means preparing again.
+    let rebuild_env = move |cps: CertificationPathSettings| async move {
+        let store_bytes = ensure_store().await?;
+        let label = catalog()
+            .get(mode())
+            .map(|s| s.label.clone())
+            .unwrap_or_default();
+        let store = store_bytes
+            .as_ref()
+            .map(|(ta, ca)| (label.as_str(), ta.as_slice(), ca.as_slice()));
+        // Uploaded and retrieved intermediates go into one pool: certval builds paths through
+        // whatever it holds, and where a certificate came from is a matter for the notes rather
+        // than for path building.
+        let mut cas = uploaded_cas();
+        cas.extend(chased_cas());
+        match prepare_validation(store, &uploaded_tas(), &cas, &cps) {
+            Ok(prepared) => {
+                prepared_env.set(Some(prepared));
+                env_dirty.set(false);
+                Ok(())
+            }
+            Err(fatal) => Err(fatal
+                .into_iter()
+                .map(|l| l.text)
+                .collect::<Vec<String>>()
+                .join("; ")),
+        }
+    };
+
     let validate_loaded = move || async move {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
@@ -455,45 +590,93 @@ fn App() -> Element {
         #[cfg(target_family = "wasm")]
         gloo_timers::future::TimeoutFuture::new(16).await;
 
-        let base_notes: Vec<ResultLine> = vec![];
-        let cps = run_settings(&settings());
+        let cps = run_settings(&settings(), tier());
 
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
         if env_dirty() || prepared_env.read().is_none() {
-            let store_bytes = match ensure_store().await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    notes.write().push(ResultLine {
-                        class: "err",
-                        text: e,
-                    });
-                    validating.set(false);
-                    view.set(RESULTS_VIEW);
-                    return;
-                }
+            if let Err(e) = rebuild_env(cps.clone()).await {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: e,
+                });
+                validating.set(false);
+                view.set(RESULTS_VIEW);
+                return;
+            }
+        }
+
+        // The retrieval budget is per click rather than per step, so a chase that spent it does not
+        // leave a revocation retrieval to discover the same limit again.
+        let mut budget = FetchBudget::new();
+
+        // --- retrieve, when the tier permits it ---
+        //
+        // Ordered deliberately: certificates first, because a path that cannot be built has no
+        // certificates whose revocation status could be asked about, and the CRL distribution
+        // points worth retrieving are the ones named on the path that building found.
+        if tier().retrieves() {
+            // Chasing is worth doing only when path building came up short. Determining that means
+            // validating first, and those results are discarded if a retrieval changes the answer
+            // -- which is the same shape the service's own run uses.
+            let built_a_path = {
+                let guard = prepared_env.read();
+                let (prepared, _) = guard.as_ref().unwrap();
+                let (reports, _) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
+                reports.iter().any(|r| !r.paths.is_empty())
             };
-            let label = STORES.get(mode()).map(|s| s.label);
-            let store = store_bytes
-                .as_ref()
-                .map(|(ta, ca)| (label.unwrap_or_default(), ta.as_slice(), ca.as_slice()));
-            match prepare_validation(store, &uploaded_tas(), &uploaded_cas(), &cps) {
-                Ok(prepared) => {
-                    prepared_env.set(Some(prepared));
-                    env_dirty.set(false);
+
+            if !built_a_path {
+                let mut seeds = loaded_ees();
+                seeds.extend(uploaded_cas());
+                seeds.extend(chased_cas());
+                let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+                notes.write().extend(chase_notes);
+                if !found.is_empty() {
+                    chased_cas.write().extend(found);
+                    if let Err(e) = rebuild_env(cps.clone()).await {
+                        notes.write().push(ResultLine {
+                            class: "err",
+                            text: e,
+                        });
+                        validating.set(false);
+                        view.set(RESULTS_VIEW);
+                        return;
+                    }
                 }
-                Err(fatal) => {
-                    notes.write().extend(base_notes);
-                    notes.write().extend(fatal);
-                    validating.set(false);
-                    view.set(RESULTS_VIEW);
-                    return;
+            }
+
+            if cps.get_check_revocation_status() {
+                // Harvested from the paths the environment builds now, so the distribution points
+                // retrieved are the ones on the paths that will be validated. The source is cloned
+                // out rather than borrowed because it is shared by clone and the retrieval that
+                // follows is asynchronous -- a read guard cannot be held across it.
+                let (work, crl_sink, ocsp_sink) = {
+                    let guard = prepared_env.read();
+                    let (prepared, _) = guard.as_ref().unwrap();
+                    (
+                        harvest_revocation_work(prepared, &cps, &loaded_ees()),
+                        prepared.crl_source().clone(),
+                        prepared.ocsp_responses().clone(),
+                    )
+                };
+                // CRLs first: one covers every certificate its issuer published it for, so a
+                // distribution point can settle several positions at the price of one retrieval,
+                // whereas an OCSP request answers about exactly one certificate.
+                if !work.crl_dp.is_empty() {
+                    let (_added, crl_notes) =
+                        retrieve_crls(&work.crl_dp, &crl_sink, &mut budget).await;
+                    notes.write().extend(crl_notes);
+                }
+                if !work.ocsp.is_empty() {
+                    let (_added, ocsp_notes) =
+                        retrieve_ocsp(&work.ocsp, &ocsp_sink, &mut budget).await;
+                    notes.write().extend(ocsp_notes);
                 }
             }
         }
 
-        // validate the loaded targets against the (now current) cached environment
-        notes.write().extend(base_notes);
+        // --- validate against the environment as it now stands ---
         let guard = prepared_env.read();
         let (prepared, prep_notes) = guard.as_ref().unwrap();
         notes.write().extend(prep_notes.iter().cloned());
@@ -504,6 +687,14 @@ fn App() -> Element {
         validating.set(false);
         view.set(RESULTS_VIEW);
     };
+
+    // Where the selected store's material came from, said in the selector rather than left to the
+    // label: a store held by a service can be material that service was configured with, and a
+    // person judging a validation result has no other way to know that.
+    let store_hint = catalog()
+        .get(mode())
+        .map(|s| s.origin.hint())
+        .unwrap_or_default();
 
     // On touch devices (iPad/iPhone) the file picker grays out .cbor/.ta stores unless a generic
     // supertype is offered; on desktop that supertype would defeat the extension filter, so keep
@@ -537,6 +728,41 @@ fn App() -> Element {
                 on_select: move |i: usize| view.set(i),
                 match view() {
                     0 => rsx! {
+                        // The tier governs the whole run, so it is stated before the trust material
+                        // rather than tucked in beside it. Disabled rather than hidden when no
+                        // service is present: that this frontend *can* retrieve, given one, is
+                        // worth knowing even where it cannot.
+                        div { class: "controls",
+                            label { r#for: "tier", "Retrieval: " }
+                            select {
+                                id: "tier",
+                                disabled: !service_present(),
+                                onchange: move |ev| {
+                                    tier.set(match ev.value().as_str() {
+                                        "relayed" => Tier::Relayed,
+                                        _ => Tier::Local,
+                                    })
+                                },
+                                option {
+                                    value: "local",
+                                    selected: !tier().retrieves(),
+                                    "{Tier::Local.label()}"
+                                }
+                                option {
+                                    value: "relayed",
+                                    selected: tier().retrieves(),
+                                    "{Tier::Relayed.label()}"
+                                }
+                            }
+                            span { class: "hint", "{tier().hint()}" }
+                            if !service_present() {
+                                span { class: "hint",
+                                    "No PITTv3 service is serving this page, so there is nothing to \
+                                     retrieve through. Everything runs in the browser."
+                                }
+                            }
+                        }
+
                         div { class: "controls",
                             label { r#for: "store", "Trust anchor / CA store: " }
                             select {
@@ -560,10 +786,13 @@ fn App() -> Element {
                                         );
                                     }
                                 },
-                                for (i, s) in STORES.iter().enumerate() {
+                                for (i, s) in catalog().into_iter().enumerate() {
                                     option { value: "{i}", selected: mode() == i, "{s.label}" }
                                 }
                                 option { value: "none", selected: mode() == NO_STORE, "None (uploaded trust anchors and CA certificates only)" }
+                            }
+                            if !store_hint.is_empty() {
+                                span { class: "hint", "This store is {store_hint}." }
                             }
                         }
 
@@ -673,7 +902,13 @@ fn App() -> Element {
                         div { key: "{form_gen}",
                             EditSettings {
                                 initial: settings(),
-                                caps: Capabilities::browser_local(),
+                                // The tier decides what this frontend can act on, so the form's
+                                // per-capability notices follow the selector rather than being
+                                // fixed at "a browser cannot reach the network".
+                                caps: match tier().retrieves() {
+                                    true => Capabilities::browser_relayed(),
+                                    false => Capabilities::browser_local(),
+                                },
                                 on_save: move |edited| {
                                     settings.set(edited);
                                     settings_status.set("Settings saved".to_string());
@@ -764,6 +999,14 @@ fn App() -> Element {
                                 "The Web PKI and U.S. DoD stores were prepared on 2026-07-21; the ML-DSA-44 "
                                 "PKITS edition is static test data. Regenerate the real-world stores periodically "
                                 "to refresh their trust material."
+                            }
+                            p { class: "hint",
+                                "Where this app is served by the PITTv3 service, the stores that service holds "
+                                "appear in the dropdown alongside these and are downloaded from it rather than "
+                                "from the files below. The dropdown says which is which."
+                            }
+                            if !store_service_status().is_empty() {
+                                p { class: "hint", "{store_service_status}" }
                             }
                             h3 { "Web PKI (Mozilla roots + CCADB intermediates)" }
                             ul {
@@ -872,9 +1115,18 @@ fn App() -> Element {
                                     "valid path; otherwise every discovered path is validated."
                                 }
                                 li {
-                                    "Everything runs in the browser: there is no revocation checking (CRL/OCSP) "
-                                    "and no AIA/SIA chasing. Use the desktop PITTv3 utility for validation that "
-                                    "requires network access."
+                                    "Path validation always runs in the browser; what changes with the "
+                                    "Retrieval setting is whether anything is fetched to feed it. "
+                                    "\"In this browser only\" fetches nothing: paths are built from the "
+                                    "selected store and uploads, and revocation status is undetermined "
+                                    "unless revocation data was supplied. \"Retrieve through the service\" "
+                                    "has the PITTv3 service fetch on this page's behalf — issuer "
+                                    "certificates from AIA and SIA URIs when no path can be built, and, for "
+                                    "the certificates on the paths it builds, their CRLs and an OCSP response "
+                                    "per certificate whose issuer runs a responder. The certificates being "
+                                    "validated stay in this page; the URIs they name do not, and an OCSP "
+                                    "request identifies the certificate being asked about even though the "
+                                    "certificate itself is not sent."
                                 }
                                 li {
                                     "Built-in stores: \"Web PKI\" holds the Mozilla trust anchors plus the CCADB "
@@ -888,6 +1140,15 @@ fn App() -> Element {
                                         "IETF Hackathon PQC Certificate repo"
                                     }
                                     "."
+                                }
+                                li {
+                                    "Where this app is served by the PITTv3 service, the trust stores that "
+                                    "service holds are offered in the same dropdown. A store it holds under a "
+                                    "name this app already ships is the same material and is not listed twice. "
+                                    "The line under the dropdown says where the selected store came from, which "
+                                    "matters for a store a deployment supplied itself: its certificates may have "
+                                    "been gathered by following AIA URIs rather than published by the PKI they "
+                                    "claim to come from."
                                 }
                                 li {
                                     "The Hackathon tab validates provider artifacts_certs_r5.zip archives from "
@@ -921,28 +1182,55 @@ fn App() -> Element {
 #[cfg(test)]
 mod tests {
     use super::run_settings;
+    use crate::relay::Tier;
+    use pittv3_gui_lib::gui_settings::Capabilities;
     use pittv3_gui_lib::gui_settings_model::SettingsModel;
 
-    /// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is true, so the browser would
-    /// otherwise carry a preference for a check it has no way to satisfy. The frontend's current
-    /// validation path reads the setting nowhere, so this guards the intent rather than an active
-    /// behavior: it is what keeps the day a `check_revocation` call site is wired from silently
-    /// turning every existing user's results into `RevocationStatusNotDetermined`.
+    /// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is true, so a browser that
+    /// cannot retrieve would otherwise carry a preference for a check it has no way to satisfy.
+    /// The shared validation path does read the setting, which is what makes this load-bearing
+    /// rather than anticipatory: without it every local run would come back
+    /// `RevocationStatusNotDetermined` for want of data the page cannot obtain.
     #[test]
-    fn revocation_checking_is_off_unless_asked_for() {
-        let cps = run_settings(&SettingsModel::default());
+    fn revocation_checking_is_off_unless_asked_for_in_the_local_tier() {
+        let cps = run_settings(&SettingsModel::default(), Tier::Local);
         assert!(!cps.get_check_revocation_status());
     }
 
-    /// An explicit preference is still honored -- the settings form states that these settings
-    /// apply only where the tool can fetch, so a user who sets it gets what they asked for rather
-    /// than a silently discarded setting.
+    /// With a relay the data can be retrieved, and checking is the reason to have chosen that tier,
+    /// so the unstated preference reverses. This is the one setting whose default the tier moves.
+    #[test]
+    fn revocation_checking_is_on_unless_refused_in_the_relayed_tier() {
+        let cps = run_settings(&SettingsModel::default(), Tier::Relayed);
+        assert!(cps.get_check_revocation_status());
+    }
+
+    /// An explicit preference is honored in either tier -- the settings form states that these
+    /// settings apply only where the tool can fetch, so a user who sets one gets what they asked
+    /// for rather than a silently discarded setting.
     #[test]
     fn explicit_revocation_preference_is_honored() {
-        let model = SettingsModel {
+        let asked_for = SettingsModel {
             check_revocation_status: Some(true),
             ..SettingsModel::default()
         };
-        assert!(run_settings(&model).get_check_revocation_status());
+        assert!(run_settings(&asked_for, Tier::Local).get_check_revocation_status());
+
+        let refused = SettingsModel {
+            check_revocation_status: Some(false),
+            ..SettingsModel::default()
+        };
+        assert!(!run_settings(&refused, Tier::Relayed).get_check_revocation_status());
+    }
+
+    /// The tier is what the settings form's per-capability notices key off, so the two have to move
+    /// together: a relayed run must not be told it cannot reach the network.
+    #[test]
+    fn the_tier_decides_the_declared_capabilities() {
+        assert!(!Capabilities::browser_local().network);
+        assert!(Capabilities::browser_relayed().network);
+        // Neither browser tier gains a filesystem, which is the honest difference from the desktop.
+        assert!(!Capabilities::browser_relayed().filesystem);
+        assert!(Capabilities::desktop().filesystem);
     }
 }
