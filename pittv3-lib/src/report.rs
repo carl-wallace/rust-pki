@@ -12,7 +12,9 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use der::Encode;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use certval::{
     get_certificate_from_trust_anchor, is_self_signed,
@@ -37,6 +39,26 @@ pub struct CertSummary {
     pub not_before: Option<String>,
     /// notAfter rendered as a string, absent when unavailable
     pub not_after: Option<String>,
+    /// Uppercase ASCII hex SHA-256 of the DER-encoded certificate, absent for a trust anchor
+    /// expressed as name and public key without a wrapped certificate.
+    ///
+    /// The other fields describe a certificate; this one identifies it. Subject, issuer and serial
+    /// are rendered for reading and are not a key: two certificates can share all three (a reissue
+    /// under a rotated key, a cross-certificate), and none of them can get from a row of a report
+    /// back to the bytes the row describes. A caller holding the run's artifacts — to offer a
+    /// download, to name a file, to tell whether two reports describe the same certificate — needs
+    /// something derived from the encoding, and the digest is the same value whether the
+    /// certificate was seen as a trust anchor, an intermediate or a target.
+    ///
+    /// Taken over the certificate itself for a trust anchor that wraps one, rather than over the
+    /// `TrustAnchorChoice` around it, so that one certificate has one identity no matter which role
+    /// a path gave it.
+    pub sha256: Option<String>,
+}
+
+/// Uppercase ASCII hex SHA-256 of `der`, the identity [`CertSummary::sha256`] carries.
+pub fn sha256_hex(der: &[u8]) -> String {
+    buffer_to_hex(Sha256::digest(der).to_vec().as_slice())
 }
 
 impl CertSummary {
@@ -49,11 +71,12 @@ impl CertSummary {
             serial: Some(buffer_to_hex(tbs.serial_number().as_bytes())),
             not_before: Some(tbs.validity().not_before.to_string()),
             not_after: Some(tbs.validity().not_after.to_string()),
+            sha256: Some(sha256_hex(cert.as_bytes())),
         }
     }
 
-    /// Prepares a [`CertSummary`] from a parsed trust anchor. Serial number and validity are only
-    /// available when the trust anchor wraps a certificate.
+    /// Prepares a [`CertSummary`] from a parsed trust anchor. Serial number, validity and digest are
+    /// only available when the trust anchor wraps a certificate.
     pub fn from_trust_anchor(ta: &PDVTrustAnchorChoice) -> CertSummary {
         if let Some(cert) = get_certificate_from_trust_anchor(&ta.decoded_ta) {
             let tbs = cert.tbs_certificate();
@@ -63,6 +86,13 @@ impl CertSummary {
                 serial: Some(buffer_to_hex(tbs.serial_number().as_bytes())),
                 not_before: Some(tbs.validity().not_before.to_string()),
                 not_after: Some(tbs.validity().not_after.to_string()),
+                // Over the certificate rather than over `ta.encoded_ta`, which is the
+                // TrustAnchorChoice wrapping it: the same certificate reached as an intermediate on
+                // another path must produce the same digest, or the identity is a description of the
+                // role instead of the material. A certificate that will not re-encode leaves this
+                // absent rather than falling back to the wrapper's digest, since a wrong identity is
+                // worse than none.
+                sha256: cert.to_der().ok().map(|der| sha256_hex(&der)),
             };
         }
 
@@ -76,6 +106,7 @@ impl CertSummary {
             serial: None,
             not_before: None,
             not_after: None,
+            sha256: None,
         }
     }
 }
@@ -838,6 +869,7 @@ mod tests {
                     serial: Some("01FF".to_string()),
                     not_before: Some("2026-01-01T00:00:00Z".to_string()),
                     not_after: Some("2027-01-01T00:00:00Z".to_string()),
+                    sha256: Some("A1B2C3".to_string()),
                 }),
                 status: TargetStatus::Invalid,
                 paths: vec![PathReport {

@@ -103,13 +103,15 @@ impl PreparedValidation {
 /// certificates changes which paths exist rather than whether a certificate was revoked. A caller
 /// that shares one owes it a `clear()` when the time of interest moves backward or the revocation
 /// policy tightens; one that would rather not think about it can pass a fresh cache each time and get
-/// the previous behavior.
+/// the previous behavior. Passing `None` registers no cache at all, so every path determines every
+/// status for itself -- slower, and what a caller wants when each path has to stand on its own
+/// evidence rather than on an answer reached while validating another one.
 pub fn prepare_validation(
     store: Option<(&str, &[u8], &[u8])>,
     tas: &[(String, Vec<u8>)],
     cas: &[(String, Vec<u8>)],
     cps: &CertificationPathSettings,
-    #[cfg(feature = "revocation")] rev_cache: &Arc<RevocationCache>,
+    #[cfg(feature = "revocation")] rev_cache: Option<&Arc<RevocationCache>>,
     // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
 ) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
@@ -217,7 +219,15 @@ pub fn prepare_validation(
     // is discarded with it, which is what keeps it honest when the time of interest changes: that
     // is a settings change, and a settings change rebuilds the environment.
     #[cfg(feature = "revocation")]
-    pe.add_revocation_cache(Box::new(rev_cache.clone()));
+    // `None` declines the cache outright, which is not the same as passing an empty one: with no
+    // cache registered every path derives every certificate's status from revocation data of its
+    // own, so each path accounts for itself. That matters for an export -- a path whose certificates
+    // were answered from cache carries a status and no evidence, because the evidence was obtained
+    // while validating a different path -- and it is the only way to make a run reach a responder
+    // twice on purpose.
+    if let Some(rev_cache) = rev_cache {
+        pe.add_revocation_cache(Box::new(rev_cache.clone()));
+    }
     // Nothing to register for OCSP -- certval has no source for it -- so this is simply carried
     // and consulted when a path is built. See validate_target.
     let ocsp = OcspResponses::new();
@@ -242,17 +252,65 @@ pub fn validate_prepared(
     ees: &[(String, Vec<u8>)],
     validate_all: bool,
 ) -> (Vec<TargetReport>, Vec<ResultLine>) {
+    let (reports, out, _) = validate_prepared_retaining(prepared, cps, ees, validate_all, false);
+    (reports, out)
+}
+
+/// One validated path, kept so the artifacts behind it can be exported afterwards.
+///
+/// The path and the results are what an export is assembled from; the settings are the ones that
+/// path was validated under, which is not the run's settings — RFC 5937 trust anchor constraints are
+/// folded in per path — so a manifest reporting the run's would describe inputs the path was not
+/// judged against.
+///
+/// Nothing is computed to produce these. The path and results exist for the duration of the
+/// validation regardless; retaining them is declining to drop them, which is why this is a caller's
+/// choice at the call site rather than a setting a user has to know to turn on before a run they
+/// have not seen the outcome of yet.
+pub struct RetainedPath {
+    /// Name of the target this path was built for, as the caller supplied it
+    pub target_name: String,
+    /// The path as validated
+    pub path: CertificationPath,
+    /// The settings this path was validated under
+    pub cps: CertificationPathSettings,
+    /// The results recorded while validating it
+    pub cpr: CertificationPathResults,
+}
+
+/// As [`validate_prepared`], additionally returning each validated path when `retain` is set, so a
+/// frontend can export the artifacts behind a result without validating a second time.
+///
+/// Validating again to produce an export would describe a *different* run: revocation data moves,
+/// and a responder asked twice can answer twice. An export is worth having precisely because it
+/// accounts for the result on screen, so the material has to come from that run or not at all.
+pub fn validate_prepared_retaining(
+    prepared: &PreparedValidation,
+    cps: &CertificationPathSettings,
+    ees: &[(String, Vec<u8>)],
+    validate_all: bool,
+    retain: bool,
+) -> (Vec<TargetReport>, Vec<ResultLine>, Vec<RetainedPath>) {
     let mut out = vec![];
     let mut reports = vec![];
+    let mut retained = vec![];
     for (name, bytes) in ees {
-        let (report, lines) =
-            validate_target(&prepared.pe, cps, name, bytes, validate_all, &prepared.ocsp);
+        let sink = retain.then_some(&mut retained);
+        let (report, lines) = validate_target(
+            &prepared.pe,
+            cps,
+            name,
+            bytes,
+            validate_all,
+            &prepared.ocsp,
+            sink,
+        );
         out.extend(lines);
         if let Some(r) = report {
             reports.push(r);
         }
     }
-    (reports, out)
+    (reports, out, retained)
 }
 
 /// Reports a target for which the builder produced no candidate path, carrying the diagnosis of
@@ -328,6 +386,7 @@ fn validate_target(
     ee: &[u8],
     validate_all: bool,
     ocsp: &OcspResponses,
+    mut retain: Option<&mut Vec<RetainedPath>>,
 ) -> (Option<TargetReport>, Vec<ResultLine>) {
     let mut out = vec![];
     let toi = cps.get_time_of_interest();
@@ -465,6 +524,19 @@ fn validate_target(
             r.as_ref().err(),
             path_start.elapsed().as_millis() as u64,
         ));
+        // Kept for a later export, with the settings this path was actually judged under rather than
+        // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
+        // a manifest reporting the run's settings would name inputs the path was not validated
+        // against. Paths that failed are kept too: a failure is the case someone most wants the
+        // material for.
+        if let Some(retained) = retain.as_deref_mut() {
+            retained.push(RetainedPath {
+                target_name: ee_name.to_string(),
+                path: path.clone(),
+                cps: path_cps.clone(),
+                cpr: cpr.clone(),
+            });
+        }
         let cert_count = path.intermediates.len() + 2;
         match r {
             Ok(_) => {
@@ -648,8 +720,15 @@ pub fn validate_hackathon_zip(
         out.extend(validate_self_signed(&pe, name, der));
     }
     for (name, der) in &ees {
-        let (report, lines) =
-            validate_target(&pe, cps, name, der, validate_all, &OcspResponses::new());
+        let (report, lines) = validate_target(
+            &pe,
+            cps,
+            name,
+            der,
+            validate_all,
+            &OcspResponses::new(),
+            None,
+        );
         out.extend(lines);
         if let Some(report) = report {
             reports.push(report);
