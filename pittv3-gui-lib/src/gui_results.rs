@@ -82,6 +82,21 @@ pub fn RevocationBadge(outcome: RevocationOutcome) -> Element {
         RevocationMethod::Ocsp => "OCSP",
         RevocationMethod::Blocklist => "blocklist",
         RevocationMethod::Allowlist => "allowlist",
+        // Where the answer came from, not just what kind of answer it was. A response the run was
+        // given and one it fetched from an AIA are both "OCSP" but say different things about what
+        // the run did, and a cached determination examined nothing at all this time. Someone
+        // judging a result should be able to see which of those happened.
+        //
+        // "supplied" rather than "stapled" because stapled is certval's word for the slot, not a
+        // description of what happened: nobody stapled anything. The frontend put it there, having
+        // read it from a file, retrieved it through a relay, or been handed it with the request --
+        // and that slot is the only way a response reaches the checker at all.
+        RevocationMethod::Cache => "cache",
+        RevocationMethod::StapledOcsp => "OCSP (supplied)",
+        RevocationMethod::StapledCrl => "CRL (supplied)",
+        RevocationMethod::LocalCrl => "local CRL",
+        RevocationMethod::OcspFromAia => "OCSP (AIA)",
+        RevocationMethod::RemoteCrlDp => "CRL (DP)",
         RevocationMethod::None => "none",
     };
     let (class, label) = match outcome.status {

@@ -22,7 +22,7 @@ use std::sync::{Arc, RwLock};
 use certval::{
     collect_crl_dp_uris, collect_ocsp_uris, collect_uris_from_aia_and_sia, compare_names,
     parse_cert, CertificationPath, CertificationPathSettings, CrlSource, Error, PDVCertificate,
-    Result, SubjectNameAndKey,
+    PathValidationStatus, Result, SubjectNameAndKey,
 };
 // Building an OCSP request needs certval's `ocsp_client`, which exists only under its `revocation`
 // feature. Everything else here -- the URI collectors, the CRL source, the response map -- is
@@ -217,6 +217,23 @@ pub fn harvest_revocation_work(
     let pe = prepared.environment();
     let toi = cps.get_time_of_interest();
     let mut out = RevocationWork::default();
+
+    // Which kinds of revocation data the run is allowed to go and get. This has to be decided here
+    // because it cannot be decided later: what a frontend retrieves is handed to the checker as
+    // stapled data, and the stapled step is gated on data being present rather than on any setting
+    // -- reasonably, since stapled data is normally something the caller chose to supply. A run that
+    // retrieves has not chosen anything, so declining to retrieve is the only way its settings are
+    // honored. Harvesting an OCSP request for a run configured against OCSP would put a response on
+    // a step ahead of the CRLs, and the run would answer by OCSP after being told not to.
+    //
+    // Retrieving a CRL takes both settings: `check_crldp_http` is permission to fetch from a
+    // distribution point, and `check_crls` is whether the checker consults the source the result is
+    // put into -- with the latter off, whatever is fetched is never read.
+    let fetch_crls = cps.get_check_crls() && cps.get_check_crldp_http();
+    let fetch_ocsp = cps.get_check_ocsp_from_aia();
+    if !fetch_crls && !fetch_ocsp {
+        return out;
+    }
     // Tracks the (certificate, responder) pairs already queued, so a certificate appearing on
     // several paths is asked about once. Only the OCSP half needs it.
     #[cfg(feature = "revocation")]
@@ -247,17 +264,38 @@ pub fn harvest_revocation_work(
                 .collect();
 
             for (pos, cert) in chain.iter().enumerate() {
-                collect_crl_dp_uris(cert, &mut out.crl_dp);
+                let issuer: &dyn SubjectNameAndKey = match pos {
+                    0 => &path.trust_anchor.decoded_ta,
+                    _ => chain[pos - 1].as_ref(),
+                };
+                // Nothing has to be retrieved for a certificate whose status is already settled.
+                // This is the same lookup the revocation checker makes as its first step, against
+                // the same cache, so a determination an earlier run reached -- from a CRL uploaded
+                // with the trust material, from a stapled response, or from a retrieval on a
+                // previous click -- is not paid for again. The checker re-checks after every source
+                // and stops as soon as one answers; a harvest that runs before anything is known
+                // cannot do that, so this restores the part of that guard which is knowable in
+                // advance. Undetermined statuses are never cached, so this can only skip work that
+                // is genuinely unnecessary, and cached answers expire at the nextUpdate of the data
+                // behind them.
+                if pe.get_status(cert, issuer, toi)
+                    != PathValidationStatus::RevocationStatusNotDetermined
+                {
+                    continue;
+                }
 
+                if fetch_crls {
+                    collect_crl_dp_uris(cert, &mut out.crl_dp);
+                }
+
+                if !fetch_ocsp {
+                    continue;
+                }
                 let mut responders = vec![];
                 collect_ocsp_uris(cert, &mut responders);
                 if responders.is_empty() {
                     continue;
                 }
-                let issuer: &dyn SubjectNameAndKey = match pos {
-                    0 => &path.trust_anchor.decoded_ta,
-                    _ => chain[pos - 1].as_ref(),
-                };
                 let Some(key) = OcspKey::new(cert, issuer) else {
                     continue;
                 };

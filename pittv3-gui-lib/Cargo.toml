@@ -28,7 +28,11 @@ x509-cert = { version = "0.3.0", default-features = false }
 cms = { version = "0.3.0-pre.2", default-features = false }
 der = { version = "0.8.1", default-features = false, features = ["alloc", "oid"] }
 
-dioxus = "0.7.9"
+# No renderer here -- each frontend names its own (web or desktop). devtools is left off because
+# cargo unifies features across a build graph, so taking it by default here would switch dioxus's
+# hot-reload client back on for the wasm frontend that deliberately declines it. A frontend that
+# wants it, such as the desktop GUI, still gets it by taking dioxus's defaults itself.
+dioxus = { version = "0.7.9", default-features = false, features = ["launch", "logger", "lib"] }
 
 log = {version = "0.4.33"}
 # PEM decoding for uploaded trust material, and the PQC-hackathon zip reader; both are inputs

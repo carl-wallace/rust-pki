@@ -5,10 +5,12 @@
 mod relay;
 mod validate;
 
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use certval::{CertificationPathSettings, TimeOfInterest};
+use certval::{CertificationPathSettings, RevocationCache, TimeOfInterest};
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
@@ -306,6 +308,12 @@ fn App() -> Element {
     // trust anchors or CA certificates) changes, so the next Validate rebuilds it. Starts true
     // because nothing is prepared yet.
     let mut env_dirty = use_signal(|| true);
+    // Revocation determinations, kept deliberately outside the prepared environment so they survive
+    // its rebuilds. Uploads and chased certificates make that environment stale, but they change
+    // which paths exist rather than whether a certificate was revoked, so discarding determinations
+    // alongside it would re-fetch revocation data a retrieval had already paid for. Settings changes
+    // are the case that does invalidate them, and the effect that watches settings clears this.
+    let rev_cache = use_signal(|| Arc::new(RevocationCache::new()));
 
     // What asking a service for its stores produced, in a sentence, for the Resources view. A
     // statically hosted copy finding no service is the ordinary case and not a failure, but "the
@@ -380,6 +388,13 @@ fn App() -> Element {
             settings_status.set(e);
         }
         env_dirty.set(true);
+        // Settings are what genuinely invalidates a cached determination, so this is where the cache
+        // is dropped rather than in the effect watching uploads and chased certificates. A cached
+        // answer expires against the time being asked about, so moving the time of interest backward
+        // can bring an expired one back into range, and an answer vetted under one revocation policy
+        // is not vetted under a stricter one. Cheaper to clear on any settings change than to work
+        // out which fields could matter.
+        rev_cache().clear();
     });
 
     // Validate-all is persisted separately; it is not a CertificationPathSettings value.
@@ -566,7 +581,7 @@ fn App() -> Element {
         // than for path building.
         let mut cas = uploaded_cas();
         cas.extend(chased_cas());
-        match prepare_validation(store, &uploaded_tas(), &cas, &cps) {
+        match prepare_validation(store, &uploaded_tas(), &cas, &cps, &rev_cache()) {
             Ok(prepared) => {
                 prepared_env.set(Some(prepared));
                 env_dirty.set(false);
