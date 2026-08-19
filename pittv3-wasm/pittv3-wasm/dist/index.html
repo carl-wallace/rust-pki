@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The document is unhashed and points at content-hashed js/wasm; always revalidate it so a
+         redeploy is picked up without a manual cache clear. The vhost Cache-Control header is the
+         authoritative control; this meta is a belt-and-suspenders fallback. -->
+    <meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
+    <title>PITTv3 — PQC certification path validation in WASM</title>
+    
+<script type="module">
+import init, * as bindings from './pittv3-wasm-d15ccc7499ad2364.js';
+const wasm = await init({ module_or_path: './pittv3-wasm-d15ccc7499ad2364_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <!-- Ship the store CBOR as separate assets fetched on demand, keeping them out of the wasm
+         binary. Copied to dist/resources/ and referenced by relative URL (see validate::STORES). -->
+    
+  <link rel="modulepreload" href="./pittv3-wasm-d15ccc7499ad2364.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-interpreter-js-e827be9a3ca83173/src/js/set_attribute.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-cli-config-dd5550fda4283b56/inline0.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-interpreter-js-e827be9a3ca83173/src/js/patch_console.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-web-5b126e270dcd269f/src/js/eval.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-web-5b126e270dcd269f/inline1.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-interpreter-js-e827be9a3ca83173/inline0.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-interpreter-js-e827be9a3ca83173/src/js/hydrate.js" crossorigin="anonymous"><link rel="modulepreload" href="./snippets/dioxus-web-5b126e270dcd269f/inline0.js" crossorigin="anonymous"><link rel="preload" href="./pittv3-wasm-d15ccc7499ad2364_bg.wasm" crossorigin="anonymous" as="fetch" type="application/wasm"></head>
+  <body>
+    <div id="main"></div>
+  </body>
+</html>

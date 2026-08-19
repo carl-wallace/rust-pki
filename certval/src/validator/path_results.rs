@@ -40,6 +40,35 @@ pub enum CertificationPathResultsTypes {
     /// consulted without retaining the CRL bodies
     #[cfg(feature = "revocation")]
     CrlInfoLists(CrlInfoLists),
+    /// Represents which source settled each position ([`RevocationSource`])
+    RevocationSources(RevocationSources),
+}
+
+/// Which source settled a certificate's revocation status.
+///
+/// The revocation checker consults its sources in a fixed order and stops at the first that answers,
+/// so this records the rung that did. It is recorded rather than inferred because the sources do not
+/// all leave an artifact behind: a determination served from the status cache examines no revocation
+/// data at all, and a stapled response is indistinguishable from a fetched one once both are simply
+/// "an OCSP response in the results".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RevocationSource {
+    /// Nothing settled this certificate
+    None,
+    /// A determination reached earlier and still within the validity of the data behind it
+    Cache,
+    /// The id-pkix-ocsp-nocheck extension, which asks that status not be checked
+    NoCheckExtension,
+    /// An OCSP response supplied alongside the path
+    StapledOcsp,
+    /// A CRL supplied alongside the path
+    StapledCrl,
+    /// A CRL from a CRL source registered on the environment
+    LocalCrl,
+    /// An OCSP response retrieved from an authority information access URI
+    OcspFromAia,
+    /// A CRL retrieved from a distribution point
+    RemoteCrlDp,
 }
 
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
@@ -98,6 +127,11 @@ pub static PR_ALLOWLIST_USAGE: &str = "cprAllowListUsage";
 
 /// `PR_NOCHECK_USAGE` is used to retrieve indicator of no check usage for each item in certification path.
 pub static PR_NOCHECK_USAGE: &str = "cprNoCheckUsage";
+
+/// `PR_REVOCATION_SOURCE` is used to retrieve which source settled each item in a certification
+/// path, as a [`RevocationSource`] per position. See that type for why this is recorded rather than
+/// inferred from the artifacts the sources leave behind.
+pub static PR_REVOCATION_SOURCE: &str = "cprRevocationSource";
 
 /// `PR_FAILURE_INDEX` is used to retrieve the index of the certificate at which certification path
 /// validation or revocation status determination failed. Indexing is trust-anchor-first: 0 denotes
@@ -315,6 +349,7 @@ impl CertificationPathResults {
 }
 
 cpr_gets_and_sets!(PR_NOCHECK_USAGE, Bools);
+cpr_gets_and_sets!(PR_REVOCATION_SOURCE, RevocationSources);
 impl CertificationPathResults {
     /// Add a failed OCSP request to list maintained by CertificationPathResults
     pub fn set_nocheck_for_item(&mut self, pos: usize) {
@@ -329,11 +364,24 @@ impl CertificationPathResults {
         self.set_nocheck_usage(v);
     }
 
+    /// Records which source settled the certificate at `pos`. The first source to answer wins, so
+    /// this is written once per position and later sources never reach it.
+    pub fn set_revocation_source_for_item(&mut self, pos: usize, source: RevocationSource) {
+        let Some(mut v) = self.get_revocation_source() else {
+            return;
+        };
+        if v.len() > pos {
+            v[pos] = source;
+            self.set_revocation_source(v);
+        }
+    }
+
     /// prepare_revocation_results takes a CertificationPathResults and the number of certificates in a certification
     /// path (not counting the trust anchor). It prepares results variables set to appropriate capacity to receive
     /// revocation-related results.
     pub fn prepare_revocation_results(&mut self, num_certs: usize) -> Result<()> {
         self.set_nocheck_usage(vec![false; num_certs]);
+        self.set_revocation_source(vec![RevocationSource::None; num_certs]);
         self.set_blocklist_usage(vec![false; num_certs]);
         self.set_allowlist_usage(vec![false; num_certs]);
         self.set_ocsp_requests(vec![vec![]; num_certs]);

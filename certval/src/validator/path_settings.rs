@@ -61,6 +61,10 @@ pub type CrlInfoLists = Vec<Vec<crate::revocation::crl::CrlInfo>>;
 /// `Bools` is a typedef for a vector bool values.
 pub type Bools = Vec<bool>;
 
+/// `RevocationSources` holds, per position, which source settled that certificate's revocation
+/// status. See [`RevocationSource`](crate::validator::path_results::RevocationSource).
+pub type RevocationSources = Vec<crate::validator::path_results::RevocationSource>;
+
 /// `CertificationPathSettings` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

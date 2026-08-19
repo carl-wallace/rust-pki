@@ -7,11 +7,14 @@
 //! build. What differs is only who fetches.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Instant;
 
 use log::debug;
 
-use certval::{collect_uris_from_aia_and_sia, parse_cert, CertificationPathSettings};
+use certval::{
+    collect_uris_from_aia_and_sia, parse_cert, CertificationPathSettings, RevocationCache,
+};
 // The fold half of a retrieving run is shared with the browser rather than kept here: the two tiers
 // have to agree about what a retrieved body contained, and the surest way for them to agree is for
 // there to be one implementation of it.
@@ -145,25 +148,30 @@ async fn run(
     settings: &CertificationPathSettings,
     notes: &mut Vec<String>,
 ) -> (Vec<TargetReport>, Vec<String>) {
-    let (prepared, mut lines) = match prepare_validation(store, &input.trust_anchors, cas, settings)
-    {
-        Ok((prepared, lines)) => (
-            prepared,
-            lines
-                .iter()
-                .map(|l| l.text.clone())
-                .collect::<Vec<String>>(),
-        ),
-        Err(lines) => {
-            return (
-                vec![],
+    // A cache per request rather than one shared by the service: determinations are facts about
+    // certificates and would be sound to share, but requests arrive under settings of their own --
+    // including a time of interest -- and a shared cache would have to be cleared against all of
+    // them. Scoping it here keeps a request's answers derived under that request's settings.
+    let rev_cache = Arc::new(RevocationCache::new());
+    let (prepared, mut lines) =
+        match prepare_validation(store, &input.trust_anchors, cas, settings, &rev_cache) {
+            Ok((prepared, lines)) => (
+                prepared,
                 lines
                     .iter()
                     .map(|l| l.text.clone())
                     .collect::<Vec<String>>(),
-            )
-        }
-    };
+            ),
+            Err(lines) => {
+                return (
+                    vec![],
+                    lines
+                        .iter()
+                        .map(|l| l.text.clone())
+                        .collect::<Vec<String>>(),
+                )
+            }
+        };
 
     if state.config.fetch_revocation_data && settings.get_check_revocation_status() {
         retrieve_revocation_data(state, &prepared, input, settings, notes).await;

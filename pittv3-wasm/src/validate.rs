@@ -254,7 +254,11 @@ mod tests {
         cps: &CertificationPathSettings,
     ) -> (Vec<TargetReport>, Vec<ResultLine>) {
         let mut notes = vec![];
-        let (prepared, prep_notes) = prepare_validation(Some(store), &[], &[], cps).unwrap();
+        // A cache of its own per call: these check what validation derives from the store, so
+        // nothing should carry over between them.
+        let rev_cache = std::sync::Arc::new(RevocationCache::new());
+        let (prepared, prep_notes) =
+            prepare_validation(Some(store), &[], &[], cps, &rev_cache).unwrap();
         notes.extend(prep_notes);
         let (reports, lines) = validate_prepared(&prepared, cps, ees, true);
         notes.extend(lines);

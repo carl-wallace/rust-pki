@@ -19,7 +19,7 @@ use certval::{
     name_constraints_set_to_name_constraints_settings, name_to_string,
     source::ta_source::buffer_to_hex, valid_at_time, CertificationPath, CertificationPathResults,
     Error, NameConstraintsSet, NameConstraintsSettings, PDVCertificate, PDVTrustAnchorChoice,
-    PathValidationStatus, PkiEnvironment, TimeOfInterest,
+    PathValidationStatus, PkiEnvironment, RevocationSource, TimeOfInterest,
 };
 
 /// Summary details for one certificate (or trust anchor) in a certification path.
@@ -85,14 +85,27 @@ impl CertSummary {
 pub enum RevocationMethod {
     /// Status determination skipped due to presence of the OCSP no-check extension
     OcspNoCheck,
-    /// Status determined using a CRL
+    /// Status determined using a CRL, without a record of where the CRL came from
     Crl,
-    /// Status determined using an OCSP response
+    /// Status determined using an OCSP response, without a record of where the response came from
     Ocsp,
     /// Status determined using a configured blocklist
     Blocklist,
     /// Status determined using a configured allowlist
     Allowlist,
+    /// Status determined from a previously cached determination rather than from revocation data
+    /// examined on this run
+    Cache,
+    /// Status determined using an OCSP response supplied alongside the path
+    StapledOcsp,
+    /// Status determined using a CRL supplied alongside the path
+    StapledCrl,
+    /// Status determined using a CRL already held, rather than one retrieved for this validation
+    LocalCrl,
+    /// Status determined using an OCSP response retrieved from an authority information access URI
+    OcspFromAia,
+    /// Status determined using a CRL retrieved from a distribution point
+    RemoteCrlDp,
     /// No mechanism yielded a status determination
     None,
 }
@@ -637,31 +650,65 @@ pub fn revocation_outcomes_from_cpr(
     #[cfg(not(feature = "revocation"))]
     let crl_artifact_at = |_pos: usize| -> bool { false };
 
+    // Which source settled each position, as the checker recorded it. Read in preference to the
+    // artifacts because the artifacts cannot answer the question: a determination served from the
+    // status cache examines no revocation data and so leaves nothing behind, and a stapled response
+    // is indistinguishable from a retrieved one once both are just "an OCSP response in the
+    // results". Absent for results produced before the checker recorded it, which is why the
+    // artifact arms below remain as a fallback.
+    let sources = cpr.get_revocation_source();
+    let source_at = |pos: usize| -> Option<RevocationSource> {
+        sources.as_ref().and_then(|v| v.get(pos).copied())
+    };
+
     let mut outcomes = Vec::with_capacity(num_certs);
     for pos in 0..num_certs {
         let cert_index = pos + 1;
         let revoked_here = revoked_status && failure_index == Some(cert_index);
 
-        let (method, determined_status) = if flag_at(&nocheck, pos) {
-            (RevocationMethod::OcspNoCheck, RevocationStatus::NotChecked)
-        } else if flag_at(&blocklist, pos) {
+        // A settled position reports revoked only where the failure index says the revocation was
+        // found; every other settled position is not revoked.
+        let settled = |m: RevocationMethod| -> (RevocationMethod, RevocationStatus) {
+            if revoked_here {
+                (m, RevocationStatus::Revoked)
+            } else {
+                (m, RevocationStatus::NotRevoked)
+            }
+        };
+
+        // Blocklist and allowlist are consulted before the source is read: they are not rungs of the
+        // checker's ladder but decisions about whether a URI may be fetched at all, so nothing
+        // records them as a source.
+        let (method, determined_status) = if flag_at(&blocklist, pos) {
             (RevocationMethod::Blocklist, RevocationStatus::Revoked)
         } else if flag_at(&allowlist, pos) {
             (RevocationMethod::Allowlist, RevocationStatus::NotRevoked)
-        } else if artifacts_at(&ocsp_responses, pos) {
-            if revoked_here {
-                (RevocationMethod::Ocsp, RevocationStatus::Revoked)
-            } else {
-                (RevocationMethod::Ocsp, RevocationStatus::NotRevoked)
-            }
-        } else if crl_artifact_at(pos) {
-            if revoked_here {
-                (RevocationMethod::Crl, RevocationStatus::Revoked)
-            } else {
-                (RevocationMethod::Crl, RevocationStatus::NotRevoked)
-            }
         } else {
-            (RevocationMethod::None, RevocationStatus::Undetermined)
+            match source_at(pos) {
+                Some(RevocationSource::NoCheckExtension) => {
+                    (RevocationMethod::OcspNoCheck, RevocationStatus::NotChecked)
+                }
+                Some(RevocationSource::Cache) => settled(RevocationMethod::Cache),
+                Some(RevocationSource::StapledOcsp) => settled(RevocationMethod::StapledOcsp),
+                Some(RevocationSource::StapledCrl) => settled(RevocationMethod::StapledCrl),
+                Some(RevocationSource::LocalCrl) => settled(RevocationMethod::LocalCrl),
+                Some(RevocationSource::OcspFromAia) => settled(RevocationMethod::OcspFromAia),
+                Some(RevocationSource::RemoteCrlDp) => settled(RevocationMethod::RemoteCrlDp),
+                // Either nothing settled this position, or the results predate the checker
+                // recording sources. Fall back to what the artifacts show, which distinguishes CRL
+                // from OCSP but not where either came from.
+                Some(RevocationSource::None) | None => {
+                    if flag_at(&nocheck, pos) {
+                        (RevocationMethod::OcspNoCheck, RevocationStatus::NotChecked)
+                    } else if artifacts_at(&ocsp_responses, pos) {
+                        settled(RevocationMethod::Ocsp)
+                    } else if crl_artifact_at(pos) {
+                        settled(RevocationMethod::Crl)
+                    } else {
+                        (RevocationMethod::None, RevocationStatus::Undetermined)
+                    }
+                }
+            }
         };
 
         outcomes.push(RevocationOutcome {
@@ -1008,6 +1055,11 @@ mod tests {
         cpr.set_nocheck_for_item(0);
         cpr.add_crl(crl_marker(), 1);
         cpr.add_ocsp_response(vec![0x30, 0x00], 2);
+        // No sources are recorded, so this also covers the fallback taken for results produced
+        // before the checker recorded them: CRL and OCSP are still told apart, but not where either
+        // came from.
+        cpr.set_validation_status(PathValidationStatus::RevocationStatusNotDetermined);
+        cpr.set_failure_index(4);
 
         let outcomes = revocation_outcomes_from_cpr(&cpr, 4);
         assert_eq!(outcomes.len(), 4);
@@ -1025,6 +1077,67 @@ mod tests {
         assert_eq!(outcomes[3].cert_index, 4);
         assert_eq!(outcomes[3].method, RevocationMethod::None);
         assert_eq!(outcomes[3].status, RevocationStatus::Undetermined);
+    }
+
+    /// The status cache settles a certificate without examining revocation data, so it leaves no
+    /// artifact to infer from. The recorded source is the only thing that distinguishes it from a
+    /// position nothing settled -- and reporting a settled certificate as undetermined would
+    /// understate a result that was in fact determined.
+    #[test]
+    #[cfg(feature = "revocation")]
+    fn revocation_outcomes_report_a_cached_determination_despite_no_artifact() {
+        let mut cpr = CertificationPathResults::new();
+        cpr.prepare_revocation_results(2).unwrap();
+        cpr.add_crl(crl_marker(), 0);
+        cpr.set_revocation_source_for_item(0, RevocationSource::LocalCrl);
+        cpr.set_revocation_source_for_item(1, RevocationSource::Cache);
+
+        let outcomes = revocation_outcomes_from_cpr(&cpr, 2);
+        assert_eq!(outcomes[0].method, RevocationMethod::LocalCrl);
+        assert_eq!(outcomes[0].status, RevocationStatus::NotRevoked);
+        assert_eq!(outcomes[1].method, RevocationMethod::Cache);
+        assert_eq!(outcomes[1].status, RevocationStatus::NotRevoked);
+    }
+
+    /// Each rung of the ladder reports as itself. The artifacts cannot express this: a stapled
+    /// response and one fetched from an authority information access URI are both just "an OCSP
+    /// response in the results", and the same holds for a held CRL against a retrieved one.
+    #[test]
+    #[cfg(feature = "revocation")]
+    fn revocation_outcomes_distinguish_where_each_answer_came_from() {
+        let mut cpr = CertificationPathResults::new();
+        cpr.prepare_revocation_results(5).unwrap();
+        cpr.set_revocation_source_for_item(0, RevocationSource::StapledOcsp);
+        cpr.set_revocation_source_for_item(1, RevocationSource::StapledCrl);
+        cpr.set_revocation_source_for_item(2, RevocationSource::OcspFromAia);
+        cpr.set_revocation_source_for_item(3, RevocationSource::RemoteCrlDp);
+        cpr.set_revocation_source_for_item(4, RevocationSource::NoCheckExtension);
+
+        let outcomes = revocation_outcomes_from_cpr(&cpr, 5);
+        assert_eq!(outcomes[0].method, RevocationMethod::StapledOcsp);
+        assert_eq!(outcomes[1].method, RevocationMethod::StapledCrl);
+        assert_eq!(outcomes[2].method, RevocationMethod::OcspFromAia);
+        assert_eq!(outcomes[3].method, RevocationMethod::RemoteCrlDp);
+        assert_eq!(outcomes[4].method, RevocationMethod::OcspNoCheck);
+        assert_eq!(outcomes[4].status, RevocationStatus::NotChecked);
+    }
+
+    /// A position with neither a recorded source nor an artifact is undetermined, and says so.
+    #[test]
+    #[cfg(feature = "revocation")]
+    fn revocation_outcomes_report_unsettled_positions_as_undetermined() {
+        let mut cpr = CertificationPathResults::new();
+        cpr.prepare_revocation_results(3).unwrap();
+        cpr.add_crl(crl_marker(), 0);
+        cpr.set_revocation_source_for_item(0, RevocationSource::LocalCrl);
+        cpr.set_validation_status(PathValidationStatus::RevocationStatusNotDetermined);
+        cpr.set_failure_index(2);
+
+        let outcomes = revocation_outcomes_from_cpr(&cpr, 3);
+        assert_eq!(outcomes[0].method, RevocationMethod::LocalCrl);
+        assert_eq!(outcomes[1].method, RevocationMethod::None);
+        assert_eq!(outcomes[1].status, RevocationStatus::Undetermined);
+        assert_eq!(outcomes[2].method, RevocationMethod::None);
     }
 
     #[test]

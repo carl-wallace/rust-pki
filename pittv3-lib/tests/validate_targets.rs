@@ -307,12 +307,18 @@ fn validate_targets_stapled_crls() {
     assert_eq!(valid.status, TargetStatus::Valid);
     let valid_path = &valid.paths[0];
     assert_eq!(valid_path.revocation.len(), 2);
-    assert_eq!(valid_path.revocation[0].method, RevocationMethod::Crl);
+    assert_eq!(
+        valid_path.revocation[0].method,
+        RevocationMethod::StapledCrl
+    );
     assert_eq!(
         valid_path.revocation[0].status,
         RevocationStatus::NotRevoked
     );
-    assert_eq!(valid_path.revocation[1].method, RevocationMethod::Crl);
+    assert_eq!(
+        valid_path.revocation[1].method,
+        RevocationMethod::StapledCrl
+    );
     assert_eq!(
         valid_path.revocation[1].status,
         RevocationStatus::NotRevoked
@@ -326,6 +332,9 @@ fn validate_targets_stapled_crls() {
         Some(PathValidationStatus::CertificateRevokedEndEntity)
     );
     assert_eq!(revoked_path.failure_index, Some(2));
-    assert_eq!(revoked_path.revocation[1].method, RevocationMethod::Crl);
+    assert_eq!(
+        revoked_path.revocation[1].method,
+        RevocationMethod::StapledCrl
+    );
     assert_eq!(revoked_path.revocation[1].status, RevocationStatus::Revoked);
 }

@@ -835,6 +835,7 @@ dependencies = [
  "sha3",
  "signature",
  "slh-dsa",
+ "spin",
  "spki",
  "subtle-encoding",
  "tempfile",

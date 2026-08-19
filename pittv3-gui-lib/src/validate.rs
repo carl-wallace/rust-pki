@@ -7,6 +7,8 @@
 //! so the same validation path serves every frontend and no frontend forks it.
 
 use std::io::{Cursor, Read};
+#[cfg(feature = "revocation")]
+use std::sync::Arc;
 
 use certval::*;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport};
@@ -92,11 +94,22 @@ impl PreparedValidation {
 /// This is the heavy step; validate targets against the result with [`validate_prepared`]. Returns
 /// the prepared environment plus informational notes, or fatal notes when preparation cannot yield a
 /// usable environment (e.g., no trust anchors).
+///
+/// `rev_cache` is taken rather than created here so a caller can keep revocation determinations
+/// across rebuilds. That matters because uploads and retrieved certificates make the environment
+/// stale, and a cache built here would be discarded with it -- costing a re-fetch of revocation data
+/// that a retrieval had already paid for. Determinations stay sound across such a rebuild: they are
+/// keyed on the issuing key and bounded by the validity of the data behind them, and adding
+/// certificates changes which paths exist rather than whether a certificate was revoked. A caller
+/// that shares one owes it a `clear()` when the time of interest moves backward or the revocation
+/// policy tightens; one that would rather not think about it can pass a fresh cache each time and get
+/// the previous behavior.
 pub fn prepare_validation(
     store: Option<(&str, &[u8], &[u8])>,
     tas: &[(String, Vec<u8>)],
     cas: &[(String, Vec<u8>)],
     cps: &CertificationPathSettings,
+    #[cfg(feature = "revocation")] rev_cache: &Arc<RevocationCache>,
     // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
 ) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
@@ -194,6 +207,17 @@ pub fn prepare_validation(
     // checker saw before it existed.
     let crls = MemoryCrlSource::new();
     pe.add_crl_source(Box::new(crls.clone()));
+    // The revocation checker consults the status cache before anything else and writes back to it
+    // whenever a CRL or an OCSP response determines a status. Both ends iterate the registered
+    // caches, so with none registered the first check always answers "not determined" and every
+    // determination is discarded -- the same certificate is re-derived on each run and, when the
+    // frontend retrieves, re-fetched for. Only Valid and revoked verdicts are cached, and each is
+    // served only until the nextUpdate of the data behind it, so an undetermined status never
+    // suppresses a retry and a stale one is never reused. The cache belongs to this environment and
+    // is discarded with it, which is what keeps it honest when the time of interest changes: that
+    // is a settings change, and a settings change rebuilds the environment.
+    #[cfg(feature = "revocation")]
+    pe.add_revocation_cache(Box::new(rev_cache.clone()));
     // Nothing to register for OCSP -- certval has no source for it -- so this is simply carried
     // and consulted when a path is built. See validate_target.
     let ocsp = OcspResponses::new();
