@@ -18,10 +18,23 @@ env:
 jobs:
   gui:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       # dioxus-desktop on Linux needs webkit2gtk/gtk3/xdo development packages.
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      #
+      # Every apt option here bounds a wait that is unbounded by default, because
+      # each one has been observed to stall the runner indefinitely rather than
+      # fail: the dpkg lock can be held by the image's background package updates,
+      # and a mirror connection can stall mid-transfer with no read timeout. The
+      # job-level timeout above is the outer bound for anything these miss.
+      - run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check -p pittv3_gui_lib
       - run: cargo check -p pittv3-gui
@@ -31,6 +44,7 @@ jobs:
   # checked: unlike the GUI crates these have a headless test surface.
   service:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +52,7 @@ jobs:
 
   wasm:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -51,12 +66,20 @@ jobs:
   doc:
     name: rustdoc (-D warnings)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
-      # documenting pittv3-gui compiles its dependencies, so the same packages the gui job needs
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      # documenting pittv3-gui compiles its dependencies, so the same packages the gui job needs,
+      # installed with the same bounds on apt's otherwise unbounded waits
+      - run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
