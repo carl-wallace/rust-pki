@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
-use log::{debug, error, info};
+use log::{debug, error};
 
 use walkdir::WalkDir;
 
@@ -33,11 +33,6 @@ use crate::revocation::crl::{
     build_kept_serials, check_crl_validity, crl_covers_cert, get_crl_info, CrlInfo, CrlScope,
 };
 
-struct StatusAndTime {
-    status: PathValidationStatus, // Valid or Revoked
-    time: u64,
-}
-
 /// This is the inner structure in [`CrlSourceFolders`].
 /// it is held under a read-write lock and various maps should be kept consistent with the content
 /// of the `crl_info`.
@@ -61,7 +56,7 @@ struct CrlSourceFoldersInner {
 /// the key that verified the CRL and answer only on behalf of that same issuing key, so issuers
 /// sharing a subject name (e.g. across a key rollover) can never answer for one another. As a
 /// RevocationStatusCache it answers only from those kept CRLs and abstains otherwise; register a
-/// [`RevocationCache`] alongside it to cache OCSP determinations and anything not covered by a
+/// [`crate::RevocationCache`] alongside it to cache OCSP determinations and anything not covered by a
 /// kept CRL.
 #[readonly::make]
 pub struct CrlSourceFolders {
@@ -73,12 +68,6 @@ pub struct CrlSourceFolders {
     keep_entries_in_memory: bool,
 
     inner: RwLock<CrlSourceFoldersInner>,
-}
-
-/// Provided in-memory revocation status cache
-#[readonly::make]
-pub struct RevocationCache {
-    cache_map: RwLock<CacheMap>,
 }
 
 /// Provides file-based remote URI status information (relative to a file folder, typically the CRLs
@@ -97,9 +86,6 @@ pub struct RemoteStatus {
 type IssuerMap = BTreeMap<String, Vec<usize>>;
 type SkidMap = BTreeMap<Vec<u8>, Vec<usize>>;
 type DpMap = BTreeMap<Vec<u8>, Vec<usize>>;
-// Keyed by (issuer name, hex SHA-256 of issuer SPKI, serial). The SPKI hash binds a cached
-// determination to the issuing key so issuers sharing a subject name cannot answer for one another.
-type CacheMap = BTreeMap<(String, String, String), StatusAndTime>;
 type LastModifiedMap = BTreeMap<String, String>;
 type Blocklist = Vec<String>;
 
@@ -205,22 +191,6 @@ impl CrlSourceFoldersInner {
             }
         }
         None
-    }
-}
-
-impl RevocationCache {
-    /// Create new RevocationCache instance
-    pub fn new() -> Self {
-        RevocationCache {
-            cache_map: RwLock::new(Default::default()),
-        }
-    }
-}
-
-impl Default for RevocationCache {
-    /// Create a new default RevocationCache instance
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -702,90 +672,10 @@ fn index_crls_internal(
     Ok(crl_info.len() - initial_count)
 }
 
-/// Hex SHA-256 of the issuer's DER-encoded SPKI, used to key cached determinations to the issuing
-/// key. None when the SPKI cannot be encoded, in which case there is nothing sound to key on.
-fn issuer_spki_hash_hex(issuer: &dyn SubjectNameAndKey) -> Option<String> {
-    let spki = issuer.spki().to_der().ok()?;
-    Some(buffer_to_hex(Sha256::digest(&spki).to_vec().as_slice()))
-}
-
-impl RevocationStatusCache for RevocationCache {
-    fn get_status(
-        &self,
-        cert: &PDVCertificate,
-        issuer: &dyn SubjectNameAndKey,
-        time_of_interest: TimeOfInterest,
-    ) -> PathValidationStatus {
-        let name = name_to_string(cert.decoded().tbs_certificate().issuer());
-        let issuer_key = match issuer_spki_hash_hex(issuer) {
-            Some(hash) => hash,
-            None => return RevocationStatusNotDetermined,
-        };
-        let serial = buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes());
-
-        let cache_map = if let Ok(c) = self.cache_map.read() {
-            c
-        } else {
-            return RevocationStatusNotDetermined;
-        };
-        let key = (name, issuer_key, serial);
-        if cache_map.contains_key(&key) {
-            let status_and_time = &cache_map[&key];
-            if status_and_time.time > time_of_interest.as_unix_secs() {
-                info!("Serviced revocation status check for certificate with serial number {} issued by {} from cache", key.2, key.0);
-                return status_and_time.status;
-            }
-        }
-
-        RevocationStatusNotDetermined
-    }
-    fn add_status(
-        &self,
-        cert: &PDVCertificate,
-        issuer: &dyn SubjectNameAndKey,
-        next_update: u64,
-        status: PathValidationStatus,
-    ) {
-        if status != PathValidationStatus::Valid
-            && status != PathValidationStatus::CertificateRevoked
-        {
-            return;
-        }
-
-        let name = name_to_string(cert.decoded().tbs_certificate().issuer());
-        let issuer_key = match issuer_spki_hash_hex(issuer) {
-            Some(hash) => hash,
-            None => return,
-        };
-        let serial = buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes());
-        let key = (name, issuer_key, serial);
-
-        let mut cache_map = if let Ok(g) = self.cache_map.write() {
-            g
-        } else {
-            return;
-        };
-        let status_and_time = StatusAndTime {
-            status,
-            time: next_update,
-        };
-        if cache_map.contains_key(&key) {
-            let old_status_and_time = &cache_map[&key];
-            if old_status_and_time.time < next_update {
-                debug!("Updating entry in revocation status check for certificate with serial number {} issued by {} in cache", key.2, key.0);
-                cache_map.insert(key, status_and_time);
-            }
-        } else {
-            debug!("Adding entry to revocation status check for certificate with serial number {} issued by {} to cache", key.2, key.0);
-            cache_map.insert(key, status_and_time);
-        }
-    }
-}
-
 impl RevocationStatusCache for CrlSourceFolders {
     /// Answers only from the in-memory kept CRLs (populated via keep_verified_crl); abstains with
     /// RevocationStatusNotDetermined otherwise. A per-certificate memo registered alongside (e.g. a
-    /// [`RevocationCache`]) handles OCSP determinations and anything not covered by a kept CRL --
+    /// [`crate::RevocationCache`]) handles OCSP determinations and anything not covered by a kept CRL --
     /// PkiEnvironment::get_status consults each registered cache in turn and returns the first
     /// determination.
     #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]

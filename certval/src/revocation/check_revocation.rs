@@ -24,6 +24,7 @@ use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::{
     CertificationPath, CertificationPathResults, CertificationPathSettings, Error,
     ExtensionProcessing, PDVExtension, PathValidationStatus::*, PkiEnvironment, Result,
+    RevocationSource,
 };
 
 #[cfg(feature = "revocation")]
@@ -35,22 +36,48 @@ use crate::revocation::crl::check_revocation_crl_remote;
 #[cfg(feature = "remote")]
 use crate::revocation::ocsp_client::check_revocation_ocsp;
 
-/// check_revocation is top level revocation checking function supports a variety of revocation status
-/// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses. Assuming all options
-/// are enabled, the order of priority is:
-/// - OCSP no-check extension
-/// - Stapled OCSP response
-/// - Stapled CRLs
-/// - Cached CRLs
-/// - Remote OCSP
-/// - Remote CRL
-/// - Stale CRLs within grace period (not yet implemented)
+/// Determines the revocation status of every certificate in a path, trying each available source in
+/// turn until one answers.
 ///
-/// Ok is returned if status for all certificates can be determined and none were revoked. If a certificate is
-/// found to be revoked (including when revocation status could not be found for one or more superior certificates)
-/// Error::PathValidation(CertificateRevokedEndEntity) or Error::PathValidation(CertificateRevokedIntermediateCa) is
-/// returned. If no certificates were found to be revoked but status could not be determined for all certificates
-/// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
+/// ```text
+/// cache → no-check ext → stapled (OCSP | CRL) → local CRLs → OCSP from AIA → remote CRL DP → grace periods
+/// ```
+///
+/// Two gates come first and return `Ok(())` with nothing checked: revocation checking turned off in
+/// the settings, and a target that is itself a trust anchor. Then, for each certificate in
+/// `[intermediates…, target]` — its issuer being the trust anchor for the first and the preceding
+/// certificate thereafter — the chain above is walked, **each step running only while the status is
+/// still `RevocationStatusNotDetermined`, so the first source to answer wins.**
+///
+/// **A revoked verdict short-circuits; an undetermined one accumulates.** A revocation returns
+/// immediately from inside the loop, so later certificates are never examined. An undetermined
+/// status is pushed and the loop continues, so every certificate is looked at before the path is
+/// failed — which is what makes the reported failure index meaningful.
+///
+/// Notes on the individual links, in order:
+///
+/// - **cache** — `pe.get_status`, consulted before anything else, including the no-check extension,
+///   so a cached revocation wins over a certificate that asks not to be checked.
+/// - **no-check ext** — `id-pkix-ocsp-nocheck` sets the status to `Valid` outright rather than
+///   merely skipping a source, so nothing after it runs for that certificate.
+/// - **stapled OCSP and stapled CRL are alternatives, not a sequence.** The block is entered only
+///   when [`CertificationPath::stapled_rev_info_available`] is true, and a stapled OCSP response
+///   that is present but fails for any reason other than revocation does **not** fall through to a
+///   stapled CRL for the same certificate.
+/// - **local CRLs** — every CRL `pe.get_crls` returns is tried: the first that determines `Valid`
+///   wins, a revocation aborts, and any other error is logged before moving to the next CRL. Gated
+///   on `cps.check_crls`.
+/// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
+///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
+///   [`check_revocation_local`] is the same chain stopping after local CRLs.
+/// - **grace periods** — `cps.crl_grace_periods_as_last_resort` reaches a `TODO`; a stale CRL is
+///   never reconsidered today, so the setting changes nothing.
+///
+/// Returns `Ok` when the status of every certificate was determined and none was revoked. A
+/// revocation yields `Error::PathValidation(CertificateRevokedEndEntity)` or
+/// `Error::PathValidation(CertificateRevokedIntermediateCa)` according to the certificate's
+/// position. If nothing was revoked but some status could not be determined,
+/// `Error::PathValidation(RevocationStatusNotDetermined)` is returned.
 #[cfg(feature = "std")]
 pub async fn check_revocation(
     pe: &PkiEnvironment,
@@ -113,15 +140,22 @@ pub async fn check_revocation(
         let mut cur_status = pe.get_status(cur_cert, issuer, toi);
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {cur_cert_subject}");
+            cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
             cpr.set_validation_status(revoked_error);
             cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(revoked_error));
+        }
+        if cur_status != RevocationStatusNotDetermined {
+            cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
         }
 
         if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
             ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
         {
             info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {cur_cert_subject}");
+            // Recorded even when the cache already answered: the extension is why no revocation data
+            // was examined, which is the more useful thing to report.
+            cpr.set_revocation_source_for_item(pos, RevocationSource::NoCheckExtension);
             cur_status = Valid;
         }
 
@@ -140,10 +174,12 @@ pub async fn check_revocation(
                     Ok(_ok) => {
                         // process_ocsp_response handles adding response (and request) to results, unlike process_crl due to request/response pair in mast cases
                         info!("Determined revocation status (valid) using stapled OCSP for certificate issued to {cur_cert_subject}");
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::StapledOcsp);
                         cur_status = Valid
                     }
                     Err(Error::PathValidation(CertificateRevoked)) => {
                         info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {cur_cert_subject}");
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::StapledOcsp);
                         cpr.set_validation_status(revoked_error);
                         cpr.set_failure_index(pos as u32 + 1);
                         return Err(Error::PathValidation(revoked_error));
@@ -156,11 +192,13 @@ pub async fn check_revocation(
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {cur_cert_subject}");
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::StapledCrl);
                         cur_status = Valid
                     }
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {cur_cert_subject}");
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::StapledCrl);
                             cpr.set_validation_status(revoked_error);
                             cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
@@ -178,11 +216,13 @@ pub async fn check_revocation(
                     match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
                         Ok(_ok) => {
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {cur_cert_subject}");
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
                             cur_status = Valid;
                             break;
                         }
                         Err(Error::PathValidation(CertificateRevoked)) => {
                             info!("Determined revocation status (revoked) using cached CRL for certificate issued to {cur_cert_subject}");
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
                             cpr.set_validation_status(revoked_error);
                             cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
@@ -199,6 +239,9 @@ pub async fn check_revocation(
         if cur_status == RevocationStatusNotDetermined && check_ocsp_from_aia {
             // check_revocation_ocsp emits log message that includes which AIA was used to determine status
             cur_status = check_revocation_ocsp(pe, cps, cpr, cur_cert, issuer, pos).await;
+            if cur_status != RevocationStatusNotDetermined {
+                cpr.set_revocation_source_for_item(pos, RevocationSource::OcspFromAia);
+            }
             if CertificateRevoked == cur_status {
                 cpr.set_validation_status(revoked_error);
                 cpr.set_failure_index(pos as u32 + 1);
@@ -209,6 +252,9 @@ pub async fn check_revocation(
         #[cfg(feature = "remote")]
         if cur_status == RevocationStatusNotDetermined && check_crldp_http {
             cur_status = check_revocation_crl_remote(pe, cps, cpr, cur_cert, issuer, pos).await;
+            if cur_status != RevocationStatusNotDetermined {
+                cpr.set_revocation_source_for_item(pos, RevocationSource::RemoteCrlDp);
+            }
             if CertificateRevoked == cur_status {
                 cpr.set_validation_status(revoked_error);
                 cpr.set_failure_index(pos as u32 + 1);
@@ -237,26 +283,24 @@ pub async fn check_revocation(
     }
 }
 
-/// check_revocation is top level revocation checking function supports a variety of revocation status
-/// determination mechanisms, including allowlist, blocklist, CRLs and OCSP responses.
-///
-/// Ok is returned if status for all certificates can be determined and none were revoked. If a certificate is
-/// found to be revoked (including when revocation status could not be found for one or more superior certificates)
-/// Error::PathValidation(CertificateRevokedEndEntity) or Error::PathValidation(CertificateRevokedIntermediateCa) is
-/// returned. If no certificates were found to be revoked but status could not be determined for all certificates
-/// in the path, Error::PathValidation(RevocationStatusNotDetermined) is returned.
 /// Determines revocation status from data the caller has already supplied, retrieving nothing.
 ///
-/// Consulted in order: the environment's revocation status cache, an OCSP response stapled into the
-/// path, a CRL stapled into the path, and any registered [`CrlSource`](crate::CrlSource).
+/// This is steps 1 through 4 of the ladder documented on [`check_revocation`], with the same
+/// short-circuit on revocation and the same accumulation of undetermined statuses: the environment's
+/// revocation status cache, the OCSP no-check extension, an OCSP response or CRL stapled into the
+/// path, and any registered [`CrlSource`](crate::CrlSource). Nothing is fetched, so a status that
+/// only a responder or a CRL DP could settle stays undetermined.
 ///
-/// This is available whenever `revocation` is, unlike [`check_revocation`], which is asynchronous
-/// under `std` and synchronous otherwise. That split is a hazard for a caller that cannot see which
-/// one it got: a crate can `cfg` on its own features but never on a dependency's, so feature
-/// unification can hand a synchronous caller the asynchronous function and the mismatch surfaces as
-/// a type error in code that did nothing wrong. A caller that does its own retrieving — a browser
+/// This is available whenever `revocation` is, unlike [`check_revocation`], which exists only under
+/// `std` and is asynchronous. That is a hazard for a caller that cannot see what it got: a crate can
+/// `cfg` on its own features but never on a dependency's, so feature unification decides both
+/// whether the function is there at all and whether it must be awaited, and the mismatch surfaces as
+/// a compile error in code that did nothing wrong. A caller that does its own retrieving — a browser
 /// going through a relay, a service that keeps egress under its own policy — should call this and
 /// stop caring which flavor of certval it was linked against.
+///
+/// Returns `Ok` when the status of every certificate was determined and none was revoked, and
+/// otherwise the same errors [`check_revocation`] returns.
 pub fn check_revocation_local(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -314,15 +358,20 @@ pub fn check_revocation_local(
 
         if CertificateRevoked == cur_status {
             info!("Determined revocation status (revoked) using cached status for certificate issued to {}", cur_cert_subject);
+            cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
             cpr.set_validation_status(revoked_error);
             cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(revoked_error));
+        }
+        if cur_status != RevocationStatusNotDetermined {
+            cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
         }
 
         if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
             ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
         {
             info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject);
+            cpr.set_revocation_source_for_item(pos, RevocationSource::NoCheckExtension);
             cur_status = Valid;
         }
 
@@ -341,11 +390,13 @@ pub fn check_revocation_local(
                     Ok(_ok) => {
                         // process_ocsp_response handles adding response (and request) to results, unlike process_crl due to request/response pair in mast cases
                         info!("Determined revocation status (valid) using stapled OCSP for certificate issued to {}", cur_cert_subject);
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::StapledOcsp);
                         cur_status = Valid
                     }
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled OCSP for certificate issued to {}", cur_cert_subject);
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::StapledOcsp);
                             cpr.set_validation_status(revoked_error);
                             cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
@@ -358,11 +409,13 @@ pub fn check_revocation_local(
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::StapledCrl);
                         cur_status = Valid
                     }
                     Err(e) => {
                         if Error::PathValidation(CertificateRevoked) == e {
                             info!("Determined revocation status (revoked) using stapled CRL for certificate issued to {}", cur_cert_subject);
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::StapledCrl);
                             cpr.set_validation_status(revoked_error);
                             cpr.set_failure_index(pos as u32 + 1);
                             return Err(Error::PathValidation(revoked_error));
@@ -380,12 +433,14 @@ pub fn check_revocation_local(
                     match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
                         Ok(_ok) => {
                             info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
+                            cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
                             cur_status = Valid;
                             break;
                         }
                         Err(e) => {
                             if Error::PathValidation(CertificateRevoked) == e {
                                 info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
+                                cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
                                 cpr.set_validation_status(revoked_error);
                                 cpr.set_failure_index(pos as u32 + 1);
                                 return Err(Error::PathValidation(revoked_error));
