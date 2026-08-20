@@ -498,7 +498,8 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut dyn Write, np: &Path, cpr: &Certifi
 
 /// Renders the certification path validation outputs -- the status and the valid policy graph.
 ///
-/// Separate from [`write_cpr_artifacts`] because the two halves go to different places and only one
+/// Separate from the filesystem half (`write_cpr_artifacts`, private) because the two halves go to
+/// different places and only one
 /// of them needs a filesystem: a frontend assembling an archive in memory renders this and collects
 /// the artifacts as bytes, while a run writing to a results folder does both to disk. Keeping the
 /// rendering here means every frontend's manifest is the same manifest rather than a second one that
@@ -1068,6 +1069,10 @@ pub fn render_path_manifest(
     }
 }
 
+// The test writes the rendered settings to a file, so it needs the half of this module that has a
+// filesystem. It was covered by the module-wide gate before that gate was narrowed to the functions
+// that actually need it.
+#[cfg(feature = "std_app")]
 #[test]
 fn test_cps_log() {
     extern crate alloc;
@@ -1078,7 +1083,6 @@ fn test_cps_log() {
 
     use certval::validator::path_settings::*;
 
-    #[cfg(feature = "std_app")]
     let mut cps = CertificationPathSettings::new();
     cps.set_initial_explicit_policy_indicator(true);
     cps.set_initial_policy_mapping_inhibit_indicator(true);
