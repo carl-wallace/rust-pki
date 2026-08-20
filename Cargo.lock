@@ -822,7 +822,6 @@ dependencies = [
  "pem-rfc7468",
  "pkcs1",
  "pkiprocmacros 0.1.2",
- "pqckeys",
  "pretty_env_logger",
  "readonly",
  "reqwest 0.13.4",
@@ -5324,19 +5323,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
-]
-
-[[package]]
-name = "pqckeys"
-version = "0.1.1"
-source = "git+https://github.com/carl-wallace/pqckeys?branch=main#e3a6948976a74905684c632e90f65849df7e73ed"
-dependencies = [
- "const-oid",
- "der",
- "flagset",
- "hex-literal",
- "spki",
- "x509-cert",
 ]
 
 [[package]]
