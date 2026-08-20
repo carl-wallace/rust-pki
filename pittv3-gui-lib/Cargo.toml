@@ -26,6 +26,10 @@ x509-cert = { version = "0.3.0", default-features = false }
 # CRL is decoded once when it is stored. Both are already in the graph via certval, so naming them
 # here adds no crate to any frontend's build.
 cms = { version = "0.3.0-pre.2", default-features = false }
+# Only used to read an *uploaded* OCSP response well enough to work out which certificate it
+# answers about (see `retrieval::staple_uploaded_ocsp`). Judging the response remains certval's
+# job -- nothing here decides revocation status. Version tracks certval's so one x509-ocsp resolves.
+x509-ocsp = { version = "0.3.0-pre", default-features = false }
 der = { version = "0.8.1", default-features = false, features = ["alloc", "oid"] }
 
 # No renderer here -- each frontend names its own (web or desktop). devtools is left off because

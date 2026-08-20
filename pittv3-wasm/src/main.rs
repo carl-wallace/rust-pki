@@ -20,7 +20,7 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{TargetReport, ValidationReport};
 
 use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
-use pittv3_gui_lib::retrieval::harvest_revocation_work;
+use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
 use crate::relay::{chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, Tier};
 use crate::validate::{
@@ -160,22 +160,29 @@ fn load_use_rev_cache() -> bool {
 /// the value is not written back to the model.
 ///
 /// Revocation status checking is materialized the same way and for the same class of reason:
-/// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is *true*, and nothing in the
-/// browser can fetch a CRL or an OCSP response until a relay exists, so an unstated preference
-/// means off here.
+/// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is *true*, and a browser cannot
+/// always obtain a CRL or an OCSP response, so an unstated preference depends on whether this run
+/// can get hold of any.
 ///
 /// This line is load-bearing: `pittv3_gui_lib::validate` calls `check_revocation` for a path that
 /// otherwise validates, and that check consults stapled revocation data and registered CRL sources
-/// rather than fetching. So what an unstated preference should mean depends on the tier. In
-/// [`Tier::Local`] nothing can be retrieved and an unstated preference means off, or every run
-/// would come back `RevocationStatusNotDetermined` for want of data the page cannot obtain. In
+/// rather than fetching. There are **two** ways a run comes by such data — retrieving it through a
+/// relay, or being handed it by the user — and `supplied_revocation_data` is the second. Keying the
+/// default on the tier alone is what made the upload buttons inert: a [`Tier::Local`] run switched
+/// checking off and then never consulted the CRL it had just been given. With neither, an unstated
+/// preference still means off, or every run would come back `RevocationStatusNotDetermined` for
+/// want of data the page cannot obtain. In
 /// [`Tier::Relayed`] the data can be retrieved, and checking is the point of having chosen that
 /// tier, so an unstated preference means on.
 ///
 /// A stated preference is honored either way — the settings form says outright that these settings
 /// apply only where the tool can fetch, and a user who asks for checking in the local tier gets
 /// what they asked for, undetermined status included.
-fn run_settings(model: &SettingsModel, tier: Tier) -> CertificationPathSettings {
+fn run_settings(
+    model: &SettingsModel,
+    tier: Tier,
+    supplied_revocation_data: bool,
+) -> CertificationPathSettings {
     let mut cps = CertificationPathSettings::default();
     model.apply(&mut cps);
     if model.time_of_interest.is_none() {
@@ -183,8 +190,12 @@ fn run_settings(model: &SettingsModel, tier: Tier) -> CertificationPathSettings 
             cps.set_time_of_interest(toi);
         }
     }
+    // The unstated default asks whether this run can obtain revocation data at all -- retrieving is
+    // one way to obtain it, and being handed it by the user is the other. Keying this on the tier
+    // alone predates the upload buttons and made them inert: a no-network run would switch checking
+    // off and then never consult the CRL or OCSP response it had just been given.
     if model.check_revocation_status.is_none() {
-        cps.set_check_revocation_status(tier.retrieves());
+        cps.set_check_revocation_status(tier.retrieves() || supplied_revocation_data);
     }
     cps
 }
@@ -295,6 +306,16 @@ fn App() -> Element {
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Revocation data supplied by hand, for a run with no network to fetch it. Held here rather
+    // than pushed straight into the prepared environment because that environment is rebuilt
+    // whenever the trust material or settings change, and a rebuild would take the uploads with
+    // it. These are folded in at Validate instead, so they survive every rebuild.
+    let mut uploaded_crls = use_signal(Vec::<(String, Vec<u8>)>::new);
+    let mut uploaded_ocsp = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Whether this run has revocation data of its own. Read when the settings for a run are built,
+    // because it is one of the two ways a run can obtain any -- see `run_settings`.
+    let have_revocation_uploads =
+        move || !uploaded_crls().is_empty() || !uploaded_ocsp().is_empty();
     // The uploads panel's expanded state is deliberately NOT tracked here — see the store
     // dropdown's `onchange`, which pushes it open once when "None" is selected and otherwise
     // leaves the browser to own it.
@@ -656,7 +677,7 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = run_settings(&settings(), tier());
+        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
         for (name, bytes) in loaded_zips() {
             let (reports, lines) = validate_hackathon_zip(&name, bytes, &cps, validate_all());
             notes.write().extend(lines);
@@ -717,7 +738,7 @@ fn App() -> Element {
         #[cfg(target_family = "wasm")]
         gloo_timers::future::TimeoutFuture::new(16).await;
 
-        let cps = run_settings(&settings(), tier());
+        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
 
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
@@ -736,6 +757,49 @@ fn App() -> Element {
         // The retrieval budget is per click rather than per step, so a chase that spent it does not
         // leave a revocation retrieval to discover the same limit again.
         let mut budget = FetchBudget::new();
+
+        // Uploaded revocation data goes in before the tier is consulted, so it reaches BOTH tiers.
+        // A no-network run has no other way to obtain any, and a retrieving run must not go
+        // and fetch what it was already given -- the harvest below skips a certificate whose
+        // status is already settled. Deliberately outside `tier().retrieves()`: that branch is
+        // false in exactly the no-network case this exists for. Not gated on
+        // check_revocation_status either: supplying a file is an explicit act, and a run that
+        // ignores it should say so through the settings rather than by discarding it silently.
+        if !uploaded_crls().is_empty() || !uploaded_ocsp().is_empty() {
+            let guard = prepared_env.read();
+            if let Some((prepared, _)) = guard.as_ref() {
+                for (name, bytes) in uploaded_crls() {
+                    match add_uploaded_crl(prepared, &bytes) {
+                        true => notes.write().push(ResultLine {
+                            class: "info",
+                            text: format!("Added CRL from {name}"),
+                        }),
+                        false => notes.write().push(ResultLine {
+                            class: "err",
+                            text: format!("{name} is not a CRL"),
+                        }),
+                    }
+                }
+                for (name, bytes) in uploaded_ocsp() {
+                    let outcome = staple_uploaded_ocsp(prepared, &cps, &loaded_ees(), &bytes);
+                    if outcome.matched > 0 {
+                        notes.write().push(ResultLine {
+                            class: "info",
+                            text: format!(
+                                "Stapled OCSP response from {name} to {} certificate(s)",
+                                outcome.matched
+                            ),
+                        });
+                    }
+                    for note in outcome.notes {
+                        notes.write().push(ResultLine {
+                            class: "err",
+                            text: format!("{name}: {note}"),
+                        });
+                    }
+                }
+            }
+        }
 
         // --- retrieve, when the tier permits it ---
         //
@@ -957,6 +1021,58 @@ fn App() -> Element {
                                         },
                                         "Clear"
                                     }
+                                }
+                            }
+                        }
+
+                        details { class: "panel", id: "revocation-panel",
+                            summary { "Revocation data (CRLs and OCSP responses)" }
+                            div { class: "controls custom",
+                                label { "CRL(s): " }
+                                // Unfiltered for the same reason as the OCSP input below: .crl is
+                                // the common extension but nothing requires it, and add_uploaded_crl
+                                // already answers "is not a CRL" from the bytes. Widening what can
+                                // be selected cannot break a file that was selectable before.
+                                input {
+                                    r#type: "file",
+                                    multiple: true,
+                                    onchange: move |ev| async move {
+                                        let files = read_files(&ev).await;
+                                        extend_unique(uploaded_crls, files);
+                                    },
+                                }
+                                label { "OCSP response(s): " }
+                                // Deliberately unfiltered. An OCSP response has no settled file
+                                // extension -- tools write .ors, .der, .resp, or none at all -- and
+                                // an `accept` list greys out anything it failed to anticipate, so a
+                                // wrong guess here blocks the file rather than merely failing to
+                                // suggest it. The bytes are what decide: staple_uploaded_ocsp says
+                                // "Not an OCSP response" for anything that is not one, which is a
+                                // better gate than the name and cannot lock the user out.
+                                input {
+                                    r#type: "file",
+                                    multiple: true,
+                                    onchange: move |ev| async move {
+                                        let files = read_files(&ev).await;
+                                        extend_unique(uploaded_ocsp, files);
+                                    },
+                                }
+                                span { class: "hint",
+                                    "{uploaded_crls().len()} CRL(s), {uploaded_ocsp().len()} OCSP response(s) loaded "
+                                    button {
+                                        onclick: move |_| {
+                                            uploaded_crls.write().clear();
+                                            uploaded_ocsp.write().clear();
+                                        },
+                                        "Clear"
+                                    }
+                                }
+                                span { class: "hint",
+                                    "Supplied at Validate, so a run with no network can still determine \
+                                     revocation status. An OCSP response is matched to the certificates \
+                                     it answers about by its CertID, so it does not matter which one you \
+                                     loaded it for. Any file may be chosen — what it contains decides, \
+                                     not what it is called. CRLs may be DER or PEM."
                                 }
                             }
                         }
@@ -1358,15 +1474,25 @@ mod tests {
     /// `RevocationStatusNotDetermined` for want of data the page cannot obtain.
     #[test]
     fn revocation_checking_is_off_unless_asked_for_in_the_local_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Local);
+        let cps = run_settings(&SettingsModel::default(), Tier::Local, false);
         assert!(!cps.get_check_revocation_status());
+    }
+
+    /// Uploading a CRL or an OCSP response is the other way a run obtains revocation data, so it
+    /// moves the same unstated default the relay tier moves. Without this the upload buttons are
+    /// inert in exactly the tier they exist for: checking stays off and the stapled data is never
+    /// consulted, which reads as `RevocationStatusNotDetermined` and looks like the staple failed.
+    #[test]
+    fn supplied_revocation_data_turns_checking_on_in_the_local_tier() {
+        let cps = run_settings(&SettingsModel::default(), Tier::Local, true);
+        assert!(cps.get_check_revocation_status());
     }
 
     /// With a relay the data can be retrieved, and checking is the reason to have chosen that tier,
     /// so the unstated preference reverses. This is the one setting whose default the tier moves.
     #[test]
     fn revocation_checking_is_on_unless_refused_in_the_relayed_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Relayed);
+        let cps = run_settings(&SettingsModel::default(), Tier::Relayed, false);
         assert!(cps.get_check_revocation_status());
     }
 
@@ -1379,13 +1505,16 @@ mod tests {
             check_revocation_status: Some(true),
             ..SettingsModel::default()
         };
-        assert!(run_settings(&asked_for, Tier::Local).get_check_revocation_status());
+        assert!(run_settings(&asked_for, Tier::Local, false).get_check_revocation_status());
 
         let refused = SettingsModel {
             check_revocation_status: Some(false),
             ..SettingsModel::default()
         };
-        assert!(!run_settings(&refused, Tier::Relayed).get_check_revocation_status());
+        assert!(!run_settings(&refused, Tier::Relayed, false).get_check_revocation_status());
+
+        // An upload does not override a refusal: the user said no.
+        assert!(!run_settings(&refused, Tier::Local, true).get_check_revocation_status());
     }
 
     /// The tier is what the settings form's per-capability notices key off, so the two have to move

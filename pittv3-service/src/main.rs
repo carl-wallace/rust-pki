@@ -3,6 +3,8 @@
 
 use std::path::PathBuf;
 
+use actix_web::dev::Service;
+use actix_web::http::header::{HeaderValue, CACHE_CONTROL};
 use actix_web::{web, App, HttpServer};
 use clap::Parser;
 use log::info;
@@ -136,6 +138,28 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         let app = App::new()
+            // Cache-Control for the browser application. Trunk content-hashes the js and wasm but
+            // NOT index.html, so a browser holding a stale index.html asks for the previous build's
+            // hashed assets, gets 404s, and the application does not start. Serving the app from
+            // this binary means there is no web server in front to set the header, so it is set
+            // here or not at all -- and "not at all" is what made a redeploy look like a code bug
+            // more than once. The policy is the one in pittv3-wasm/apache.htaccess.
+            .wrap_fn(|req, srv| {
+                // Endpoint responses are left alone: they are not static files, and a handler that
+                // has something to say about caching its own answer should not be overridden here.
+                let served_from_disk =
+                    !(req.path().starts_with("/api/") || req.path().starts_with("/stores/"));
+                let policy = cache_control_for(req.path());
+                let fut = srv.call(req);
+                async move {
+                    let mut res = fut.await?;
+                    if served_from_disk && !res.headers().contains_key(CACHE_CONTROL) {
+                        res.headers_mut()
+                            .insert(CACHE_CONTROL, HeaderValue::from_static(policy));
+                    }
+                    Ok(res)
+                }
+            })
             .app_data(state.clone())
             // The cap is applied by the JSON extractor rather than by a handler, so an oversized
             // body is refused as it arrives instead of after it has been buffered and decoded.
@@ -158,9 +182,97 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
+/// Cache-Control for a static file the service serves, keyed on whether its name carries a content
+/// hash.
+///
+/// Trunk emits `<name>-<16 hex>.js` and `<name>-<16 hex>_bg.wasm`, whose contents cannot change
+/// without the name changing, so those are safe to keep for a year. Everything else -- index.html
+/// above all -- must be revalidated, because the same name will hold different bytes after the next
+/// deploy.
+///
+/// Deliberately conservative: the hash is looked for in the **file name** only, so an asset under a
+/// hashed *directory* (Trunk's `snippets/<crate>-<hash>/…`) revalidates rather than being pinned. A
+/// wrong "immutable" cannot be withdrawn for a year, while an unnecessary revalidation costs one
+/// conditional request answered with 304.
+fn cache_control_for(path: &str) -> &'static str {
+    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+    const REVALIDATE: &str = "no-cache, must-revalidate";
+
+    let file = match path.rsplit('/').next() {
+        Some(f) => f,
+        None => return REVALIDATE,
+    };
+    match content_hashed(file) {
+        true => IMMUTABLE,
+        false => REVALIDATE,
+    }
+}
+
+/// Whether `file` carries a Trunk content hash: a `-` followed by exactly 16 hex digits, ending the
+/// stem. Matching the shape rather than any hex run keeps a name like `crl-2026.der` out of it.
+fn content_hashed(file: &str) -> bool {
+    let stem = file
+        .strip_suffix("_bg.wasm")
+        .or_else(|| file.strip_suffix(".wasm"))
+        .or_else(|| file.strip_suffix(".js"))
+        .unwrap_or("");
+    match stem.rfind('-') {
+        Some(dash) => {
+            let tail = &stem[dash + 1..];
+            tail.len() == 16 && tail.bytes().all(|b| b.is_ascii_hexdigit())
+        }
+        None => false,
+    }
+}
+
 fn enabled(flag: bool) -> &'static str {
     match flag {
         true => "enabled",
         false => "disabled",
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::{cache_control_for, content_hashed};
+
+    /// The names Trunk actually produced for the deployed bundle.
+    #[test]
+    fn trunk_hashed_assets_are_pinned() {
+        assert!(content_hashed("pittv3-wasm-60c2dfcf11d6e584_bg.wasm"));
+        assert!(content_hashed("pittv3-wasm-60c2dfcf11d6e584.js"));
+        assert_eq!(
+            cache_control_for("/pittv3-wasm-60c2dfcf11d6e584_bg.wasm"),
+            "public, max-age=31536000, immutable"
+        );
+    }
+
+    /// index.html is the one that must never be pinned -- it is unhashed and names the hashed
+    /// assets, so a stale copy points at a previous deploy's files and the app fails to start.
+    #[test]
+    fn the_document_and_anything_unhashed_revalidates() {
+        for path in [
+            "/",
+            "/index.html",
+            "/resources/dod_nipr_prod_ta.cbor",
+            "/snippets/dioxus-web-5b126e270dcd269f/src/js/eval.js",
+        ] {
+            assert_eq!(
+                cache_control_for(path),
+                "no-cache, must-revalidate",
+                "{path} should revalidate"
+            );
+        }
+    }
+
+    /// A hash-shaped test rather than "contains hex": a plausible unhashed name must not be pinned,
+    /// because a wrong immutable cannot be withdrawn for a year.
+    #[test]
+    fn a_name_that_merely_contains_hex_is_not_treated_as_hashed() {
+        assert!(!content_hashed("bundle-abc123.js"));
+        assert!(!content_hashed("crl-2026.der"));
+        assert!(!content_hashed("app.js"));
+        // 16 hex digits, but not in the stem-terminal position Trunk uses.
+        assert!(!content_hashed("60c2dfcf11d6e584-app.js"));
     }
 }
