@@ -20,7 +20,7 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{TargetReport, ValidationReport};
 
 use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
-use pittv3_gui_lib::retrieval::harvest_revocation_work;
+use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
 use crate::relay::{chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, Tier};
 use crate::validate::{
@@ -68,7 +68,7 @@ const VIEW_LABELS: &[&str] = &[
     "Validate",
     "Settings",
     "Results",
-    "Resources",
+    "Store artifacts",
     "Hackathon",
     "Help",
 ];
@@ -160,22 +160,29 @@ fn load_use_rev_cache() -> bool {
 /// the value is not written back to the model.
 ///
 /// Revocation status checking is materialized the same way and for the same class of reason:
-/// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is *true*, and nothing in the
-/// browser can fetch a CRL or an OCSP response until a relay exists, so an unstated preference
-/// means off here.
+/// certval's default for an absent `PS_CHECK_REVOCATION_STATUS` is *true*, and a browser cannot
+/// always obtain a CRL or an OCSP response, so an unstated preference depends on whether this run
+/// can get hold of any.
 ///
 /// This line is load-bearing: `pittv3_gui_lib::validate` calls `check_revocation` for a path that
 /// otherwise validates, and that check consults stapled revocation data and registered CRL sources
-/// rather than fetching. So what an unstated preference should mean depends on the tier. In
-/// [`Tier::Local`] nothing can be retrieved and an unstated preference means off, or every run
-/// would come back `RevocationStatusNotDetermined` for want of data the page cannot obtain. In
+/// rather than fetching. There are **two** ways a run comes by such data — retrieving it through a
+/// relay, or being handed it by the user — and `supplied_revocation_data` is the second. Keying the
+/// default on the tier alone is what made the upload buttons inert: a [`Tier::Local`] run switched
+/// checking off and then never consulted the CRL it had just been given. With neither, an unstated
+/// preference still means off, or every run would come back `RevocationStatusNotDetermined` for
+/// want of data the page cannot obtain. In
 /// [`Tier::Relayed`] the data can be retrieved, and checking is the point of having chosen that
 /// tier, so an unstated preference means on.
 ///
 /// A stated preference is honored either way — the settings form says outright that these settings
 /// apply only where the tool can fetch, and a user who asks for checking in the local tier gets
 /// what they asked for, undetermined status included.
-fn run_settings(model: &SettingsModel, tier: Tier) -> CertificationPathSettings {
+fn run_settings(
+    model: &SettingsModel,
+    tier: Tier,
+    supplied_revocation_data: bool,
+) -> CertificationPathSettings {
     let mut cps = CertificationPathSettings::default();
     model.apply(&mut cps);
     if model.time_of_interest.is_none() {
@@ -183,8 +190,12 @@ fn run_settings(model: &SettingsModel, tier: Tier) -> CertificationPathSettings 
             cps.set_time_of_interest(toi);
         }
     }
+    // The unstated default asks whether this run can obtain revocation data at all -- retrieving is
+    // one way to obtain it, and being handed it by the user is the other. Keying this on the tier
+    // alone predates the upload buttons and made them inert: a no-network run would switch checking
+    // off and then never consult the CRL or OCSP response it had just been given.
     if model.check_revocation_status.is_none() {
-        cps.set_check_revocation_status(tier.retrieves());
+        cps.set_check_revocation_status(tier.retrieves() || supplied_revocation_data);
     }
     cps
 }
@@ -295,6 +306,16 @@ fn App() -> Element {
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Revocation data supplied by hand, for a run with no network to fetch it. Held here rather
+    // than pushed straight into the prepared environment because that environment is rebuilt
+    // whenever the trust material or settings change, and a rebuild would take the uploads with
+    // it. These are folded in at Validate instead, so they survive every rebuild.
+    let mut uploaded_crls = use_signal(Vec::<(String, Vec<u8>)>::new);
+    let mut uploaded_ocsp = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Whether this run has revocation data of its own. Read when the settings for a run are built,
+    // because it is one of the two ways a run can obtain any -- see `run_settings`.
+    let have_revocation_uploads =
+        move || !uploaded_crls().is_empty() || !uploaded_ocsp().is_empty();
     // The uploads panel's expanded state is deliberately NOT tracked here — see the store
     // dropdown's `onchange`, which pushes it open once when "None" is selected and otherwise
     // leaves the browser to own it.
@@ -656,7 +677,7 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = run_settings(&settings(), tier());
+        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
         for (name, bytes) in loaded_zips() {
             let (reports, lines) = validate_hackathon_zip(&name, bytes, &cps, validate_all());
             notes.write().extend(lines);
@@ -717,7 +738,7 @@ fn App() -> Element {
         #[cfg(target_family = "wasm")]
         gloo_timers::future::TimeoutFuture::new(16).await;
 
-        let cps = run_settings(&settings(), tier());
+        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
 
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
@@ -736,6 +757,49 @@ fn App() -> Element {
         // The retrieval budget is per click rather than per step, so a chase that spent it does not
         // leave a revocation retrieval to discover the same limit again.
         let mut budget = FetchBudget::new();
+
+        // Uploaded revocation data goes in before the tier is consulted, so it reaches BOTH tiers.
+        // A no-network run has no other way to obtain any, and a retrieving run must not go
+        // and fetch what it was already given -- the harvest below skips a certificate whose
+        // status is already settled. Deliberately outside `tier().retrieves()`: that branch is
+        // false in exactly the no-network case this exists for. Not gated on
+        // check_revocation_status either: supplying a file is an explicit act, and a run that
+        // ignores it should say so through the settings rather than by discarding it silently.
+        if !uploaded_crls().is_empty() || !uploaded_ocsp().is_empty() {
+            let guard = prepared_env.read();
+            if let Some((prepared, _)) = guard.as_ref() {
+                for (name, bytes) in uploaded_crls() {
+                    match add_uploaded_crl(prepared, &bytes) {
+                        true => notes.write().push(ResultLine {
+                            class: "info",
+                            text: format!("Added CRL from {name}"),
+                        }),
+                        false => notes.write().push(ResultLine {
+                            class: "err",
+                            text: format!("{name} is not a CRL"),
+                        }),
+                    }
+                }
+                for (name, bytes) in uploaded_ocsp() {
+                    let outcome = staple_uploaded_ocsp(prepared, &cps, &loaded_ees(), &bytes);
+                    if outcome.matched > 0 {
+                        notes.write().push(ResultLine {
+                            class: "info",
+                            text: format!(
+                                "Stapled OCSP response from {name} to {} certificate(s)",
+                                outcome.matched
+                            ),
+                        });
+                    }
+                    for note in outcome.notes {
+                        notes.write().push(ResultLine {
+                            class: "err",
+                            text: format!("{name}: {note}"),
+                        });
+                    }
+                }
+            }
+        }
 
         // --- retrieve, when the tier permits it ---
         //
@@ -923,6 +987,12 @@ fn App() -> Element {
                             if !store_hint.is_empty() {
                                 span { class: "hint", "This store is {store_hint}." }
                             }
+                            // What asking a service for its stores produced. Shown here rather than
+                            // on a tab of its own: it explains the contents of the selector directly
+                            // above it, which is the only place it is actionable.
+                            if !store_service_status().is_empty() {
+                                span { class: "hint", "{store_service_status}" }
+                            }
                         }
 
                         details { class: "panel", id: "uploads-panel",
@@ -957,6 +1027,58 @@ fn App() -> Element {
                                         },
                                         "Clear"
                                     }
+                                }
+                            }
+                        }
+
+                        details { class: "panel", id: "revocation-panel",
+                            summary { "Revocation data (CRLs and OCSP responses)" }
+                            div { class: "controls custom",
+                                label { "CRL(s): " }
+                                // Unfiltered for the same reason as the OCSP input below: .crl is
+                                // the common extension but nothing requires it, and add_uploaded_crl
+                                // already answers "is not a CRL" from the bytes. Widening what can
+                                // be selected cannot break a file that was selectable before.
+                                input {
+                                    r#type: "file",
+                                    multiple: true,
+                                    onchange: move |ev| async move {
+                                        let files = read_files(&ev).await;
+                                        extend_unique(uploaded_crls, files);
+                                    },
+                                }
+                                label { "OCSP response(s): " }
+                                // Deliberately unfiltered. An OCSP response has no settled file
+                                // extension -- tools write .ors, .der, .resp, or none at all -- and
+                                // an `accept` list greys out anything it failed to anticipate, so a
+                                // wrong guess here blocks the file rather than merely failing to
+                                // suggest it. The bytes are what decide: staple_uploaded_ocsp says
+                                // "Not an OCSP response" for anything that is not one, which is a
+                                // better gate than the name and cannot lock the user out.
+                                input {
+                                    r#type: "file",
+                                    multiple: true,
+                                    onchange: move |ev| async move {
+                                        let files = read_files(&ev).await;
+                                        extend_unique(uploaded_ocsp, files);
+                                    },
+                                }
+                                span { class: "hint",
+                                    "{uploaded_crls().len()} CRL(s), {uploaded_ocsp().len()} OCSP response(s) loaded "
+                                    button {
+                                        onclick: move |_| {
+                                            uploaded_crls.write().clear();
+                                            uploaded_ocsp.write().clear();
+                                        },
+                                        "Clear"
+                                    }
+                                }
+                                span { class: "hint",
+                                    "Supplied at Validate, so a run with no network can still determine \
+                                     revocation status. An OCSP response is matched to the certificates \
+                                     it answers about by its CertID, so it does not matter which one you \
+                                     loaded it for. Any file may be chosen — what it contains decides, \
+                                     not what it is called. CRLs may be DER or PEM."
                                 }
                             }
                         }
@@ -1053,6 +1175,13 @@ fn App() -> Element {
                                     true => Capabilities::browser_relayed(),
                                     false => Capabilities::browser_local(),
                                 },
+                                // The same rule run_settings applies, reported rather than
+                                // re-derived, so the form cannot show a tick beside a check the run
+                                // will not make. Recomputed on every render, so selecting a tier or
+                                // loading revocation data updates the row without a save.
+                                revocation_default: Some(
+                                    tier().retrieves() || have_revocation_uploads(),
+                                ),
                                 on_save: move |edited| {
                                     settings.set(edited);
                                     settings_status.set("Settings saved".to_string());
@@ -1153,62 +1282,83 @@ fn App() -> Element {
                         div { class: "help-view",
                             h2 { "Store artifacts" }
                             p {
-                                "The built-in stores are CBOR files served alongside this app. Download any of "
-                                "them and re-upload them via the trust-anchor and intermediate-CA controls on the "
-                                "Validate tab to mix and match \u{2014} e.g. Web PKI roots with a different "
-                                "collection's intermediates, or your own trust anchors with a built-in CA store. "
-                                "They are the same format the store dropdown loads and the same format produced by "
-                                "offline store-generation tooling, so stores you build yourself upload the same way."
-                            }
-                            p { class: "hint",
-                                "The Web PKI and U.S. DoD stores were prepared on 2026-07-21; the ML-DSA-44 "
-                                "PKITS edition is static test data. Regenerate the real-world stores periodically "
-                                "to refresh their trust material."
-                            }
-                            p { class: "hint",
-                                "Where this app is served by the PITTv3 service, the stores that service holds "
-                                "appear in the dropdown alongside these and are downloaded from it rather than "
-                                "from the files below. The dropdown says which is which."
-                            }
-                            if !store_service_status().is_empty() {
-                                p { class: "hint", "{store_service_status}" }
-                            }
-                            h3 { "Web PKI (Mozilla roots + CCADB intermediates)" }
-                            ul {
-                                li {
-                                    a { href: "resources/webpki_ta.cbor", download: "webpki_ta.cbor", "webpki_ta.cbor" }
-                                    " \u{2014} trust anchors (Mozilla roots)"
-                                }
-                                li {
-                                    a { href: "resources/webpki_ca.cbor", download: "webpki_ca.cbor", "webpki_ca.cbor" }
-                                    " \u{2014} intermediate CAs (CCADB)"
-                                }
-                            }
-                            h3 { "U.S. DoD (NIPR)" }
-                            ul {
-                                li {
-                                    a { href: "resources/dod_nipr_prod_ta.cbor", download: "dod_nipr_prod_ta.cbor", "dod_nipr_prod_ta.cbor" }
-                                    " \u{2014} trust anchors (DoD roots)"
-                                }
-                                li {
-                                    a { href: "resources/dod_nipr_prod_ca.cbor", download: "dod_nipr_prod_ca.cbor", "dod_nipr_prod_ca.cbor" }
-                                    " \u{2014} intermediate CAs"
-                                }
-                            }
-                            h3 { "ML-DSA-44 PKITS" }
-                            ul {
-                                li {
-                                    a { href: "resources/pkits_ml_dsa_44_ta.cbor", download: "pkits_ml_dsa_44_ta.cbor", "pkits_ml_dsa_44_ta.cbor" }
-                                    " \u{2014} trust anchors"
-                                }
-                                li {
-                                    a { href: "resources/pkits_ml_dsa_44_ca.cbor", download: "pkits_ml_dsa_44_ca.cbor", "pkits_ml_dsa_44_ca.cbor" }
-                                    " \u{2014} intermediate CAs with partial paths"
-                                }
+                                "A trust store is a pair of CBOR files. The trust-anchor half "
+                                "(*_ta.cbor) holds roots. The CA half (*_ca.cbor) holds intermediate "
+                                "CA certificates together with precomputed partial certification "
+                                "paths \u{2014} the paths from each anchor down through the "
+                                "intermediates, worked out in advance."
                             }
                             p {
-                                "Trust-anchor stores (*_ta.cbor) hold roots; CA stores (*_ca.cbor) hold intermediate "
-                                "CA certificates with precomputed partial certification paths."
+                                "That precomputation is why the halves are worth carrying around. "
+                                "Discovering partial paths is the expensive step of preparing an "
+                                "environment; building a path against one already discovered is "
+                                "cheap. A store is therefore not merely a bag of certificates, it is "
+                                "a bag of certificates with the search already done."
+                            }
+                            h3 { "Where they come from" }
+                            p {
+                                "Three sources, all the same format, all interchangeable:"
+                            }
+                            ul {
+                                li {
+                                    strong { "Built into this app. " }
+                                    "Selectable from the dropdown on the Validate tab without any "
+                                    "network access."
+                                }
+                                li {
+                                    strong { "Served by a PITTv3 service. " }
+                                    "Where this app is served by one, the stores it holds appear in "
+                                    "the same dropdown and are downloaded from it. The dropdown says "
+                                    "which is which, and whether a store came from a trust store "
+                                    "provider or was configured by whoever runs the service \u{2014} "
+                                    "worth knowing, because a configured store may hold chased "
+                                    "material rather than published trust material."
+                                }
+                                li {
+                                    strong { "Exported from a run. " }
+                                    "Export PKI Environment on the Results view writes the trust "
+                                    "material a validation actually used, in this same format. That "
+                                    "is the way to capture a store you assembled by uploading, or by "
+                                    "letting a run chase for certificates it did not have."
+                                }
+                            }
+                            h3 { "Using them" }
+                            p {
+                                "Upload either half through the trust-anchor and intermediate-CA "
+                                "controls on the Validate tab. A .cbor upload merges all of its "
+                                "certificates into that side, so stores mix freely: Web PKI roots "
+                                "with another collection's intermediates, or your own trust anchors "
+                                "with a built-in CA store. Select \"None\" as the store to rely on "
+                                "uploads alone."
+                            }
+                            p {
+                                "Offline store-generation tooling produces the same format, so a "
+                                "store you build yourself uploads exactly like a built-in one, and a "
+                                "store exported from a run can be handed to the CLI or the desktop "
+                                "app unchanged."
+                            }
+                            h3 { "Freshness" }
+                            p {
+                                "The built-in stores are generated when this app is built, from the "
+                                "trust store provider crates, rather than being refreshed by hand. "
+                                "Their currency is therefore that of those crates at the time this "
+                                "build was made \u{2014} which is why no date is given here: the "
+                                "providers do not record when their material was collected, so any "
+                                "date this page stated would be a claim it could not check."
+                            }
+                            p {
+                                "A service's stores are baked in the same way and are no fresher for "
+                                "being served: the ones it marks \u{201c}provider\u{201d} were "
+                                "generated when that service was built. The exception is a store the "
+                                "dropdown marks \u{201c}configured\u{201d}, which is read from a "
+                                "directory the service was pointed at \u{2014} that one can be "
+                                "replaced and the service restarted, with nothing rebuilt. Where "
+                                "currency matters, that is the one to prefer."
+                            }
+                            p { class: "hint",
+                                "The ML-DSA-44 PKITS edition is static test data and does not go "
+                                "stale. Real-world trust material does, and a root program moves "
+                                "without announcing itself here."
                             }
                         }
                     },
@@ -1259,9 +1409,10 @@ fn App() -> Element {
                             ul {
                                 li {
                                     "Uploaded trust anchors and intermediate CAs may be DER or PEM certificates, "
-                                    "or a .cbor store file (the same format as the built-in stores \u{2014} see the "
-                                    "Resources tab to download them). A .cbor upload merges all of its certificates "
-                                    "into that side."
+                                    "or a .cbor store file (the same format as the built-in stores). Export PKI "
+                                    "Environment on the Results view writes that same format, so a run's trust "
+                                    "material can be saved and uploaded again. A .cbor upload merges all of its "
+                                    "certificates into that side."
                                 }
                                 li {
                                     "Uploaded trust anchors and intermediate CA certificates are used together "
@@ -1358,15 +1509,25 @@ mod tests {
     /// `RevocationStatusNotDetermined` for want of data the page cannot obtain.
     #[test]
     fn revocation_checking_is_off_unless_asked_for_in_the_local_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Local);
+        let cps = run_settings(&SettingsModel::default(), Tier::Local, false);
         assert!(!cps.get_check_revocation_status());
+    }
+
+    /// Uploading a CRL or an OCSP response is the other way a run obtains revocation data, so it
+    /// moves the same unstated default the relay tier moves. Without this the upload buttons are
+    /// inert in exactly the tier they exist for: checking stays off and the stapled data is never
+    /// consulted, which reads as `RevocationStatusNotDetermined` and looks like the staple failed.
+    #[test]
+    fn supplied_revocation_data_turns_checking_on_in_the_local_tier() {
+        let cps = run_settings(&SettingsModel::default(), Tier::Local, true);
+        assert!(cps.get_check_revocation_status());
     }
 
     /// With a relay the data can be retrieved, and checking is the reason to have chosen that tier,
     /// so the unstated preference reverses. This is the one setting whose default the tier moves.
     #[test]
     fn revocation_checking_is_on_unless_refused_in_the_relayed_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Relayed);
+        let cps = run_settings(&SettingsModel::default(), Tier::Relayed, false);
         assert!(cps.get_check_revocation_status());
     }
 
@@ -1379,13 +1540,16 @@ mod tests {
             check_revocation_status: Some(true),
             ..SettingsModel::default()
         };
-        assert!(run_settings(&asked_for, Tier::Local).get_check_revocation_status());
+        assert!(run_settings(&asked_for, Tier::Local, false).get_check_revocation_status());
 
         let refused = SettingsModel {
             check_revocation_status: Some(false),
             ..SettingsModel::default()
         };
-        assert!(!run_settings(&refused, Tier::Relayed).get_check_revocation_status());
+        assert!(!run_settings(&refused, Tier::Relayed, false).get_check_revocation_status());
+
+        // An upload does not override a refusal: the user said no.
+        assert!(!run_settings(&refused, Tier::Local, true).get_check_revocation_status());
     }
 
     /// The tier is what the settings form's per-capability notices key off, so the two have to move

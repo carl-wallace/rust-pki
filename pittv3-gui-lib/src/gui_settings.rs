@@ -182,12 +182,17 @@ fn lines_join(values: &[String]) -> String {
 }
 
 /// Table row with a labeled checkbox showing the effective value of a boolean setting; the hint
-/// marks fields carrying an override versus the default
+/// marks fields carrying an override versus the default.
+///
+/// `default_note` replaces the bare "default" hint for a field whose unset value does not resolve to
+/// certval's default in this frontend. Without it the row would say "default" beside a value certval
+/// would not have chosen, which is true of neither reading.
 #[component]
 fn BoolRow(
     label: &'static str,
     checked: bool,
     overridden: bool,
+    #[props(default)] default_note: Option<&'static str>,
     onchange: EventHandler<bool>,
 ) -> Element {
     rsx! {
@@ -205,7 +210,7 @@ fn BoolRow(
                     if overridden {
                         "override"
                     } else {
-                        "default"
+                        {default_note.unwrap_or("default")}
                     }
                 }
             }
@@ -551,6 +556,15 @@ const TABS: &[(SettingsTab, &str)] = &[
 pub fn EditSettings(
     initial: SettingsModel,
     #[props(default)] caps: Capabilities,
+    /// What an *unset* `check_revocation_status` resolves to for the run this frontend will make.
+    ///
+    /// certval's default is true, but a frontend may resolve an unset value differently: the browser
+    /// turns it on only when the run can obtain revocation data, by retrieving it or by being handed
+    /// it. Stating the outcome here keeps the form honest without gui-lib re-implementing the rule --
+    /// the frontend that owns the rule reports it, and this only displays it. `None` means certval's
+    /// default applies, which is the case for the desktop and the CLI.
+    #[props(default)]
+    revocation_default: Option<bool>,
     on_save: EventHandler<SettingsModel>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -769,8 +783,17 @@ pub fn EditSettings(
                             tbody {
                                 BoolRow {
                                     label: "Check revocation status (master)",
-                                    checked: m.check_revocation_status.unwrap_or(true),
+                                    checked: m.check_revocation_status
+                                        .unwrap_or(revocation_default.unwrap_or(true)),
                                     overridden: m.check_revocation_status.is_some(),
+                                    // Only when this frontend's unset value disagrees with certval's,
+                                    // so the ordinary case still reads plainly as "default".
+                                    default_note: match revocation_default {
+                                        Some(false) => {
+                                            Some("default — off for this run; tick to check anyway")
+                                        }
+                                        _ => None,
+                                    },
                                     onchange: move |v| model.write().check_revocation_status = Some(v),
                                 }
                                 BoolRow {

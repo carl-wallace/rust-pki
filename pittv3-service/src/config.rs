@@ -147,3 +147,52 @@ impl ServiceState {
         })
     }
 }
+
+#[cfg(test)]
+mod config_tests {
+    use super::ServiceConfig;
+    use std::path::PathBuf;
+
+    /// The contract a deployment relies on: `client_dir` set in the configuration file alone, with
+    /// no command-line flag, is what gets served.
+    #[test]
+    fn client_dir_is_read_from_the_configuration_file() {
+        let json = r#"{
+            "bind": "0.0.0.0:8080",
+            "client_dir": "/var/lib/pittv3/client",
+            "stores_dir": "/var/lib/pittv3/stores"
+        }"#;
+        let cfg: ServiceConfig = serde_json::from_str(json).expect("should parse");
+        assert_eq!(
+            cfg.client_dir,
+            Some(PathBuf::from("/var/lib/pittv3/client"))
+        );
+        assert_eq!(
+            cfg.stores_dir,
+            Some(PathBuf::from("/var/lib/pittv3/stores"))
+        );
+        assert_eq!(cfg.bind, "0.0.0.0:8080");
+        // Untouched fields keep their defaults, so a partial file is a valid file.
+        assert!(cfg.builtin_stores);
+        assert!(cfg.enable_validation);
+        assert!(!cfg.allow_dynamic_build);
+    }
+
+    /// The trap worth knowing about: the struct does NOT deny unknown fields, so a misspelled key
+    /// is accepted and ignored. `clientDir` or `client-dir` leaves `client_dir` at None and the
+    /// service starts happily serving no application at all -- no parse error, no warning.
+    #[test]
+    fn a_misspelled_key_is_silently_ignored_rather_than_refused() {
+        for wrong in [
+            r#"{"clientDir": "/var/lib/pittv3/client"}"#,
+            r#"{"client-dir": "/var/lib/pittv3/client"}"#,
+            r#"{"clientdir": "/var/lib/pittv3/client"}"#,
+        ] {
+            let cfg: ServiceConfig = serde_json::from_str(wrong).expect("still parses");
+            assert_eq!(
+                cfg.client_dir, None,
+                "{wrong} should not have set client_dir"
+            );
+        }
+    }
+}

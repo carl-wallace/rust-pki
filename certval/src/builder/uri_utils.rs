@@ -6,7 +6,6 @@ use const_oid::db::rfc5912::{
 };
 use x509_cert::ext::pkix::name::GeneralName;
 
-use crate::util::pdv_utilities::*;
 use crate::*;
 
 #[cfg(feature = "remote")]

@@ -11,7 +11,6 @@ use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::certificate::{CertificateInner, Raw};
 
 use crate::source::cert_source::CertFile;
-use crate::util::pdv_utilities::*;
 use crate::*;
 
 #[cfg(feature = "std")]
