@@ -20,7 +20,7 @@ use certval::{
 // there to be one implementation of it.
 use pittv3_gui_lib::retrieval::{certificates_in, harvest_revocation_work};
 use pittv3_gui_lib::validate::{prepare_validation, validate_prepared, PreparedValidation};
-use pittv3_lib::report::{TargetReport, ValidationReport};
+use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
 
 use crate::config::{RequestLimits, ServiceState};
@@ -196,12 +196,23 @@ async fn run(
 /// other outbound request this service makes: certval here is built without `remote` and cannot
 /// open a socket of its own, so the network policy and the budgets cannot be gone around.
 ///
-/// CRLs are retrieved first because one covers every certificate its issuer published it for,
-/// while an OCSP request answers about exactly one — so a distribution point can settle several
-/// positions at the price of one retrieval, and every certificate it settles is one this then does
-/// not have to ask a responder about.
+/// **OCSP is retrieved first, and a CRL only for what OCSP left undetermined.** The reverse was
+/// tried first, reasoning that one CRL covers every certificate its issuer published it for while a
+/// responder answers about one, so a distribution point could settle several positions for the price
+/// of one retrieval. Measurement said otherwise, on two independent PKIs: DoD's
+/// `DODEMAILCA_63.crl` is 9.5 MB and Amazon's `r2m04.crl` is 2.24 MB, against OCSP responses of a
+/// few hundred bytes — and certval consults stapled OCSP before any registered CRL source, so with
+/// both in hand the OCSP always decided and the CRL was downloaded and ignored. On a bounded
+/// per-request budget that is most of the budget spent on data that changes no outcome, and the
+/// person waiting for a first answer waits on the download.
 ///
-/// A failure is a note rather than an error. Revocation status that cannot be determined is already
+/// Knowing what OCSP settled takes a validation pass: the revocation checker writes its
+/// determinations into the cache registered on the environment, and [`harvest_revocation_work`]
+/// skips a certificate whose status that cache already answers. So the middle step here validates
+/// and throws the reports away — they are recomputed by the caller once the CRLs are in — purely so
+/// the second harvest can tell which positions still need one.
+///
+/// A retrieval failure is a note rather than an error throughout: an undetermined status is
 /// an outcome the report expresses, and one unreachable repository should not turn a run into a
 /// failure.
 async fn retrieve_revocation_data(
@@ -213,46 +224,14 @@ async fn retrieve_revocation_data(
 ) -> usize {
     let work = harvest_revocation_work(prepared, settings, &input.targets);
     if work.is_empty() {
+        notes.push("no revocation data to retrieve for the paths built".to_string());
         return 0;
     }
 
     let mut budget = ChaseBudget::new(state.config.chase_budget.clone());
     let mut added = 0;
 
-    let crl_sink = prepared.crl_source();
-    for uri in &work.crl_dp {
-        if let Err(exhausted) = budget.check() {
-            notes.push(format!("stopped retrieving CRLs: {exhausted}"));
-            break;
-        }
-        let request = FetchRequest {
-            max_response_bytes: Some(budget.remaining_bytes()),
-            timeout: Some(budget.remaining_time()),
-            ..FetchRequest::get(uri.clone())
-        };
-        match state.relay.fetch(&request).await {
-            Ok(response) => {
-                budget.spend(response.body.len() as u64);
-                if response.status != 200 {
-                    notes.push(format!("{uri} answered with status {}", response.status));
-                    continue;
-                }
-                match crl_sink.add(&response.body) {
-                    true => added += 1,
-                    false => notes.push(format!("{uri} did not serve a CRL")),
-                }
-            }
-            Err(e) => {
-                budget.spend(0);
-                notes.push(format!("could not retrieve {uri}: {e}"));
-            }
-        }
-    }
-    if added > 0 {
-        notes.push(format!("retrieved {added} CRL(s)"));
-    }
-
-    // A certificate a CRL already answered for is not asked about again, and neither is one whose
+    // A certificate whose answer is already held is not asked about again, and neither is one whose
     // second responder would repeat a question the first has settled.
     let ocsp_sink = prepared.ocsp_responses();
     let mut responses = 0;
@@ -290,6 +269,76 @@ async fn retrieve_revocation_data(
     }
     if responses > 0 {
         notes.push(format!("retrieved {responses} OCSP response(s)"));
+    }
+
+    // What OCSP settled, so the CRL half can skip it. The reports are discarded: this runs only to
+    // let the revocation checker write its determinations into the cache, which the second harvest
+    // reads through `get_status`. Without a cache registered nothing is recorded, the second harvest
+    // returns the same work as the first, and this degrades to retrieving both -- which is the old
+    // behaviour, not a failure.
+    // Whether anything is still unresolved, read from the validation's own reports rather than from
+    // the revocation cache. The cache would work here -- this service always registers one -- but
+    // the browser cannot rely on that, since its cache is a user setting, and the two tiers have to
+    // reach the same conclusion by the same means or they are not the same code.
+    let crl_dp = match responses > 0 {
+        true => {
+            let (reports, _) =
+                validate_prepared(prepared, settings, &input.targets, input.validate_all);
+            // Conservative on purpose: a path with no outcomes recorded counts as unresolved, so
+            // this only skips on positive evidence that every position is settled.
+            let unresolved = reports.iter().any(|t| {
+                t.paths.iter().any(|p| {
+                    p.revocation.is_empty()
+                        || p.revocation
+                            .iter()
+                            .any(|o| o.status == RevocationStatus::Undetermined)
+                })
+            });
+            match unresolved {
+                true => work.crl_dp.clone(),
+                false => {
+                    notes.push(format!(
+                        "skipped {} CRL retrieval(s): OCSP settled every certificate",
+                        work.crl_dp.len()
+                    ));
+                    vec![]
+                }
+            }
+        }
+        false => work.crl_dp.clone(),
+    };
+
+    let crl_sink = prepared.crl_source();
+    for uri in &crl_dp {
+        if let Err(exhausted) = budget.check() {
+            notes.push(format!("stopped retrieving CRLs: {exhausted}"));
+            break;
+        }
+        let request = FetchRequest {
+            max_response_bytes: Some(budget.remaining_bytes()),
+            timeout: Some(budget.remaining_time()),
+            ..FetchRequest::get(uri.clone())
+        };
+        match state.relay.fetch(&request).await {
+            Ok(response) => {
+                budget.spend(response.body.len() as u64);
+                if response.status != 200 {
+                    notes.push(format!("{uri} answered with status {}", response.status));
+                    continue;
+                }
+                match crl_sink.add(&response.body) {
+                    true => added += 1,
+                    false => notes.push(format!("{uri} did not serve a CRL")),
+                }
+            }
+            Err(e) => {
+                budget.spend(0);
+                notes.push(format!("could not retrieve {uri}: {e}"));
+            }
+        }
+    }
+    if added > 0 {
+        notes.push(format!("retrieved {added} CRL(s)"));
     }
 
     added + responses

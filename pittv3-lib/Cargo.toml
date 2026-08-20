@@ -63,10 +63,13 @@ tokio-test = "0.4.5"
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki"]
-revocation = ["certval/revocation"]
+# cms is here rather than under `remote` because the URI checker parses certs-only SignedData
+# (`.p7c`, what an SIA caRepository commonly serves) and that checker now runs wherever `revocation`
+# does -- including a browser, which reaches repositories through a relay rather than an HTTP client.
+revocation = ["certval/revocation", "dep:cms"]
 std_app = ["certval/revocation"]
 std = ["std_app", "certval/std", "revocation", "walkdir", "csv"]
-remote = ["certval/remote", "revocation", "std", "dep:reqwest", "dep:cms"]
+remote = ["certval/remote", "revocation", "std", "dep:reqwest"]
 pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]
 sha1_sig = ["rsa"]

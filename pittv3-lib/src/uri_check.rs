@@ -205,14 +205,50 @@ impl UriCheckReport {
     }
 }
 
-#[cfg(feature = "remote")]
-pub use remote_impl::{check_uris_from_bytes, check_uris_in_cert};
+/// What one retrieval produced: whether it succeeded, the bytes, and how long it took.
+///
+/// Timing belongs to the fetcher rather than to the checker because the clock does: `std::time::Instant`
+/// panics under wasm, where `web_time` is the equivalent. Returning it here keeps every platform
+/// detail on the far side of this trait.
+#[derive(Clone, Debug, Default)]
+pub struct FetchOutcome {
+    /// Whether the retrieval produced a usable body.
+    pub ok: bool,
+    /// The bytes retrieved; empty when `ok` is false.
+    pub body: Vec<u8>,
+    /// Elapsed time for the retrieval, in milliseconds, as the results grid reports it.
+    pub elapsed_ms: u64,
+}
 
+/// How the URI checker reaches a repository.
+///
+/// The checker cannot hoist its retrievals the way the revocation harvest does: certificates fetched
+/// from AIA and SIA accumulate as it goes, and an issuer discovered part-way through is what the
+/// later CRL and OCSP checks are verified against. The fetching is therefore injected rather than
+/// lifted out, which is also what lets a browser supply a relay where a command line supplies an
+/// HTTP client.
+pub trait UriFetcher {
+    /// Retrieves a URI. Implementations report failure rather than erroring: an unreachable
+    /// repository is an outcome this tool exists to report, not a fault in the run.
+    fn get(&self, uri: &str) -> impl core::future::Future<Output = FetchOutcome>;
+
+    /// Posts a DER-encoded OCSP request to a responder and returns its answer.
+    fn post_ocsp(
+        &self,
+        uri: &str,
+        request: &[u8],
+    ) -> impl core::future::Future<Output = FetchOutcome>;
+}
+
+#[cfg(feature = "revocation")]
+pub use check_impl::check_uris_in_cert;
 #[cfg(feature = "remote")]
-mod remote_impl {
+pub use remote_impl::{check_uris_from_bytes, ReqwestFetcher};
+
+#[cfg(feature = "revocation")]
+mod check_impl {
     use super::*;
-    use core::time::Duration;
-    use std::time::Instant;
+    use crate::der_or_pem::maybe_pem;
 
     use certval::*;
 
@@ -223,33 +259,8 @@ mod remote_impl {
         ID_CE_FRESHEST_CRL, ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
     };
     use der::{Decode, Encode};
-    use log::debug;
     use x509_cert::crl::CertificateList;
     use x509_cert::ext::pkix::name::{DistributionPointName, GeneralName};
-
-    // A single 10 second per-request timeout mirrors certval's remote fetch client.
-    const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-
-    /// Convenience entry point that builds an RFC 5280 [`PkiEnvironment`] and default settings, then
-    /// runs [`check_uris_in_cert`]. Both the CLI and GUI use this so neither has to construct a PKI
-    /// environment itself. `time_of_interest` is the usual Unix-seconds value (0 disables the
-    /// validity check). Signature verification requires the `rsa`/`eddsa`/`pqc` crypto features to be
-    /// enabled; without them every verification is treated as a failure.
-    pub async fn check_uris_from_bytes(
-        target_der: &[u8],
-        issuer_der: Option<&[u8]>,
-        auto_discover: bool,
-        time_of_interest: u64,
-        blocklist: &[String],
-    ) -> UriCheckReport {
-        let mut cps = CertificationPathSettings::default();
-        if let Ok(toi) = TimeOfInterest::from_unix_secs(time_of_interest) {
-            cps.set_time_of_interest(toi);
-        }
-        let mut pe = PkiEnvironment::default();
-        pe.populate_5280_pki_environment();
-        check_uris_in_cert(&pe, &cps, target_der, issuer_der, auto_discover, blocklist).await
-    }
 
     /// Checks every HTTP URI carried in the target certificate's AIA, SIA, CRL DP and freshest-CRL
     /// extensions and returns a per-URI reachability + correctness report modeled on PITTv2's
@@ -258,15 +269,24 @@ mod remote_impl {
     /// `issuer_der`, when present, enables CRL-signature verification and OCSP checking. When it is
     /// absent and `auto_discover` is true, the first AIA caIssuers pointer that yields the issuer is
     /// adopted for those checks. `blocklist` names hosts/URIs to skip (reported as blocklisted).
-    pub async fn check_uris_in_cert(
+    pub async fn check_uris_in_cert<F: UriFetcher>(
         pe: &PkiEnvironment,
         cps: &CertificationPathSettings,
+        fetcher: &F,
         target_der: &[u8],
         issuer_der: Option<&[u8]>,
         auto_discover: bool,
         blocklist: &[String],
     ) -> UriCheckReport {
-        let target = match PDVCertificate::try_from(target_der) {
+        // Whichever encoding the caller's file held. See `crate::der_or_pem`: a DER-only parse
+        // here is what stopped this check before it began on a PEM certificate.
+        let target_der = &match maybe_pem(target_der) {
+            Ok(der) => der,
+            Err(e) => {
+                return UriCheckReport::failed(format!("failed to parse target certificate: {e:?}"))
+            }
+        };
+        let target = match PDVCertificate::try_from(target_der.as_slice()) {
             Ok(c) => c,
             Err(e) => {
                 return UriCheckReport::failed(format!("failed to parse target certificate: {e:?}"))
@@ -274,22 +294,27 @@ mod remote_impl {
         };
 
         let mut issuer = match issuer_der {
-            Some(der) => match PDVCertificate::try_from(der) {
-                Ok(c) => Some(c),
-                Err(e) => {
-                    return UriCheckReport::failed(format!(
-                        "failed to parse issuer certificate: {e:?}"
-                    ))
+            Some(der) => {
+                let der = match maybe_pem(der) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        return UriCheckReport::failed(format!(
+                            "failed to parse issuer certificate: {e:?}"
+                        ))
+                    }
+                };
+                match PDVCertificate::try_from(der.as_slice()) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        return UriCheckReport::failed(format!(
+                            "failed to parse issuer certificate: {e:?}"
+                        ))
+                    }
                 }
-            },
+            }
             None => None,
         };
         let issuer_supplied = issuer.is_some();
-
-        let client = match reqwest::Client::builder().build() {
-            Ok(c) => c,
-            Err(e) => return UriCheckReport::failed(format!("failed to build HTTP client: {e}")),
-        };
 
         let mut report = UriCheckReport {
             target: CertSummary::from_cert(&target),
@@ -316,7 +341,7 @@ mod remote_impl {
         for uri in ca_issuers {
             let r = check_uri_certificate(
                 pe,
-                &client,
+                fetcher,
                 &uri,
                 &target,
                 false,
@@ -332,7 +357,7 @@ mod remote_impl {
         }
         for uri in ocsp {
             let r =
-                check_uri_ocsp(pe, &client, &uri, &target, issuer.as_ref(), blocklist, cps).await;
+                check_uri_ocsp(pe, fetcher, &uri, &target, issuer.as_ref(), blocklist, cps).await;
             report.results.push(r);
         }
 
@@ -340,7 +365,7 @@ mod remote_impl {
         for uri in collect_sia(&target) {
             let r = check_uri_certificate(
                 pe,
-                &client,
+                fetcher,
                 &uri,
                 &target,
                 true,
@@ -369,7 +394,7 @@ mod remote_impl {
         for uri in crl_dps {
             let r = check_uri_crl(
                 pe,
-                &client,
+                fetcher,
                 &uri,
                 &target,
                 issuer.as_ref(),
@@ -386,7 +411,7 @@ mod remote_impl {
         for uri in collect_crl_dps(&target, ID_CE_FRESHEST_CRL) {
             let r = check_uri_crl(
                 pe,
-                &client,
+                fetcher,
                 &uri,
                 &target,
                 issuer.as_ref(),
@@ -484,37 +509,6 @@ mod remote_impl {
 
     fn is_blocklisted(uri: &str, blocklist: &[String]) -> bool {
         blocklist.iter().any(|b| uri.contains(b.as_str()))
-    }
-
-    /// Fetches raw bytes for a URI, returning (success, body). Success is false on any transport
-    /// error, non-2xx status, or an HTML error page.
-    async fn http_get(client: &reqwest::Client, uri: &str) -> (bool, Vec<u8>) {
-        let resp = match client.get(uri).timeout(REQUEST_TIMEOUT).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                debug!("fetch failed for {uri}: {e}");
-                return (false, vec![]);
-            }
-        };
-        if !resp.status().is_success() {
-            return (false, vec![]);
-        }
-        let is_html = resp
-            .headers()
-            .get("Content-Type")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.starts_with("text/html"))
-            .unwrap_or(false);
-        if is_html {
-            return (false, vec![]);
-        }
-        match resp.bytes().await {
-            Ok(b) => (true, b.to_vec()),
-            Err(e) => {
-                debug!("body read failed for {uri}: {e}");
-                (false, vec![])
-            }
-        }
     }
 
     /// Parses fetched bytes into certificates, handling a single DER certificate, a PEM bundle, or a
@@ -665,9 +659,9 @@ mod remote_impl {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn check_uri_certificate(
+    async fn check_uri_certificate<F: UriFetcher>(
         pe: &PkiEnvironment,
-        client: &reqwest::Client,
+        fetcher: &F,
         uri: &str,
         target: &PDVCertificate,
         from_sia: bool,
@@ -682,9 +676,11 @@ mod remote_impl {
             return row(uri, extension, UriStatus::BlacklistedHost, 0, None);
         }
 
-        let start = Instant::now();
-        let (ok, bytes) = http_get(client, uri).await;
-        let timing_ms = start.elapsed().as_millis() as u64;
+        let FetchOutcome {
+            ok,
+            body: bytes,
+            elapsed_ms: timing_ms,
+        } = fetcher.get(uri).await;
         let certs = parse_certs(&bytes);
 
         let all_good = check_certs(pe, &certs, target, from_sia, issuer, auto_discover);
@@ -711,9 +707,9 @@ mod remote_impl {
         row(uri, extension, status, timing_ms, detail)
     }
 
-    async fn check_uri_ocsp(
+    async fn check_uri_ocsp<F: UriFetcher>(
         pe: &PkiEnvironment,
-        client: &reqwest::Client,
+        fetcher: &F,
         uri: &str,
         target: &PDVCertificate,
         issuer: Option<&PDVCertificate>,
@@ -737,18 +733,45 @@ mod remote_impl {
             }
         };
 
-        let _ = client; // OCSP transport is handled inside certval's OCSP client.
-        let mut cpr = CertificationPathResults::new();
-        let start = Instant::now();
-        let sent = send_ocsp_request(pe, cps, uri, target, issuer.decoded(), &mut cpr, 0).await;
-        let timing_ms = start.elapsed().as_millis() as u64;
-
-        let status = if sent.is_ok() {
-            UriStatus::CorrectData
-        } else {
-            UriStatus::IncorrectData
+        // Built, posted and processed here rather than handed to certval's `send_ocsp_request`,
+        // which opens a socket of its own and exists only under `remote`. These three steps are
+        // available under `revocation`, which is what lets a browser run this check through a relay.
+        let request = match build_ocsp_request(target.decoded(), issuer.decoded(), None) {
+            Ok(r) => r,
+            Err(e) => {
+                return row(
+                    uri,
+                    UriExtension::Ocsp,
+                    UriStatus::IncorrectData,
+                    0,
+                    Some(format!("could not build an OCSP request: {e:?}")),
+                )
+            }
         };
-        let detail = sent.err().map(|e| format!("{e:?}"));
+
+        let FetchOutcome {
+            ok,
+            body,
+            elapsed_ms: timing_ms,
+        } = fetcher.post_ocsp(uri, &request).await;
+        if !ok {
+            return row(
+                uri,
+                UriExtension::Ocsp,
+                UriStatus::NotAvailable,
+                timing_ms,
+                None,
+            );
+        }
+
+        let mut cpr = CertificationPathResults::new();
+        let processed =
+            process_ocsp_response(pe, cps, &mut cpr, &body, issuer.decoded(), 0, uri, target);
+        let status = match processed.is_ok() {
+            true => UriStatus::CorrectData,
+            false => UriStatus::IncorrectData,
+        };
+        let detail = processed.err().map(|e| format!("{e:?}"));
         row(uri, UriExtension::Ocsp, status, timing_ms, detail)
     }
 
@@ -792,9 +815,9 @@ mod remote_impl {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn check_uri_crl(
+    async fn check_uri_crl<F: UriFetcher>(
         pe: &PkiEnvironment,
-        client: &reqwest::Client,
+        fetcher: &F,
         uri: &str,
         target: &PDVCertificate,
         issuer: Option<&PDVCertificate>,
@@ -807,9 +830,11 @@ mod remote_impl {
             return row(uri, extension, UriStatus::BlacklistedHost, 0, None);
         }
 
-        let start = Instant::now();
-        let (ok, bytes) = http_get(client, uri).await;
-        let timing_ms = start.elapsed().as_millis() as u64;
+        let FetchOutcome {
+            ok,
+            body: bytes,
+            elapsed_ms: timing_ms,
+        } = fetcher.get(uri).await;
 
         let crl = CertificateList::from_der(&bytes);
         let status = match crl {
@@ -856,5 +881,156 @@ mod remote_impl {
             timing_ms,
             detail,
         }
+    }
+}
+
+#[cfg(feature = "remote")]
+mod remote_impl {
+    use super::*;
+    use core::time::Duration;
+    use std::time::Instant;
+
+    use certval::*;
+    use log::debug;
+
+    // A single 10 second per-request timeout mirrors certval's remote fetch client.
+    const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// The [`UriFetcher`] the command line and the desktop use: an HTTP client of its own.
+    ///
+    /// A browser cannot use this — it has no way to reach an arbitrary host — and supplies a fetcher
+    /// backed by the relay instead. Everything above this line is common to both.
+    #[derive(Debug, Default)]
+    pub struct ReqwestFetcher {
+        client: Option<reqwest::Client>,
+    }
+
+    impl ReqwestFetcher {
+        /// Builds a fetcher. A client that will not build leaves this reporting every retrieval as
+        /// unavailable, which is the same shape as a repository that cannot be reached.
+        pub fn new() -> Self {
+            ReqwestFetcher {
+                client: reqwest::Client::builder().build().ok(),
+            }
+        }
+    }
+
+    impl UriFetcher for ReqwestFetcher {
+        async fn get(&self, uri: &str) -> FetchOutcome {
+            let Some(client) = &self.client else {
+                return FetchOutcome::default();
+            };
+            let start = Instant::now();
+            let (ok, body) = http_get(client, uri).await;
+            FetchOutcome {
+                ok,
+                body,
+                elapsed_ms: start.elapsed().as_millis() as u64,
+            }
+        }
+
+        async fn post_ocsp(&self, uri: &str, request: &[u8]) -> FetchOutcome {
+            let Some(client) = &self.client else {
+                return FetchOutcome::default();
+            };
+            let start = Instant::now();
+            let sent = client
+                .post(uri)
+                .header("Content-Type", "application/ocsp-request")
+                .body(request.to_vec())
+                .timeout(REQUEST_TIMEOUT)
+                .send()
+                .await;
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            match sent {
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(b) => FetchOutcome {
+                        ok: true,
+                        body: b.to_vec(),
+                        elapsed_ms,
+                    },
+                    Err(e) => {
+                        debug!("OCSP body read failed for {uri}: {e}");
+                        FetchOutcome {
+                            elapsed_ms,
+                            ..Default::default()
+                        }
+                    }
+                },
+                Ok(_) => FetchOutcome {
+                    elapsed_ms,
+                    ..Default::default()
+                },
+                Err(e) => {
+                    debug!("OCSP post failed for {uri}: {e}");
+                    FetchOutcome {
+                        elapsed_ms,
+                        ..Default::default()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fetches raw bytes for a URI, returning (success, body). Success is false on any transport
+    /// error, non-2xx status, or an HTML error page.
+    async fn http_get(client: &reqwest::Client, uri: &str) -> (bool, Vec<u8>) {
+        let resp = match client.get(uri).timeout(REQUEST_TIMEOUT).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("fetch failed for {uri}: {e}");
+                return (false, vec![]);
+            }
+        };
+        if !resp.status().is_success() {
+            return (false, vec![]);
+        }
+        let is_html = resp
+            .headers()
+            .get("Content-Type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.starts_with("text/html"))
+            .unwrap_or(false);
+        if is_html {
+            return (false, vec![]);
+        }
+        match resp.bytes().await {
+            Ok(b) => (true, b.to_vec()),
+            Err(e) => {
+                debug!("body read failed for {uri}: {e}");
+                (false, vec![])
+            }
+        }
+    }
+
+    /// Convenience entry point that builds an RFC 5280 [`PkiEnvironment`] and default settings, then
+    /// runs [`check_uris_in_cert`]. Both the CLI and GUI use this so neither has to construct a PKI
+    /// environment itself. `time_of_interest` is the usual Unix-seconds value (0 disables the
+    /// validity check). Signature verification requires the `rsa`/`eddsa`/`pqc` crypto features to be
+    /// enabled; without them every verification is treated as a failure.
+    pub async fn check_uris_from_bytes(
+        target_der: &[u8],
+        issuer_der: Option<&[u8]>,
+        auto_discover: bool,
+        time_of_interest: u64,
+        blocklist: &[String],
+    ) -> UriCheckReport {
+        let mut cps = CertificationPathSettings::default();
+        if let Ok(toi) = TimeOfInterest::from_unix_secs(time_of_interest) {
+            cps.set_time_of_interest(toi);
+        }
+        let mut pe = PkiEnvironment::default();
+        pe.populate_5280_pki_environment();
+        let fetcher = ReqwestFetcher::new();
+        check_uris_in_cert(
+            &pe,
+            &cps,
+            &fetcher,
+            target_der,
+            issuer_der,
+            auto_discover,
+            blocklist,
+        )
+        .await
     }
 }
