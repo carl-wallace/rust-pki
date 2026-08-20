@@ -258,7 +258,7 @@ mod tests {
         // nothing should carry over between them.
         let rev_cache = std::sync::Arc::new(RevocationCache::new());
         let (prepared, prep_notes) =
-            prepare_validation(Some(store), &[], &[], cps, &rev_cache).unwrap();
+            prepare_validation(Some(store), &[], &[], cps, Some(&rev_cache)).unwrap();
         notes.extend(prep_notes);
         let (reports, lines) = validate_prepared(&prepared, cps, ees, true);
         notes.extend(lines);

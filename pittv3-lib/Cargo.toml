@@ -20,6 +20,10 @@ rust-version = "1.85"
 
 [dependencies]
 x509-cert = { version = "0.3.0", default-features = false, features = ["pem"] }
+# To take the responder's certificates out of an OCSP response when exporting the artifacts behind a
+# path. They ride inside the response (BasicOcspResponse.certs), so this decodes what the run already
+# holds rather than retaining anything further. Same version certval pins.
+x509-ocsp = { version = "0.3.0-pre", default-features = false }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 der = { version="0.8.1", features = ["alloc", "derive", "flagset", "oid"] }
 spki = { version = "0.8.0", default-features = false, features = ["alloc"] }

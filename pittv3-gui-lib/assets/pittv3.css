@@ -135,6 +135,13 @@ button[type="submit"] {
   margin: 0.25rem 0 0.5rem 0;
 }
 
+/* Name for an export, sized to the name rather than to the row: it sits among buttons, and the
+   full-width rule for text inputs would push them off the line. */
+.export-name {
+  width: 12rem;
+  margin-left: 0.25rem;
+}
+
 /* A badge is a pill, so it must never wrap: a rounded box two lines tall renders as an ellipse with
    its own corners cutting into the text. Scoped here rather than on any container, because the
    containers deliberately break long content -- .cert-table cells set overflow-wrap: anywhere so a

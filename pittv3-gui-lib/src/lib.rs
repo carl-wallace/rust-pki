@@ -4,6 +4,7 @@
 // unused_qualifications is not included below because the rsx macro expansion trips it
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod export;
 pub mod gui_help;
 pub mod gui_results;
 pub mod gui_rows;

@@ -19,13 +19,14 @@ use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{TargetReport, ValidationReport};
 
+use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
 use pittv3_gui_lib::retrieval::harvest_revocation_work;
 
 use crate::relay::{chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, Tier};
 use crate::validate::{
     merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
-    validate_prepared, PreparedValidation, ResultLine, StoreDescriptor, SAMPLE_INVALID,
-    SAMPLE_VALID,
+    validate_prepared, validate_prepared_retaining, PreparedValidation, ResultLine, RetainedPath,
+    StoreDescriptor, SAMPLE_INVALID, SAMPLE_VALID,
 };
 
 /// Store selection value indicating no baked-in store, i.e., uploaded trust anchors only
@@ -54,6 +55,13 @@ const SETTINGS_KEY: &str = "pittv3.settings";
 /// interchange format.
 #[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
 const VALIDATE_ALL_KEY: &str = "pittv3.validate_all";
+
+/// localStorage key for whether the revocation status cache is used. A run option like
+/// [`VALIDATE_ALL_KEY`] and kept out of the settings for the same reason: it decides how a run goes
+/// about reaching an answer, not what a path has to satisfy, and certval has no such setting -- the
+/// cache is something a frontend registers on the environment or does not.
+#[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+const REV_CACHE_KEY: &str = "pittv3.use_rev_cache";
 
 /// Sidebar views in display order
 const VIEW_LABELS: &[&str] = &[
@@ -130,6 +138,13 @@ impl SettingsStore for LocalStorageSettingsStore {
 /// Reads the persisted validate-all choice, defaulting to true (explore every discovered path)
 fn load_validate_all() -> bool {
     storage_get(VALIDATE_ALL_KEY)
+        .map(|v| v == "true")
+        .unwrap_or(true)
+}
+
+/// Reads the persisted revocation-cache choice, defaulting to true (reuse determinations)
+fn load_use_rev_cache() -> bool {
+    storage_get(REV_CACHE_KEY)
         .map(|v| v == "true")
         .unwrap_or(true)
 }
@@ -266,6 +281,12 @@ fn App() -> Element {
     // remount and pick the new values up.
     let mut form_gen = use_signal(|| 0usize);
     let mut validate_all = use_signal(load_validate_all);
+    // Whether determinations reached for one path may answer for another. On, a certificate checked
+    // once is not checked again, which is much faster and is what a user validating certificates
+    // wants. Off, every path derives every status from revocation data of its own -- which is what a
+    // user *exporting* a path wants, since a hop answered from cache carries a status and no
+    // evidence to hand anyone.
+    let mut use_rev_cache = use_signal(load_use_rev_cache);
     // Transient status line for the settings-file load/save controls (cleared on next action)
     let mut settings_status = use_signal(String::new);
     let mut targets = use_signal(Vec::<TargetReport>::new);
@@ -314,6 +335,16 @@ fn App() -> Element {
     // alongside it would re-fetch revocation data a retrieval had already paid for. Settings changes
     // are the case that does invalidate them, and the effect that watches settings clears this.
     let rev_cache = use_signal(|| Arc::new(RevocationCache::new()));
+    // The paths this run validated, kept so their artifacts can be exported without validating
+    // again. Retaining costs nothing to compute -- the paths and results exist for the duration of
+    // the validation regardless -- and re-validating to produce an export would describe a
+    // different run, since revocation data moves between one click and the next.
+    let mut retained_paths = use_signal(Vec::<RetainedPath>::new);
+    // Name the export takes: the archive's file name and the single folder inside it. Offered rather
+    // than generated because a bundle is usually about to be handed to someone else, and "the DoD
+    // email cert Armen reported" survives that trip where a timestamp does not. PITTv2 prompts for
+    // the same thing.
+    let mut export_name = use_signal(|| "PITTv3Results".to_string());
 
     // What asking a service for its stores produced, in a sentence, for the Resources view. A
     // statically hosted copy finding no service is the ordinary case and not a failure, but "the
@@ -405,6 +436,18 @@ fn App() -> Element {
         );
     });
 
+    // Whether to use the cache is decided when the environment is prepared, because that is when the
+    // cache is registered on it -- so changing this has to make the environment stale, or the choice
+    // would not take effect until something else happened to force a rebuild. Clearing on the way is
+    // deliberate: turning the cache off and on again must not bring back determinations reached
+    // before it was turned off, which are exactly the ones the user was trying to stop reusing.
+    use_effect(move || {
+        let on = use_rev_cache();
+        let _ = storage_set(REV_CACHE_KEY, if on { "true" } else { "false" });
+        rev_cache().clear();
+        env_dirty.set(true);
+    });
+
     // The store selection and uploaded trust anchors / CA certificates also feed the prepared
     // environment; reading them here subscribes this effect so any change marks it stale.
     use_effect(move || {
@@ -485,6 +528,70 @@ fn App() -> Element {
         let js = format!(
             "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"pittv3-results-{}.json\"; a.click();",
             now_as_unix_epoch()
+        );
+        let _ = dioxus::document::eval(&js);
+    };
+
+    // Builds the per-path export entries once for whichever export was asked for, so the archive and
+    // the log describe the same paths in the same order.
+    let build_entries = move || -> Vec<Vec<(String, Vec<u8>)>> {
+        let guard = prepared_env.read();
+        let Some((prepared, _)) = guard.as_ref() else {
+            return vec![];
+        };
+        retained_paths
+            .read()
+            .iter()
+            .map(|r| path_entries(prepared.environment(), &r.path, Some(&r.cps), &r.cpr))
+            .collect()
+    };
+
+    // downloads every validated path's artifacts as a zip: the certificates, the revocation data
+    // consulted, the responder certificates that make an OCSP response checkable, and a manifest per
+    // path. Paths are numbered from one under the export's name.
+    let save_artifacts = move |_| {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine as _;
+        let entries = build_entries();
+        if entries.is_empty() {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: "No validated paths are held from this run to export".to_string(),
+            });
+            return;
+        }
+        let name = export_name();
+        match zip_paths(&name, &entries) {
+            Ok(zipped) => {
+                let js = format!(
+                    "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{name}.zip\"; a.click();",
+                    STANDARD.encode(&zipped)
+                );
+                let _ = dioxus::document::eval(&js);
+            }
+            Err(e) => notes.write().push(ResultLine {
+                class: "err",
+                text: format!("Failed to build the archive: {e}"),
+            }),
+        }
+    };
+
+    // downloads the manifests alone -- every path's account of itself, one after another, without the
+    // material behind them
+    let save_path_logs = move |_| {
+        let entries = build_entries();
+        let text = paths_text(&entries);
+        if text.is_empty() {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: "No validated paths are held from this run to export".to_string(),
+            });
+            return;
+        }
+        let name = export_name();
+        let uri = format!("data:text/plain;charset=utf-8,{}", percent_encode(&text));
+        let js = format!(
+            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"{name}.txt\"; a.click();"
         );
         let _ = dioxus::document::eval(&js);
     };
@@ -581,7 +688,12 @@ fn App() -> Element {
         // than for path building.
         let mut cas = uploaded_cas();
         cas.extend(chased_cas());
-        match prepare_validation(store, &uploaded_tas(), &cas, &cps, &rev_cache()) {
+        let cache = if use_rev_cache() {
+            Some(rev_cache())
+        } else {
+            None
+        };
+        match prepare_validation(store, &uploaded_tas(), &cas, &cps, cache.as_ref()) {
             Ok(prepared) => {
                 prepared_env.set(Some(prepared));
                 env_dirty.set(false);
@@ -695,7 +807,9 @@ fn App() -> Element {
         let guard = prepared_env.read();
         let (prepared, prep_notes) = guard.as_ref().unwrap();
         notes.write().extend(prep_notes.iter().cloned());
-        let (reports, lines) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
+        let (reports, lines, retained) =
+            validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);
+        retained_paths.set(retained);
         drop(guard);
         notes.write().extend(lines);
         targets.write().extend(reports);
@@ -897,6 +1011,21 @@ fn App() -> Element {
                         }
 
                         div { class: "controls center-row",
+                            label { r#for: "use-rev-cache", "Reuse revocation determinations: " }
+                            input {
+                                id: "use-rev-cache",
+                                r#type: "checkbox",
+                                checked: use_rev_cache(),
+                                onchange: move |ev| use_rev_cache.set(ev.checked()),
+                            }
+                            span { class: "hint",
+                                "On, a certificate checked on one path is not checked again on another. "
+                                "Off, every path obtains its own revocation data — slower, but each path "
+                                "then carries the evidence for its own result, which an export needs."
+                            }
+                        }
+
+                        div { class: "controls center-row",
                             button {
                                 class: "validate-button",
                                 disabled: loaded_ees().is_empty() || validating(),
@@ -963,12 +1092,33 @@ fn App() -> Element {
                                     button {
                                         disabled: targets.read().is_empty(),
                                         onclick: save_results,
-                                        "Save"
+                                        title: "Download the structured report as JSON",
+                                        "Save report"
+                                    }
+                                    button {
+                                        disabled: retained_paths.read().is_empty(),
+                                        onclick: save_path_logs,
+                                        title: "Download every path's manifest as one text file",
+                                        "Save path logs"
+                                    }
+                                    button {
+                                        disabled: retained_paths.read().is_empty(),
+                                        onclick: save_artifacts,
+                                        title: "Download the certificates and revocation data behind every path, as a zip",
+                                        "Save artifacts"
+                                    }
+                                    input {
+                                        r#type: "text",
+                                        class: "export-name",
+                                        value: "{export_name}",
+                                        title: "Name for the export: the archive and the folder inside it",
+                                        oninput: move |e| export_name.set(e.value()),
                                     }
                                     button {
                                         onclick: move |_| {
                                             targets.write().clear();
                                             notes.write().clear();
+                                            retained_paths.write().clear();
                                         },
                                         "Clear"
                                     }

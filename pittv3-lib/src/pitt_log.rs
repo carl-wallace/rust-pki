@@ -1,20 +1,29 @@
 //! Supports generation of manifest files that describe certification path validation results
-#![cfg(feature = "std_app")]
 
 extern crate alloc;
 use alloc::collections::BTreeMap;
+#[cfg(feature = "std_app")]
 use log::error;
 use std::io::Write;
-use std::{fs, fs::File, path::Path};
+use std::path::Path;
+// The filesystem half of this module exists only where there is a filesystem to write to.
+#[cfg(feature = "std_app")]
+use std::{fs, fs::File};
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_EXT_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY, ID_CE_NAME_CONSTRAINTS,
     ID_CE_POLICY_CONSTRAINTS, ID_CE_POLICY_MAPPINGS, ID_CE_SUBJECT_KEY_IDENTIFIER,
 };
+#[cfg(feature = "revocation")]
+use der::asn1::GeneralizedTime;
+use der::{Decode, Encode};
+#[cfg(feature = "std_app")]
 use sha2::Digest;
+#[cfg(feature = "std_app")]
 use sha2::Sha256;
 use x509_cert::ext::pkix::name::GeneralName;
+use x509_ocsp::{BasicOcspResponse, CertStatus, OcspResponse, ResponderId, SingleResponse};
 
 use certval::source::ta_source::{buffer_to_hex, get_filename_from_ta_metadata};
 use certval::util::pdv_utilities::*;
@@ -40,7 +49,7 @@ pub fn get_file_stem_or_empty(filename: &str) -> String {
 
 /// `log_cps` contributes to the manifest file related to
 /// [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html) contents.
-pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
+pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) {
     f.write_all(
         format!(
             "Initial explicit policy: {}\n",
@@ -165,7 +174,7 @@ pub fn log_cps(f: &mut File, cps: &CertificationPathSettings) {
 
 /// `log_ta_details` contributes to the manifest file related to
 /// [`PDVTrustAnchor`](../certval/pdv_certificate/struct.PDVTrustAnchor.html) contents.
-pub fn log_ta_details(_pe: &PkiEnvironment, f: &mut File, ta: &PDVTrustAnchorChoice) {
+pub fn log_ta_details(_pe: &PkiEnvironment, f: &mut dyn Write, ta: &PDVTrustAnchorChoice) {
     // TODO - implement me
     f.write_all(format!("\t\t* Source: {}\n", get_filename_from_ta_metadata(ta)).as_bytes())
         .expect("Unable to write manifest file");
@@ -173,7 +182,7 @@ pub fn log_ta_details(_pe: &PkiEnvironment, f: &mut File, ta: &PDVTrustAnchorCho
 
 /// `log_cert_details` contributes to the manifest file related to
 /// [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) contents.
-pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate) {
+pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertificate) {
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
@@ -481,7 +490,21 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut File, cert: &PDVCertificate
 
 /// `log_cpr` contributes to the manifest file related to
 /// [`CertificationPathResults`](../certval/path_settings/type.CertificationPathResults.html) contents.
-pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &CertificationPathResults) {
+#[cfg(feature = "std_app")]
+pub fn log_cpr(_pe: &PkiEnvironment, f: &mut dyn Write, np: &Path, cpr: &CertificationPathResults) {
+    render_cpr(f, cpr);
+    write_cpr_artifacts(np, cpr);
+}
+
+/// Renders the certification path validation outputs -- the status and the valid policy graph.
+///
+/// Separate from the filesystem half (`write_cpr_artifacts`, private) because the two halves go to
+/// different places and only one
+/// of them needs a filesystem: a frontend assembling an archive in memory renders this and collects
+/// the artifacts as bytes, while a run writing to a results folder does both to disk. Keeping the
+/// rendering here means every frontend's manifest is the same manifest rather than a second one that
+/// drifts.
+pub fn render_cpr(f: &mut dyn Write, cpr: &CertificationPathResults) {
     let status = cpr.get_validation_status();
     if let Some(status) = status {
         f.write_all(format!("Status: {status:?}\n\n").as_bytes())
@@ -501,63 +524,21 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
             }
         }
     }
+}
 
-    // TODO add CRL and OCSP details to manifest (probably best to wait until CrlInfo is in CPR)
-
-    // i + i in the below loops because TAs are not considered here (and the indexes for artifcacts uses
-    // TAs in slot 0).
-    if let Some(ocsp_reqs) = cpr.get_ocsp_requests() {
-        for (i, or) in ocsp_reqs.iter().enumerate() {
-            let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-ocsp-{}.ocspReq", i + 1, j).as_str())
-                } else {
-                    np.join(format!("{}-ocsp.ocspReq", i + 1).as_str())
-                };
-                fs::write(p, ir).expect("Unable to write OCSP request");
-            }
+/// Writes the revocation artifacts a run consulted into `np`: OCSP requests and responses, the
+/// responder certificates carried inside those responses, and CRLs where their bytes are still held.
+#[cfg(feature = "std_app")]
+fn write_cpr_artifacts(np: &Path, cpr: &CertificationPathResults) {
+    for (name, bytes) in cpr_artifact_entries(cpr) {
+        let p = np.join(&name);
+        if let Err(e) = fs::write(&p, &bytes) {
+            error!("Unable to write {}: {e}", p.display());
         }
     }
-    if let Some(ocsp_resp) = cpr.get_ocsp_responses() {
-        for (i, or) in ocsp_resp.iter().enumerate() {
-            let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-ocsp-{}.ocspResp", i + 1, j).as_str())
-                } else {
-                    np.join(format!("{}-ocsp.ocspResp", i + 1).as_str())
-                };
-                fs::write(p, ir).expect("Unable to write OCSP response");
-            }
-        }
-    }
-    if let Some(ocsp_reqs) = cpr.get_failed_ocsp_requests() {
-        for (i, or) in ocsp_reqs.iter().enumerate() {
-            let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-ocsp-{}.failed.ocspReq", i + 1, j).as_str())
-                } else {
-                    np.join(format!("{}-ocsp.failed.ocspReq", i + 1).as_str())
-                };
-                fs::write(p, ir).expect("Unable to write OCSP request");
-            }
-        }
-    }
-    if let Some(ocsp_resp) = cpr.get_failed_ocsp_responses() {
-        for (i, or) in ocsp_resp.iter().enumerate() {
-            let suffix = or.len() > 1;
-            for (j, ir) in or.iter().enumerate() {
-                let p = if suffix {
-                    np.join(format!("{}-ocsp-{}.failed.ocspResp", i + 1, j).as_str())
-                } else {
-                    np.join(format!("{}-ocsp.failed.ocspResp", i + 1).as_str())
-                };
-                fs::write(p, ir).expect("Unable to write OCSP response");
-            }
-        }
-    }
+    // CRLs are not among those entries because the results retain only `CrlInfo`, not the CRL. Here
+    // the bytes can sometimes be recovered from the file the source cached, so the note-or-CRL
+    // decision lives with the filesystem half.
     if let Some(crls) = cpr.get_crl() {
         for (i, or) in crls.iter().enumerate() {
             let suffix = or.len() > 1;
@@ -586,11 +567,333 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut File, np: &Path, cpr: &Certificatio
     }
 }
 
+/// The revocation artifacts a run consulted, as (file name, bytes) pairs: OCSP requests and
+/// responses, the failed variants, and the responder certificates carried inside each response.
+///
+/// Named here rather than at each destination so a file in a results folder and an entry in an
+/// archive are the same artifact under the same name. Nothing here touches a filesystem, which is
+/// what lets a browser assemble the identical set in memory.
+///
+/// CRLs are absent: the results retain only the compact `CrlInfo`, so their bytes have to come from
+/// whichever source still holds them, which is a decision for the caller rather than for this.
+pub fn cpr_artifact_entries(cpr: &CertificationPathResults) -> Vec<(String, Vec<u8>)> {
+    // i + 1 throughout because trust anchors are not considered here, while artifact indexes put the
+    // trust anchor in slot 0.
+    let mut out = vec![];
+    let mut push_all = |items: Option<Vec<Vec<Vec<u8>>>>, ext: &str| {
+        let Some(items) = items else {
+            return;
+        };
+        for (i, per_hop) in items.iter().enumerate() {
+            let suffix = per_hop.len() > 1;
+            for (j, bytes) in per_hop.iter().enumerate() {
+                let name = if suffix {
+                    format!("{}-ocsp-{}.{ext}", i + 1, j)
+                } else {
+                    format!("{}-ocsp.{ext}", i + 1)
+                };
+                out.push((name, bytes.clone()));
+            }
+        }
+    };
+    push_all(cpr.get_ocsp_requests(), "ocspReq");
+    push_all(cpr.get_ocsp_responses(), "ocspResp");
+    push_all(cpr.get_failed_ocsp_requests(), "failed.ocspReq");
+    push_all(cpr.get_failed_ocsp_responses(), "failed.ocspResp");
+
+    if let Some(responses) = cpr.get_ocsp_responses() {
+        for (i, per_hop) in responses.iter().enumerate() {
+            for (j, response) in per_hop.iter().enumerate() {
+                out.extend(ocsp_responder_cert_entries(i + 1, j, response));
+            }
+        }
+    }
+    out
+}
+
+/// The responder's certificates carried inside one OCSP response, as (file name, bytes).
+///
+/// Without these a saved response cannot be checked: it is a signed statement, and verifying it
+/// needs the responder's certificate. PITTv1 and v2 both wrote them out for that reason. Nothing is
+/// retained to produce them -- a `BasicOCSPResponse` carries them in its `certs` field, so this
+/// decodes bytes the results already hold. A response identifying its signer by name and key hash
+/// alone may carry none, in which case there is nothing to write and the responder certificate is
+/// expected to be the CA's own, already on the path.
+pub fn ocsp_responder_cert_entries(
+    hop: usize,
+    resp: usize,
+    response: &[u8],
+) -> Vec<(String, Vec<u8>)> {
+    let Some(basic) = OcspResponse::from_der(response)
+        .ok()
+        .and_then(|r| r.response_bytes)
+        .and_then(|b| BasicOcspResponse::from_der(b.response.as_bytes()).ok())
+    else {
+        return vec![];
+    };
+    let Some(certs) = basic.certs.as_ref() else {
+        return vec![];
+    };
+    certs
+        .iter()
+        .enumerate()
+        .filter_map(|(k, cert)| {
+            let der = cert.to_der().ok()?;
+            Some((format!("{hop}-ocsp-{resp}-cert-{k}.der"), der))
+        })
+        .collect()
+}
+
+/// Renders the "Revocation status determination details" section: what settled the revocation
+/// status of each certificate on the path, and what the evidence said.
+///
+/// A section of its own, after the algorithm outputs, following PITTv2 -- revocation is not an RFC
+/// 5280 path-validation output and reads oddly among them, and a reader asking "why does it say
+/// revoked?" is looking for one place rather than a line inside each certificate's block.
+///
+/// Positions are hops: certificate #1 is the one the trust anchor issued. A trust anchor has no
+/// revocation status, so it has no entry, and a hop nothing was determined for is named as such
+/// rather than omitted -- silence there is indistinguishable from a hop that was checked and found
+/// good, which is the distinction the section exists to make.
+pub fn render_revocation_details(
+    f: &mut dyn Write,
+    path: &CertificationPath,
+    cpr: &CertificationPathResults,
+) {
+    // What settled each hop comes from `revocation_outcomes_from_cpr`, the same function the results
+    // views render their badges from, so the manifest and the screen cannot disagree.
+    //
+    // Reading the artifacts instead would be wrong, and was: a determination served from the
+    // revocation status cache examines no CRL and no response and leaves nothing behind, so a hop
+    // answered from cache has a status and no evidence. Driving the section off the evidence reported
+    // "no revocation status was determined" for certificates the run had in fact found to be not
+    // revoked. The artifacts are the detail beneath the answer, never the answer.
+    let num_certs = path.intermediates.len() + 1;
+    let outcomes = crate::report::revocation_outcomes_from_cpr(cpr, num_certs);
+    if outcomes.is_empty() {
+        return;
+    }
+
+    let chain: Vec<&PDVCertificate> = path
+        .intermediates
+        .iter()
+        .chain(core::iter::once(&path.target))
+        .collect();
+
+    let ocsp = cpr.get_ocsp_responses();
+    #[cfg(feature = "revocation")]
+    let crls = cpr.get_crl();
+
+    let mut out = String::new();
+    for outcome in &outcomes {
+        let pos = outcome.cert_index - 1;
+        out.push_str(&format!("\t+ Certificate #{}\n", outcome.cert_index));
+        out.push_str(&format!(
+            "\t\t+ Status: {}\n",
+            revocation_status_text(outcome.status)
+        ));
+        out.push_str(&format!(
+            "\t\t+ Determined by: {}\n",
+            revocation_method_text(outcome.method)
+        ));
+
+        if let Some(responses) = ocsp.as_ref().and_then(|v| v.get(pos)) {
+            for (i, response) in responses.iter().enumerate() {
+                out.push_str(&format!("\t\t+ OCSP response #{}\n", i + 1));
+                let serial = chain
+                    .get(pos)
+                    .map(|c| c.decoded().tbs_certificate().serial_number().as_bytes());
+                out.push_str(&render_ocsp_details(response, serial));
+            }
+        }
+        #[cfg(feature = "revocation")]
+        if let Some(hop_crls) = crls.as_ref().and_then(|v| v.get(pos)) {
+            for (i, info) in hop_crls.iter().enumerate() {
+                out.push_str(&format!("\t\t+ CRL #{}\n", i + 1));
+                out.push_str(&render_crl_details(info));
+            }
+        }
+    }
+
+    f.write_all(
+        "\n********************************************************************************\n"
+            .as_bytes(),
+    )
+    .expect("Unable to write manifest file");
+    f.write_all("Revocation status determination details\n".as_bytes())
+        .expect("Unable to write manifest file");
+    f.write_all(
+        "********************************************************************************\n"
+            .as_bytes(),
+    )
+    .expect("Unable to write manifest file");
+    f.write_all(out.as_bytes())
+        .expect("Unable to write manifest file");
+}
+
+/// The revocation status of one certificate, worded for a manifest.
+fn revocation_status_text(status: crate::report::RevocationStatus) -> &'static str {
+    use crate::report::RevocationStatus::*;
+    match status {
+        NotRevoked => "not revoked",
+        Revoked => "revoked",
+        Undetermined => "could not be determined",
+        NotChecked => "not checked",
+    }
+}
+
+/// What settled a certificate's revocation status, worded for a manifest.
+///
+/// Says where the answer came from and not merely what kind of answer it was: a response the run was
+/// handed and one it fetched are both OCSP but say different things about what the run did, and a
+/// cached determination examined nothing at all this time -- which is exactly the case that has no
+/// artifact in the bundle beside it.
+fn revocation_method_text(method: crate::report::RevocationMethod) -> &'static str {
+    use crate::report::RevocationMethod::*;
+    match method {
+        OcspNoCheck => "the OCSP no-check extension",
+        Crl => "a CRL",
+        Ocsp => "an OCSP response",
+        Blocklist => "a configured blocklist",
+        Allowlist => "a configured allowlist",
+        Cache => "a cached determination, not revocation data examined for this path",
+        StapledOcsp => "an OCSP response supplied to the run",
+        StapledCrl => "a CRL supplied to the run",
+        LocalCrl => "a CRL already held",
+        OcspFromAia => "an OCSP response from an authority information access URI",
+        RemoteCrlDp => "a CRL from a distribution point",
+        None => "nothing",
+    }
+}
+
+/// Renders one OCSP response's details, read out of the response itself rather than from anything
+/// recorded alongside it, so the manifest describes the artifact the bundle carries.
+fn render_ocsp_details(response: &[u8], serial: Option<&[u8]>) -> String {
+    let mut out = String::new();
+    let basic = match OcspResponse::from_der(response)
+        .ok()
+        .and_then(|r| r.response_bytes)
+        .and_then(|b| BasicOcspResponse::from_der(b.response.as_bytes()).ok())
+    {
+        Some(basic) => basic,
+        None => {
+            out.push_str("\t\t\t+ Response could not be decoded\n");
+            return out;
+        }
+    };
+
+    let data = &basic.tbs_response_data;
+    match &data.responder_id {
+        ResponderId::ByName(name) => out.push_str(&format!(
+            "\t\t\t+ OCSP responder name: {}\n",
+            name_to_string(name)
+        )),
+        ResponderId::ByKey(key) => out.push_str(&format!(
+            "\t\t\t+ OCSP responder key ID: {}\n",
+            buffer_to_hex(key.as_bytes())
+        )),
+    }
+    out.push_str(&format!(
+        "\t\t\t+ Signature algorithm: {}\n",
+        basic.signature_algorithm.oid
+    ));
+    out.push_str(&format!(
+        "\t\t\t+ Produced at: {}\n",
+        data.produced_at.0.to_date_time()
+    ));
+
+    // A responder may answer about many certificates in one response -- DoD's routinely returns a
+    // batch of several dozen -- and all but one of those say nothing about this hop. Rendering the
+    // batch would bury the single answer that matters among serial numbers from unrelated
+    // certificates, so only the entry naming this certificate is shown.
+    let singles: Vec<&SingleResponse> = match serial {
+        Some(serial) => data
+            .responses
+            .iter()
+            .filter(|s| s.cert_id.serial_number.as_bytes() == serial)
+            .collect(),
+        None => data.responses.iter().collect(),
+    };
+    if singles.is_empty() {
+        out.push_str("\t\t\t+ The response carries no entry for this certificate\n");
+        return out;
+    }
+    for single in singles {
+        out.push_str(&format!(
+            "\t\t\t+ This update: {}\n",
+            single.this_update.0.to_date_time()
+        ));
+        if let Some(next) = &single.next_update {
+            out.push_str(&format!("\t\t\t+ Next update: {}\n", next.0.to_date_time()));
+        }
+        out.push_str(&format!(
+            "\t\t\t+ Certificate serial number: 0x{}\n",
+            buffer_to_hex(single.cert_id.serial_number.as_bytes())
+        ));
+        match &single.cert_status {
+            CertStatus::Good(_) => out.push_str("\t\t\t+ Certificate status: not revoked\n"),
+            CertStatus::Revoked(info) => {
+                out.push_str("\t\t\t+ Certificate status: revoked\n");
+                out.push_str(&format!(
+                    "\t\t\t+ Revocation time: {}\n",
+                    info.revocation_time.0.to_date_time()
+                ));
+                if let Some(reason) = info.revocation_reason {
+                    out.push_str(&format!("\t\t\t+ Revocation reason: {reason:?}\n"));
+                }
+            }
+            CertStatus::Unknown(_) => out.push_str("\t\t\t+ Certificate status: unknown\n"),
+        }
+    }
+    out
+}
+
+/// Renders a Unix epoch second count the way every other time in the manifest reads.
+///
+/// `CrlInfo` keeps its times as epoch seconds while a certificate's and an OCSP response's arrive as
+/// ASN.1 times, so without this the same manifest reports one CRL as `1787147411` and the response
+/// beside it as `2026-08-18T14:20:24Z`. Falls back to the raw number if the value is not a time this
+/// can represent, which beats printing nothing.
+#[cfg(feature = "revocation")]
+fn unix_secs_as_time(secs: u64) -> String {
+    match GeneralizedTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
+        Ok(t) => t.to_date_time().to_string(),
+        Err(_) => secs.to_string(),
+    }
+}
+
+/// Renders one CRL's details from the compact [`CrlInfo`] the results retain.
+///
+/// The CRL body is not held there, so this reports where it came from as well as what it is: a
+/// bundle may carry the note rather than the CRL, and a reader has to be able to tell which.
+#[cfg(feature = "revocation")]
+fn render_crl_details(info: &CrlInfo) -> String {
+    let mut out = format!("\t\t\t+ CRL issuer: {}\n", info.issuer_name);
+    if let Some(idp) = &info.idp_name {
+        out.push_str(&format!("\t\t\t+ Issuing distribution point: {idp}\n"));
+    }
+    out.push_str(&format!(
+        "\t\t\t+ This update: {}\n",
+        unix_secs_as_time(info.this_update)
+    ));
+    if let Some(next) = info.next_update {
+        out.push_str(&format!(
+            "\t\t\t+ Next update: {}\n",
+            unix_secs_as_time(next)
+        ));
+    }
+    if let Some(uri) = &info.uri {
+        out.push_str(&format!("\t\t\t+ Retrieved from: {uri}\n"));
+    }
+    out
+}
+
 /// Writes a CRL artifact into the manifest folder from the compact [`CrlInfo`] now retained in the
 /// results (the results no longer carry the full CRL body). When the CRL was loaded from a folder
 /// its cached bytes are copied out as a `.crl`; when it is only known by URI (e.g., fetched remotely
 /// and not retained) a `.crl.txt` note is written recording where the full CRL can be re-obtained
 /// along with its validity window.
+#[cfg(feature = "std_app")]
 fn write_crl_artifact(np: &Path, stem: &str, info: &CrlInfo) {
     if let Some(filename) = &info.filename {
         let p = np.join(format!("{stem}.crl"));
@@ -620,6 +923,7 @@ fn write_crl_artifact(np: &Path, stem: &str, info: &CrlInfo) {
 /// `log_path` contributes to the manifest file related to
 /// [`CertificationPath`](../certval/path_settings/struct.CertificationPath.html) contents as well
 /// as output generated by [`log_cps`] and [`log_cpr`].
+#[cfg(feature = "std_app")]
 pub fn log_path(
     pe: &PkiEnvironment,
     f: &Option<String>,
@@ -681,6 +985,26 @@ pub fn log_path(
             error!("Failed to create manifest file");
             return;
         };
+        render_path_manifest(pe, &mut f, path, cpr, cps);
+        write_cpr_artifacts(&np, cpr);
+    }
+}
+
+/// Renders the manifest describing one certification path: the algorithm inputs, the path's
+/// certificates, the validation outputs and the revocation determination details.
+///
+/// This is the whole of the manifest and the only place it is composed, so the file a results-folder
+/// run writes and the entry an archive carries are the same document rather than two that agree
+/// until one is edited. Nothing here touches a filesystem -- a caller supplies a `File`, a `Vec<u8>`,
+/// or anything else that writes.
+pub fn render_path_manifest(
+    pe: &PkiEnvironment,
+    f: &mut dyn Write,
+    path: &CertificationPath,
+    cpr: &CertificationPathResults,
+    cps: Option<&CertificationPathSettings>,
+) {
+    {
         let s = get_filename_from_metadata(&path.target);
         f.write_all(format!("Certification path validation results for: {s}\n\n").as_bytes())
             .expect("Unable to write manifest file");
@@ -697,7 +1021,7 @@ pub fn log_path(
         )
         .expect("Unable to write manifest file");
         if let Some(cps) = cps {
-            log_cps(&mut f, cps);
+            log_cps(f, cps);
         } else {
             f.write_all("None".as_bytes())
                 .expect("Unable to write manifest file");
@@ -716,17 +1040,17 @@ pub fn log_path(
         .expect("Unable to write manifest file");
         f.write_all("\t+ Trust Anchor\n".as_bytes())
             .expect("Unable to write manifest file");
-        log_ta_details(pe, &mut f, &path.trust_anchor);
+        log_ta_details(pe, f, &path.trust_anchor);
 
         for (i, c) in path.intermediates.iter().enumerate() {
             f.write_all(format!("\t+ Certificate #{}\n", i + 1).as_bytes())
                 .expect("Unable to write manifest file");
-            log_cert_details(pe, &mut f, c);
+            log_cert_details(pe, f, c);
         }
 
         f.write_all("\t+ Target Certificate\n".as_bytes())
             .expect("Unable to write manifest file");
-        log_cert_details(pe, &mut f, &path.target);
+        log_cert_details(pe, f, &path.target);
 
         f.write_all(
             "\n********************************************************************************\n"
@@ -740,10 +1064,15 @@ pub fn log_path(
                 .as_bytes(),
         )
         .expect("Unable to write manifest file");
-        log_cpr(pe, &mut f, &np, cpr);
+        render_cpr(f, cpr);
+        render_revocation_details(f, path, cpr);
     }
 }
 
+// The test writes the rendered settings to a file, so it needs the half of this module that has a
+// filesystem. It was covered by the module-wide gate before that gate was narrowed to the functions
+// that actually need it.
+#[cfg(feature = "std_app")]
 #[test]
 fn test_cps_log() {
     extern crate alloc;
@@ -754,7 +1083,6 @@ fn test_cps_log() {
 
     use certval::validator::path_settings::*;
 
-    #[cfg(feature = "std_app")]
     let mut cps = CertificationPathSettings::new();
     cps.set_initial_explicit_policy_indicator(true);
     cps.set_initial_policy_mapping_inhibit_indicator(true);

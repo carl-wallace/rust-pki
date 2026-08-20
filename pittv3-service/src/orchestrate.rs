@@ -154,7 +154,7 @@ async fn run(
     // them. Scoping it here keeps a request's answers derived under that request's settings.
     let rev_cache = Arc::new(RevocationCache::new());
     let (prepared, mut lines) =
-        match prepare_validation(store, &input.trust_anchors, cas, settings, &rev_cache) {
+        match prepare_validation(store, &input.trust_anchors, cas, settings, Some(&rev_cache)) {
             Ok((prepared, lines)) => (
                 prepared,
                 lines

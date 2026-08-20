@@ -88,10 +88,8 @@ pub(crate) fn validate_cert(
         let mut r = pe.validate_path(pe, &path_cps, path, &mut cpr);
 
         #[cfg(feature = "revocation")]
-        if r.is_ok() {
-            if path_cps.get_check_revocation_status() {
-                r = check_revocation_local(pe, &path_cps, path, &mut cpr);
-            }
+        if r.is_ok() && path_cps.get_check_revocation_status() {
+            r = check_revocation_local(pe, &path_cps, path, &mut cpr);
         }
 
         #[cfg(feature = "std_app")]

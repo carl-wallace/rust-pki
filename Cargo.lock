@@ -5199,6 +5199,7 @@ dependencies = [
  "tokio-test",
  "walkdir",
  "x509-cert",
+ "x509-ocsp",
 ]
 
 [[package]]
