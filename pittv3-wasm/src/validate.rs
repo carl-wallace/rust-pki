@@ -195,21 +195,26 @@ pub fn merge_service_stores(
     added
 }
 
-/// Sample end entity certificate from the ML-DSA-44 PKITS edition that should validate
-pub const SAMPLE_VALID: (&str, &[u8]) = (
-    "ValidCertificatePathTest1EE.der",
-    include_bytes!("../resources/sample_valid_ml_dsa_44.der"),
-);
-
-/// Sample end entity certificate from the ML-DSA-44 PKITS edition that should fail validation
-/// with a signature verification error, i.e., the end entity certificate signature is bad
-pub const SAMPLE_INVALID: (&str, &[u8]) = (
-    "InvalidEESignatureTest3EE.der",
-    include_bytes!("../resources/sample_invalid_ml_dsa_44.der"),
-);
-
 #[cfg(test)]
 mod tests {
+    // Kept as test fixtures rather than as something the app offers. They were the zero-input demo
+    // when this was a PQC demonstration; it is a full PITTv3 frontend now, and a sample whose PKITS
+    // URIs resolve nowhere reports every position undetermined, which reads as breakage. The
+    // end-to-end coverage they give -- a known-good and a known-bad path through the real validator
+    // -- is worth keeping, so they live here.
+    /// Sample end entity certificate from the ML-DSA-44 PKITS edition that should validate
+    pub const SAMPLE_VALID: (&str, &[u8]) = (
+        "ValidCertificatePathTest1EE.der",
+        include_bytes!("../resources/sample_valid_ml_dsa_44.der"),
+    );
+
+    /// Sample end entity certificate from the ML-DSA-44 PKITS edition that should fail validation
+    /// with a signature verification error, i.e., the end entity certificate signature is bad
+    pub const SAMPLE_INVALID: (&str, &[u8]) = (
+        "InvalidEESignatureTest3EE.der",
+        include_bytes!("../resources/sample_invalid_ml_dsa_44.der"),
+    );
+
     // These exercise the shared validation path against this crate's generated store resources,
     // so they live here rather than in pittv3-gui-lib, which has no fixtures of its own. certval
     // is named explicitly because the module above re-exports the validation API rather than

@@ -6,6 +6,9 @@
 extern crate alloc;
 
 pub mod args;
+// Available in every build: it is the decode every entry point taking caller bytes has to do, and a
+// build that cannot do it is one where a PEM file fails in a way that looks like something else.
+pub mod der_or_pem;
 #[cfg(feature = "std")]
 pub mod graph_cache;
 pub mod help;

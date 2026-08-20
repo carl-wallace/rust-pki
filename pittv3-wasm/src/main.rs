@@ -10,23 +10,27 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use certval::{CertificationPathSettings, RevocationCache, TimeOfInterest};
+use certval::{CertificationPathSettings, PkiEnvironment, RevocationCache, TimeOfInterest};
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
+use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::PITTV3_CSS;
-use pittv3_lib::report::{TargetReport, ValidationReport};
+use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
+use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
 
 use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
-use crate::relay::{chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, Tier};
+use crate::relay::{
+    chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, RelayFetcher, Tier,
+};
 use crate::validate::{
     merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
     validate_prepared, validate_prepared_retaining, PreparedValidation, ResultLine, RetainedPath,
-    StoreDescriptor, SAMPLE_INVALID, SAMPLE_VALID,
+    StoreDescriptor,
 };
 
 /// Store selection value indicating no baked-in store, i.e., uploaded trust anchors only
@@ -69,6 +73,7 @@ const VIEW_LABELS: &[&str] = &[
     "Settings",
     "Results",
     "Store artifacts",
+    "Check URIs",
     "Hackathon",
     "Help",
 ];
@@ -312,6 +317,13 @@ fn App() -> Element {
     // it. These are folded in at Validate instead, so they survive every rebuild.
     let mut uploaded_crls = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut uploaded_ocsp = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // "Check URIs in certificate": a single certificate examined on its own, independent of path
+    // processing, so it keeps its own inputs rather than borrowing the Validate view's.
+    let mut uri_target = use_signal(|| None::<(String, Vec<u8>)>);
+    let mut uri_issuer = use_signal(|| None::<(String, Vec<u8>)>);
+    let mut uri_auto = use_signal(|| true);
+    let mut uri_running = use_signal(|| false);
+    let mut uri_report = use_signal(|| None::<UriCheckReport>);
     // Whether this run has revocation data of its own. Read when the settings for a run are built,
     // because it is one of the two ways a run can obtain any -- see `run_settings`.
     let have_revocation_uploads =
@@ -356,6 +368,10 @@ fn App() -> Element {
     // alongside it would re-fetch revocation data a retrieval had already paid for. Settings changes
     // are the case that does invalidate them, and the effect that watches settings clears this.
     let rev_cache = use_signal(|| Arc::new(RevocationCache::new()));
+    // Confirmation for the Clear button below. Clearing is invisible otherwise -- nothing on screen
+    // changes -- so without a word back the only way to tell it happened is to run again and watch
+    // the retrieval notes.
+    let mut rev_cache_status = use_signal(String::new);
     // The paths this run validated, kept so their artifacts can be exported without validating
     // again. Retaining costs nothing to compute -- the paths and results exist for the duration of
     // the validation regardless -- and re-validating to produce an export would describe a
@@ -851,18 +867,82 @@ fn App() -> Element {
                         prepared.ocsp_responses().clone(),
                     )
                 };
-                // CRLs first: one covers every certificate its issuer published it for, so a
-                // distribution point can settle several positions at the price of one retrieval,
-                // whereas an OCSP request answers about exactly one certificate.
-                if !work.crl_dp.is_empty() {
-                    let (_added, crl_notes) =
-                        retrieve_crls(&work.crl_dp, &crl_sink, &mut budget).await;
-                    notes.write().extend(crl_notes);
+                // Said out loud, because silence here is indistinguishable from a retrieval that
+                // found nothing to do -- and an empty work list is exactly how a PEM target failed
+                // on 2026-08-20, reporting every position undetermined with no explanation.
+                if work.is_empty() {
+                    notes.write().push(ResultLine {
+                        class: "info",
+                        text: "No revocation data to retrieve for the paths built".to_string(),
+                    });
                 }
+                // OCSP first, and a CRL only for what OCSP leaves undetermined. The reverse was
+                // tried first, reasoning that one CRL covers every certificate its issuer published
+                // it for while a responder answers about one. Measurement said otherwise on two
+                // independent PKIs -- DoD's DODEMAILCA_63.crl is 9.5 MB and Amazon's r2m04.crl is
+                // 2.24 MB, against OCSP responses of a few hundred bytes -- and certval consults
+                // stapled OCSP before any registered CRL source, so with both in hand the OCSP
+                // always decided and the CRL was fetched and ignored. That is most of a click's
+                // budget spent on data that changes no outcome, and it is what the person waiting
+                // for a first answer is waiting on.
+                let mut retrieved_ocsp = 0;
                 if !work.ocsp.is_empty() {
-                    let (_added, ocsp_notes) =
+                    let (added, ocsp_notes) =
                         retrieve_ocsp(&work.ocsp, &ocsp_sink, &mut budget).await;
+                    retrieved_ocsp = added;
                     notes.write().extend(ocsp_notes);
+                }
+
+                // Which positions OCSP settled. Knowing that takes a validation pass: the checker
+                // writes its determinations into the registered cache, and harvest_revocation_work
+                // skips a certificate whose status that cache already answers. The reports are
+                // discarded -- the run validates again below, once the CRLs are in.
+                //
+                // With the revocation cache turned off nothing is recorded, the second harvest
+                // returns what the first did, and this degrades to retrieving both. That is the old
+                // behaviour rather than a failure, which is why it is not gated on the setting.
+                // Whether anything is still unresolved, read from the validation's own reports
+                // rather than from the revocation cache. Asking the cache would tie this to the
+                // "reuse determinations" setting -- turn that off and every CRL gets fetched again,
+                // which is a bandwidth decision quietly riding on a per-path-evidence one. The
+                // reports say what was actually determined, whatever the cache is doing.
+                let crl_dp = match retrieved_ocsp > 0 {
+                    true => {
+                        let guard = prepared_env.read();
+                        let (prepared, _) = guard.as_ref().unwrap();
+                        let (reports, _) =
+                            validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
+                        // Conservative on purpose: a path with no outcomes recorded counts as
+                        // unresolved, so this only skips on positive evidence that every position is
+                        // settled. It can never turn a determinable path into an undetermined one.
+                        let unresolved = reports.iter().any(|t| {
+                            t.paths.iter().any(|p| {
+                                p.revocation.is_empty()
+                                    || p.revocation
+                                        .iter()
+                                        .any(|o| o.status == RevocationStatus::Undetermined)
+                            })
+                        });
+                        match unresolved {
+                            true => work.crl_dp.clone(),
+                            false => {
+                                notes.write().push(ResultLine {
+                                    class: "info",
+                                    text: format!(
+                                        "skipped {} CRL retrieval(s): OCSP settled every certificate",
+                                        work.crl_dp.len()
+                                    ),
+                                });
+                                vec![]
+                            }
+                        }
+                    }
+                    false => work.crl_dp.clone(),
+                };
+
+                if !crl_dp.is_empty() {
+                    let (_added, crl_notes) = retrieve_crls(&crl_dp, &crl_sink, &mut budget).await;
+                    notes.write().extend(crl_notes);
                 }
             }
         }
@@ -1095,17 +1175,6 @@ fn App() -> Element {
                                     }
                                 },
                             }
-                            label { "Sample Certificate: " }
-                            span {
-                                button {
-                                    onclick: move |_| load_ee(SAMPLE_VALID.0.to_string(), SAMPLE_VALID.1.to_vec()),
-                                    "Load valid sample (ML-DSA-44)"
-                                }
-                                button {
-                                    onclick: move |_| load_ee(SAMPLE_INVALID.0.to_string(), SAMPLE_INVALID.1.to_vec()),
-                                    "Load invalid sample (ML-DSA-44)"
-                                }
-                            }
                             span { class: "hint",
                                 "{loaded_ees().len()} certificate(s) loaded "
                                 button {
@@ -1140,10 +1209,27 @@ fn App() -> Element {
                                 checked: use_rev_cache(),
                                 onchange: move |ev| use_rev_cache.set(ev.checked()),
                             }
+                            // Clearing is its own action rather than a side effect of toggling the
+                            // checkbox above. Turning the reuse setting off does clear the cache, but
+                            // using that to clear it also changes how the run behaves -- which is a
+                            // real trap: it silently gives up the CRL retrievals OCSP would otherwise
+                            // have spared.
+                            button {
+                                onclick: move |_| {
+                                    rev_cache().clear();
+                                    rev_cache_status
+                                        .set("Revocation determinations cleared.".to_string());
+                                },
+                                "Clear cached determinations"
+                            }
                             span { class: "hint",
                                 "On, a certificate checked on one path is not checked again on another. "
                                 "Off, every path obtains its own revocation data — slower, but each path "
-                                "then carries the evidence for its own result, which an export needs."
+                                "then carries the evidence for its own result, which an export needs. "
+                                "Clear discards what has been determined so far without changing either."
+                            }
+                            if !rev_cache_status().is_empty() {
+                                span { class: "hint", "{rev_cache_status}" }
                             }
                         }
 
@@ -1363,6 +1449,112 @@ fn App() -> Element {
                         }
                     },
                     4 => rsx! {
+                        div { class: "help-view",
+                            h2 { "Check URIs in certificate" }
+                            p {
+                                "Fetches every HTTP URI a certificate names — authority information "
+                                "access, subject information access, CRL distribution points and "
+                                "freshest CRL — and reports each one on its own. This is a check of "
+                                "the repositories, not of the certificate: it builds no path and "
+                                "reaches no verdict about trust."
+                            }
+                            p { class: "hint",
+                                "An issuer, supplied or auto-discovered from AIA, is what makes CRL "
+                                "signature verification and OCSP possible; without one those rows "
+                                "report that they could not be checked rather than failing."
+                            }
+                        }
+                        if !tier().retrieves() {
+                            div { class: "controls",
+                                span { class: "hint",
+                                    "This check retrieves from the repositories a certificate names, "
+                                    "so it needs the service. Choose \"Retrieve through the service\" "
+                                    "on the Validate tab."
+                                }
+                            }
+                        }
+                        div { class: "controls custom",
+                            label { "Certificate: " }
+                            input {
+                                r#type: "file",
+                                onchange: move |ev| async move {
+                                    if let Some((name, bytes)) = read_files(&ev).await.into_iter().next() {
+                                        uri_target.set(Some((name, bytes)));
+                                        uri_report.set(None);
+                                    }
+                                },
+                            }
+                            label { "Issuer (optional): " }
+                            input {
+                                r#type: "file",
+                                onchange: move |ev| async move {
+                                    if let Some((name, bytes)) = read_files(&ev).await.into_iter().next() {
+                                        uri_issuer.set(Some((name, bytes)));
+                                    }
+                                },
+                            }
+                            label { r#for: "uri-auto", "Auto-discover the issuer: " }
+                            input {
+                                id: "uri-auto",
+                                r#type: "checkbox",
+                                checked: uri_auto(),
+                                onchange: move |ev| uri_auto.set(ev.checked()),
+                            }
+                            span { class: "hint",
+                                match uri_target() {
+                                    Some((name, _)) => format!("{name} loaded"),
+                                    None => "no certificate chosen".to_string(),
+                                }
+                            }
+                        }
+                        div { class: "controls center-row",
+                            button {
+                                disabled: uri_running() || uri_target().is_none() || !tier().retrieves(),
+                                onclick: move |_| async move {
+                                    let Some((_, target)) = uri_target() else {
+                                        return;
+                                    };
+                                    uri_running.set(true);
+                                    uri_report.set(None);
+                                    // Its own environment and settings: this check answers about a
+                                    // certificate rather than about a path, so the trust material
+                                    // selected on the Validate tab has no bearing on it.
+                                    let mut cps = CertificationPathSettings::default();
+                                    if let Ok(toi) = TimeOfInterest::from_unix_secs(now_as_unix_epoch()) {
+                                        cps.set_time_of_interest(toi);
+                                    }
+                                    let mut pe = PkiEnvironment::default();
+                                    pe.populate_5280_pki_environment();
+                                    let issuer = uri_issuer();
+                                    let report = check_uris_in_cert(
+                                        &pe,
+                                        &cps,
+                                        &RelayFetcher::new(),
+                                        &target,
+                                        issuer.as_ref().map(|(_, b)| b.as_slice()),
+                                        uri_auto(),
+                                        &[],
+                                    )
+                                    .await;
+                                    uri_report.set(Some(report));
+                                    uri_running.set(false);
+                                },
+                                if uri_running() { "Checking\u{2026}" } else { "Check URIs" }
+                            }
+                            button {
+                                onclick: move |_| {
+                                    uri_report.set(None);
+                                    uri_target.set(None);
+                                    uri_issuer.set(None);
+                                },
+                                "Clear"
+                            }
+                        }
+                        if let Some(report) = uri_report() {
+                            UriCheckResults { report }
+                        }
+                    },
+                    5 => rsx! {
                         div { class: "controls",
                             label { "Hackathon artifacts zip: " }
                             input {

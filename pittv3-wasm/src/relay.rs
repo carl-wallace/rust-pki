@@ -16,6 +16,8 @@ use pittv3_gui_lib::retrieval::{
     certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
+use pittv3_lib::uri_check::{FetchOutcome, UriFetcher};
+use web_time::Instant;
 // Only the browser build exchanges anything with the relay; the host build has no relay to reach,
 // so the wire types and their derives are compiled only there.
 #[cfg(target_family = "wasm")]
@@ -235,14 +237,21 @@ fn err(text: String) -> ResultLine {
 /// reporting rather than absorbing: a repository that redirects is a fact about that PKI, and it is
 /// the redirected-to host the relay's policy actually judged.
 fn redirect_note(requested: &str, response: &Retrieved) -> Option<ResultLine> {
-    let moved = !response.final_uri.is_empty() && response.final_uri != requested;
-    match moved {
-        true => Some(info(format!(
-            "{requested} redirected to {}",
-            response.final_uri
-        ))),
-        false => None,
+    if response.final_uri.is_empty() || response.final_uri == requested {
+        return None;
     }
+    // A bare authority redirecting to itself with a path of "/" is the same resource, and saying so
+    // is noise: an OCSP responder named without a path does this on every request, which buried the
+    // two notes that mattered under four that did not. Anything else -- a different host, a
+    // different path, a different scheme -- is still reported, because that is the fact about the
+    // PKI worth knowing and it is the redirected-to host the policy actually judged.
+    if response.final_uri.trim_end_matches('/') == requested.trim_end_matches('/') {
+        return None;
+    }
+    Some(info(format!(
+        "{requested} redirected to {}",
+        response.final_uri
+    )))
 }
 
 /// Chases the authority and subject information access URIs named by `seeds` and whatever they
@@ -431,6 +440,95 @@ pub async fn retrieve_ocsp(
         notes.push(info(format!("Retrieved {added} OCSP response(s)")));
     }
     (added, notes)
+}
+
+/// The [`UriFetcher`] the browser uses: every retrieval goes through the relay.
+///
+/// This is the whole of what the URI checker needed from a browser. The relay already moves exactly
+/// these two shapes for revocation retrieval -- a bare `GET` for a certificate bundle or a CRL, and
+/// a `POST` of a DER OCSP request -- so the checker reaches repositories a page cannot reach itself
+/// without the service growing an endpoint for it.
+///
+/// A budget is held here rather than by the checker because it is the retrieving that has to be
+/// bounded: a certificate naming a subject information access URI that serves a bundle naming more
+/// turns one check into an unbounded amount of fetching. Exhaustion reports each further URI as
+/// unavailable rather than erroring, which is how the results grid already renders a repository that
+/// could not be reached.
+pub struct RelayFetcher {
+    budget: core::cell::RefCell<FetchBudget>,
+}
+
+impl RelayFetcher {
+    /// A fetcher with a budget of its own for one check.
+    pub fn new() -> Self {
+        RelayFetcher {
+            budget: core::cell::RefCell::new(FetchBudget::new()),
+        }
+    }
+
+    /// Records a retrieval and reports whether it was permitted to happen at all.
+    fn afford(&self, bytes: usize) -> bool {
+        let mut budget = self.budget.borrow_mut();
+        let allowed = budget.available();
+        budget.spend(bytes);
+        allowed
+    }
+}
+
+impl Default for RelayFetcher {
+    fn default() -> Self {
+        RelayFetcher::new()
+    }
+}
+
+impl UriFetcher for RelayFetcher {
+    async fn get(&self, uri: &str) -> FetchOutcome {
+        if !self.afford(0) {
+            return FetchOutcome::default();
+        }
+        let start = Instant::now();
+        let outcome = relay_fetch(uri).await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        match outcome {
+            // The status is reported by the checker, not translated here: a 404 on an authority
+            // information access URI is a fact about the certificate, and the grid says so.
+            Ok(r) if r.status == 200 => {
+                self.afford(r.body.len());
+                FetchOutcome {
+                    ok: true,
+                    body: r.body,
+                    elapsed_ms,
+                }
+            }
+            Ok(_) | Err(_) => FetchOutcome {
+                elapsed_ms,
+                ..Default::default()
+            },
+        }
+    }
+
+    async fn post_ocsp(&self, uri: &str, request: &[u8]) -> FetchOutcome {
+        if !self.afford(request.len()) {
+            return FetchOutcome::default();
+        }
+        let start = Instant::now();
+        let outcome = relay_ocsp(uri, request).await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        match outcome {
+            Ok(r) if r.status == 200 => {
+                self.afford(r.body.len());
+                FetchOutcome {
+                    ok: true,
+                    body: r.body,
+                    elapsed_ms,
+                }
+            }
+            Ok(_) | Err(_) => FetchOutcome {
+                elapsed_ms,
+                ..Default::default()
+            },
+        }
+    }
 }
 
 #[cfg(test)]
