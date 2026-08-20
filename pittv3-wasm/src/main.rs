@@ -68,7 +68,7 @@ const VIEW_LABELS: &[&str] = &[
     "Validate",
     "Settings",
     "Results",
-    "Resources",
+    "Store artifacts",
     "Hackathon",
     "Help",
 ];
@@ -987,6 +987,12 @@ fn App() -> Element {
                             if !store_hint.is_empty() {
                                 span { class: "hint", "This store is {store_hint}." }
                             }
+                            // What asking a service for its stores produced. Shown here rather than
+                            // on a tab of its own: it explains the contents of the selector directly
+                            // above it, which is the only place it is actionable.
+                            if !store_service_status().is_empty() {
+                                span { class: "hint", "{store_service_status}" }
+                            }
                         }
 
                         details { class: "panel", id: "uploads-panel",
@@ -1169,6 +1175,13 @@ fn App() -> Element {
                                     true => Capabilities::browser_relayed(),
                                     false => Capabilities::browser_local(),
                                 },
+                                // The same rule run_settings applies, reported rather than
+                                // re-derived, so the form cannot show a tick beside a check the run
+                                // will not make. Recomputed on every render, so selecting a tier or
+                                // loading revocation data updates the row without a save.
+                                revocation_default: Some(
+                                    tier().retrieves() || have_revocation_uploads(),
+                                ),
                                 on_save: move |edited| {
                                     settings.set(edited);
                                     settings_status.set("Settings saved".to_string());
@@ -1269,62 +1282,76 @@ fn App() -> Element {
                         div { class: "help-view",
                             h2 { "Store artifacts" }
                             p {
-                                "The built-in stores are CBOR files served alongside this app. Download any of "
-                                "them and re-upload them via the trust-anchor and intermediate-CA controls on the "
-                                "Validate tab to mix and match \u{2014} e.g. Web PKI roots with a different "
-                                "collection's intermediates, or your own trust anchors with a built-in CA store. "
-                                "They are the same format the store dropdown loads and the same format produced by "
-                                "offline store-generation tooling, so stores you build yourself upload the same way."
-                            }
-                            p { class: "hint",
-                                "The Web PKI and U.S. DoD stores were prepared on 2026-07-21; the ML-DSA-44 "
-                                "PKITS edition is static test data. Regenerate the real-world stores periodically "
-                                "to refresh their trust material."
-                            }
-                            p { class: "hint",
-                                "Where this app is served by the PITTv3 service, the stores that service holds "
-                                "appear in the dropdown alongside these and are downloaded from it rather than "
-                                "from the files below. The dropdown says which is which."
-                            }
-                            if !store_service_status().is_empty() {
-                                p { class: "hint", "{store_service_status}" }
-                            }
-                            h3 { "Web PKI (Mozilla roots + CCADB intermediates)" }
-                            ul {
-                                li {
-                                    a { href: "resources/webpki_ta.cbor", download: "webpki_ta.cbor", "webpki_ta.cbor" }
-                                    " \u{2014} trust anchors (Mozilla roots)"
-                                }
-                                li {
-                                    a { href: "resources/webpki_ca.cbor", download: "webpki_ca.cbor", "webpki_ca.cbor" }
-                                    " \u{2014} intermediate CAs (CCADB)"
-                                }
-                            }
-                            h3 { "U.S. DoD (NIPR)" }
-                            ul {
-                                li {
-                                    a { href: "resources/dod_nipr_prod_ta.cbor", download: "dod_nipr_prod_ta.cbor", "dod_nipr_prod_ta.cbor" }
-                                    " \u{2014} trust anchors (DoD roots)"
-                                }
-                                li {
-                                    a { href: "resources/dod_nipr_prod_ca.cbor", download: "dod_nipr_prod_ca.cbor", "dod_nipr_prod_ca.cbor" }
-                                    " \u{2014} intermediate CAs"
-                                }
-                            }
-                            h3 { "ML-DSA-44 PKITS" }
-                            ul {
-                                li {
-                                    a { href: "resources/pkits_ml_dsa_44_ta.cbor", download: "pkits_ml_dsa_44_ta.cbor", "pkits_ml_dsa_44_ta.cbor" }
-                                    " \u{2014} trust anchors"
-                                }
-                                li {
-                                    a { href: "resources/pkits_ml_dsa_44_ca.cbor", download: "pkits_ml_dsa_44_ca.cbor", "pkits_ml_dsa_44_ca.cbor" }
-                                    " \u{2014} intermediate CAs with partial paths"
-                                }
+                                "A trust store is a pair of CBOR files. The trust-anchor half "
+                                "(*_ta.cbor) holds roots. The CA half (*_ca.cbor) holds intermediate "
+                                "CA certificates together with precomputed partial certification "
+                                "paths \u{2014} the paths from each anchor down through the "
+                                "intermediates, worked out in advance."
                             }
                             p {
-                                "Trust-anchor stores (*_ta.cbor) hold roots; CA stores (*_ca.cbor) hold intermediate "
-                                "CA certificates with precomputed partial certification paths."
+                                "That precomputation is why the halves are worth carrying around. "
+                                "Discovering partial paths is the expensive step of preparing an "
+                                "environment; building a path against one already discovered is "
+                                "cheap. A store is therefore not merely a bag of certificates, it is "
+                                "a bag of certificates with the search already done."
+                            }
+                            h3 { "Where they come from" }
+                            p {
+                                "Three sources, all the same format, all interchangeable:"
+                            }
+                            ul {
+                                li {
+                                    strong { "Built into this app. " }
+                                    "Selectable from the dropdown on the Validate tab without any "
+                                    "network access."
+                                }
+                                li {
+                                    strong { "Served by a PITTv3 service. " }
+                                    "Where this app is served by one, the stores it holds appear in "
+                                    "the same dropdown and are downloaded from it. The dropdown says "
+                                    "which is which, and whether a store came from a trust store "
+                                    "provider or was configured by whoever runs the service \u{2014} "
+                                    "worth knowing, because a configured store may hold chased "
+                                    "material rather than published trust material."
+                                }
+                                li {
+                                    strong { "Exported from a run. " }
+                                    "Export PKI Environment on the Results view writes the trust "
+                                    "material a validation actually used, in this same format. That "
+                                    "is the way to capture a store you assembled by uploading, or by "
+                                    "letting a run chase for certificates it did not have."
+                                }
+                            }
+                            h3 { "Using them" }
+                            p {
+                                "Upload either half through the trust-anchor and intermediate-CA "
+                                "controls on the Validate tab. A .cbor upload merges all of its "
+                                "certificates into that side, so stores mix freely: Web PKI roots "
+                                "with another collection's intermediates, or your own trust anchors "
+                                "with a built-in CA store. Select \"None\" as the store to rely on "
+                                "uploads alone."
+                            }
+                            p {
+                                "Offline store-generation tooling produces the same format, so a "
+                                "store you build yourself uploads exactly like a built-in one, and a "
+                                "store exported from a run can be handed to the CLI or the desktop "
+                                "app unchanged."
+                            }
+                            h3 { "Freshness" }
+                            p {
+                                "The built-in stores are generated when this app is built, from the "
+                                "trust store provider crates, rather than being refreshed by hand. "
+                                "Their currency is therefore that of those crates at the time this "
+                                "build was made \u{2014} which is why no date is given here: the "
+                                "providers do not record when their material was collected, so any "
+                                "date this page stated would be a claim it could not check."
+                            }
+                            p { class: "hint",
+                                "The ML-DSA-44 PKITS edition is static test data and does not go "
+                                "stale. Real-world trust material does, and a root program moves "
+                                "without announcing itself here. Where currency matters, prefer a "
+                                "store served by a PITTv3 service, which can be regenerated without "
+                                "rebuilding this app."
                             }
                         }
                     },
@@ -1375,9 +1402,10 @@ fn App() -> Element {
                             ul {
                                 li {
                                     "Uploaded trust anchors and intermediate CAs may be DER or PEM certificates, "
-                                    "or a .cbor store file (the same format as the built-in stores \u{2014} see the "
-                                    "Resources tab to download them). A .cbor upload merges all of its certificates "
-                                    "into that side."
+                                    "or a .cbor store file (the same format as the built-in stores). Export PKI "
+                                    "Environment on the Results view writes that same format, so a run's trust "
+                                    "material can be saved and uploaded again. A .cbor upload merges all of its "
+                                    "certificates into that side."
                                 }
                                 li {
                                     "Uploaded trust anchors and intermediate CA certificates are used together "
