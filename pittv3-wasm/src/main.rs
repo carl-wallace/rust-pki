@@ -1346,12 +1346,19 @@ fn App() -> Element {
                                 "providers do not record when their material was collected, so any "
                                 "date this page stated would be a claim it could not check."
                             }
+                            p {
+                                "A service's stores are baked in the same way and are no fresher for "
+                                "being served: the ones it marks \u{201c}provider\u{201d} were "
+                                "generated when that service was built. The exception is a store the "
+                                "dropdown marks \u{201c}configured\u{201d}, which is read from a "
+                                "directory the service was pointed at \u{2014} that one can be "
+                                "replaced and the service restarted, with nothing rebuilt. Where "
+                                "currency matters, that is the one to prefer."
+                            }
                             p { class: "hint",
                                 "The ML-DSA-44 PKITS edition is static test data and does not go "
                                 "stale. Real-world trust material does, and a root program moves "
-                                "without announcing itself here. Where currency matters, prefer a "
-                                "store served by a PITTv3 service, which can be regenerated without "
-                                "rebuilding this app."
+                                "without announcing itself here."
                             }
                         }
                     },
