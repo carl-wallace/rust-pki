@@ -25,7 +25,6 @@ x509-ocsp = { version = "0.3.0-pre" }
 # decoder in pdv_utilities, which must be available in no_std builds too).
 base64ct = { version="1.8.3", default-features = false, features = ["alloc"] }
 spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
-pqckeys = { git = "https://github.com/carl-wallace/pqckeys", branch = "main", optional=true }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 signature = { version = "3.0.0" }
 
@@ -93,7 +92,7 @@ default = ["remote", "webpki"]
 revocation = ["dep:spin"]
 std = ["dep:walkdir", "dep:serde_json", "serde/rc", "dep:bitvec", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
-pqc = ["ml-dsa", "sha3", "slh-dsa", "pqckeys", "dep:pkcs1"]
+pqc = ["ml-dsa", "sha3", "slh-dsa", "dep:pkcs1"]
 webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
 rsa = ["dep:rsa", "dep:pkcs1"]
 eddsa = ["dep:ed25519-dalek"]

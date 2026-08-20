@@ -3,6 +3,7 @@
 #![cfg(feature = "pqc")]
 
 use crate::crypto::{is_ecdsa, is_eddsa, is_rsa};
+use crate::util::pqc_oids::*;
 use crate::{
     Error, PkiEnvironment, PKIXALG_ECDSA_WITH_SHA256, PKIXALG_ECDSA_WITH_SHA384,
     PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1, PKIXALG_SECP521R1,
@@ -23,7 +24,6 @@ use der::{Any, AnyRef};
 use hex_literal::hex;
 use log::error;
 use pkcs1::{RsaPssParams, TrailerField};
-use pqckeys::pqc_oids::*;
 use sha2::Digest;
 use sha2::{Sha256, Sha512};
 use spki::{
@@ -68,7 +68,7 @@ fn get_rss_params(for_4096: bool) -> crate::Result<Vec<u8>> {
 fn is_composite(
     composite_oid: ObjectIdentifier,
 ) -> crate::Result<(AlgorithmIdentifierOwned, AlgorithmIdentifierOwned)> {
-    use pqckeys::pqc_oids::*;
+    use crate::util::pqc_oids::*;
     if ID_MLDSA44_RSA2048_PSS_SHA256 == composite_oid {
         let pqc = AlgorithmIdentifierOwned {
             oid: ID_ML_DSA_44,
