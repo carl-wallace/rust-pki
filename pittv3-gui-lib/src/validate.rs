@@ -36,7 +36,7 @@ fn err(text: String) -> ResultLine {
 /// Returns DER bytes given buffers that may be PEM or DER encoded. DER detection accepts
 /// SEQUENCE (certificates and the certificate variant of TrustAnchorChoice) plus the context
 /// tags that begin the tbsCert and taInfo variants of a DER-encoded RFC 5914 TrustAnchorChoice.
-fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
+pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
     if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA1 | 0xA2) {
         Ok(bytes.to_vec())
     } else {

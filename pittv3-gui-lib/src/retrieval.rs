@@ -42,7 +42,7 @@ use x509_cert::crl::CertificateList;
 #[cfg(feature = "revocation")]
 use x509_ocsp::{BasicOcspResponse, CertId, OcspRequest, OcspResponse, OcspResponseStatus};
 
-use crate::validate::PreparedValidation;
+use crate::validate::{maybe_pem, PreparedValidation};
 
 /// Extracts the certificates from a retrieved body, which by convention is either a single
 /// DER-encoded certificate or a certs-only SignedData message, i.e., a `.p7c`. The message form is
@@ -77,8 +77,15 @@ pub fn certificates_in(body: &[u8]) -> Vec<Vec<u8>> {
 /// run being made.
 pub fn harvest_chase_uris(certs: &[(String, Vec<u8>)]) -> Vec<String> {
     let mut uris = vec![];
-    for (name, der) in certs {
-        if let Ok(cert) = parse_cert(der, name) {
+    for (name, bytes) in certs {
+        // PEM or DER: a caller's certificate arrives in whichever form its file held, and
+        // `parse_cert` takes DER only. Decoding here rather than trusting the caller keeps this in
+        // step with `validate_target`, which has always accepted both -- the two disagreeing is
+        // what let a PEM target validate normally while silently contributing no URIs.
+        let Ok(der) = maybe_pem(bytes) else {
+            continue;
+        };
+        if let Ok(cert) = parse_cert(&der, name) {
             collect_uris_from_aia_and_sia(&cert, &mut uris);
         }
     }
@@ -244,8 +251,13 @@ pub fn harvest_revocation_work(
     #[cfg(feature = "revocation")]
     let mut asked: Vec<(OcspKey, String)> = vec![];
 
-    for (name, der) in ees {
-        let Ok(target) = parse_cert(der, name) else {
+    for (name, bytes) in ees {
+        // See the note in `harvest_chase_uris`: decode PEM before parsing, because `validate_target`
+        // does and a target that validates must also be one this can find work for.
+        let Ok(der) = maybe_pem(bytes) else {
+            continue;
+        };
+        let Ok(target) = parse_cert(&der, name) else {
             continue;
         };
         if pe.is_cert_a_trust_anchor(&target).is_ok() {
@@ -536,8 +548,13 @@ pub fn staple_uploaded_ocsp(
     let mut examined = 0usize;
     let mut unaskable = 0usize;
 
-    for (name, der) in ees {
-        let Ok(target) = parse_cert(der, name) else {
+    for (name, bytes) in ees {
+        // See the note in `harvest_chase_uris`: decode PEM before parsing, because `validate_target`
+        // does and a target that validates must also be one this can find work for.
+        let Ok(der) = maybe_pem(bytes) else {
+            continue;
+        };
+        let Ok(target) = parse_cert(&der, name) else {
             continue;
         };
         if pe.is_cert_a_trust_anchor(&target).is_ok() {
@@ -819,6 +836,54 @@ mod tests {
         assert!(
             note.contains("examined 1 certificate(s)"),
             "the note should say how many candidates were compared; got {note}"
+        );
+    }
+
+    /// PEM and DER of the *same* certificate must yield the same work.
+    ///
+    /// The regression: `validate_target` decoded PEM and the harvest did not, so a PEM target
+    /// validated normally while contributing nothing to retrieve. Revocation then came back
+    /// undetermined with no note explaining it, because an empty work list means the retrieval
+    /// loops never run. Cost an afternoon on 2026-08-20 against `www.amazon.com.pem`.
+    ///
+    /// Asserted as an equality between encodings rather than against a fixed list, so the test
+    /// stays true if the fixture is reissued, and with a non-empty check so it cannot pass by both
+    /// sides returning nothing -- which is exactly how the bug behaved.
+    #[test]
+    fn pem_and_der_of_the_same_certificate_harvest_alike() {
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let pem = include_bytes!("../../certval/tests/examples/amazon.com/2-target.pem").to_vec();
+        assert_ne!(der, pem, "fixtures must genuinely differ in encoding");
+
+        let from_der = harvest_chase_uris(&[("2-target.der".to_string(), der)]);
+        let from_pem = harvest_chase_uris(&[("2-target.pem".to_string(), pem)]);
+
+        assert!(
+            !from_der.is_empty(),
+            "the DER fixture should name at least one AIA/SIA URI, or this test proves nothing"
+        );
+        assert_eq!(
+            from_der, from_pem,
+            "a PEM certificate must harvest the same URIs as its DER form"
+        );
+    }
+
+    /// The same equality for the byte-level helper the fix rests on, so a regression in `maybe_pem`
+    /// is reported here rather than as an unexplained empty work list somewhere downstream.
+    #[test]
+    fn maybe_pem_yields_identical_der_for_both_encodings() {
+        use crate::validate::maybe_pem;
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let pem = include_bytes!("../../certval/tests/examples/amazon.com/2-target.pem").to_vec();
+        assert_eq!(
+            maybe_pem(&der).unwrap(),
+            der,
+            "DER must pass through unchanged"
+        );
+        assert_eq!(
+            maybe_pem(&pem).unwrap(),
+            der,
+            "PEM must decode to the same DER"
         );
     }
 
