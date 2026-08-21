@@ -11,6 +11,20 @@ use const_oid::db::rfc2256::STATE_OR_PROVINCE_NAME;
 use const_oid::db::rfc3280::{EMAIL_ADDRESS, PSEUDONYM};
 use const_oid::db::rfc4519::*;
 use const_oid::db::rfc5912::*;
+// Named so `oid_lookup` can report them rather than printing a dotted OID. Unconditional because
+// naming an algorithm is not verifying it: a build without the `eddsa` or `pqc` verifier still
+// reads certificates that use them, and a log that cannot name what it just read is the worse
+// outcome.
+use const_oid::db::fips204::{ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87};
+// All twelve parameter sets: the `s`/`f` suffix (small signature vs fast signing) and the hash
+// family are the whole of what distinguishes them, so naming only some would be worse than naming
+// none -- a reader would not know whether an unnamed OID was a variant or a different algorithm.
+use const_oid::db::fips205::{
+    ID_SLH_DSA_SHAKE_128_F, ID_SLH_DSA_SHAKE_128_S, ID_SLH_DSA_SHAKE_192_F, ID_SLH_DSA_SHAKE_192_S,
+    ID_SLH_DSA_SHAKE_256_F, ID_SLH_DSA_SHAKE_256_S, ID_SLH_DSA_SHA_2_128_F, ID_SLH_DSA_SHA_2_128_S,
+    ID_SLH_DSA_SHA_2_192_F, ID_SLH_DSA_SHA_2_192_S, ID_SLH_DSA_SHA_2_256_F, ID_SLH_DSA_SHA_2_256_S,
+};
+use const_oid::db::rfc8410::{ID_ED_25519, ID_ED_448};
 use der::asn1::{Ia5String, PrintableString, Utf8StringRef};
 use der::{asn1::ObjectIdentifier, Decode, Encode, Tagged};
 use spki::{AlgorithmIdentifier, AlgorithmIdentifierOwned};
@@ -630,6 +644,13 @@ pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
 
 /// `oid_lookup` takes an ObjectIdentifier and returns a string with a friendly name for the OID or
 /// Error::NotFound.
+/// Names for the signature and public-key algorithms a path log or report would otherwise print as
+/// a bare dotted OID.
+///
+/// EC was the gap that showed: `1.2.840.10045.2.1` and `1.2.840.10045.4.3.3` appeared 269 times
+/// across a survey of 72 Web PKI certificates on 2026-08-20, directly above lines that named the
+/// curve properly. EdDSA and ML-DSA are here for the same reason before anyone meets them — a
+/// validator built for post-quantum algorithms should not print their OIDs raw.
 pub fn oid_lookup(oid: &ObjectIdentifier) -> Result<String> {
     if *oid == PKIXALG_SHA224_WITH_RSA_ENCRYPTION {
         return Ok("SHA224 with RSA Encryption".to_string());
@@ -641,6 +662,50 @@ pub fn oid_lookup(oid: &ObjectIdentifier) -> Result<String> {
         return Ok("SHA512 with RSA Encryption".to_string());
     } else if *oid == PKIXALG_RSA_ENCRYPTION {
         return Ok("RSA Encryption".to_string());
+    } else if *oid == PKIXALG_EC_PUBLIC_KEY {
+        return Ok("EC Public Key".to_string());
+    } else if *oid == PKIXALG_ECDSA_WITH_SHA224 {
+        return Ok("ECDSA with SHA224".to_string());
+    } else if *oid == PKIXALG_ECDSA_WITH_SHA256 {
+        return Ok("ECDSA with SHA256".to_string());
+    } else if *oid == PKIXALG_ECDSA_WITH_SHA384 {
+        return Ok("ECDSA with SHA384".to_string());
+    } else if *oid == PKIXALG_ECDSA_WITH_SHA512 {
+        return Ok("ECDSA with SHA512".to_string());
+    } else if *oid == ID_ED_25519 {
+        return Ok("Ed25519".to_string());
+    } else if *oid == ID_ED_448 {
+        return Ok("Ed448".to_string());
+    } else if *oid == ID_ML_DSA_44 {
+        return Ok("ML-DSA-44".to_string());
+    } else if *oid == ID_ML_DSA_65 {
+        return Ok("ML-DSA-65".to_string());
+    } else if *oid == ID_ML_DSA_87 {
+        return Ok("ML-DSA-87".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_128_S {
+        return Ok("SLH-DSA-SHA2-128s".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_128_F {
+        return Ok("SLH-DSA-SHA2-128f".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_192_S {
+        return Ok("SLH-DSA-SHA2-192s".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_192_F {
+        return Ok("SLH-DSA-SHA2-192f".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_256_S {
+        return Ok("SLH-DSA-SHA2-256s".to_string());
+    } else if *oid == ID_SLH_DSA_SHA_2_256_F {
+        return Ok("SLH-DSA-SHA2-256f".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_128_S {
+        return Ok("SLH-DSA-SHAKE-128s".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_128_F {
+        return Ok("SLH-DSA-SHAKE-128f".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_192_S {
+        return Ok("SLH-DSA-SHAKE-192s".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_192_F {
+        return Ok("SLH-DSA-SHAKE-192f".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_256_S {
+        return Ok("SLH-DSA-SHAKE-256s".to_string());
+    } else if *oid == ID_SLH_DSA_SHAKE_256_F {
+        return Ok("SLH-DSA-SHAKE-256f".to_string());
     } else if *oid == NAME {
         return Ok("name".to_string());
     } else if *oid == SURNAME {
@@ -1496,4 +1561,30 @@ fn revocation_uris_absent_is_not_an_error() {
     let mut ocsp = alloc::vec![];
     collect_ocsp_uris(&cert, &mut ocsp);
     assert!(ocsp.is_empty());
+}
+
+/// Every algorithm this library can encounter should have a name, because the fallback is a dotted
+/// OID in a log or a report. EC was the gap that showed in practice — `1.2.840.10045.2.1` appeared
+/// 141 times in one survey — and the post-quantum sets are here so they never become the next one.
+#[test]
+fn algorithm_oids_resolve_to_names_rather_than_dotted_numbers() {
+    use const_oid::db::fips204::ID_ML_DSA_65;
+    use const_oid::db::fips205::{ID_SLH_DSA_SHAKE_256_F, ID_SLH_DSA_SHA_2_128_S};
+    use const_oid::db::rfc8410::ID_ED_25519;
+
+    for (oid, expected) in [
+        (PKIXALG_EC_PUBLIC_KEY, "EC Public Key"),
+        (PKIXALG_ECDSA_WITH_SHA384, "ECDSA with SHA384"),
+        (PKIXALG_RSA_ENCRYPTION, "RSA Encryption"),
+        (ID_ED_25519, "Ed25519"),
+        (ID_ML_DSA_65, "ML-DSA-65"),
+        (ID_SLH_DSA_SHA_2_128_S, "SLH-DSA-SHA2-128s"),
+        (ID_SLH_DSA_SHAKE_256_F, "SLH-DSA-SHAKE-256f"),
+    ] {
+        assert_eq!(oid_lookup(&oid).unwrap(), expected, "naming {oid}");
+    }
+
+    // An OID with no name is reported as absent rather than guessed at, which is what lets the
+    // caller fall back to the dotted form deliberately.
+    assert!(oid_lookup(&ObjectIdentifier::new_unwrap("1.2.3.4.5")).is_err());
 }

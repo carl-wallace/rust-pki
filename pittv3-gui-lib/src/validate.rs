@@ -33,19 +33,13 @@ fn err(text: String) -> ResultLine {
     ResultLine { class: "err", text }
 }
 
-/// Returns DER bytes given buffers that may be PEM or DER encoded. DER detection accepts
-/// SEQUENCE (certificates and the certificate variant of TrustAnchorChoice) plus the context
-/// tags that begin the tbsCert and taInfo variants of a DER-encoded RFC 5914 TrustAnchorChoice.
-pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
-    if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA1 | 0xA2) {
-        Ok(bytes.to_vec())
-    } else {
-        match pem_rfc7468::decode_vec(bytes) {
-            Ok(b) => Ok(b.1),
-            Err(_e) => Err(Error::Unrecognized),
-        }
-    }
-}
+/// Re-exported so the frontends keep the name they already use; the implementation lives one layer
+/// down in [`pittv3_lib::der_or_pem`].
+///
+/// Two copies is how the 2026-08-20 bug got in: `validate_target` decoded PEM and the harvest did
+/// not, so a PEM target validated normally and contributed nothing to retrieve. Having one is the
+/// point — a caller cannot reach for the wrong one if there is only one.
+pub use pittv3_lib::der_or_pem::maybe_pem;
 
 /// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
 /// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass

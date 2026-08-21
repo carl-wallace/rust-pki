@@ -5188,6 +5188,7 @@ dependencies = [
  "hex-literal",
  "log",
  "pem-rfc7468",
+ "pkcs1",
  "reqwest 0.13.4",
  "rsa",
  "serde",
