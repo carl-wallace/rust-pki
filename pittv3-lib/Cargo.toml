@@ -27,6 +27,10 @@ x509-ocsp = { version = "0.3.0-pre", default-features = false }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 der = { version="0.8.1", features = ["alloc", "derive", "flagset", "oid"] }
 spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
+# Only to read an RSA modulus length out of a SubjectPublicKeyInfo when describing a key in a path
+# log. Already in the tree via certval, and deliberately not `rsa::pkcs1`: a log should describe a
+# key whatever verifiers happen to be compiled in.
+pkcs1 = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}

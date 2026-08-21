@@ -14,14 +14,18 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_EXT_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY, ID_CE_NAME_CONSTRAINTS,
     ID_CE_POLICY_CONSTRAINTS, ID_CE_POLICY_MAPPINGS, ID_CE_SUBJECT_KEY_IDENTIFIER,
+    ID_EC_PUBLIC_KEY, RSA_ENCRYPTION, SECP_256_R_1, SECP_384_R_1, SECP_521_R_1,
 };
+use const_oid::ObjectIdentifier;
 #[cfg(feature = "revocation")]
 use der::asn1::GeneralizedTime;
 use der::{Decode, Encode};
+use pkcs1::RsaPublicKey;
 #[cfg(feature = "std_app")]
 use sha2::Digest;
 #[cfg(feature = "std_app")]
 use sha2::Sha256;
+use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_ocsp::{BasicOcspResponse, CertStatus, OcspResponse, ResponderId, SingleResponse};
 
@@ -240,15 +244,8 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
     .expect("Unable to write manifest file");
     f.write_all(
         format!(
-            "\t\t* Public key size: {} bytes\n",
-            &cert
-                .as_ref()
-                .tbs_certificate()
-                .subject_public_key_info()
-                .subject_public_key
-                .raw_bytes()
-                .len()
-                / 8
+            "\t\t* Public key: {}\n",
+            describe_public_key(cert.as_ref().tbs_certificate().subject_public_key_info())
         )
         .as_bytes(),
     )
@@ -766,6 +763,51 @@ fn revocation_method_text(method: crate::report::RevocationMethod) -> &'static s
     }
 }
 
+/// Describes a public key the way a reader means the question, rather than by how it is encoded.
+///
+/// The previous line reported `subject_public_key.raw_bytes().len() / 8` and called the result
+/// "bytes", which was wrong twice over. The division treated a byte count as a bit count, so an
+/// RSA-2048 key read as 33 and an RSA-4096 key as 65 — a bigger key printing a smaller number, which
+/// is what gave it away. And the quantity was wrong even with correct units: `raw_bytes` is the
+/// encoded `subjectPublicKey`, a DER SEQUENCE of modulus and exponent for RSA and an uncompressed
+/// point for EC, so a P-256 key is 65 bytes and a P-384 key 97 — neither of which is a key size.
+///
+/// So: modulus bits for RSA, the curve for EC, and the algorithm's own name where the parameter set
+/// is the size (ML-DSA, SLH-DSA). Anything unrecognised falls back to the encoded length, said
+/// plainly as an encoded length so it cannot be mistaken for a key size again.
+fn describe_public_key(spki: &SubjectPublicKeyInfoOwned) -> String {
+    let encoded = spki.subject_public_key.raw_bytes();
+
+    if spki.algorithm.oid == RSA_ENCRYPTION {
+        // The modulus is the first INTEGER of the SEQUENCE; its leading zero byte, present so a
+        // high bit does not read as negative, is not part of the modulus.
+        if let Ok(key) = RsaPublicKey::from_der(encoded) {
+            let bits = key.modulus.as_bytes().len() * 8;
+            return format!("RSA, {bits} bits");
+        }
+    }
+
+    if spki.algorithm.oid == ID_EC_PUBLIC_KEY {
+        // The curve is named by the algorithm parameters, not by the key, which is why the encoded
+        // point length is a poor proxy for it.
+        if let Some(params) = spki.algorithm.parameters.as_ref() {
+            if let Ok(curve) = params.decode_as::<ObjectIdentifier>() {
+                return match curve {
+                    SECP_256_R_1 => "EC, P-256 (secp256r1)".to_string(),
+                    SECP_384_R_1 => "EC, P-384 (secp384r1)".to_string(),
+                    SECP_521_R_1 => "EC, P-521 (secp521r1)".to_string(),
+                    other => format!("EC, curve {other}"),
+                };
+            }
+        }
+        return "EC, curve unstated".to_string();
+    }
+
+    // For the PQC signature algorithms the parameter set *is* the size, and the algorithm OID names
+    // it, so the algorithm line above has already said everything there is to say.
+    format!("{} bytes encoded", encoded.len())
+}
+
 /// Renders one OCSP response's details, read out of the response itself rather than from anything
 /// recorded alongside it, so the manifest describes the artifact the bundle carries.
 fn render_ocsp_details(response: &[u8], serial: Option<&[u8]>) -> String {
@@ -1136,4 +1178,40 @@ fn test_cps_log() {
     let results_path = temp_dir.path().join("cps.txt");
     let mut f = File::create(results_path).unwrap();
     log_cps(&mut f, &cps);
+}
+
+#[cfg(test)]
+mod key_description_tests {
+    use super::describe_public_key;
+    use der::Decode;
+    use x509_cert::certificate::{CertificateInner, Raw};
+
+    fn describe_der(der: &[u8]) -> String {
+        let cert = CertificateInner::<Raw>::from_der(der).expect("cert");
+        describe_public_key(cert.tbs_certificate().subject_public_key_info())
+    }
+
+    fn describe_pem(pem: &[u8]) -> String {
+        describe_der(&pem_rfc7468::decode_vec(pem).expect("pem").1)
+    }
+
+    /// The line this replaced reported `raw_bytes().len() / 8` and called it bytes, so an RSA-2048
+    /// key read "33 bytes", RSA-4096 read "65" — a bigger key printing a smaller number — and every
+    /// P-256 key read "8". Assert what a reader actually wants, against real certificates, for both
+    /// branches.
+    #[test]
+    fn keys_are_described_by_algorithm_not_by_encoded_length() {
+        let rsa = describe_pem(include_bytes!(
+            "../../certval/tests/examples/amazon.com/2-target.pem"
+        ));
+        assert_eq!(rsa, "RSA, 2048 bits", "RSA reports modulus bits");
+
+        let ec = describe_der(include_bytes!(
+            "../../certval/tests/examples/dns_name_constraints/root.der"
+        ));
+        assert!(
+            ec.starts_with("EC, P-"),
+            "EC reports its curve, not the encoded point length; got {ec}"
+        );
+    }
 }
