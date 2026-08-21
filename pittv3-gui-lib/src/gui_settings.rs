@@ -533,7 +533,6 @@ enum SettingsTab {
     Target,
     Revocation,
     Fetching,
-    Countries,
     Folders,
 }
 
@@ -544,9 +543,22 @@ const TABS: &[(SettingsTab, &str)] = &[
     (SettingsTab::Target, "Target"),
     (SettingsTab::Revocation, "Revocation"),
     (SettingsTab::Fetching, "Fetching"),
-    (SettingsTab::Countries, "Countries"),
     (SettingsTab::Folders, "Folders & files"),
 ];
+
+/// Whether a tab has anything to offer the frontend showing it.
+///
+/// Folders and files name paths on a machine the browser has no way to reach, so it is left out
+/// there rather than shown with a notice saying it does nothing: a tab that only ever explains its
+/// own absence of effect costs a reader more than it tells them. The values are not discarded with
+/// it — they stay in the model, so a settings file carrying paths still loads here, keeps them, and
+/// hands them back intact to the CLI or the desktop app that can act on them.
+fn tab_applies(tab: SettingsTab, caps: &Capabilities) -> bool {
+    match tab {
+        SettingsTab::Folders => caps.filesystem,
+        _ => true,
+    }
+}
 
 /// Renderer-agnostic settings editor over a [`SettingsModel`]. The `on_save` handler receives the
 /// edited model; persistence (file, server, browser storage) is the frontend's concern. `caps`
@@ -577,7 +589,7 @@ pub fn EditSettings(
     rsx! {
         div { class: "settings-editor",
             div { class: "tab-bar",
-                for (t , label) in TABS.iter() {
+                for (t , label) in TABS.iter().filter(|(t, _)| tab_applies(*t, &caps)) {
                     button {
                         r#type: "button",
                         class: if tab() == *t { "tab tab-active" } else { "tab" },
@@ -875,37 +887,7 @@ pub fn EditSettings(
                         }
                     }
                 },
-                SettingsTab::Countries => rsx! {
-                    table {
-                        tbody {
-                            BoolRow {
-                                label: "Require country code compliance",
-                                checked: m.require_country_code_indicator.unwrap_or(false),
-                                overridden: m.require_country_code_indicator.is_some(),
-                                onchange: move |v| model.write().require_country_code_indicator = Some(v),
-                            }
-                        }
-                    }
-                    StringListEditor {
-                        label: "Permitted countries",
-                        value: m.perm_countries.clone(),
-                        onchange: move |v| model.write().perm_countries = v,
-                    }
-                    StringListEditor {
-                        label: "Excluded countries",
-                        value: m.excl_countries.clone(),
-                        onchange: move |v| model.write().excl_countries = v,
-                    }
-                },
                 SettingsTab::Folders => rsx! {
-                    if !caps.filesystem {
-                        CapabilityNotice {
-                            message: "This frontend has no filesystem access, so these paths do not resolve here. \
-                                      They are kept in the settings file, which is the same format the CLI and the \
-                                      desktop app read, so a path set here takes effect when the file is used there."
-                                .to_string(),
-                        }
-                    }
                     table {
                         tbody {
                             SettingTextRow {
