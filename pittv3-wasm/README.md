@@ -21,6 +21,19 @@ accumulate across uploads, so a set of loaded certificates can be re-validated a
 trust configuration or settings. Values that govern the RFC 5280 path validation inputs, e.g., the
 initial policy set and related indicators, can be edited in the UI.
 
+The **End entity certificate** group takes what is to be validated from one of two sources, chosen
+with the *Load from* control: a **File**, or a **TLS server**. The second exists because a browser
+holds the certificate of every site it talks to and hands over none of them, so the certificate
+people most often want to look at — the one a site is serving right now — is the one that could not
+be uploaded without going away and fetching it with another tool first. Naming a host has the
+service complete a handshake with it and keep what it sent: the host's own certificate is loaded
+here, anything sent with it joins the CA certificates path building draws on, and a stapled OCSP
+response is kept as revocation data. Nothing is requested over the connection, and making the
+handshake does not judge the certificate — that is what Validate is for, which is the point, since a
+chain a browser refuses is usually the reason someone came. It needs a service, so it works only in
+the relayed tier. Both sources feed one list, and switching between them discards nothing, so the
+count beside *Loaded* is what a run will validate however the certificates arrived.
+
 A **Retrieval** selector on the Validate tab chooses what the app may fetch. *In this browser only*
 is the historical behavior and the only option when no service is serving the page: nothing leaves
 it, paths are built from the selected store and uploads, and revocation status stays undetermined
@@ -32,6 +45,13 @@ do, and an OCSP request identifies the certificate being asked about even though
 itself is not sent. The setting also drives the settings form's per-capability notices, and flips
 what an unstated revocation preference means, since with a relay the check can actually be
 satisfied.
+
+*Retrieve through the service* is the tier a served page starts on. A deployment that runs a
+service is one that means to retrieve, and starting elsewhere there makes the first run report
+missing issuers and undetermined revocation status for want of a switch nobody was told to flip.
+The selector is one click either way, and its hint states what leaves the page. A statically hosted
+copy has no service to answer `api/health`, so it starts — and stays — in the browser-only tier
+with the selector disabled and a line saying why.
 
 The harvesting and folding around that retrieval are `pittv3_gui_lib::retrieval`, shared with the
 server-hosted tier, so the same certificate validated either way goes through the same code.

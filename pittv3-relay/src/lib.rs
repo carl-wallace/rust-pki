@@ -4,6 +4,7 @@
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
 pub mod budget;
+pub mod peek;
 pub mod policy;
 
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 
 pub use budget::{BudgetExhausted, ChaseBudget, ChaseBudgetLimits, FetchBudget};
+pub use peek::{PeekRequest, PeekResponse};
 pub use policy::{is_public_address, CheckedUri, NetworkPolicy, PolicyError, PolicyResolver};
 
 /// Verbs PKI retrieval needs. `GET` covers certificates and CRLs named by authority information
@@ -101,8 +103,10 @@ pub struct FetchResponse {
 pub enum FetchError {
     /// The URI, its host's addresses, or a redirect target was refused by the network policy.
     Policy(PolicyError),
-    /// The retrieval did not complete within the time allowed.
-    Timeout,
+    /// The exchange did not complete within the time allowed, which is reported: "timed out" alone
+    /// leaves a caller unable to tell a host that is slow from one that never answers, and unable
+    /// to tell either from a budget set too low.
+    Timeout(Duration),
     /// The response body exceeded the cap, either as claimed by `Content-Length` or as observed
     /// while streaming. The cap that was exceeded is reported.
     TooLarge(u64),
@@ -118,7 +122,7 @@ impl core::fmt::Display for FetchError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             FetchError::Policy(e) => write!(f, "refused by policy: {e}"),
-            FetchError::Timeout => write!(f, "timed out"),
+            FetchError::Timeout(after) => write!(f, "timed out after {after:?}"),
             FetchError::TooLarge(cap) => write!(f, "response exceeded the {cap}-byte cap"),
             FetchError::RequestTooLarge(cap) => write!(f, "request exceeded the {cap}-byte cap"),
             FetchError::Transport(e) => write!(f, "transport failure: {e}"),
@@ -217,7 +221,7 @@ impl Relay {
             Ok(r) => r,
             Err(e) if e.is_timeout() => {
                 debug!("Retrieval of {} timed out after {timeout:?}", request.uri);
-                return Err(FetchError::Timeout);
+                return Err(FetchError::Timeout(timeout));
             }
             Err(e) => {
                 debug!("Retrieval of {} failed with {e}", request.uri);
@@ -236,7 +240,7 @@ impl Relay {
         let final_uri = response.url().to_string();
         let content_type = header_string(&response, reqwest::header::CONTENT_TYPE);
         let last_modified = header_string(&response, reqwest::header::LAST_MODIFIED);
-        let body = read_capped_body(response, max_bytes, &request.uri).await?;
+        let body = read_capped_body(response, max_bytes, &request.uri, timeout).await?;
 
         Ok(FetchResponse {
             status,
@@ -305,6 +309,7 @@ async fn read_capped_body(
     mut response: reqwest::Response,
     max_bytes: u64,
     uri: &str,
+    timeout: Duration,
 ) -> Result<Vec<u8>, FetchError> {
     if let Some(len) = response.content_length() {
         if len > max_bytes {
@@ -324,7 +329,7 @@ async fn read_capped_body(
                 buf.extend_from_slice(&chunk);
             }
             Ok(None) => break,
-            Err(e) if e.is_timeout() => return Err(FetchError::Timeout),
+            Err(e) if e.is_timeout() => return Err(FetchError::Timeout(timeout)),
             Err(e) => {
                 debug!("Failed to read the body from {uri} with {e}");
                 return Err(FetchError::Transport(e.to_string()));

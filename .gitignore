@@ -1,3 +1,6 @@
 target
+# Harvested by pittv3-lib's ocsp_unknown_serial probe; kept out of the tree until something is
+# promoted to a fixture, but not under target/, which is disposable.
+ocsp-probe/
 certval/tests/examples/rfc822_dn_nc/generate.py
 pittv3-wasm/dist/

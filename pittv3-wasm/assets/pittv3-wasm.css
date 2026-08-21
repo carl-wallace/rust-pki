@@ -38,6 +38,23 @@ h1 {
   margin-top: 0;
 }
 
+/* Build identity, in the bottom corner. Fixed so it is in the same place whatever is on screen and
+   whatever has been scrolled past; pointer-events: none so it is never in the way of a control it
+   happens to sit over; its own background so text scrolling underneath does not read through it. */
+.version {
+  position: fixed;
+  right: 0.6rem;
+  bottom: 0.4rem;
+  z-index: 10;
+  margin: 0;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  background: Canvas;
+  color: var(--muted);
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
 details.panel {
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -10,6 +10,15 @@ The endpoints are:
 
 - `POST /api/fetch` retrieves one artifact through `pittv3_relay`, which enforces the network policy
   and the per-retrieval budgets. The service does not look at what comes back.
+- `POST /api/tls` completes a TLS handshake with a named host and returns the certificates it
+  presented, plus any OCSP response it stapled. A browser holds the certificate of every site it
+  talks to and exposes none of them, so this is the only way the browser application can be given
+  the certificate a site serves. Nothing is requested over the connection and nothing is parsed
+  here. The handshake accepts any certificate — the chain someone is asking about is often one a
+  verifier would reject, and judging it is what `/api/validate` and the browser are for — while the
+  peer's handshake signature is verified, so the chain returned belongs to the party that answered.
+  Turn it off with `allow_tls_peek` for a deployment whose relay is meant to reach PKI repositories
+  and nothing else.
 - `POST /api/validate` validates the certificates in the request and returns a `ValidationReport`,
   the same structure the CLI writes and the GUIs display.
 - `GET /api/stores` lists the trust stores the service holds, in the shape the browser

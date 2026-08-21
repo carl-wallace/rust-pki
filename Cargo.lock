@@ -5209,8 +5209,10 @@ version = "0.1.3"
 dependencies = [
  "log",
  "reqwest 0.13.4",
+ "rustls",
  "serde",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
@@ -6147,6 +6149,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c54fcab019b409d04215d3a17cb438fd7fbf192ee61461f20f4fe18704bc138"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",

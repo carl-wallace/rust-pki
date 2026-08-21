@@ -25,7 +25,7 @@ use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
 use crate::relay::{
-    chase_certificates, retrieve_crls, retrieve_ocsp, FetchBudget, RelayFetcher, Tier,
+    chase_certificates, relay_peek, retrieve_crls, retrieve_ocsp, FetchBudget, RelayFetcher, Tier,
 };
 use crate::validate::{
     merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
@@ -68,6 +68,15 @@ const VALIDATE_ALL_KEY: &str = "pittv3.validate_all";
 const REV_CACHE_KEY: &str = "pittv3.use_rev_cache";
 
 /// Sidebar views in display order
+/// Version of this build, from the manifest.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// When this build was made, stamped by `build.rs` — see `stamp_build_time` there for what moves it
+/// and what deliberately does not. Shown beside the version because until there are releases to tell
+/// apart, the version is the same string every time and the build time is the one that answers "is
+/// this what I just deployed".
+const BUILT: &str = env!("PITTV3_BUILD_TIME");
+
 const VIEW_LABELS: &[&str] = &[
     "Validate",
     "Settings",
@@ -177,8 +186,8 @@ fn load_use_rev_cache() -> bool {
 /// checking off and then never consulted the CRL it had just been given. With neither, an unstated
 /// preference still means off, or every run would come back `RevocationStatusNotDetermined` for
 /// want of data the page cannot obtain. In
-/// [`Tier::Relayed`] the data can be retrieved, and checking is the point of having chosen that
-/// tier, so an unstated preference means on.
+/// [`Tier::Relayed`] the data can be retrieved, and checking is the point of that tier, so an
+/// unstated preference means on.
 ///
 /// A stated preference is honored either way — the settings form says outright that these settings
 /// apply only where the tool can fetch, and a user who asks for checking in the local tier gets
@@ -310,6 +319,16 @@ fn App() -> Element {
     let mut uploaded_tas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Which of the two ways of naming an end entity certificate the form is offering. Not a
+    // property of what gets loaded -- both sources feed the one list, and switching does not
+    // discard what the other brought in -- only of which control is on show.
+    let mut ee_from_server = use_signal(|| false);
+    // The host someone typed in place of choosing a file, and what came of asking about it. A
+    // browser will not hand over the certificate of a site it is talking to, so for the certificate
+    // most people actually want to look at, uploading a file was never an option they had.
+    let mut peek_uri = use_signal(String::new);
+    let mut peek_status = use_signal(String::new);
+    let mut peek_running = use_signal(|| false);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
     // Revocation data supplied by hand, for a run with no network to fetch it. Held here rather
     // than pushed straight into the prepared environment because that environment is rebuilt
@@ -342,9 +361,12 @@ fn App() -> Element {
     // selectable. Determined once at startup; a statically hosted copy leaves it false and the
     // selector says why.
     let mut service_present = use_signal(|| false);
-    // Which tier a run uses. Local until a service is found *and* the user asks for retrieval:
-    // choosing to disclose the URIs a certificate names is the user's to make, not a default that
-    // follows from a deployment happening to offer it.
+    // Which tier a run uses. Local while the health request is outstanding, since a retrieval
+    // before then has nothing to reach, and relayed from the moment a service answers: a deployment
+    // that runs a service exists to do the retrieving, and starting local there means every first
+    // run comes back missing the paths and the revocation status the service was stood up to
+    // supply. The choice remains the user's -- the selector is one click, and its hint states what
+    // leaves the page -- but the default now follows the deployment.
     let mut tier = use_signal(Tier::default);
 
     // Why the Check URIs button is unavailable, or None when it is available. One place, so the
@@ -352,7 +374,7 @@ fn App() -> Element {
     // has to state its reason rather than silently joining an anonymous `||` chain.
     let uri_blocked_because = move || -> Option<&'static str> {
         if uri_running() {
-            return Some("A check is already running.");
+            return Some("A check is now running.");
         }
         if uri_target().is_none() {
             return Some("Choose a certificate to check.");
@@ -371,9 +393,36 @@ fn App() -> Element {
         }
         None
     };
-    // Certificates retrieved by following AIA and SIA URIs during this session. Held apart from the
-    // uploads so that clearing uploads does not discard them and so the notes can say where a
-    // certificate in the path came from; they feed preparation exactly as an upload does.
+    // Why taking a host's certificates is unavailable, or None when it is available. Same shape as
+    // `uri_blocked_because` above and for the same reason: the button, its hint and the reason line
+    // cannot disagree if there is only one of them.
+    let peek_blocked_because = move || -> Option<&'static str> {
+        if peek_running() {
+            return Some("A handshake is now running.");
+        }
+        if peek_uri().trim().is_empty() {
+            return Some("Enter a host to take the certificates from.");
+        }
+        if !tier().retrieves() {
+            return match service_present() {
+                true => Some(
+                    "A handshake with the host is made by the service, so this needs retrieval \
+                     turned on.",
+                ),
+                false => Some(
+                    "A handshake with the host is made by the service, and no PITTv3 service is \
+                     serving this page.",
+                ),
+            };
+        }
+        None
+    };
+
+    // Certificates this session retrieved rather than was given: those found by following AIA and
+    // SIA URIs, and the intermediates a host sent alongside its own certificate during a handshake.
+    // Held apart from the uploads so that clearing uploads does not discard them and so the notes
+    // can say where a certificate in the path came from; they feed preparation exactly as an upload
+    // does.
     let mut chased_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
     // Fetched CBOR for the most recently used store, cached as (store id, ta, ca) so repeated
     // validations with the same selection do not re-download it. Keyed by identifier rather than by
@@ -438,6 +487,13 @@ fn App() -> Element {
             }
         };
         service_present.set(healthy);
+        // The relayed tier becomes the default as soon as there is something to relay through.
+        // Nothing here can overwrite a choice already made: both ways of changing the tier -- the
+        // selector and the Check URIs remedy button -- are gated on `service_present`, which was
+        // false until the line above, so this is the first value the user could have had a say in.
+        if healthy {
+            tier.set(Tier::Relayed);
+        }
 
         let bytes = match fetch_bytes(SERVICE_STORES_URL).await {
             Ok(bytes) => bytes,
@@ -710,6 +766,72 @@ fn App() -> Element {
     // is clicked
     let load_ee = move |name: String, bytes: Vec<u8>| {
         extend_unique(loaded_ees, vec![(name, bytes)]);
+    };
+
+    // Has the service complete a handshake with a named host and loads what it presented, so a
+    // site's certificate arrives here the same way a file would.
+    //
+    // What the host sent is split by the role each certificate plays rather than kept as a "chain":
+    // the first is what the handshake was about and becomes the end entity, and the rest join the
+    // pool path building draws on. Nothing here trusts the order beyond that first position, which
+    // is the one RFC 8446 actually pins down -- a host that sends its intermediates in a strange
+    // order is a finding for the report, not a reason to fail here.
+    let take_presented_certificates = move |_| async move {
+        let asked = peek_uri().trim().to_string();
+        if asked.is_empty() {
+            return;
+        }
+        peek_running.set(true);
+        peek_status.set(format!("Asking {asked} for its certificates..."));
+
+        match relay_peek(&asked).await {
+            Ok(presented) => {
+                // The default port is left unsaid; any other is part of what was asked for and is
+                // shown, because "example.com" and "example.com:8443" are different services.
+                let source = match presented.port {
+                    443 => presented.host.clone(),
+                    port => format!("{}:{port}", presented.host),
+                };
+                let mut certificates = presented.certificates.into_iter();
+                let Some(end_entity) = certificates.next() else {
+                    peek_status.set(format!("{source} presented no certificate."));
+                    peek_running.set(false);
+                    return;
+                };
+                load_ee(source.clone(), end_entity);
+
+                let chain = certificates
+                    .enumerate()
+                    .map(|(i, der)| (format!("{source} sent #{}", i + 2), der))
+                    .collect::<Vec<(String, Vec<u8>)>>();
+                let intermediates = chain.len();
+                extend_unique(chased_cas, chain);
+
+                let stapled = presented.stapled_ocsp.is_some();
+                if let Some(response) = presented.stapled_ocsp {
+                    extend_unique(
+                        uploaded_ocsp,
+                        vec![(format!("{source} stapled response"), response)],
+                    );
+                }
+
+                let over = match presented.protocol {
+                    Some(p) => format!(" over {p}"),
+                    None => String::new(),
+                };
+                let mut said = format!("{source}{over}: end entity loaded");
+                if intermediates > 0 {
+                    said.push_str(&format!(", {intermediates} sent with it"));
+                }
+                if stapled {
+                    said.push_str(", stapled OCSP response kept as revocation data");
+                }
+                said.push('.');
+                peek_status.set(said);
+            }
+            Err(e) => peek_status.set(format!("{asked}: {e}")),
+        }
+        peek_running.set(false);
     };
 
     // validates the loaded self-contained hackathon artifacts_certs_r5.zip archive(s); lives on its
@@ -1019,7 +1141,6 @@ fn App() -> Element {
                 code { "certval" }
                 " compiled to WebAssembly. Certificates never leave this page."
             }
-
             AppShell {
                 items: VIEW_LABELS.to_vec(),
                 selected: view(),
@@ -1188,23 +1309,92 @@ fn App() -> Element {
                             }
                         }
 
-                        div { class: "controls",
-                            label { "End Entity Certificate(s): " }
-                            input {
-                                r#type: "file",
-                                multiple: true,
-                                accept: ".der,.crt,.cer,.pem",
-                                onchange: move |ev| async move {
-                                    for (name, bytes) in read_files(&ev).await {
-                                        load_ee(name, bytes);
+                        // One group with a source picker rather than two boxes offering the same
+                        // thing. A file and a host are two ways of naming the same input, and shown
+                        // as siblings they read as two separate things to fill in -- the second of
+                        // which most people would leave alone without knowing it was the only way
+                        // to reach the certificate they came for. Which control is shown follows
+                        // the choice; what has been loaded is reported either way, because the list
+                        // is shared and switching sources does not discard it.
+                        fieldset {
+                            legend { "End entity certificate" }
+                            div { class: "controls",
+                                label { "Load from: " }
+                                div { class: "radio-group",
+                                    label { class: "radio",
+                                        input {
+                                            r#type: "radio",
+                                            name: "ee-source",
+                                            checked: !ee_from_server(),
+                                            onchange: move |_| ee_from_server.set(false),
+                                        }
+                                        " File"
                                     }
-                                },
-                            }
-                            span { class: "hint",
-                                "{loaded_ees().len()} certificate(s) loaded "
-                                button {
-                                    onclick: move |_| loaded_ees.write().clear(),
-                                    "Clear"
+                                    label { class: "radio",
+                                        input {
+                                            r#type: "radio",
+                                            name: "ee-source",
+                                            checked: ee_from_server(),
+                                            onchange: move |_| ee_from_server.set(true),
+                                        }
+                                        " TLS server"
+                                    }
+                                }
+
+                                if ee_from_server() {
+                                    label { r#for: "peek-uri", "Host: " }
+                                    span {
+                                        input {
+                                            id: "peek-uri",
+                                            r#type: "text",
+                                            placeholder: "example.com",
+                                            value: "{peek_uri}",
+                                            oninput: move |ev| peek_uri.set(ev.value()),
+                                        }
+                                        button {
+                                            disabled: peek_blocked_because().is_some(),
+                                            onclick: take_presented_certificates,
+                                            "Get certificates"
+                                        }
+                                    }
+                                    // Beside the control it explains, naming the condition that
+                                    // actually applies rather than the one that usually does.
+                                    if let Some(reason) = peek_blocked_because() {
+                                        span { class: "hint", "{reason}" }
+                                    }
+                                    if !peek_status().is_empty() {
+                                        span { class: "hint", "{peek_status}" }
+                                    }
+                                    span { class: "hint",
+                                        "The service completes a handshake and keeps what the host \
+                                         sent: its own certificate is loaded here, anything sent \
+                                         with it joins the CA certificates path building draws on, \
+                                         and a stapled OCSP response is kept as revocation data. \
+                                         Nothing is requested over the connection. The certificate \
+                                         is not judged by making the handshake — that is what \
+                                         Validate is for."
+                                    }
+                                } else {
+                                    label { "File(s): " }
+                                    input {
+                                        r#type: "file",
+                                        multiple: true,
+                                        accept: ".der,.crt,.cer,.pem",
+                                        onchange: move |ev| async move {
+                                            for (name, bytes) in read_files(&ev).await {
+                                                load_ee(name, bytes);
+                                            }
+                                        },
+                                    }
+                                }
+
+                                label { "Loaded: " }
+                                span {
+                                    "{loaded_ees().len()} certificate(s) "
+                                    button {
+                                        onclick: move |_| loaded_ees.write().clear(),
+                                        "Clear"
+                                    }
                                 }
                             }
                         }
@@ -1522,7 +1712,7 @@ fn App() -> Element {
                             button {
                                 // One disabled state served three unrelated conditions, so a dead
                                 // button looked identical whether no certificate was chosen, the
-                                // tier could not retrieve, or a check was already running -- and the
+                                // tier could not retrieve, or a check was running -- and the
                                 // only explanation sat forty lines up and covered one of the three.
                                 title: uri_blocked_because()
                                     .unwrap_or("Fetch and check every URI this certificate names"),
@@ -1707,6 +1897,13 @@ fn App() -> Element {
                     },
                 }
             }
+
+            // Parked in a corner rather than under the title, where it sat in the reading path of
+            // every visit while answering a question nobody asks until something is wrong. Pinned
+            // rather than placed at the end of the document so that finding it does not mean
+            // scrolling past a long report, and inert to the pointer so it can never take a click
+            // meant for what is underneath it.
+            p { class: "version", "Version {VERSION} · built {BUILT}" }
         }
     }
 }

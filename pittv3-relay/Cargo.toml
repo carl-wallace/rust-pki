@@ -4,8 +4,8 @@ version = "0.1.3"
 description = """
 Policy-enforcing byte relay used by frontends to the PKI Interoperability Test Tool v3 (PITTv3) that
 cannot reach PKI repositories themselves, i.e., browsers. It retrieves certificates, CRLs and OCSP
-responses on a caller's behalf subject to a network policy and a set of budgets, without parsing
-what it retrieves.
+responses on a caller's behalf, and takes the certificates a TLS host presents, subject to a network
+policy and a set of budgets, without parsing what it retrieves.
 """
 authors = [""]
 license = "Apache-2.0 OR MIT"
@@ -27,6 +27,11 @@ log = { version = "0.4.33" }
 # reqwest is pinned to the version certval uses so a workspace build resolves one HTTP client and
 # one TLS backend rather than two.
 reqwest = { version = "0.13.4" }
+# The handshake that takes a server's certificates is made here rather than through the HTTP client,
+# which reports only what it retrieved and never who presented it. `ring` is named rather than left
+# to the default so the provider does not depend on which crate in the workspace resolved first.
+rustls = { version = "0.23.42", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["logging", "ring", "tls12"] }
 serde = { version = "1.0.228", features = ["derive"] }
 # "net" for the address resolution the policy performs itself before a socket is opened, "time" for
 # the per-request timeout.
