@@ -524,11 +524,11 @@ pub fn staple_uploaded_ocsp(
     prepared: &PreparedValidation,
     cps: &CertificationPathSettings,
     ees: &[(String, Vec<u8>)],
-    bytes: &[u8],
+    response: &[u8],
 ) -> OcspStapleOutcome {
     let mut out = OcspStapleOutcome::default();
 
-    let answered = match answered_cert_ids(bytes) {
+    let answered = match answered_cert_ids(response) {
         Ok(ids) => ids,
         Err(note) => {
             out.notes.push(note);
@@ -607,7 +607,7 @@ pub fn staple_uploaded_ocsp(
                 if !answered.iter().any(|id| same_cert_id(id, &asked.req_cert)) {
                     continue;
                 }
-                sink.insert(key.clone(), bytes.to_vec());
+                sink.insert(key.clone(), response.to_vec());
                 filed.push(key);
                 out.matched += 1;
             }
@@ -795,6 +795,31 @@ mod tests {
         assert!(
             !prepared.ocsp_responses().is_empty(),
             "matched but nothing was filed for the validation path to find"
+        );
+
+        // What was filed has to be the response, not merely something. Asserting only that the sink
+        // is non-empty passes just as well when the wrong buffer is stored, and the wrong buffer is
+        // what a slot indexed by position invites: the filing loop walks the end entities, so a
+        // binding named for their bytes sits in scope right where the response has to be written.
+        // Read back the way `staple_ocsp` does, through the (certificate, issuer) pair, so this
+        // checks the value the validation path will actually pick up.
+        let target =
+            parse_cert(&targets[0].1, &targets[0].0).expect("the intermediate should parse");
+        let mut paths: Vec<CertificationPath> = vec![];
+        prepared
+            .environment()
+            .get_paths_for_target(&target, &mut paths, 0, cps.get_time_of_interest())
+            .expect("a path to the amazon.com anchor should build");
+        let path = paths
+            .first()
+            .expect("a path to the amazon.com anchor should build");
+        let filed = prepared
+            .ocsp_responses()
+            .get(&path.target, &path.trust_anchor.decoded_ta)
+            .expect("the response should be filed against the certificate it answers about");
+        assert_eq!(
+            filed, ca_ocsp,
+            "the filed bytes are not the uploaded response"
         );
     }
 

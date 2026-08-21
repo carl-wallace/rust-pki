@@ -243,9 +243,10 @@ impl TaSource {
             Err(_e) => return Err(Error::ParseError),
         };
 
+        let (buffers, _partial_paths) = bap.into_parts();
         Ok(Self {
             tas: Vec::new(),
-            buffers: bap.buffers,
+            buffers,
             skid_map: BTreeMap::new(),
             name_map: BTreeMap::new(),
         })

@@ -94,7 +94,7 @@ pub fn options_no_std(args: &Pittv3Args) {
 
     let mut stats = PathValidationStatsGroup::new();
 
-    for ee in ee_bap.buffers {
+    for ee in ee_bap.into_parts().0 {
         stats.init_for_target(ee.filename.as_str());
         if let Some(stats_for_file) = stats.get_mut(ee.filename.as_str()) {
             let b = if ee.bytes[0] != 0x30 {
