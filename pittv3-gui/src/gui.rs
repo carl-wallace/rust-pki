@@ -16,6 +16,7 @@ use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, TextRow, TimeRow};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
+use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, read_saved_args, save_args, set_log_sink, ChannelAppender,
 };
@@ -25,7 +26,7 @@ use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
-use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport, UriStatus};
+use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 
 use crate::stores;
 
@@ -312,21 +313,6 @@ fn FileRow(
     }
 }
 
-/// CSS class selecting the color for a URI-check result, reusing the validation badge palette.
-fn uri_status_class(status: UriStatus) -> &'static str {
-    match status {
-        UriStatus::CorrectData => "badge-valid",
-        UriStatus::IncorrectData
-        | UriStatus::UnknownAccessMethod
-        | UriStatus::ResponderCertPolicyError => "badge-invalid",
-        UriStatus::NotAvailable | UriStatus::BlacklistedHost => "badge-revoked",
-        UriStatus::Warning
-        | UriStatus::WarningMissingAia
-        | UriStatus::WarningMissingCrlDp
-        | UriStatus::CrlNotCheckedNoIssuerCert => "badge-undetermined",
-    }
-}
-
 /// PITTv1/PITTv2-style "Check URIs in certificate" modal dialog: pick a target certificate (and,
 /// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
 /// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
@@ -438,48 +424,7 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
                     }
                 }
                 if let Some(report) = s_report() {
-                    div { class: "uri-results",
-                        p { class: "results-summary", "Target: {report.target.subject}" }
-                        if let Some(issuer) = &report.issuer {
-                            p { class: "results-summary",
-                                if report.issuer_auto_discovered {
-                                    "Issuer (auto-discovered): {issuer.subject}"
-                                } else {
-                                    "Issuer: {issuer.subject}"
-                                }
-                            }
-                        }
-                        if let Some(err) = &report.error {
-                            p { class: "badge badge-invalid", "{err}" }
-                        } else if report.results.is_empty() {
-                            p { class: "hint", "No URIs found to check." }
-                        } else {
-                            table { class: "cert-table",
-                                thead {
-                                    tr {
-                                        th { "URI" }
-                                        th { "Result" }
-                                        th { "Timing (ms)" }
-                                        th { "Extension" }
-                                    }
-                                }
-                                tbody {
-                                    for r in report.results.iter() {
-                                        tr {
-                                            td { "{r.uri}" }
-                                            td {
-                                                span { class: "badge {uri_status_class(r.status)}",
-                                                    "{r.status.label()}"
-                                                }
-                                            }
-                                            td { "{r.timing_ms}" }
-                                            td { "{r.extension.label()}" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    UriCheckResults { report }
                 }
             }
         }
