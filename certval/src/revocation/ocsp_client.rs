@@ -46,6 +46,7 @@ use x509_cert::serial_number::SerialNumber;
 
 use x509_ocsp::Version::V1;
 
+use crate::TimeOfInterest;
 use crate::PKIXALG_SHA1;
 #[cfg(feature = "remote")]
 use crate::{collect_ocsp_uris, name_to_string};
@@ -120,14 +121,44 @@ fn cert_id_match(
     true
 }
 
+/// How far ahead of the time of interest a responder's timestamps may sit before they are treated
+/// as anomalous rather than merely fresh.
+///
+/// A responder that signs on demand stamps `producedAt` with the moment it signed, which for a live
+/// validation is *after* the time of interest — that value is captured when the run starts, and the
+/// fetch happens some seconds later. Without an allowance every such responder is unusable: on
+/// 2026-08-20 all three positions of an Actalis chain were rejected over roughly three seconds,
+/// while `thisUpdate`/`nextUpdate` bracketed the time of interest comfortably. Amazon's responder
+/// returns pre-produced responses and so never tripped it, which is why this looked CA-specific.
+///
+/// Five minutes is the usual allowance for unsynchronised clocks between independent hosts. It is
+/// deliberately small: the check exists to catch a genuinely future-dated response, which indicates
+/// a clock or replay anomaly, and an allowance of hours would defeat that.
+pub const OCSP_TIME_SKEW_ALLOWANCE_SECS: u64 = 300;
+
+/// The time of interest, advanced by [`OCSP_TIME_SKEW_ALLOWANCE_SECS`], for comparing against a
+/// responder's timestamps. Saturating: a time of interest near the end of the epoch stays put rather
+/// than wrapping.
+fn time_of_interest_with_skew(time_of_interest: TimeOfInterest) -> TimeOfInterest {
+    TimeOfInterest::from_unix_secs(
+        time_of_interest
+            .as_unix_secs()
+            .saturating_add(OCSP_TIME_SKEW_ALLOWANCE_SECS),
+    )
+    .unwrap_or(time_of_interest)
+}
+
 fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
     let time_of_interest = cps.get_time_of_interest();
     if time_of_interest.is_disabled() {
         return true;
     }
 
+    // Allowed the same skew as producedAt: a responder whose clock runs a little ahead produces a
+    // thisUpdate marginally in the future, which is a clock difference rather than a stale or
+    // forged response.
     let tu = sr.this_update.0;
-    if tu > time_of_interest {
+    if tu > time_of_interest_with_skew(time_of_interest) {
         //future request
         return false;
     }
@@ -645,7 +676,9 @@ fn process_ocsp_response_internal(
     // producedAt after the time of interest indicates a clock or replay anomaly. thisUpdate/nextUpdate
     // remain the primary freshness anchors, checked per SingleResponse below.
     let time_of_interest = cps.get_time_of_interest();
-    if !time_of_interest.is_disabled() && bor.tbs_response_data.produced_at.0 > time_of_interest {
+    if !time_of_interest.is_disabled()
+        && bor.tbs_response_data.produced_at.0 > time_of_interest_with_skew(time_of_interest)
+    {
         error!("OCSPResponse from {uri_to_check} carries a producedAt later than the time of interest; rejecting response as not yet valid");
         cpr.add_failed_ocsp_response(enc_ocsp_resp.to_vec(), result_index);
         return Err(Error::OcspResponseError);
@@ -1365,6 +1398,99 @@ mod tests {
     // but without a bound an ancient response would be treated as fresh; PS_REVOCATION_MAX_AGE caps
     // its age from thisUpdate (default 0 => fail closed).
     // ------------------------------------------------------------------------------------------
+
+    /// A real response from a responder that signs on demand, pinned either side of the allowance.
+    ///
+    /// Actalis stamps `producedAt` with the moment it signs, so in a live run the value always
+    /// post-dates the time of interest — captured when the run starts, with the fetch some seconds
+    /// later. On 2026-08-20 that rejected all three positions of an Actalis chain and sent them to
+    /// the CRL fallback, reported to the user only as "undetermined". The status itself was fine:
+    /// `thisUpdate` 2026-08-20T21:41:55Z and `nextUpdate` 2026-08-21T21:41:54Z bracket both times of
+    /// interest used here, and openssl verifies the response against the same chain.
+    ///
+    /// `producedAt` is 2026-08-21T00:59:03Z (epoch 1787273943). Three seconds earlier is a run that
+    /// has just started; six minutes earlier is outside the allowance and is the anomaly the check
+    /// exists to catch.
+    #[cfg(all(feature = "std", feature = "revocation", feature = "rsa"))]
+    #[test]
+    fn on_demand_responder_is_accepted_within_the_skew_and_rejected_beyond_it() {
+        let enc_resp =
+            include_bytes!("../../tests/examples/actalis/target-ocsp-resp.der").as_slice();
+        let issuer = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/actalis/issuer.der"
+        ))
+        .unwrap();
+        let mut target = PDVCertificate::try_from(
+            include_bytes!("../../tests/examples/actalis/target.der").as_slice(),
+        )
+        .unwrap();
+        target.parse_extensions(crate::EXTS_OF_INTEREST);
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+
+        const PRODUCED_AT: u64 = 1_787_273_943; // 2026-08-21T00:59:03Z
+
+        let run = |toi_secs: u64| {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(crate::TimeOfInterest::from_unix_secs(toi_secs).unwrap());
+            let mut cpr = CertificationPathResults::new();
+            cpr.prepare_revocation_results(2).unwrap();
+            process_ocsp_response(
+                &pe, &cps, &mut cpr, enc_resp, &issuer, 0, "offline", &target,
+            )
+        };
+
+        assert!(
+            run(PRODUCED_AT - 3).is_ok(),
+            "a response signed three seconds into the run must be usable; this is the case that \
+             broke every on-demand responder"
+        );
+        assert_eq!(
+            run(PRODUCED_AT - 360),
+            Err(Error::OcspResponseError),
+            "six minutes is beyond the allowance, so the response is still treated as future-dated"
+        );
+    }
+
+    /// A responder that signs on demand stamps `producedAt` with the moment it signed, which in a
+    /// live run is necessarily *after* the time of interest — that is captured when the run starts
+    /// and the fetch happens seconds later, or minutes later in a batch. Rejecting those made every
+    /// such responder unusable: on 2026-08-20 an Actalis chain failed at all three positions over
+    /// roughly three seconds, with `thisUpdate`/`nextUpdate` bracketing the time of interest
+    /// comfortably. The allowance has to cover the run's own duration, not merely clock drift.
+    #[test]
+    fn time_of_interest_skew_covers_a_response_signed_during_the_run() {
+        let base = 1_784_091_600u64;
+        let toi = TimeOfInterest::from_unix_secs(base).unwrap();
+        let skewed = time_of_interest_with_skew(toi);
+
+        assert_eq!(
+            skewed.as_unix_secs(),
+            base + OCSP_TIME_SKEW_ALLOWANCE_SECS,
+            "the allowance is applied to the time of interest"
+        );
+        assert_eq!(
+            OCSP_TIME_SKEW_ALLOWANCE_SECS, 300,
+            "five minutes: covers a multi-minute batch holding one time of interest, and matches \
+             the usual allowance for unsynchronised clocks"
+        );
+
+        // A response signed a few seconds into the run is inside the allowance; one signed hours
+        // ahead is not, which is the anomaly the check exists for.
+        assert!(
+            TimeOfInterest::from_unix_secs(base + 3)
+                .unwrap()
+                .as_unix_secs()
+                <= skewed.as_unix_secs()
+        );
+        assert!(
+            TimeOfInterest::from_unix_secs(base + 3600)
+                .unwrap()
+                .as_unix_secs()
+                > skewed.as_unix_secs()
+        );
+    }
 
     #[cfg(all(feature = "std", feature = "revocation"))]
     #[test]

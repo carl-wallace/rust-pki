@@ -1466,11 +1466,6 @@ fn App() -> Element {
                                 "replaced and the service restarted, with nothing rebuilt. Where "
                                 "currency matters, that is the one to prefer."
                             }
-                            p { class: "hint",
-                                "The ML-DSA-44 PKITS edition is static test data and does not go "
-                                "stale. Real-world trust material does, and a root program moves "
-                                "without announcing itself here."
-                            }
                         }
                     },
                     4 => rsx! {
@@ -1676,15 +1671,7 @@ fn App() -> Element {
                                 li {
                                     "Built-in stores: \"Web PKI\" holds the Mozilla trust anchors plus the CCADB "
                                     "intermediate CAs; \"U.S. DoD\" holds the NIPR DoD roots and "
-                                    "intermediate CAs; \"ML-DSA-44 PKITS\" "
-                                    "holds PKITS test artifacts re-signed with the indicated post-quantum algorithm. "
-                                    "The full set of PKITS artifacts resigned with PQC algorithms can be found in the "
-                                    a {
-                                        href: "https://github.com/IETF-Hackathon/pqc-certificates",
-                                        target: "_blank",
-                                        "IETF Hackathon PQC Certificate repo"
-                                    }
-                                    "."
+                                    "intermediate CAs."
                                 }
                                 li {
                                     "Where this app is served by the PITTv3 service, the trust stores that "

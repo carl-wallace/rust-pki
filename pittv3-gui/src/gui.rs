@@ -162,6 +162,12 @@ async fn pick_file_into(
 ) {
     let file = AsyncFileDialog::new()
         .add_filter(filter_name, extensions)
+        // A second, permissive filter the user can switch to. A named filter is a suggestion, but on
+        // some platforms it is enforced -- and a file it fails to anticipate is then unselectable
+        // rather than merely unsuggested. The same reasoning removed the `accept` list from the
+        // browser's revocation inputs on 2026-08-20: what a file contains decides whether it is
+        // usable, and every one of these readers already says so when handed something it cannot use.
+        .add_filter("All Files", &["*"])
         .set_directory(home_dir().unwrap_or("/".into()))
         .pick_file()
         .await;

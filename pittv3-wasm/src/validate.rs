@@ -36,12 +36,6 @@ pub struct Store {
 
 /// Stores shipped alongside the application, always available
 pub const STORES: &[Store] = &[
-    Store {
-        id: "pkits_ml_dsa_44",
-        label: "ML-DSA-44 PKITS",
-        ta_url: "resources/pkits_ml_dsa_44_ta.cbor",
-        ca_url: Some("resources/pkits_ml_dsa_44_ca.cbor"),
-    },
     // The anchors are the provider's MOZILLA_ALL environment — every root carrying a websites
     // OR an email trust bit — so the anchor set does not gate purpose: a TLS certificate can
     // validate here against a root Mozilla trusts only for S/MIME, and vice versa. The label
@@ -205,14 +199,14 @@ mod tests {
     /// Sample end entity certificate from the ML-DSA-44 PKITS edition that should validate
     pub const SAMPLE_VALID: (&str, &[u8]) = (
         "ValidCertificatePathTest1EE.der",
-        include_bytes!("../resources/sample_valid_ml_dsa_44.der"),
+        include_bytes!("../fixtures/sample_valid_ml_dsa_44.der"),
     );
 
     /// Sample end entity certificate from the ML-DSA-44 PKITS edition that should fail validation
     /// with a signature verification error, i.e., the end entity certificate signature is bad
     pub const SAMPLE_INVALID: (&str, &[u8]) = (
         "InvalidEESignatureTest3EE.der",
-        include_bytes!("../resources/sample_invalid_ml_dsa_44.der"),
+        include_bytes!("../fixtures/sample_invalid_ml_dsa_44.der"),
     );
 
     // These exercise the shared validation path against this crate's generated store resources,
@@ -224,12 +218,15 @@ mod tests {
     use pittv3_gui_lib::gui_settings_model::SettingsModel;
     use pittv3_lib::report::{TargetReport, TargetStatus};
 
-    // The app fetches store CBOR at runtime; the native tests read it straight from the resources
-    // that Trunk copies into dist. The tuple mirrors validate's (label, ta_cbor, ca_cbor) argument.
+    // The PKITS store is a fixture too, and for the same reason as the samples above: static test
+    // data whose URIs resolve nowhere. It lives in `fixtures/` rather than `resources/` so Trunk
+    // does not copy 3 MB into every deployment that can no longer fetch it -- `resources/` is what
+    // the running app fetches, and nothing else belongs there. The tuple mirrors validate's
+    // (label, ta_cbor, ca_cbor) argument.
     const ML_DSA_44: (&str, &[u8], &[u8]) = (
         "ML-DSA-44 PKITS",
-        include_bytes!("../resources/pkits_ml_dsa_44_ta.cbor"),
-        include_bytes!("../resources/pkits_ml_dsa_44_ca.cbor"),
+        include_bytes!("../fixtures/pkits_ml_dsa_44_ta.cbor"),
+        include_bytes!("../fixtures/pkits_ml_dsa_44_ca.cbor"),
     );
 
     /// The settings a test run uses, built through the same SettingsModel the settings form edits.
