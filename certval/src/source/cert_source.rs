@@ -534,6 +534,20 @@ impl CertSource {
     pub fn num_certs(&self) -> usize {
         self.certs.len()
     }
+    /// Returns the number of partial paths the instance holds, whether deserialized with it or
+    /// recorded by [`CertSource::find_all_partial_paths`].
+    ///
+    /// Zero means path building would have to search. That is what lets a caller tell a serialized
+    /// store that carries its own graph from one that carries only certificates, and so decide
+    /// whether searching again would recompute an answer it already has.
+    pub fn num_partial_paths(&self) -> usize {
+        self.buffers_and_paths
+            .partial_paths
+            .iter()
+            .flat_map(|row| row.values())
+            .map(|paths| paths.len())
+            .sum()
+    }
     /// Returns the parsed certificate vector prepared by [`CertSource::initialize`]. Entries are
     /// `None` where the corresponding buffer could not be parsed or was invalid at the time of
     /// interest.

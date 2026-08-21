@@ -874,6 +874,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     // before the settings were adjusted for the run — see `graph_fingerprint` above.
     let mut graph_from_cache = false;
 
+    // Whether the CA input was a CBOR store adopted with the partial paths it carries, which means
+    // the graph is already built and searching again would recompute it.
+    let mut ca_store_paths_adopted = false;
+
     // Start the clock for entire set of validation actions
     let start = Instant::now();
 
@@ -987,14 +991,34 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 // exported one at once — the `cbor` argument holds only one path.
                 let from_cbor_store = cert_source.len() == before && Path::new(ca_folder).is_file();
                 if from_cbor_store {
-                    if let Some(certs) = cbor_cert_store_certs(ca_folder) {
+                    // `before` decides which of the two a store is here. At zero nothing else has
+                    // contributed, so the store is the whole CA input and no path can span it and
+                    // another source: adopt it as it stands, partial paths included, which is what
+                    // the `cbor` argument does with the same bytes. Above zero it is being merged
+                    // with material it was not searched against, and a path spanning the two exists
+                    // only once they are searched together, so take the certificates alone and let
+                    // the search below build the graph over the union.
+                    if 0 == before {
+                        if let Some(store) = cbor_cert_store(ca_folder) {
+                            // Only skip the search if the store actually carries paths. A store
+                            // exported without them is certificates in a different container, and
+                            // adopting it would otherwise leave the run with no graph at all.
+                            ca_store_paths_adopted = store.num_partial_paths() > 0;
+                            cert_source = store;
+                        }
+                    } else if let Some(certs) = cbor_cert_store_certs(ca_folder) {
                         for cf in certs {
                             cert_source.push(cf);
                         }
                     }
                 }
                 ca_folder_certs = cert_source.len() - before;
-                if from_cbor_store {
+                if from_cbor_store && ca_store_paths_adopted {
+                    info!(
+                        "Read {ca_folder_certs} certificate(s) and {} partial path(s) from the CBOR store at {ca_folder}",
+                        cert_source.num_partial_paths()
+                    );
+                } else if from_cbor_store {
                     info!(
                         "Read {ca_folder_certs} certificate(s) from the CBOR store at {ca_folder}"
                     );
@@ -1102,8 +1126,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         // Certificates read from the CA folder arrive with no partial paths, and a path that spans
         // the folder and the store exists only once the two are searched together, so build the
         // graph here rather than take the store's serialized paths as complete. A graph off the
-        // cache already carries the result of this search, which is the point of caching it.
-        if 0 == pass && 0 < ca_folder_certs && !graph_from_cache {
+        // cache already carries the result of this search, which is the point of caching it, and so
+        // does a store adopted whole above -- neither is cached again here, because neither was
+        // built here.
+        if 0 == pass && 0 < ca_folder_certs && !graph_from_cache && !ca_store_paths_adopted {
             cert_source.find_all_partial_paths(&pe, &cps);
             if let Some(fingerprint) = &graph_fingerprint {
                 graph_cache::store(fingerprint, &cert_source);
