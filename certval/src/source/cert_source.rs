@@ -503,8 +503,7 @@ impl CertSource {
     /// Create new instance from CBOR
     ///
     /// The partial paths carried by the store are checked against the certificates it carries, and
-    /// a store naming a certificate it does not contain is rejected as [`Error::ParseError`]. See
-    /// [`validate_partial_path_indices`].
+    /// a store naming a certificate it does not contain is rejected as [`Error::ParseError`].
     pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
         let buffers_and_paths: BuffersAndPaths = match from_reader(cbor) {
             Ok(buffers_and_paths) => buffers_and_paths,
