@@ -307,6 +307,13 @@ impl PartialEq for CertFile {
 /// - From the target through the certificate at Index 1 to the trust anchor at Index 1
 /// - From the target through the certificates at indices 1 and 0 to the trust anchor at Index 0.
 ///
+///
+/// The two fields are readable everywhere and writable only inside certval, which is what keeps the
+/// indices in `partial_paths` meaningful: they are positions in `buffers`, so a caller able to
+/// replace either field could desync the pair after [`CertSource::new_from_cbor`] had validated it.
+/// Dynamic path building appends to both from within the crate, so the restriction costs nothing
+/// there.
+#[readonly::make]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BuffersAndPaths {
     /// List of buffers containing binary DER-encoded certificates
@@ -318,6 +325,36 @@ pub struct BuffersAndPaths {
 
 /// Type used to represent partial certification paths in [`BuffersAndPaths`] struct
 pub type PartialPaths = Vec<BTreeMap<String, Vec<Vec<usize>>>>;
+
+/// Rejects a set of buffers and paths whose paths name a certificate the buffers do not contain.
+///
+/// A partial path is a list of positions in `buffers`, and nothing in the serialized form ties the
+/// two halves together: a truncated, hand-edited, or version-skewed store can name a position that
+/// does not exist. The indices are what make a serialized store useful -- they are consumed as-is,
+/// without the path search that produced them being repeated -- so they are also the one part of it
+/// that has to be believed, and this is where that belief is established.
+///
+/// Checked once, at the boundary where bytes become indices, rather than at each of the places that
+/// later walk a path: those run per path per build, while an index that is wrong is wrong for the
+/// whole life of the store. Callers that index defensively anyway are belt and braces, not a
+/// substitute -- this states the invariant, and states it where a violation can still be reported
+/// as a parse failure rather than having to be absorbed as a missing certificate.
+fn validate_partial_path_indices(bap: &BuffersAndPaths) -> Result<()> {
+    let num_buffers = bap.buffers.len();
+    for outer in &bap.partial_paths {
+        for paths in outer.values() {
+            for path in paths {
+                for i in path {
+                    if *i >= num_buffers {
+                        error!("Partial path references certificate index {i} in a store that contains {num_buffers} certificate(s)");
+                        return Err(Error::ParseError);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 impl Default for BuffersAndPaths {
     /// BuffersAndPaths::new instantiates a new empty BuffersAndPaths, i.e., both buffers and
@@ -335,6 +372,15 @@ impl BuffersAndPaths {
             buffers: Vec::new(),
             partial_paths: Vec::new(),
         }
+    }
+
+    /// Consumes the instance, returning its buffers and its partial paths.
+    ///
+    /// The fields are readable from anywhere but writable only inside certval, and that also means
+    /// they cannot be moved out of from outside it. A caller holding an instance it owns and
+    /// wanting its contents rather than a copy of them uses this.
+    pub fn into_parts(self) -> (Vec<CertFile>, PartialPaths) {
+        (self.buffers, self.partial_paths)
     }
 }
 
@@ -455,16 +501,22 @@ impl CertSource {
     }
 
     /// Create new instance from CBOR
+    ///
+    /// The partial paths carried by the store are checked against the certificates it carries, and
+    /// a store naming a certificate it does not contain is rejected as [`Error::ParseError`]. See
+    /// [`validate_partial_path_indices`].
     pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
-        match from_reader(cbor) {
-            Ok(buffers_and_paths) => Ok(Self {
-                certs: Vec::new(),
-                buffers_and_paths,
-                skid_map: BTreeMap::new(),
-                name_map: BTreeMap::new(),
-            }),
-            Err(_e) => Err(Error::ParseError),
-        }
+        let buffers_and_paths: BuffersAndPaths = match from_reader(cbor) {
+            Ok(buffers_and_paths) => buffers_and_paths,
+            Err(_e) => return Err(Error::ParseError),
+        };
+        validate_partial_path_indices(&buffers_and_paths)?;
+        Ok(Self {
+            certs: Vec::new(),
+            buffers_and_paths,
+            skid_map: BTreeMap::new(),
+            name_map: BTreeMap::new(),
+        })
     }
 
     /// Processes any buffers passed to the instance, i.e., via new_from_cbor
@@ -489,9 +541,10 @@ impl CertSource {
     pub fn certs(&self) -> &[Option<PDVCertificate>] {
         &self.certs
     }
-    /// Retrieves certificate at a given index
+    /// Retrieves certificate at a given index, or `None` when the index is out of range or the
+    /// certificate at it could not be parsed or was not valid at the time of interest.
     pub fn get_cert_at_index(&self, index: usize) -> Option<PDVCertificate> {
-        self.certs[index].clone()
+        self.certs.get(index).cloned().flatten()
     }
 
     /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
@@ -583,8 +636,7 @@ impl CertSource {
                 let mut label = key.clone();
                 if self.skid_map.contains_key(key) {
                     for c in &self.skid_map[key] {
-                        let cert = &self.certs[*c];
-                        if let Some(cert) = cert {
+                        if let Some(Some(cert)) = self.certs.get(*c) {
                             label = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
                             break;
                         }
@@ -594,11 +646,9 @@ impl CertSource {
                 info!("{label}: ");
 
                 for v in inner {
-                    let cert = &self.certs[v[0]];
-                    let vlabel = if let Some(cert) = cert {
-                        get_leaf_rdn(cert.decoded().tbs_certificate().issuer())
-                    } else {
-                        "".to_string()
+                    let vlabel = match v.first().and_then(|i| self.certs.get(*i)) {
+                        Some(Some(cert)) => get_leaf_rdn(cert.decoded().tbs_certificate().issuer()),
+                        _ => "".to_string(),
                     };
                     info!("\t* TA subject: {vlabel} - {v:?}, ");
                 }
@@ -659,7 +709,7 @@ impl CertSource {
                 let name_str = name_to_string(n);
                 if self.name_map.contains_key(&name_str) {
                     for i in &self.name_map[&name_str] {
-                        if let Some(cert) = &self.certs[*i] {
+                        if let Some(Some(cert)) = self.certs.get(*i) {
                             let skid = hex_skid_from_cert(cert);
                             if !skid.is_empty() {
                                 debug!(
@@ -686,8 +736,7 @@ impl CertSource {
                 let inner = &outer[&key];
                 let mut label = key.clone();
                 for c in &self.skid_map[&key] {
-                    let cert = &self.certs[*c];
-                    if let Some(cert) = cert {
+                    if let Some(Some(cert)) = self.certs.get(*c) {
                         label = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
                         break;
                     }
@@ -707,8 +756,7 @@ impl CertSource {
                     } else {
                         continue;
                     };
-                    let issuer = &self.certs[*last_index];
-                    if let Some(ca) = issuer {
+                    if let Some(Some(ca)) = self.certs.get(*last_index) {
                         if !compare_names(
                             ca.decoded().tbs_certificate().subject(),
                             target.decoded().tbs_certificate().issuer(),
@@ -725,8 +773,7 @@ impl CertSource {
                         }
                     }
                     for ii in v {
-                        let cert = &self.certs[*ii];
-                        if let Some(cert) = cert {
+                        if let Some(Some(cert)) = self.certs.get(*ii) {
                             vlabel = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
                             break;
                         }
@@ -794,8 +841,7 @@ impl CertSource {
                 let inner = &outer[&key];
                 let mut label = key.clone();
                 for c in &self.skid_map[&key] {
-                    let cert = &self.certs[*c];
-                    if let Some(cert) = cert {
+                    if let Some(Some(cert)) = self.certs.get(*c) {
                         label = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
                         break;
                     }
@@ -811,8 +857,7 @@ impl CertSource {
                         }
                     }
                     for ii in v {
-                        let cert = &self.certs[*ii];
-                        if let Some(cert) = cert {
+                        if let Some(Some(cert)) = self.certs.get(*ii) {
                             vlabel = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
                             break;
                         }
@@ -939,11 +984,26 @@ impl CertSource {
                 };
 
                 if valid {
-                    let pdvcert = parse_cert(
+                    // A parse failure pushes `None` like the other two branches rather than
+                    // returning: this vector is positionally paired with `buffers`, and every
+                    // index held in `partial_paths` and in the skid and name maps is a position in
+                    // it. Returning here would leave it short, so those positions would address the
+                    // wrong certificate or none at all. All three pittv3 call sites log and carry
+                    // on regardless, so the early return did not stop a run either -- it only made
+                    // the vector it left behind untrustworthy.
+                    match parse_cert(
                         self.buffers_and_paths.buffers[i].bytes.as_slice(),
                         &cert_file.filename,
-                    )?;
-                    self.certs.push(Some(pdvcert));
+                    ) {
+                        Ok(pdvcert) => self.certs.push(Some(pdvcert)),
+                        Err(e) => {
+                            error!(
+                                "Failed to parse certificate from {} with {e}. Continuing without it.",
+                                cert_file.filename
+                            );
+                            self.certs.push(None);
+                        }
+                    }
                 } else {
                     self.certs.push(None);
                 }
@@ -986,8 +1046,7 @@ impl CertSource {
 
     fn pub_key_in_path(&self, prospective_cert: &PDVCertificate, path: &[usize]) -> bool {
         for i in path {
-            let path_item = &self.certs[*i];
-            if let Some(path_item) = path_item {
+            if let Some(Some(path_item)) = self.certs.get(*i) {
                 if path_item
                     .as_ref()
                     .tbs_certificate()
@@ -1010,7 +1069,7 @@ impl CertSource {
     fn get_operative_path_len_constraint(&self, path: &[usize]) -> u8 {
         let mut path_len_constraint = 15;
         for i in path {
-            if let Some(ca_cert) = &self.certs[*i] {
+            if let Some(Some(ca_cert)) = self.certs.get(*i) {
                 if !is_self_issued(ca_cert.decoded()) {
                     if path_len_constraint == 0 {
                         return 0;
@@ -1065,7 +1124,7 @@ impl CertSource {
             return true;
         }
         for i in path.iter() {
-            if let Some(ca_cert) = &self.certs[*i] {
+            if let Some(Some(ca_cert)) = self.certs.get(*i) {
                 if let Err(_e) =
                     valid_at_time(ca_cert.decoded().tbs_certificate(), time_of_interest, false)
                 {
@@ -1085,7 +1144,7 @@ impl CertSource {
 
         // Iterate over the list of intermediate CA certificates plus target to check name chaining
         for (pos, i) in path.iter().enumerate() {
-            if let Some(ca_cert) = &self.certs[*i] {
+            if let Some(Some(ca_cert)) = self.certs.get(*i) {
                 let self_issued = is_self_issued(ca_cert.decoded());
 
                 if (pos + 1) == path.len() || !self_issued {
@@ -1166,7 +1225,7 @@ impl CertSource {
             let name_str = name_to_string(n);
             if self.name_map.contains_key(&name_str) {
                 for i in &self.name_map[&name_str] {
-                    if let Some(c) = &self.certs[*i] {
+                    if let Some(Some(c)) = self.certs.get(*i) {
                         let skid = hex_skid_from_cert(c);
                         if !retval.contains(&skid) {
                             retval.push(skid);
@@ -1276,9 +1335,9 @@ impl CertSource {
                             }
                             let prospective_paths = &last_row[&k];
                             for prospective_path in prospective_paths {
-                                let prospective_ca_cert =
-                                    &self.certs[prospective_path[prospective_path.len() - 1]];
-                                if let Some(prospective_ca_cert) = prospective_ca_cert {
+                                if let Some(Some(prospective_ca_cert)) =
+                                    prospective_path.last().and_then(|i| self.certs.get(*i))
+                                {
                                     if 0 == self.get_operative_path_len_constraint(prospective_path)
                                     {
                                         continue;
@@ -1424,8 +1483,7 @@ impl CertificateSource for CertSource {
                             } else {
                                 continue;
                             };
-                            let issuer = &self.certs[*last_index];
-                            if let Some(ca) = issuer {
+                            if let Some(Some(ca)) = self.certs.get(*last_index) {
                                 if !compare_names(
                                     ca.decoded().tbs_certificate().subject(),
                                     target.decoded().tbs_certificate().issuer(),
@@ -1439,7 +1497,7 @@ impl CertificateSource for CertSource {
                             let mut intermediates = vec![];
                             let mut found_blank = false;
                             for (i, index) in indices.iter().enumerate() {
-                                if let Some(cert) = &self.certs[*index] {
+                                if let Some(Some(cert)) = self.certs.get(*index) {
                                     intermediates.push(cert.clone());
                                     if 0 == i {
                                         let mut ta_akid_hex = "".to_string();
@@ -1520,7 +1578,7 @@ impl CertificateSource for CertSource {
                     let name_str = name_to_string(n);
                     if self.name_map.contains_key(&name_str) {
                         for i in &self.name_map[&name_str] {
-                            if let Some(cert) = &self.certs[*i] {
+                            if let Some(Some(cert)) = self.certs.get(*i) {
                                 let skid = hex_skid_from_cert(cert);
                                 if !skid.is_empty() {
                                     debug!(
@@ -1593,7 +1651,7 @@ impl CertificateSource for CertSource {
         let mut retval = vec![];
         if self.skid_map.contains_key(hex_skid.as_str()) {
             for i in &self.skid_map[&hex_skid] {
-                if let Some(cert) = &self.certs[*i] {
+                if let Some(Some(cert)) = self.certs.get(*i) {
                     retval.push(cert.as_bytes().to_vec());
                 }
             }
@@ -1611,7 +1669,7 @@ impl CertificateSource for CertSource {
         let mut retval = vec![];
         if self.name_map.contains_key(name_str.as_str()) {
             for i in &self.name_map[&name_str] {
-                if let Some(cert) = &self.certs[*i] {
+                if let Some(Some(cert)) = self.certs.get(*i) {
                     retval.push(cert.as_bytes().to_vec());
                 }
             }
@@ -1889,4 +1947,97 @@ fn signature_cache_speeds_up_verification() {
         cached < uncached,
         "cached ({cached:?}) should be faster than uncached ({uncached:?})"
     );
+}
+
+// A serialized store's partial paths are indices into its buffers, and nothing in the encoding ties
+// the two together. A store naming a certificate it does not carry is refused at the boundary
+// rather than deserialized into a source whose every path walk would have to survive it.
+#[cfg(feature = "std")]
+#[test]
+fn out_of_range_partial_path_index_is_rejected() {
+    use alloc::collections::BTreeMap;
+
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut bap = BuffersAndPaths::new();
+    bap.buffers.push(CertFile {
+        filename: "ta".to_string(),
+        bytes: der.to_vec(),
+    });
+
+    // One certificate, so index 0 is the only one that exists.
+    let mut row = BTreeMap::new();
+    row.insert("00".to_string(), vec![vec![0usize, 1usize]]);
+    bap.partial_paths.push(row);
+
+    let mut cbor = vec![];
+    into_writer(&bap, &mut cbor).unwrap();
+    assert!(
+        matches!(CertSource::new_from_cbor(&cbor), Err(Error::ParseError)),
+        "a path naming index 1 of a one-certificate store must be refused"
+    );
+}
+
+// The counterpart of the above: the check has to admit a store whose paths are all in range, or it
+// would reject every real store as well as the broken ones.
+#[cfg(feature = "std")]
+#[test]
+fn in_range_partial_path_index_is_accepted() {
+    use alloc::collections::BTreeMap;
+
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut bap = BuffersAndPaths::new();
+    bap.buffers.push(CertFile {
+        filename: "ta".to_string(),
+        bytes: der.to_vec(),
+    });
+    let mut row = BTreeMap::new();
+    row.insert("00".to_string(), vec![vec![0usize]]);
+    bap.partial_paths.push(row);
+
+    let mut cbor = vec![];
+    into_writer(&bap, &mut cbor).unwrap();
+    let source = CertSource::new_from_cbor(&cbor).expect("an in-range store must still load");
+    assert_eq!(1, source.num_buffers());
+}
+
+// `certs` is positionally paired with `buffers` -- every index in `partial_paths`, `skid_map` and
+// `name_map` is a position in it -- so a buffer that cannot be used has to leave a `None` behind
+// rather than shorten the vector. Asserted with a store whose middle entry is unusable, which is
+// the case that would misalign every index after it.
+#[cfg(feature = "std")]
+#[test]
+fn an_unusable_buffer_leaves_the_parsed_vector_aligned() {
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut source = CertSource::new();
+    for (name, bytes) in [
+        ("good-0", der.to_vec()),
+        ("garbage", vec![0x30, 0x03, 0x02, 0x01, 0x00]),
+        ("good-2", der.to_vec()),
+    ] {
+        source.buffers_and_paths.buffers.push(CertFile {
+            filename: name.to_string(),
+            bytes,
+        });
+    }
+
+    let cps = CertificationPathSettings::default();
+    source.initialize(&cps).unwrap();
+
+    assert_eq!(source.num_buffers(), source.num_certs());
+    assert!(source.get_cert_at_index(0).is_some());
+    assert!(source.get_cert_at_index(1).is_none());
+    assert!(
+        source.get_cert_at_index(2).is_some(),
+        "the certificate after the unusable one must still be at its own index"
+    );
+}
+
+// `get_cert_at_index` is public and answers with an `Option`, so an index past the end is a `None`
+// to report rather than a panic to propagate into a caller that has no way to avoid it.
+#[cfg(feature = "std")]
+#[test]
+fn get_cert_at_index_past_the_end_is_none() {
+    let source = CertSource::new();
+    assert!(source.get_cert_at_index(0).is_none());
+    assert!(source.get_cert_at_index(usize::MAX).is_none());
 }
