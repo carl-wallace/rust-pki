@@ -346,6 +346,31 @@ fn App() -> Element {
     // choosing to disclose the URIs a certificate names is the user's to make, not a default that
     // follows from a deployment happening to offer it.
     let mut tier = use_signal(Tier::default);
+
+    // Why the Check URIs button is unavailable, or None when it is available. One place, so the
+    // button, its tooltip and the line beside it cannot disagree -- and so a condition added later
+    // has to state its reason rather than silently joining an anonymous `||` chain.
+    let uri_blocked_because = move || -> Option<&'static str> {
+        if uri_running() {
+            return Some("A check is already running.");
+        }
+        if uri_target().is_none() {
+            return Some("Choose a certificate to check.");
+        }
+        if !tier().retrieves() {
+            return match service_present() {
+                true => Some(
+                    "This check retrieves from the repositories a certificate names, so it needs \
+                     the service.",
+                ),
+                false => Some(
+                    "This check retrieves from the repositories a certificate names, and no PITTv3 \
+                     service is serving this page.",
+                ),
+            };
+        }
+        None
+    };
     // Certificates retrieved by following AIA and SIA URIs during this session. Held apart from the
     // uploads so that clearing uploads does not discard them and so the notes can say where a
     // certificate in the path came from; they feed preparation exactly as an upload does.
@@ -1464,15 +1489,6 @@ fn App() -> Element {
                                 "report that they could not be checked rather than failing."
                             }
                         }
-                        if !tier().retrieves() {
-                            div { class: "controls",
-                                span { class: "hint",
-                                    "This check retrieves from the repositories a certificate names, "
-                                    "so it needs the service. Choose \"Retrieve through the service\" "
-                                    "on the Validate tab."
-                                }
-                            }
-                        }
                         div { class: "controls custom",
                             label { "Certificate: " }
                             input {
@@ -1509,7 +1525,13 @@ fn App() -> Element {
                         }
                         div { class: "controls center-row",
                             button {
-                                disabled: uri_running() || uri_target().is_none() || !tier().retrieves(),
+                                // One disabled state served three unrelated conditions, so a dead
+                                // button looked identical whether no certificate was chosen, the
+                                // tier could not retrieve, or a check was already running -- and the
+                                // only explanation sat forty lines up and covered one of the three.
+                                title: uri_blocked_because()
+                                    .unwrap_or("Fetch and check every URI this certificate names"),
+                                disabled: uri_blocked_because().is_some(),
                                 onclick: move |_| async move {
                                     let Some((_, target)) = uri_target() else {
                                         return;
@@ -1548,6 +1570,21 @@ fn App() -> Element {
                                     uri_issuer.set(None);
                                 },
                                 "Clear"
+                            }
+                            // Beside the control it explains, and naming the condition that actually
+                            // applies rather than the one that usually does.
+                            if let Some(reason) = uri_blocked_because() {
+                                span { class: "hint", "{reason}" }
+                            }
+                            // The remedy rather than directions to it: the tier is one signal shared
+                            // by the whole app, so there is no reason to send someone to another tab
+                            // to change something this tab can change. Absent when no service is
+                            // serving the page, because then there is nothing to switch to.
+                            if !tier().retrieves() && service_present() {
+                                button {
+                                    onclick: move |_| tier.set(Tier::Relayed),
+                                    "Retrieve through the service"
+                                }
                             }
                         }
                         if let Some(report) = uri_report() {
