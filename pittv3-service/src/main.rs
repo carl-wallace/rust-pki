@@ -59,6 +59,12 @@ struct Args {
     /// revocation status undetermined unless the caller supplied the data.
     #[clap(long)]
     no_revocation_fetch: bool,
+
+    /// Refuses `POST /api/tls`, so the service will not complete a handshake with a host on a
+    /// client's behalf. For a deployment whose relay is meant to reach PKI repositories and
+    /// nothing else.
+    #[clap(long)]
+    no_tls_peek: bool,
 }
 
 fn load_config(args: &Args) -> Result<ServiceConfig, String> {
@@ -92,6 +98,9 @@ fn load_config(args: &Args) -> Result<ServiceConfig, String> {
     }
     if args.no_revocation_fetch {
         config.fetch_revocation_data = false;
+    }
+    if args.no_tls_peek {
+        config.allow_tls_peek = false;
     }
     Ok(config)
 }
@@ -130,10 +139,11 @@ async fn main() -> std::io::Result<()> {
         .collect::<Vec<String>>()
         .join(", ");
     info!(
-        "Serving {} trust store(s) [{offered}]; validation {}, chasing {}",
+        "Serving {} trust store(s) [{offered}]; validation {}, chasing {}, host handshakes {}",
         state.stores.len(),
         enabled(state.config.enable_validation),
-        enabled(state.config.allow_dynamic_build)
+        enabled(state.config.allow_dynamic_build),
+        enabled(state.config.allow_tls_peek)
     );
 
     HttpServer::new(move || {

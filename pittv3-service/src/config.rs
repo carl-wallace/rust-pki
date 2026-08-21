@@ -81,6 +81,12 @@ pub struct ServiceConfig {
     /// certificates turns this off, which is a meaningful posture rather than a degraded one: the
     /// relayed tier is the one where certificates never leave the browser.
     pub enable_validation: bool,
+    /// Serves `POST /api/tls`, which completes a handshake with a named host and returns the
+    /// certificates it presented. On by default: it reaches only public hosts on the ports the
+    /// network policy already permits, it sends nothing and asks for nothing, and it is what lets a
+    /// browser validate the certificate a site serves at all. Turn it off for a deployment whose
+    /// relay is meant to reach PKI repositories and nothing else.
+    pub allow_tls_peek: bool,
     /// Retrieves the CRLs named by the paths a validation builds, so revocation status can be
     /// determined rather than reported as undetermined. On by default: a caller that sent
     /// certificates for validation asked for them to be validated, and revocation is part of that.
@@ -102,6 +108,7 @@ impl Default for ServiceConfig {
             limits: RequestLimits::default(),
             allow_dynamic_build: false,
             enable_validation: true,
+            allow_tls_peek: true,
             fetch_revocation_data: true,
         }
     }

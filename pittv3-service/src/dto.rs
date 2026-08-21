@@ -52,6 +52,31 @@ mod b64_opt {
     }
 }
 
+/// Base64 for a list of byte strings, i.e., a certificate chain.
+mod b64_vec {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(items: &[Vec<u8>], s: S) -> Result<S::Ok, S::Error> {
+        let encoded = items
+            .iter()
+            .map(|b| STANDARD.encode(b))
+            .collect::<Vec<String>>();
+        encoded.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<u8>>, D::Error> {
+        let encoded = Vec::<String>::deserialize(d)?;
+        encoded
+            .iter()
+            .map(|e| {
+                STANDARD
+                    .decode(e.as_bytes())
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
+
 /// What a client asks the relay to retrieve.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FetchRequestBody {
@@ -90,6 +115,52 @@ pub struct FetchResponseBody {
     /// Response body.
     #[serde(with = "b64")]
     pub body: Vec<u8>,
+}
+
+/// What a client asks the service to take the certificates from.
+///
+/// A URI rather than a host and a port because that is what the network policy judges, and because
+/// it is what a person has in hand: the address bar contents of the site they are asking about. A
+/// value with no scheme is read as `https`, which is the only scheme a handshake can begin with,
+/// and anything past the authority is ignored — the certificate a host presents does not depend on
+/// the path asked for.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PeekRequestBody {
+    /// Host to take the certificates from, e.g., `https://example.com` or `example.com:443`.
+    pub uri: String,
+}
+
+impl PeekRequestBody {
+    /// Returns the URI to hand the relay, supplying the scheme when the caller wrote none.
+    ///
+    /// Only a missing scheme is added. A value naming some other scheme is passed through unchanged
+    /// so that the policy refuses it by name, rather than being quietly rewritten into a request the
+    /// caller did not make.
+    pub fn normalized_uri(&self) -> String {
+        let trimmed = self.uri.trim();
+        match trimmed.contains("://") {
+            true => trimmed.to_string(),
+            false => format!("https://{trimmed}"),
+        }
+    }
+}
+
+/// What a host presented.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PeekResponseBody {
+    /// Host the handshake was made with.
+    pub host: String,
+    /// Port connected to.
+    pub port: u16,
+    /// Protocol version negotiated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    /// Certificates the server sent, in the order it sent them.
+    #[serde(with = "b64_vec")]
+    pub certificates: Vec<Vec<u8>>,
+    /// OCSP response the server stapled, when it stapled one.
+    #[serde(default, with = "b64_opt", skip_serializing_if = "Option::is_none")]
+    pub stapled_ocsp: Option<Vec<u8>>,
 }
 
 /// A certificate with the name to report it under. The name is the client's label -- an uploaded
@@ -170,6 +241,47 @@ mod tests {
         })
         .unwrap();
         assert!(encoded.contains(r#""body":"BAUG""#));
+    }
+
+    /// What a person types into a box is a site, not a URI, and the scheme is the part they leave
+    /// out. Supplying it is the only rewriting done: a value naming another scheme keeps it, so the
+    /// policy refuses `http` by name rather than the service silently making a different request.
+    #[test]
+    fn a_peek_request_supplies_the_scheme_but_never_changes_one() {
+        let bare: PeekRequestBody = serde_json::from_str(r#"{"uri":"example.com"}"#).unwrap();
+        assert_eq!(bare.normalized_uri(), "https://example.com");
+
+        let with_port: PeekRequestBody =
+            serde_json::from_str(r#"{"uri":" example.com:8443 "}"#).unwrap();
+        assert_eq!(with_port.normalized_uri(), "https://example.com:8443");
+
+        let whole: PeekRequestBody =
+            serde_json::from_str(r#"{"uri":"https://example.com/a/path"}"#).unwrap();
+        assert_eq!(whole.normalized_uri(), "https://example.com/a/path");
+
+        let plaintext: PeekRequestBody =
+            serde_json::from_str(r#"{"uri":"http://example.com"}"#).unwrap();
+        assert_eq!(plaintext.normalized_uri(), "http://example.com");
+    }
+
+    /// The chain travels as a list of base64 strings, and the stapled response is absent rather
+    /// than empty when the server stapled nothing.
+    #[test]
+    fn a_peek_response_carries_a_chain_as_base64() {
+        let encoded = serde_json::to_string(&PeekResponseBody {
+            host: "example.com".to_string(),
+            port: 443,
+            protocol: Some("TLSv1_3".to_string()),
+            certificates: vec![vec![1, 2, 3], vec![4, 5, 6]],
+            stapled_ocsp: None,
+        })
+        .unwrap();
+        assert!(encoded.contains(r#""certificates":["AQID","BAUG"]"#));
+        assert!(!encoded.contains("stapled_ocsp"));
+
+        let decoded: PeekResponseBody = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.certificates, vec![vec![1, 2, 3], vec![4, 5, 6]]);
+        assert!(decoded.stapled_ocsp.is_none());
     }
 
     #[test]

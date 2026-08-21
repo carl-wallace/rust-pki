@@ -10,7 +10,8 @@
 //! [`pittv3_gui_lib::retrieval`] — so a certificate validated here and the same certificate
 //! validated on the server go through the same code and cannot disagree.
 //!
-//! Nothing here decides *whether* to retrieve. That is [`Tier`], and it is the user's choice.
+//! Nothing here decides *whether* to retrieve. That is [`Tier`], which follows the deployment by
+//! default and the user whenever they say otherwise.
 
 use pittv3_gui_lib::retrieval::{
     certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
@@ -44,6 +45,10 @@ const MAX_ROUNDS: usize = 4;
 #[cfg(target_family = "wasm")]
 const FETCH_URL: &str = "api/fetch";
 
+/// Where the service takes a host's certificates, relative to this application.
+#[cfg(target_family = "wasm")]
+const TLS_URL: &str = "api/tls";
+
 /// Which of PITTv3's tiers a run uses, i.e., what the browser is permitted to do about material it
 /// does not hold.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -52,10 +57,19 @@ pub enum Tier {
     /// selected store and what has been uploaded, and revocation status can only come from
     /// revocation data supplied the same way. This is what this application has always done, and
     /// it is the only tier available when no service is serving it.
+    ///
+    /// It is this enum's default because it is the only tier that is always correct: a run has to
+    /// have somewhere to start before the health request has said whether a relay exists. Which
+    /// tier a *served* application settles on is a separate question, answered in `main.rs` when
+    /// that request comes back, and the answer there is [`Tier::Relayed`].
     #[default]
     Local,
     /// Path building and revocation checking may retrieve, through the service's relay. The
     /// certificates being validated stay in the page; the URIs they name do not.
+    ///
+    /// The default wherever a service answers `api/health`: a deployment that runs one is a
+    /// deployment that means to retrieve, and the alternative is a first run that reports missing
+    /// issuers and undetermined revocation status for want of a switch nobody was told to flip.
     Relayed,
 }
 
@@ -146,6 +160,108 @@ struct FetchResponseBody {
     #[serde(default)]
     final_uri: String,
     body: String,
+}
+
+/// What a host presented during a handshake the service made on this page's behalf.
+///
+/// A browser cannot obtain this for itself: it holds the certificate of every site it talks to and
+/// exposes none of them, and it cannot open a socket to ask. So the certificate someone actually
+/// wants to look at — the one their bank, or their agency, or a host that just started failing
+/// serves — is the one certificate this application could not be given, until the service made the
+/// handshake instead.
+pub struct Presented {
+    /// Host the handshake was made with.
+    pub host: String,
+    /// Port connected to.
+    pub port: u16,
+    /// Protocol version negotiated, when the service reported one.
+    pub protocol: Option<String>,
+    /// Certificates the host sent, in the order it sent them.
+    pub certificates: Vec<Vec<u8>>,
+    /// OCSP response the host stapled, if it stapled one.
+    pub stapled_ocsp: Option<Vec<u8>>,
+}
+
+/// The wire form of what the service answers with. Separate from [`Presented`] because the bytes
+/// travel as base64 and nothing above this module should have to know that.
+#[cfg(target_family = "wasm")]
+#[derive(Deserialize)]
+struct PeekResponseBody {
+    host: String,
+    port: u16,
+    #[serde(default)]
+    protocol: Option<String>,
+    certificates: Vec<String>,
+    #[serde(default)]
+    stapled_ocsp: Option<String>,
+}
+
+/// The request, which is the address bar contents of the site being asked about. The service
+/// supplies the scheme when there is none.
+#[cfg(target_family = "wasm")]
+#[derive(Serialize)]
+struct PeekRequestBody<'a> {
+    uri: &'a str,
+}
+
+/// Asks the service what certificates `uri` presents.
+#[cfg(target_family = "wasm")]
+pub async fn relay_peek(uri: &str) -> Result<Presented, String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+
+    let request = serde_json::to_string(&PeekRequestBody { uri })
+        .map_err(|e| format!("could not encode the request: {e}"))?;
+    let response = gloo_net::http::Request::post(TLS_URL)
+        .header("Content-Type", "application/json")
+        .body(request)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let bytes = response.binary().await.map_err(|e| e.to_string())?;
+    // As with a retrieval, a refusal carries the rule it ran into, and that message is the whole
+    // value of the answer -- "refused by policy: port not permitted: 8443" is actionable in a way
+    // that a status code is not.
+    if !response.ok() {
+        let message = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str().map(str::to_string)))
+            .unwrap_or_else(|| format!("HTTP {}", response.status()));
+        return Err(message);
+    }
+
+    let decoded: PeekResponseBody =
+        serde_json::from_slice(&bytes).map_err(|e| format!("unexpected answer: {e}"))?;
+    let mut certificates = vec![];
+    for encoded in &decoded.certificates {
+        let der = STANDARD
+            .decode(encoded.as_bytes())
+            .map_err(|e| format!("a certificate was not valid base64: {e}"))?;
+        certificates.push(der);
+    }
+    let stapled_ocsp = match &decoded.stapled_ocsp {
+        Some(encoded) => Some(
+            STANDARD
+                .decode(encoded.as_bytes())
+                .map_err(|e| format!("the stapled response was not valid base64: {e}"))?,
+        ),
+        None => None,
+    };
+    Ok(Presented {
+        host: decoded.host,
+        port: decoded.port,
+        protocol: decoded.protocol,
+        certificates,
+        stapled_ocsp,
+    })
+}
+
+/// Host builds have no service to ask, the same as every other exchange in this module.
+#[cfg(not(target_family = "wasm"))]
+pub async fn relay_peek(_uri: &str) -> Result<Presented, String> {
+    Err("retrieval is only available in the browser build".to_string())
 }
 
 /// One retrieval's outcome.

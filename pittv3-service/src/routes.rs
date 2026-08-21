@@ -8,10 +8,13 @@ use actix_web::{web, HttpResponse, Responder};
 use log::warn;
 use serde::Serialize;
 
-use pittv3_relay::{FetchError, FetchRequest};
+use pittv3_relay::{FetchError, FetchRequest, PeekRequest};
 
 use crate::config::ServiceState;
-use crate::dto::{FetchRequestBody, FetchResponseBody, ValidateRequestBody, ValidateResponseBody};
+use crate::dto::{
+    FetchRequestBody, FetchResponseBody, PeekRequestBody, PeekResponseBody, ValidateRequestBody,
+    ValidateResponseBody,
+};
 use crate::orchestrate::{self, ValidationInput};
 
 /// Body returned when a request cannot be served.
@@ -35,6 +38,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/api")
             .route("/health", web::get().to(health))
             .route("/fetch", web::post().to(fetch))
+            .route("/tls", web::post().to(tls))
             .route("/stores", web::get().to(stores))
             .route("/validate", web::post().to(validate)),
     )
@@ -78,6 +82,36 @@ async fn fetch(
     }
 }
 
+/// Takes the certificates a host presents, so a client that cannot open a socket can validate the
+/// certificate a site serves.
+///
+/// Nothing is requested over the connection and nothing is parsed here: the handshake completes,
+/// what the peer sent is returned, and judging it is the client's job.
+async fn tls(state: web::Data<ServiceState>, body: web::Json<PeekRequestBody>) -> impl Responder {
+    if !state.config.allow_tls_peek {
+        return HttpResponse::NotFound().json(ErrorBody::new(
+            "this deployment does not make handshakes on a client's behalf",
+        ));
+    }
+
+    let body = body.into_inner();
+    let request = PeekRequest {
+        uri: body.normalized_uri(),
+        timeout: None,
+    };
+
+    match state.relay.peek(&request).await {
+        Ok(response) => HttpResponse::Ok().json(PeekResponseBody {
+            host: response.host,
+            port: response.port,
+            protocol: response.protocol,
+            certificates: response.certificates,
+            stapled_ocsp: response.stapled_ocsp,
+        }),
+        Err(e) => fetch_error_response(e),
+    }
+}
+
 /// Maps a retrieval failure onto a status that says whose problem it is: a refusal is the
 /// requester's, a failure reaching the repository is the repository's, and a client cannot tell
 /// those apart from the message alone.
@@ -87,7 +121,7 @@ fn fetch_error_response(error: FetchError) -> HttpResponse {
         FetchError::RequestTooLarge(_) => {
             HttpResponse::PayloadTooLarge().json(ErrorBody::new(error.to_string()))
         }
-        FetchError::Timeout => {
+        FetchError::Timeout(_) => {
             HttpResponse::GatewayTimeout().json(ErrorBody::new(error.to_string()))
         }
         FetchError::TooLarge(_) | FetchError::Transport(_) => {
