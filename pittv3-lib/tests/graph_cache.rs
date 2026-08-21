@@ -184,3 +184,101 @@ fn the_augmented_graph_is_cached_reused_and_rekeyed() {
 
     unsafe { std::env::remove_var("PITTV3_GRAPH_CACHE") };
 }
+
+/// Builds a CBOR store at `cbor` from the certificate `ca_input` names, the way a user producing
+/// one to hand back to a later run would.
+fn generate_store(dir: &Path, ca_input: &Path, cbor: &Path) {
+    tokio_test::block_on(options_std(&Pittv3Args {
+        ta_folder: Some(
+            example("TrustAnchorRootCertificate.crt")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+        ca_folder: Some(ca_input.to_str().unwrap().to_string()),
+        cbor: Some(cbor.to_str().unwrap().to_string()),
+        generate: true,
+        settings: Some(settings_file(dir)),
+        time_of_interest: TOI,
+        ..Default::default()
+    }));
+}
+
+/// A store handed to the CA input is the entire set of CA certificates for that run, and it already
+/// carries the partial paths through itself — which is the whole reason they were serialized. So it
+/// is adopted as it stands rather than being reduced to its certificates and searched again, and
+/// the first run costs what the ones after it cost. Carl's report was that "the first run is slower
+/// than I would expect given the paths have already been calculated", and it was.
+///
+/// **The observable is that nothing is cached**, because nothing was built. This module's own
+/// comment has always said only augmented graphs are cached; a store arriving through the CA row
+/// rather than through `--cbor` was the case that did not honor it, and a cache entry appearing here
+/// means the search ran.
+///
+/// The second half is the other arm of the same decision: a store merged with material it was not
+/// searched against *is* augmentation, because a path spanning the two exists only once they are
+/// searched together. That one must still search, and still cache.
+#[test]
+fn a_store_in_the_ca_row_is_adopted_with_its_paths_rather_than_searched_again() {
+    let _guard = CACHE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    // SAFETY: this test binary is single-threaded by construction; see the module comment.
+    unsafe { std::env::set_var("PITTV3_GRAPH_CACHE", &cache) };
+
+    let good_ca = dir.path().join("good-ca.cbor");
+    generate_store(dir.path(), &example("GoodCACert.crt"), &good_ca);
+    assert!(good_ca.is_file(), "the CA store was not generated");
+
+    // The store carries the paths the adoption is for; without them there would be nothing to adopt
+    // and skipping the search would leave the run with no graph.
+    let store = pittv3_lib::std_utils::cbor_cert_store(good_ca.to_str().unwrap())
+        .expect("the generated store does not read back through the reader the run uses");
+    assert!(
+        store.num_partial_paths() > 0,
+        "the generated store carries no partial paths, so this test cannot mean what it says"
+    );
+    let certs_only = pittv3_lib::std_utils::cbor_cert_store_certs(good_ca.to_str().unwrap())
+        .expect("the generated store does not read back as certificates");
+    assert_eq!(
+        store.num_buffers(),
+        certs_only.len(),
+        "the two readers disagree about how many certificates the store holds"
+    );
+
+    let ta_folder = folder_with(&dir.path().join("ta"), &["TrustAnchorRootCertificate.crt"]);
+    let report = validate(
+        dir.path(),
+        Some(ta_folder.clone()),
+        Some(good_ca.to_str().unwrap().to_string()),
+    );
+    assert_eq!(TargetStatus::Valid, report.targets[0].status);
+    assert_eq!(3, report.targets[0].paths[0].certs.len());
+    assert!(
+        cached_graphs(&cache).is_empty(),
+        "a graph was cached, so the store's paths were discarded and the search ran anyway"
+    );
+
+    // Augmentation: a second store in the CA row alongside one already loaded through `--cbor`.
+    // Now the two have never been searched together, so the search has to run -- and its result is
+    // worth caching, which is what tells the two arms apart from outside.
+    let sub_ca = dir.path().join("sub-ca.cbor");
+    generate_store(dir.path(), &example("GoodsubCACert.crt"), &sub_ca);
+
+    let report = tokio_test::block_on(options_std(&Pittv3Args {
+        cbor: Some(sub_ca.to_str().unwrap().to_string()),
+        ..args_for(
+            dir.path(),
+            Some(ta_folder),
+            Some(good_ca.to_str().unwrap().to_string()),
+        )
+    }));
+    assert_eq!(TargetStatus::Valid, report.targets[0].status);
+    assert_eq!(
+        1,
+        cached_graphs(&cache).len(),
+        "an augmented graph was not cached, so the two stores were not searched together"
+    );
+
+    unsafe { std::env::remove_var("PITTV3_GRAPH_CACHE") };
+}

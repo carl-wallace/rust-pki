@@ -74,10 +74,19 @@ pub fn cbor_ta_store_anchors(path: &str) -> Option<Vec<CertFile>> {
 /// against the store alone would not describe it.
 #[cfg(feature = "std")]
 pub fn cbor_cert_store_certs(path: &str) -> Option<Vec<CertFile>> {
+    cbor_cert_store(path).map(|from_cbor| from_cbor.get_buffers())
+}
+
+/// Reads the file at `path` as a CBOR certificate store, or `None` when it is not one.
+///
+/// Unlike [`cbor_cert_store_certs`] this keeps the partial paths the store carries, which is what a
+/// caller wants when the store is the entire set of CA certificates for a run: those paths already
+/// describe every path through it, so searching again would recompute an answer that was serialized
+/// precisely so it would not have to be.
+#[cfg(feature = "std")]
+pub fn cbor_cert_store(path: &str) -> Option<CertSource> {
     let bytes = get_file_as_byte_vec_pem(Path::new(path)).ok()?;
-    CertSource::new_from_cbor(&bytes)
-        .ok()
-        .map(|from_cbor| from_cbor.get_buffers())
+    CertSource::new_from_cbor(&bytes).ok()
 }
 
 /// Builds the trust anchor store named by the `ta_cbor` and `ta_folder` arguments, or `None` when
