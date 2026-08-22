@@ -1,6 +1,6 @@
 [package]
 name = "pittv3"
-version = "0.1.3"
+version = "0.2.0-pre"
 description = """
 PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
 of trust anchors, intermediate CA certificates and end entity certificates.
@@ -8,8 +8,8 @@ of trust anchors, intermediate CA certificates and end entity certificates.
 authors = [""]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/carl-wallace/rust-pki"
-categories = ["cryptography", "pki", "no-std"]
-keywords = ["crypto", "x.509", "OCSP"]
+categories = ["cryptography", "no-std", "encoding"]
+keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
 rust-version = "1.85"
@@ -17,7 +17,7 @@ rust-version = "1.85"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pittv3_lib = { path = "../pittv3-lib", default-features = false }
+pittv3-lib = { path = "../pittv3-lib", default-features = false }
 
 cfg-if = "1.0.4"
 clap = {version = "4.6.2", features=["std", "derive"]}
@@ -43,15 +43,15 @@ tokio-test = "0.4.5"
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki", "pqc", "rsa", "eddsa"]
-revocation = ["pittv3_lib/revocation"]
-std_app = ["pittv3_lib/std_app", "tokio", "log4rs"]
-std = ["std_app", "revocation", "pittv3_lib/std"]
-remote = ["revocation", "std", "pittv3_lib/remote"]
-pqc = ["pittv3_lib/pqc"]
-webpki = ["pittv3_lib/webpki"]
-sha1_sig = ["pittv3_lib/sha1_sig"]
-rsa = ["pittv3_lib/rsa"]
-eddsa = ["pittv3_lib/eddsa"]
+revocation = ["pittv3-lib/revocation"]
+std_app = ["pittv3-lib/std_app", "tokio", "log4rs"]
+std = ["std_app", "revocation", "pittv3-lib/std"]
+remote = ["revocation", "std", "pittv3-lib/remote"]
+pqc = ["pittv3-lib/pqc"]
+webpki = ["pittv3-lib/webpki"]
+sha1_sig = ["pittv3-lib/sha1_sig"]
+rsa = ["pittv3-lib/rsa"]
+eddsa = ["pittv3-lib/eddsa"]
 
 [package.metadata.docs.rs]
 all-features = true

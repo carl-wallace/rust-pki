@@ -8,15 +8,17 @@ All processing occurs in the browser; certificates never leave the page.
 A hosted instance is available at <https://pittv3.redhoundsoftware.com>; no local build is required
 to try it.
 
-Trust anchor and CA certificate stores are shipped as CBOR files in `resources/`, which Trunk
-copies into `dist/` and the app fetches by relative URL when a store is selected (rather than
-embedding them, which would be paid on every page load): an ML-DSA-44 PKITS edition, the Web PKI
-(Mozilla roots and CCADB intermediates) and U.S. DoD (NIPR). The two trust-community stores are
-regenerated from their provider crates by `build.rs`; see `resources/NOTICE` for what each artifact
-is, where it came from and the terms it travels under. Trust anchors and intermediate CA
-certificates can also be uploaded and are used together with the selected built-in store (or alone
-when no store is selected) to validate certificates from other sources, e.g., artifacts produced by
-other implementations during interoperability testing. Uploads and certificates to validate
+The two trust-community stores — the Web PKI (Mozilla roots and CCADB intermediates) and U.S. DoD
+(NIPR) — are shipped as CBOR files in `resources/`, which Trunk copies into `dist/` and the app
+fetches by relative URL when the store is selected, rather than embedding them, which would be paid
+on every page load. They are regenerated from their provider crates by `build.rs`. The ML-DSA-44
+PKITS edition is different: it is small, static test collateral with no provider behind it, so it is
+compiled in from `fixtures/` alongside its two sample end entity certificates. See
+`resources/NOTICE` for what each artifact is, where it came from and the terms it travels under.
+
+Trust anchors and intermediate CA certificates can also be uploaded and are used together with the
+selected built-in store (or alone when no store is selected) to validate certificates from other
+sources, e.g., artifacts produced by other implementations during interoperability testing. Uploads and certificates to validate
 accumulate across uploads, so a set of loaded certificates can be re-validated after changing the
 trust configuration or settings. Values that govern the RFC 5280 path validation inputs, e.g., the
 initial policy set and related indicators, can be edited in the UI.

@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-wasm"
-version = "0.1.3"
+version = "0.2.0-pre"
 description = """
 Browser-based frontend for the PKI Interoperability Test Tool v3 (PITTv3) that performs
 certification path validation in a WASM context, including validation of certificates signed
@@ -26,11 +26,11 @@ rust-version = "1.88"
 # (a synchronous fn, unlike the async one std builds) compiled in, so revocation data supplied
 # alongside the certificates can be honored. Nothing fetches it yet, so runs leave the check off by
 # default -- see `run_settings` in main.rs. Listed on all three crates rather than relying on
-# pittv3_gui_lib's feature to fan out, so each line states what that crate is built with.
+# pittv3-gui-lib's feature to fan out, so each line states what that crate is built with.
 [dependencies]
 certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
-pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
-pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
+pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
 
 # The relay exchanges JSON, so a retrieved artifact arrives base64-encoded (see relay.rs).
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }

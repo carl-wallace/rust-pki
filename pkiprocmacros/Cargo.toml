@@ -1,7 +1,13 @@
 [package]
 name = "pkiprocmacros"
 version = "0.1.2"
+description = "Procedural macros supporting the certval certification path validation library"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "no-std"]
+keywords = ["x509", "pki", "macros"]
 edition = "2021"
+rust-version = "1.85"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

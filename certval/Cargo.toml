@@ -1,14 +1,14 @@
 [package]
 name = "certval"
-version = "0.1.4"
+version = "0.2.0-pre"
 description = """
 Pure Rust implementation of X.509 Public Key Infrastructure Certificate validation as described in [RFC 5280] and
 as augmented by [RFC 5937], including support for certification path building and revocation status determination.
 """
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/carl-wallace/rust-pki"
-categories = ["cryptography", "pki", "no-std"]
-keywords = ["crypto", "x.509", "OCSP"]
+categories = ["cryptography", "no-std", "encoding"]
+keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
 rust-version = "1.85"
@@ -28,7 +28,7 @@ spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 signature = { version = "3.0.0" }
 
-pkiprocmacros = { path = "../pkiprocmacros"}
+pkiprocmacros = { path = "../pkiprocmacros", version = "0.1.2" }
 
 ecdsa = {version = "0.17.0", default-features = false, features = ["der"]}
 p256 = {version = "0.14.0", default-features = false, features = ["ecdsa"]}
