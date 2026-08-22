@@ -3,8 +3,8 @@
 Hand-verified bundles for exercising the wasm app's **Settings** tab. Each scenario is a
 `settings.json` (certval `CertificationPathSettings` JSON — the same format the PITTv3 CLI `-s` and
 desktop app read) plus the end-entity certificate(s) to validate. Revocation is disabled in every
-settings file so results match across the wasm app (which never does revocation) and the CLI/desktop
-run offline.
+settings file so results match across the wasm app and the CLI/desktop run offline, whatever
+retrieval the app is permitted.
 
 Together they exercise: time of interest, require-explicit-policy + initial-policy-set, inhibit
 policy mapping, inhibit anyPolicy, and initial permitted/excluded name-constraint subtrees
@@ -56,9 +56,11 @@ applied.
   `x509-limbo` case `rfc5280::nc::permitted-ipv4-match` (root permits `192.0.2.0/24`, leaf SAN
   `192.0.2.1`): it validates by default, and the excluded-IP setting flips it. The leaf is valid
   1970–2969, so no TOI is needed.
-- The wasm app does **no** revocation checking (no CRL/OCSP, no AIA fetch); these scenarios exercise
-  basic path validation plus the settings knobs. The same `settings.json` files also load into the
-  CLI (`-s`) and desktop app.
+- These scenarios exercise basic path validation plus the settings knobs, and nothing they need is
+  retrieved: each store is uploaded and revocation is disabled in the settings. That is what makes
+  them reproducible in the browser-only tier, where the app fetches nothing at all, and in the
+  relayed tier, where it can. The same `settings.json` files also load into the CLI (`-s`) and
+  desktop app.
 - **Scenario 09 (URI name constraints)** validates `ValidURInameConstraintsTest34EE` (URI SAN
   `http://testserver.testcertificates.gov/…`) against the PKITS store; the excluded URI subtree
   `.testcertificates.gov` covers that host, so it flips to invalid. URI matching is now no_std in

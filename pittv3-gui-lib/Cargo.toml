@@ -1,6 +1,6 @@
 [package]
-name = "pittv3_gui_lib"
-version = "0.1.3"
+name = "pittv3-gui-lib"
+version = "0.2.0-pre"
 description = """
 Shared user interface components for GUI frontends to the PKI Interoperability Test Tool v3 (PITTv3),
 which can be used to build and validate certification paths using different sets of trust anchors,
@@ -18,7 +18,7 @@ rust-version = "1.88"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pittv3_lib = { path = "../pittv3-lib", default-features = false }
+pittv3-lib = { path = "../pittv3-lib", default-features = false }
 certval = { path = "../certval", default-features = false }
 x509-cert = { version = "0.3.0", default-features = false }
 # For the fold half of a retrieving run in retrieval.rs: an authority information access URI
@@ -64,11 +64,11 @@ log4rs = {version = "1.4.0", default-features = false, optional = true}
 # Default is set to be the least encompassing (i.e., for WASM).
 [features]
 default = []
-revocation = ["certval/revocation", "pittv3_lib/revocation"]
-std = ["revocation", "certval/std", "pittv3_lib/std", "dep:home"]
-remote = ["certval/remote", "pittv3_lib/remote", "revocation", "std"]
-pqc = ["certval/pqc", "pittv3_lib/pqc"]
-webpki = ["certval/webpki", "pittv3_lib/webpki"]
+revocation = ["certval/revocation", "pittv3-lib/revocation"]
+std = ["revocation", "certval/std", "pittv3-lib/std", "dep:home"]
+remote = ["certval/remote", "pittv3-lib/remote", "revocation", "std"]
+pqc = ["certval/pqc", "pittv3-lib/pqc"]
+webpki = ["certval/webpki", "pittv3-lib/webpki"]
 gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
 
 [package.metadata.docs.rs]

@@ -800,6 +800,41 @@ dependencies = [
 [[package]]
 name = "certval"
 version = "0.1.4"
+source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#4de48cffc7468bc839f766cec39bfa01a89dbc13"
+dependencies = [
+ "base64ct",
+ "bitvec",
+ "cfg-if",
+ "ciborium",
+ "cidr",
+ "cms",
+ "const-oid",
+ "der",
+ "ecdsa",
+ "flagset",
+ "hex-literal",
+ "log",
+ "p256",
+ "p384",
+ "p521",
+ "pem-rfc7468",
+ "pkiprocmacros 0.1.2 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
+ "readonly",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
+ "signature",
+ "spki",
+ "subtle-encoding",
+ "walkdir",
+ "x509-cert",
+ "x509-ocsp",
+]
+
+[[package]]
+name = "certval"
+version = "0.2.0-pre"
 dependencies = [
  "base64ct",
  "bitvec",
@@ -847,46 +882,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "certval"
-version = "0.1.4"
-source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#4de48cffc7468bc839f766cec39bfa01a89dbc13"
-dependencies = [
- "base64ct",
- "bitvec",
- "cfg-if",
- "ciborium",
- "cidr",
- "cms",
- "const-oid",
- "der",
- "ecdsa",
- "flagset",
- "hex-literal",
- "log",
- "p256",
- "p384",
- "p521",
- "pem-rfc7468",
- "pkiprocmacros 0.1.2 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
- "readonly",
- "serde",
- "serde_json",
- "sha1 0.11.0",
- "sha2 0.11.0",
- "signature",
- "spki",
- "subtle-encoding",
- "walkdir",
- "x509-cert",
- "x509-ocsp",
-]
-
-[[package]]
 name = "certval_stores_core"
 version = "0.1.0"
 source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#41bb7d37a416aaae65044de80a61aadb9a784b5e"
 dependencies = [
- "certval 0.1.4 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
+ "certval 0.1.4",
  "log",
 ]
 
@@ -5059,7 +5059,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pittv3"
-version = "0.1.3"
+version = "0.2.0-pre"
 dependencies = [
  "assert_cmd",
  "cfg-if",
@@ -5067,7 +5067,7 @@ dependencies = [
  "hex-literal",
  "log",
  "log4rs",
- "pittv3_lib",
+ "pittv3-lib",
  "predicates",
  "tempfile",
  "tokio",
@@ -5076,9 +5076,9 @@ dependencies = [
 
 [[package]]
 name = "pittv3-gui"
-version = "0.1.3"
+version = "0.2.0-pre"
 dependencies = [
- "certval 0.1.4",
+ "certval 0.2.0-pre",
  "certval_stores_core",
  "certval_stores_fpki",
  "certval_stores_mozilla",
@@ -5091,8 +5091,8 @@ dependencies = [
  "home",
  "log",
  "log4rs",
- "pittv3_gui_lib",
- "pittv3_lib",
+ "pittv3-gui-lib",
+ "pittv3-lib",
  "rfd",
  "serde_json",
  "tempfile",
@@ -5100,62 +5100,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "pittv3-service"
-version = "0.1.3"
-dependencies = [
- "actix-files",
- "actix-rt",
- "actix-web",
- "base64",
- "bytes",
- "certval 0.1.4",
- "certval_stores_core",
- "certval_stores_fpki",
- "certval_stores_mozilla",
- "certval_stores_nipr",
- "certval_stores_pbdev",
- "clap",
- "env_logger 0.11.11",
- "log",
- "pittv3_gui_lib",
- "pittv3_lib",
- "pittv3_relay",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "pittv3-wasm"
-version = "0.1.3"
-dependencies = [
- "base64",
- "certval 0.1.4",
- "certval_stores_core",
- "certval_stores_mozilla",
- "certval_stores_nipr",
- "dioxus",
- "getrandom 0.4.3",
- "gloo-net",
- "gloo-timers",
- "js-sys",
- "log",
- "pem-rfc7468",
- "pittv3_gui_lib",
- "pittv3_lib",
- "serde",
- "serde_json",
- "web-sys",
- "web-time",
- "zip",
-]
-
-[[package]]
-name = "pittv3_gui_lib"
-version = "0.1.3"
+name = "pittv3-gui-lib"
+version = "0.2.0-pre"
 dependencies = [
  "anyhow",
- "certval 0.1.4",
+ "certval 0.2.0-pre",
  "cms",
  "der",
  "dioxus",
@@ -5164,7 +5113,7 @@ dependencies = [
  "log",
  "log4rs",
  "pem-rfc7468",
- "pittv3_lib",
+ "pittv3-lib",
  "serde",
  "serde_json",
  "web-time",
@@ -5174,12 +5123,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "pittv3_lib"
-version = "0.1.3"
+name = "pittv3-lib"
+version = "0.2.0-pre"
 dependencies = [
  "async-recursion",
  "bytes",
- "certval 0.1.4",
+ "certval 0.2.0-pre",
  "ciborium",
  "cms",
  "const-oid",
@@ -5204,8 +5153,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "pittv3_relay"
-version = "0.1.3"
+name = "pittv3-relay"
+version = "0.2.0-pre"
 dependencies = [
  "log",
  "reqwest 0.13.4",
@@ -5213,6 +5162,57 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-rustls",
+]
+
+[[package]]
+name = "pittv3-service"
+version = "0.2.0-pre"
+dependencies = [
+ "actix-files",
+ "actix-rt",
+ "actix-web",
+ "base64",
+ "bytes",
+ "certval 0.2.0-pre",
+ "certval_stores_core",
+ "certval_stores_fpki",
+ "certval_stores_mozilla",
+ "certval_stores_nipr",
+ "certval_stores_pbdev",
+ "clap",
+ "env_logger 0.11.11",
+ "log",
+ "pittv3-gui-lib",
+ "pittv3-lib",
+ "pittv3-relay",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "pittv3-wasm"
+version = "0.2.0-pre"
+dependencies = [
+ "base64",
+ "certval 0.2.0-pre",
+ "certval_stores_core",
+ "certval_stores_mozilla",
+ "certval_stores_nipr",
+ "dioxus",
+ "getrandom 0.4.3",
+ "gloo-net",
+ "gloo-timers",
+ "js-sys",
+ "log",
+ "pem-rfc7468",
+ "pittv3-gui-lib",
+ "pittv3-lib",
+ "serde",
+ "serde_json",
+ "web-sys",
+ "web-time",
+ "zip",
 ]
 
 [[package]]

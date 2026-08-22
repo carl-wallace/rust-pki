@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-gui"
-version = "0.1.3"
+version = "0.2.0-pre"
 description = """
 Desktop GUI frontend for the PKI Interoperability Test Tool v3 (PITTv3), which can be used to build
 and validate certification paths using different sets of trust anchors, intermediate CA certificates
@@ -20,8 +20,8 @@ rust-version = "1.88"
 # Unlike the CLI, the desktop GUI is not feature-gated: it always builds with the most encompassing
 # feature set (i.e., remote, webpki). WASM frontends get their own crate with a trimmed feature set.
 [dependencies]
-pittv3_lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
-pittv3_gui_lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
+pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
+pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
 
 # Trust material for the built-in store selector (see src/stores.rs). Unlike the browser
 # frontend, which fetches its stores by URL and so takes these as build-dependencies, a desktop
@@ -48,7 +48,7 @@ serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["rt", "time"] }
 
 # Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
-# read; the app itself reaches certval through pittv3_lib.
+# read; the app itself reaches certval through pittv3-lib.
 [dev-dependencies]
 certval = { path = "../certval", default-features = false, features = ["std"] }
 tempfile = "3.27.0"

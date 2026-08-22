@@ -1,6 +1,6 @@
 [package]
-name = "pittv3_relay"
-version = "0.1.3"
+name = "pittv3-relay"
+version = "0.2.0-pre"
 description = """
 Policy-enforcing byte relay used by frontends to the PKI Interoperability Test Tool v3 (PITTv3) that
 cannot reach PKI repositories themselves, i.e., browsers. It retrieves certificates, CRLs and OCSP

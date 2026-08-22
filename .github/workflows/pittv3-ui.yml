@@ -36,10 +36,10 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check -p pittv3_gui_lib
+      - run: cargo check -p pittv3-gui-lib
       - run: cargo check -p pittv3-gui
 
-  # The service depends on pittv3_gui_lib for the shared validation path, so it carries the same
+  # The service depends on pittv3-gui-lib for the shared validation path, so it carries the same
   # 1.88 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
   # checked: unlike the GUI crates these have a headless test surface.
   service:
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p pittv3_relay -p pittv3-service
+      - run: cargo test -p pittv3-relay -p pittv3-service
 
   wasm:
     runs-on: ubuntu-latest
@@ -83,9 +83,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo doc -p pittv3_gui_lib -p pittv3-gui --no-deps
-      # pittv3_gui_lib gates items on `std`, and a link to one resolves only when it is enabled;
+      - run: cargo doc -p pittv3-gui-lib -p pittv3-gui --no-deps
+      # pittv3-gui-lib gates items on `std`, and a link to one resolves only when it is enabled;
       # the run above covers the links that must hold without it.
-      - run: cargo doc -p pittv3_gui_lib --no-deps --all-features
+      - run: cargo doc -p pittv3-gui-lib --no-deps --all-features
       - run: cargo doc -p pittv3-wasm --target wasm32-unknown-unknown --no-deps
-      - run: cargo doc -p pittv3_relay -p pittv3-service --no-deps
+      - run: cargo doc -p pittv3-relay -p pittv3-service --no-deps
