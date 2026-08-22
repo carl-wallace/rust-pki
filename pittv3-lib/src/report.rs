@@ -534,7 +534,12 @@ pub struct ValidationReport {
     /// Time of interest used for the run expressed as seconds since Unix epoch (0 when validity
     /// checking was disabled)
     pub time_of_interest: u64,
-    /// Time expended on the run in milliseconds
+    /// Time expended on the run in milliseconds.
+    ///
+    /// What that covers depends on who built the report. A run with a beginning and an end — the
+    /// CLI, and the service — records wall clock, so preparation and revocation retrieval are in
+    /// it. [`ValidationReport::from_targets`] has no such run to time and sums what the paths
+    /// report instead, which is the validating alone.
     pub duration_ms: u64,
     /// Set when the run could not be carried out (e.g. a required input was missing or an output
     /// could not be written). A frontend should surface this as a failure rather than an empty
@@ -560,16 +565,25 @@ impl ValidationReport {
     /// This is for a frontend whose targets accumulate across interactions rather than arriving
     /// from a single run: the totals have to be recomputed whenever the set changes, and there are
     /// no certval run statistics to read them from — unlike [`crate::options_std`], which
-    /// accumulates the same counts from `paths_per_target` and friends as it goes. `duration_ms`
-    /// is left at zero for the same reason: there is no one run to have timed.
+    /// accumulates the same counts from `paths_per_target` and friends as it goes.
+    ///
+    /// `duration_ms` is the sum of what the paths themselves report. There is no one run here to
+    /// wall-clock — that is the same reason the totals have to be recomputed — but every path
+    /// carries what it took, and their sum is the work this report accounts for. It is a smaller
+    /// number than the wall clock a single run records, since preparation and retrieval are not in
+    /// it, and it grows as targets accumulate, which is the behaviour a caller displaying it wants.
+    /// Reporting zero instead was worse than either: a run showing `0 ms` beside paths that each
+    /// report real durations reads as a broken clock rather than as an absent one.
     pub fn from_targets(targets: &[TargetReport], time_of_interest: u64) -> Self {
         let mut totals = ReportTotals {
             targets: targets.len(),
             ..Default::default()
         };
+        let mut duration_ms = 0;
         for target in targets {
             totals.paths_found += target.paths.len();
             for path in &target.paths {
+                duration_ms += path.duration_ms;
                 if path.error.is_none() && path.status == Some(PathValidationStatus::Valid) {
                     totals.valid_paths += 1;
                 } else {
@@ -581,7 +595,7 @@ impl ValidationReport {
             targets: targets.to_vec(),
             totals,
             time_of_interest,
-            duration_ms: 0,
+            duration_ms,
             error: None,
         }
     }
@@ -1206,6 +1220,43 @@ mod tests {
         assert_eq!(outcome.final_policy_mapping, Some(1));
         assert_eq!(outcome.final_inhibit_any_policy, Some(2));
         assert!(outcome.final_valid_policies.is_empty());
+    }
+
+    /// A report assembled from accumulated targets has no run to wall-clock, but every path it
+    /// carries reports what it took. Summing those is what keeps the header honest: the browser
+    /// showed `0 ms` beside paths reporting 8 and 19 ms, which reads as a broken clock rather than
+    /// an absent one. The sum also has to grow as targets accumulate, since that is precisely the
+    /// case this constructor exists for.
+    #[test]
+    fn from_targets_sums_the_durations_the_paths_report() {
+        let path = |ms| PathReport {
+            status: Some(PathValidationStatus::Valid),
+            duration_ms: ms,
+            ..Default::default()
+        };
+        let target = |paths: Vec<PathReport>| TargetReport {
+            name: "t".to_string(),
+            target: None,
+            status: TargetStatus::Valid,
+            paths,
+            no_paths_hints: vec![],
+        };
+
+        let one = target(vec![path(8), path(19)]);
+        let report = ValidationReport::from_targets(core::slice::from_ref(&one), 0);
+        assert_eq!(27, report.duration_ms);
+        assert_eq!(2, report.totals.paths_found);
+
+        // A second target accumulating into the same view adds its paths' time to the total.
+        let two = target(vec![path(5)]);
+        let report = ValidationReport::from_targets(&[one, two], 0);
+        assert_eq!(32, report.duration_ms);
+
+        // No paths is the one case where zero is the truth.
+        assert_eq!(
+            0,
+            ValidationReport::from_targets(&[target(vec![])], 0).duration_ms
+        );
     }
 
     #[test]
