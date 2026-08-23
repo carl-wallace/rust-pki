@@ -97,7 +97,7 @@ pub enum OcspNonceSetting {
 }
 
 /// The `ValidPolicyTreeNode` is used to represent nodes returned via a `PR_VALID_POLICY_TREE` entry in a
-/// [`CertificationPathResults`](../certval/path_settings/type.CertificationPathResults.html) instance. Each node in the valid_policy_tree includes three data
+/// [`CertificationPathResults`](crate::CertificationPathResults) instance. Each node in the valid_policy_tree includes three data
 //  objects: the valid policy, a set of associated policy qualifiers, and a set of one or more expected
 //  policy values. Each node relative to a depth x.
 #[derive(Clone, Debug)]
@@ -110,7 +110,7 @@ pub struct ValidPolicyTreeNode {
     pub expected_policy_set: ObjectIdentifierSet,
 }
 
-/// Define a type to serve as the final value of the valid_policy_tree returned from [`check_certificate_policies_graph`](../policy_graph/fn.check_certificate_policies_graph.html)
+/// Define a type to serve as the final value of the valid_policy_tree returned from [`check_certificate_policies_graph`](crate::validator::policy_graph::check_certificate_policies_graph)
 /// (or similar implementation).
 pub type FinalValidPolicyTree = Vec<Vec<ValidPolicyTreeNode>>;
 
@@ -818,11 +818,11 @@ impl CertificationPathSettings {
     }
 }
 
-/// `read_settings` accepts a string containing the name of a file that notionally contains JSON data that
-/// represents CertificationPathSettings.
+/// `read_settings` accepts an optional string containing the name of a file that notionally contains
+/// JSON data representing a [`CertificationPathSettings`] map, and returns the deserialized settings.
 ///
-/// The map is expressed as a BTreeMap<String, String> with a URI as the key and last modified time
-/// returned from that resource as the value.
+/// A `None` filename, or a name that does not exist, yields default settings. A file that exists but
+/// does not deserialize yields [`Error::ParseError`].
 #[cfg(feature = "std")]
 pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings> {
     if let Some(fname) = fname {

@@ -555,7 +555,8 @@ impl PkiEnvironment {
         })
     }
 
-    /// is_cert_a_trust_anchor takes a target certificate indication if cert is a trust anchor.
+    /// `is_cert_a_trust_anchor` takes a certificate and returns `Ok(())` if it is a trust anchor in
+    /// this environment, or an error if it is not.
     pub fn is_cert_a_trust_anchor(&self, target: &PDVCertificate) -> Result<()> {
         // An ambiguous SKID cannot identify a unique anchor, so do not treat a cert bearing one as a
         // trust anchor even if a source matches it.
@@ -570,7 +571,8 @@ impl PkiEnvironment {
         Err(Error::NotFound)
     }
 
-    /// is_trust_anchor takes a [`PDVTrustAnchorChoice`] indication if cert is a trust anchor.
+    /// `is_trust_anchor` takes a [`PDVTrustAnchorChoice`] and returns `Ok(())` if it is a trust
+    /// anchor in this environment, or an error if it is not.
     pub fn is_trust_anchor(&self, target: &PDVTrustAnchorChoice) -> Result<()> {
         if self.ta_skid_poisoned(&hex_skid_from_ta(target)) {
             return Err(Error::NotFound);
@@ -761,8 +763,9 @@ impl PkiEnvironment {
         }
     }
 
-    /// get_paths_for_target takes a target certificate and a source for trust anchors and returns
-    /// a vector of [`CertificationPath`] objects.
+    /// `get_paths_for_target` takes a target certificate and appends the certification paths built
+    /// for it to `paths`, stopping once `paths` holds `threshold` entries. Certificates that are not
+    /// valid at `time_of_interest` are not used.
     pub fn get_paths_for_target(
         &self,
         target: &PDVCertificate,

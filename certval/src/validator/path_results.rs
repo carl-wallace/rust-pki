@@ -376,9 +376,9 @@ impl CertificationPathResults {
         }
     }
 
-    /// prepare_revocation_results takes a CertificationPathResults and the number of certificates in a certification
-    /// path (not counting the trust anchor). It prepares results variables set to appropriate capacity to receive
-    /// revocation-related results.
+    /// `prepare_revocation_results` takes the number of certificates in a certification path (not
+    /// counting the trust anchor) and prepares the revocation-related results variables in this
+    /// [`CertificationPathResults`], sized to that capacity.
     pub fn prepare_revocation_results(&mut self, num_certs: usize) -> Result<()> {
         self.set_nocheck_usage(vec![false; num_certs]);
         self.set_revocation_source(vec![RevocationSource::None; num_certs]);
@@ -397,8 +397,9 @@ impl CertificationPathResults {
         Ok(())
     }
 
-    /// `add_processed_extension` takes a [`CertificationPathResults`] and retrieves (or adds then retrieves)
-    /// an entry for [`PR_PROCESSED_EXTENSIONS`] to which the oid is added if not already present.
+    /// `add_processed_extension` retrieves (or adds then retrieves) this
+    /// [`CertificationPathResults`] entry for [`PR_PROCESSED_EXTENSIONS`], to which the oid is added
+    /// if not already present.
     pub(crate) fn add_processed_extension(&mut self, oid: ObjectIdentifier) {
         let mut oids = self.get_processed_extensions();
         if !oids.contains(&oid) {

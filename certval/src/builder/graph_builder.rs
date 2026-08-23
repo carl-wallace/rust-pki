@@ -18,21 +18,32 @@ use crate::fetch_to_buffer;
 #[cfg(feature = "remote")]
 use std::fs;
 
-/// `build_graph` takes a string containing the full path of a folder containing binary DER-encoded
-/// trust anchor files, a string containing the full path of a folder containing binary
-/// DER-encoded CA certificate files, and a time of interest expressed as seconds since Unix epoch
-/// then attempts to find all possible partial certification paths.
+/// `build_graph` reads certificates from the location named in the supplied
+/// [`CertificationPathSettings`], finds all possible partial certification paths among them and
+/// returns a buffer containing the CBOR-encoded result. Every input arrives through `cps`; there
+/// are no folder or time-of-interest parameters.
 ///
-/// The CA input may name a single file instead of a folder, in which case that file is read on its
-/// merits, extension and all, exactly as it is when one is nominated at validation time. A file may
-/// hold several concatenated PEM objects. Chasing AIA and SIA needs somewhere to write what it
-/// fetches, so a run that chases with a file for its CA input must also set a download folder.
+/// - [`PS_CERTIFICATION_AUTHORITY_FOLDER`] names the CA input and is required. It may name a folder,
+///   which is traversed recursively, or a single file, which is read on its merits, extension and
+///   all, exactly as it is when one is nominated at validation time. A file may hold several
+///   concatenated PEM objects.
+/// - [`PS_CBOR_TA_STORE`] turns the run into trust anchor collection: the CA input is read as
+///   [`TrustAnchorChoice`](x509_cert::anchor::TrustAnchorChoice) material and no partial paths are
+///   found, so the result is a trust anchor store rather than a certificate store.
+/// - [`PS_TIME_OF_INTEREST`] discards certificates that are not valid at the indicated time. A value
+///   of zero skips the validity check.
+/// - [`PS_RETRIEVE_FROM_AIA_SIA_HTTP`] (`remote` feature, and ignored while collecting trust
+///   anchors) chases the AIA and SIA URIs of the certificates gathered so far, looping until a pass
+///   adds no new certificate or the store reaches [`PS_MAX_AIA_SIA_CERTS`] — the ceiling that keeps a
+///   responder serving a fresh certificate on every hop from running the loop forever. Fetched
+///   artifacts land in [`PS_DOWNLOAD_FOLDER`], or in the CA folder when no download folder is set;
+///   since a file cannot receive them, a run that chases with a file for its CA input must also set
+///   a download folder. A `last_modified_map.json` and a `blocklist.json` in that folder carry fetch
+///   state across runs.
 ///
-/// It returns a buffer containing CBOR-encoded partial paths. [BuffersAndPaths] features additional
+/// Buffer labels in the returned store are reduced to basenames, so a generated store does not carry
+/// the absolute paths of the machine that built it. [`BuffersAndPaths`] features additional
 /// information regarding serialization of certificate buffers and partial paths.
-///
-/// The time of interest is used to ignore certificates that are expired at the indicated time (when
-/// time of interest value is zero, the validity check is not performed).
 pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -> Result<Vec<u8>> {
     let ca_folder = if let Some(ca_folder) = cps.get_certification_authority_folder() {
         ca_folder

@@ -703,7 +703,7 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
     ValidationReport::default()
 }
 
-/// generate_and_validate takes a [`TaSource`](../certval/ta_source/index.html) and program arguments and performs CBOR file generation
+/// generate_and_validate takes a [`TaSource`](certval::TaSource) and program arguments and performs CBOR file generation
 /// and/or validation of certificate(s) indicated by the end-entity-file option and/or end-entity-folder option.
 ///
 /// If the `generate` option is present, a fresh CBOR file is generated using materials from

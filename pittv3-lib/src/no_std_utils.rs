@@ -11,8 +11,8 @@ use crate::pitt_log::log_path;
 
 /// `validate_cert_file` attempts to validate the certificate notionally read from the file indicated by
 /// `cert_filename` using the resources available via the
-/// [`PkiEnvironment`](../certval/pki_environment/struct.PkiEnvironment.html) parameter and the settings
-/// available via [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html)
+/// [`PkiEnvironment`](certval::PkiEnvironment) parameter and the settings
+/// available via [`CertificationPathSettings`](certval::CertificationPathSettings)
 /// parameter.
 pub(crate) fn validate_cert(
     pe: &PkiEnvironment,

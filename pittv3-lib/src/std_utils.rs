@@ -279,8 +279,8 @@ fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
 
 /// `validate_cert_file` attempts to validate the certificate read from the file indicated by
 /// `cert_filename` using the resources available via the
-/// [`PkiEnvironment`](../certval/pki_environment/struct.PkiEnvironment.html) parameter and the settings
-/// available via [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html)
+/// [`PkiEnvironment`](certval::PkiEnvironment) parameter and the settings
+/// available via [`CertificationPathSettings`](certval::CertificationPathSettings)
 /// parameter.
 ///
 /// This is a thin file-reading wrapper around [`validate_cert_bytes`]. The `args` parameter
@@ -311,9 +311,9 @@ pub(crate) async fn validate_cert_file(
 }
 
 /// `validate_cert_bytes` attempts to validate the certificate parsed from `target_bytes` using the
-/// resources available via the [`PkiEnvironment`](../certval/pki_environment/struct.PkiEnvironment.html)
+/// resources available via the [`PkiEnvironment`]
 /// parameter and the settings available via
-/// [`CertificationPathSettings`](../certval/path_settings/type.CertificationPathSettings.html) parameter.
+/// [`CertificationPathSettings`] parameter.
 ///
 /// Where dynamic path building is used, path validation is governed by the `threshold` parameter,
 /// i.e., only paths with at least one certificate at an index above the threshold will be validated.
@@ -667,7 +667,7 @@ pub async fn validate_cert_folder(
 
 /// generate takes a Pittv3Args structure containing at least `cbor`, `ca-folder` and a source of
 /// trust anchors (`ta-cbor`, `ta-folder` or `webpki-tas`) and then calls
-/// [`build_graph`](../../certval/builder/graph_builder/fn.build_graph.html).
+/// [`build_graph`].
 /// Where dynamic building is in effect, the `download-folder` option will be used if present (else
 /// ca-folder is used as destination for downloaded artifacts).
 #[cfg(feature = "std")]

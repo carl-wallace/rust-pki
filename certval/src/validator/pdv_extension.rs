@@ -18,16 +18,17 @@ use crate::util::error::*;
 /// that will be used to build and validate certification paths. The decoded extensions will be
 /// cached and accessed via the get_extension function.
 pub trait ExtensionProcessing {
-    /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
+    /// `get_extension` takes an ObjectIdentifier that identifies an extension type and returns the
+    /// previously parsed [`PDVExtension`] for it, or `None` if that extension has not been parsed.
     fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>>;
 
-    /// `parse_extension` takes a static ObjectIdentifier that identifies an extension type and returns
-    /// a `PDVExtension` containing the a decoded extension if the extension was present.
+    /// `parse_extension` takes an ObjectIdentifier that identifies an extension type, decodes that
+    /// extension if it is present, caches the result and returns it.
     fn parse_extension(&mut self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>>;
 
-    /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a `PDVExtension` containing the a decoded extension if the extension was present.
+    /// `parse_extensions` takes a slice of ObjectIdentifiers and calls [`parse_extension`](Self::parse_extension)
+    /// for each, caching whichever of those extensions are present. Errors are not reported: an
+    /// extension that is absent or fails to decode is simply left out of the cache.
     fn parse_extensions(&mut self, oids: &[ObjectIdentifier]);
 }
 

@@ -31,7 +31,7 @@ use crate::EXTS_OF_INTEREST;
 /// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, optional metadata
 /// and optional parsed extensions in support of certification path development and validation operations.
 ///
-/// The parsed extensions are usually those listed in tne [`EXTS_OF_INTEREST`](../path_validator/constant.EXTS_OF_INTEREST.html).
+/// The parsed extensions are usually those listed in tne [`EXTS_OF_INTEREST`].
 #[derive(Clone, Eq, PartialEq)]
 pub struct PDVCertificate {
     /// Binary, encoded Certificate object
@@ -106,8 +106,8 @@ where
 }
 
 impl ExtensionProcessing for PDVCertificate {
-    /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a previously parsed [`PDVExtension`] instance containing the decoded extension if the extension was present.
+    /// `get_extension` takes an ObjectIdentifier that identifies an extension type and returns the
+    /// previously parsed [`PDVExtension`] for it, or `None` if that extension has not been parsed.
     fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
@@ -117,8 +117,10 @@ impl ExtensionProcessing for PDVCertificate {
         Ok(None)
     }
 
-    /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
+    /// `parse_extensions` takes a slice of ObjectIdentifiers and calls
+    /// [`parse_extension`](ExtensionProcessing::parse_extension) for each, caching whichever of those
+    /// extensions are present. Errors are not reported: an extension that is absent or fails to
+    /// decode is simply left out of the cache.
     fn parse_extensions(&mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);
@@ -274,9 +276,8 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeSigned {
     }
 }
 
-/// `parse_cert` takes a buffer containing a binary DER encoded certificate and returns
-/// a [`PDVCertificate`](../certval/pdv_certificate/struct.PDVCertificate.html) containing the
-/// parsed certificate if parsing was successful.
+/// `parse_cert` takes a buffer containing a binary DER encoded certificate and returns a
+/// [`PDVCertificate`] containing the parsed certificate if parsing was successful.
 pub fn parse_cert(buffer: &[u8], filename: &str) -> Result<PDVCertificate> {
     let r = CertificateInner::from_der(buffer);
     match r {
