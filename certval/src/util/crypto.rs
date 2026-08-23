@@ -27,7 +27,7 @@ use signature::Verifier;
 /// get_padding_scheme takes an AlgorithmIdentifier containing a signature algorithm and returns
 /// a corresponding PaddingScheme instance.
 ///
-/// At present, only the PKCS1v15Sign passing scheme is supported, relative to the
+/// At present, only the PKCS1v15Sign padding scheme is supported, relative to the
 /// [`PKIXALG_SHA224_WITH_RSA_ENCRYPTION`], [`PKIXALG_SHA256_WITH_RSA_ENCRYPTION`],
 /// [`PKIXALG_SHA384_WITH_RSA_ENCRYPTION`] and [`PKIXALG_SHA512_WITH_RSA_ENCRYPTION`] algorithm identifiers.
 #[cfg(feature = "rsa")]

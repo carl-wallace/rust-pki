@@ -434,7 +434,7 @@ async fn fetch_crl(
     }
 }
 
-/// ClassifyCertificate takes a certificate and returns a CertRevType value.
+/// `classify_certificate` takes a certificate and returns a [`CertRevType`] value.
 ///  - CaDp is returned if basicConstraints is present and isCA is true AND a CRL DP extension is present.
 ///  - EeDp is returned if basicConstraints is absent or isCA is false AND a CRL DP extension is present.
 ///  - Ca is returned if basicConstraints is present and isCA is true AND a CRL DP extension is not present.

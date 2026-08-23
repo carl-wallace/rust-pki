@@ -5,8 +5,8 @@
 //! No revocation support is available when `default-features = false` or `std` feature gates are used.
 //!
 //! As shown in the example below, revocation status determination is performed after validating a certification path
-//! via [`validate_path`](../certval/pki_environment/struct.PkiEnvironment.html#method.validate_path).
-//! For convenience, [`check_revocation`](../revocation/check_revocation/fn.check_revocation.html) implements the [`ValidatePath`](../certval/pki_environment_traits/type.ValidatePath.html) type.
+//! via [`PkiEnvironment::validate_path`](crate::PkiEnvironment::validate_path).
+//! For convenience, [`check_revocation`](crate::check_revocation()) implements the [`ValidatePath`](crate::ValidatePath) type.
 //!
 //! ```no_run
 //! #[tokio::test]
@@ -51,15 +51,15 @@
 //! }
 //! ```
 //!
-//! Revocation processing will be influenced by values included in the [`CertificationPathSettings`](../validator/path_results/type.CertificationPathResults.html) object, including:
+//! Revocation processing will be influenced by values included in the [`CertificationPathSettings`](crate::CertificationPathSettings) object, including:
 //!
-//! - [`PS_CHECK_REVOCATION_STATUS`](../validator/path_settings/static.PS_CHECK_REVOCATION_STATUS.html)
-//! - [`PS_CHECK_OCSP_FROM_AIA`](../validator/path_settings/static.PS_CHECK_OCSP_FROM_AIA.html)
-//! - [`PS_CHECK_CRLS`](../certval/path_settings/static.PS_CHECK_CRLS.html)
-//! - [`PS_CHECK_CRLDP_HTTP`](../validator/path_settings/static.PS_CHECK_CRLDP_HTTP.html)
-//! - [`PS_CRL_GRACE_PERIODS_AS_LAST_RESORT`](../validator/path_settings/static.PS_CRL_GRACE_PERIODS_AS_LAST_RESORT.html)
-//! - [`PS_CRL_TIMEOUT`](../certval/path_settings/static.PS_CRL_TIMEOUT.html)
-//! - [`PS_OCSP_AIA_NONCE_SETTING`](../validator/path_settings/static.PS_OCSP_AIA_NONCE_SETTING.html)
+//! - [`PS_CHECK_REVOCATION_STATUS`](crate::PS_CHECK_REVOCATION_STATUS)
+//! - [`PS_CHECK_OCSP_FROM_AIA`](crate::PS_CHECK_OCSP_FROM_AIA)
+//! - [`PS_CHECK_CRLS`](crate::PS_CHECK_CRLS)
+//! - [`PS_CHECK_CRLDP_HTTP`](crate::PS_CHECK_CRLDP_HTTP)
+//! - [`PS_CRL_GRACE_PERIODS_AS_LAST_RESORT`](crate::PS_CRL_GRACE_PERIODS_AS_LAST_RESORT)
+//! - [`PS_CRL_TIMEOUT`](crate::PS_CRL_TIMEOUT)
+//! - [`PS_OCSP_AIA_NONCE_SETTING`](crate::PS_OCSP_AIA_NONCE_SETTING)
 //!
 #[cfg(feature = "revocation")]
 pub mod check_revocation;

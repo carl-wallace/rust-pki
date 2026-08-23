@@ -197,8 +197,8 @@ impl TryFrom<Certificate> for PDVTrustAnchorChoice {
 }
 
 impl ExtensionProcessing for PDVTrustAnchorChoice {
-    /// `get_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a previously parsed PDVExtension instance containing the decoded extension if the extension was present.
+    /// `get_extension` takes an ObjectIdentifier that identifies an extension type and returns the
+    /// previously parsed [`PDVExtension`] for it, or `None` if that extension has not been parsed.
     fn get_extension(&self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
         if self.parsed_extensions.contains_key(oid) {
             if let Some(ext) = self.parsed_extensions.get(oid) {
@@ -208,8 +208,10 @@ impl ExtensionProcessing for PDVTrustAnchorChoice {
         Ok(None)
     }
 
-    /// `parse_extension` takes a static ObjectIdentifier that identifies and extension type and returns
-    /// a [`PDVExtension`] containing the a decoded extension if the extension was present.
+    /// `parse_extensions` takes a slice of ObjectIdentifiers and calls
+    /// [`parse_extension`](ExtensionProcessing::parse_extension) for each, caching whichever of those
+    /// extensions are present. Errors are not reported: an extension that is absent or fails to
+    /// decode is simply left out of the cache.
     fn parse_extensions(&mut self, oids: &[ObjectIdentifier]) {
         for oid in oids {
             let _r = self.parse_extension(oid);

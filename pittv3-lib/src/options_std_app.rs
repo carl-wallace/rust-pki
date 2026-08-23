@@ -4,7 +4,7 @@
 //! PITTv3 can built with standard library support while building certval without standard library support.
 //! When built this way, certval includes revocation support. At present, building PITTv3 in this
 //! manner adds only the ability to specify an end entity certificate for validation and means to dump
-//! results relative to the [no-std](./options_no_std.html) build options.
+//! results relative to the [no-std](crate::options_no_std) build options.
 //! - `cargo build --release --bin pittv3 --no-default-features --features std_app`
 //!
 //! The options shown below are available when PITT is built this way.
@@ -89,7 +89,7 @@ fn get_file_as_byte_vec(filename: &Path) -> Result<Vec<u8>> {
 }
 
 /// The `options_std_app` function provides argument parsing and corresponding actions when `PITTv3` is built
-/// with standard library support but [`certval`](../../certval/index.html) is not.
+/// with standard library support but [`certval`] is not.
 pub fn options_std_app(args: &Pittv3Args) {
     let cps = CertificationPathSettings::default();
 

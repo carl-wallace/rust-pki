@@ -1,5 +1,5 @@
 //! Provides implementation of a manually populated in-memory TA store. The following snip, similar
-//! to code in [`PITTv3`](../../pittv3/index.html), illustrates preparation and use of a [`TaSource`] object.
+//! to code in [PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3), illustrates preparation and use of a [`TaSource`] object.
 //!
 //! ```
 //! use certval::PkiEnvironment;
@@ -18,8 +18,8 @@
 //! ```
 //!
 //! [`TaSource`] instances are used when preparing a serialized file containing intermediate CA
-//! certificates and partial paths (see [`find_all_partial_paths`](../cert_source/struct.CertSource.html#method.find_all_partial_paths)) and when building
-//! certification paths (see [`get_paths_for_target`](../cert_source/struct.CertSource.html#method.get_paths_for_target)).
+//! certificates and partial paths (see [`find_all_partial_paths`](crate::CertSource::find_all_partial_paths)) and when building
+//! certification paths (see [`get_paths_for_target`](crate::CertificateSource::get_paths_for_target)).
 //!
 
 use alloc::borrow::ToOwned;
@@ -148,8 +148,9 @@ pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice) -> String {
     }
 }
 
-/// `hex_skid_from_ta` takes a certificate object and returns a string features upper case ASCII hex characters (without
-/// commas, spaces, or brackets) representing either the value of the SKID extension or key ID field.
+/// `hex_skid_from_cert` takes a certificate object and returns a string featuring upper case ASCII hex
+/// characters (without commas, spaces, or brackets) representing either the value of the SKID
+/// extension or, where the certificate has none, a SHA256 hash of its SubjectPublicKeyInfo.
 pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     let skid = cert.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
     let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
@@ -252,8 +253,8 @@ impl TaSource {
         })
     }
 
-    /// Creates a new TaSource instance from the [TLS_SERVER_ROOTS](https://docs.rs/webpki-roots/0.25.1/webpki_roots/constant.TLS_SERVER_ROOTS.html)
-    /// variable in [webpki-roots crate](https://crates.io/crates/webpki-roots). This conversion is best effort.
+    /// Creates a new TaSource instance from the [`TLS_SERVER_ROOTS`]
+    /// variable in the [webpki-roots crate](https://crates.io/crates/webpki-roots). This conversion is best effort.
     /// Any trust anchors that cannot be converted are logged and the process continues.
     #[cfg(feature = "webpki")]
     pub fn new_from_webpki() -> Result<Self> {
@@ -439,14 +440,13 @@ impl TrustAnchorSource for TaSource {
     }
 }
 
-/// `populate_parsed_ta_vector` takes a vector of buffers that contain binary DER-encoded TrustAnchorChoice
-/// objects and populates a vector with parsed TrustAnchorChoice structures that reference the
-/// buffers stored in the map.
+/// `populate_parsed_ta_vector` takes a slice of [`CertFile`] buffers that contain binary DER-encoded
+/// TrustAnchorChoice objects and appends the parsed [`PDVTrustAnchorChoice`] structures to
+/// `parsed_ta_vec`. Buffers that fail to parse are logged and dropped.
 ///
-/// Unlike the [`CertSource::certs`](../cert_source/struct.CertSource.html)
-/// field, the [`TaSource::tas`](`TaSource`) field does not contain
-/// optionally present parsed structures (because there is not need to maintain correlation for trust
-/// anchors because indices are not used).
+/// Unlike the [`CertSource::certs`](CertSource::certs) field, the [`TaSource::tas`](TaSource) field
+/// does not hold optionally present parsed structures: trust anchors are not addressed by index, so
+/// there is no correlation with the buffer vector to maintain.
 fn populate_parsed_ta_vector(
     ta_buffer_vec: &[CertFile],
     parsed_ta_vec: &mut Vec<PDVTrustAnchorChoice>,

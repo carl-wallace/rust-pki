@@ -378,8 +378,9 @@ pub trait CertificateSource {
     /// get_encoded_certificates returns a vector containing copies of the available encoded certificates.
     fn get_encoded_certificates(&self) -> Result<Vec<Vec<u8>>>;
 
-    /// find_paths_for_target takes a target certificate and a source for trust anchors and returns
-    /// a vector of CertificationPath objects.
+    /// `get_paths_for_target` takes a target certificate and appends the certification paths built
+    /// for it to `paths`, stopping once `paths` holds `threshold` entries. Certificates that are not
+    /// valid at `time_of_interest` are not used.
     fn get_paths_for_target(
         &self,
         pe: &PkiEnvironment,

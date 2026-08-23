@@ -642,10 +642,11 @@ pub fn log_error_for_subject(ca: &CertificateInner<Raw>, msg: &str) {
     log_error_for_name(ca.tbs_certificate().subject(), msg);
 }
 
-/// `oid_lookup` takes an ObjectIdentifier and returns a string with a friendly name for the OID or
-/// Error::NotFound.
-/// Names for the signature and public-key algorithms a path log or report would otherwise print as
-/// a bare dotted OID.
+/// `oid_lookup` takes an ObjectIdentifier and returns a friendly name for it, or [`Error::NotFound`]
+/// when the OID is not one of those named here.
+///
+/// It names the signature and public-key algorithms that a path log or report would otherwise print
+/// as a bare dotted OID.
 ///
 /// EC was the gap that showed: `1.2.840.10045.2.1` and `1.2.840.10045.4.3.3` appeared 269 times
 /// across a survey of 72 Web PKI certificates on 2026-08-20, directly above lines that named the

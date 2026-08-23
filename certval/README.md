@@ -26,7 +26,7 @@ The certval library provides seven feature gates that enable varying levels of s
 
 ## Sample Usage
 
-The suite of [PITTv3](../pittv3/index.html) applications uses the `certval` library and can serve as sample code for usage in command
+The suite of [PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3) applications uses the `certval` library and can serve as sample code for usage in command
 line, desktop, and WASM contexts.
 
 ## ⚠️ Security Warning

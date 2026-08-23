@@ -1,13 +1,13 @@
 //! High level revocation checking functionality
 //!
-//! The check_revocation module provides a function that implements the [`ValidatePath`](../certval/pki_environment_traits/type.ValidatePath.html) type
+//! The check_revocation module provides a function that implements the [`ValidatePath`](crate::ValidatePath) type
 //! in support of determining the revocation status of a certificates in a certification path. It
 //! relies on several types of capabilities:
 //! - Presence of OcspNoCheck extension
 //! - Allowlist (i.e., certificates that have been declared "not revoked" by configuration)
 //! - Blocklist (i.e., certificates that have been declared "revoked" by configuration)
 //! - Cached revocation status (i.e., certificates whose "revoked" or "not revoked" status has been
-//!   previously determined and saved in a cache that implements the [`RevocationStatusCache`](../certval/pki_environment_traits/type.RevocationStatusCache.html) trait.
+//!   previously determined and saved in a cache that implements the [`RevocationStatusCache`](crate::RevocationStatusCache) trait.
 //! - Locally available CRLs (i.e., from file system or provided by application)
 //! - Locally available OCSP responses (i.e., provided by application, presumably obtained via stapling)
 //! - OCSP responses obtained from an OCSP responder
