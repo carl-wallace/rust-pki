@@ -35,7 +35,8 @@ use certval::validator::pdv_trust_anchor::*;
 use certval::*;
 
 /// `get_filename_from_metadata` takes a [`PDVCertificate`] object and returns the value read from the
-/// `MD_LOCATOR` entry in the metadata field, if present, or an empty string, if not present.
+/// certificate's locator -- the name of the file or URI it was read from -- or an empty string when
+/// it has none.
 pub fn get_filename_from_metadata(cert: &PDVCertificate) -> String {
     cert.locator().map(str::to_string).unwrap_or_default()
 }

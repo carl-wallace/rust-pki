@@ -149,7 +149,7 @@ fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<Object
     Err(Error::PathValidation(PathValidationStatus::EncodingError))
 }
 
-/// verify_signature_digest_rust_crypto implements the [`VerifySignatureMessage`](crate::VerifySignatureMessage) interface for [`PkiEnvironment`] using
+/// verify_signature_message_rust_crypto implements the [`VerifySignatureMessage`](crate::VerifySignatureMessage) interface for [`PkiEnvironment`] using
 /// implementations from the [Rust Crypto](https://github.com/RustCrypto) project.
 ///
 /// RSA, P256, and P384 signatures are supported at present.

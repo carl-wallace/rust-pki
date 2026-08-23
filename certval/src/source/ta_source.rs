@@ -168,7 +168,8 @@ pub fn hex_skid_from_cert(cert: &PDVCertificate) -> String {
     hex_skid
 }
 
-/// `get_filename_from_ta_metadata` returns the string from the `MD_LOCATOR` in the metadata or an
+/// `get_filename_from_ta_metadata` returns the trust anchor's locator, i.e. the name of the file or
+/// URI it was read from, or an
 /// empty string.
 pub fn get_filename_from_ta_metadata(cert: &PDVTrustAnchorChoice) -> String {
     cert.locator().map(str::to_string).unwrap_or_default()

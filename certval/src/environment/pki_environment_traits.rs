@@ -318,13 +318,13 @@ pub trait TrustAnchorSource {
     /// get_trust_anchors returns a vector with references to available trust anchors.
     fn get_trust_anchors(&self) -> Result<Vec<&PDVTrustAnchorChoice>>;
 
-    /// get_trust_anchor returns a reference to a trust anchor corresponding to the presented SKID.
+    /// get_trust_anchor_by_skid returns a reference to a trust anchor corresponding to the presented SKID.
     fn get_trust_anchor_by_skid(&self, skid: &[u8]) -> Result<&PDVTrustAnchorChoice>;
 
     /// get_trust_anchor_by_hex_skid returns a reference to a trust anchor corresponding to the presented hexadecimal SKID.
     fn get_trust_anchor_by_hex_skid(&self, hex_skid: &str) -> Result<&PDVTrustAnchorChoice>;
 
-    /// get_trust_anchor_for_name returns a reference to a trust anchor corresponding to present name.
+    /// get_trust_anchor_by_name returns a reference to a trust anchor corresponding to the presented name.
     fn get_trust_anchor_by_name(&self, target: &Name) -> Result<&PDVTrustAnchorChoice>;
 
     /// get_trust_anchor_for_target returns a reference to a trust anchor corresponding to AKID or name from presented target.
@@ -335,13 +335,13 @@ pub trait TrustAnchorSource {
     /// to the given SKID.
     fn get_encoded_trust_anchor(&self, skid: &[u8]) -> Result<Vec<u8>>;
 
-    /// get_encoded_trust_anchor returns a vector containing copies of the available encoded trust anchors.
+    /// get_encoded_trust_anchors returns a vector containing copies of the available encoded trust anchors.
     fn get_encoded_trust_anchors(&self) -> Result<Vec<Vec<u8>>>;
 
     /// is_trust_anchor returns true if presented ta object is a trust anchor
     fn is_trust_anchor(&self, ta: &PDVTrustAnchorChoice) -> Result<()>;
 
-    /// is_trust_anchor returns true if presented certificate object is a trust anchor
+    /// is_cert_a_trust_anchor returns Ok(()) if the presented certificate is a trust anchor
     fn is_cert_a_trust_anchor(&self, ta: &PDVCertificate) -> Result<()>;
 }
 
@@ -366,13 +366,13 @@ pub trait CertificateSource {
     /// get_certificates_for_skid returns a vector of references to certificates corresponding to the presented SKID.
     fn get_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>>;
 
-    /// get_certificates_for_skid returns a vector of references to certificates corresponding to the presented subject name.
+    /// get_certificates_for_name returns a vector of references to certificates corresponding to the presented subject name.
     fn get_certificates_for_name(&self, name: &Name) -> Result<Vec<&PDVCertificate>>;
 
-    /// get_certificates_for_skid returns a vector of references to buffers corresponding to the presented SKID.
+    /// get_encoded_certificates_for_skid returns a vector of buffers corresponding to the presented SKID.
     fn get_encoded_certificates_for_skid(&self, skid: &[u8]) -> Result<Vec<Vec<u8>>>;
 
-    /// get_certificates_for_skid returns a vector of references to buffers corresponding to the presented subject name.
+    /// get_encoded_certificates_for_name returns a vector of buffers corresponding to the presented subject name.
     fn get_encoded_certificates_for_name(&self, name: &Name) -> Result<Vec<Vec<u8>>>;
 
     /// get_encoded_certificates returns a vector containing copies of the available encoded certificates.

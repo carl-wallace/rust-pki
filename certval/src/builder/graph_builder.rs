@@ -1,4 +1,9 @@
-//! Builder support
+//! Builds the serialized certificate store that path discovery reads.
+//!
+//! [`build_graph`] gathers certificates from a folder or file and, optionally, chases AIA and SIA
+//! extensions then finds every partial certification path among the result and returns the whole
+//! thing CBOR-encoded. Doing that search once, offline, enables subsequent path processing
+//! operations to avoid expensive path building; [`read_cbor`] is the deserializer.
 
 use std::path::Path;
 

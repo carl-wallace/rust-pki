@@ -84,8 +84,8 @@ fn unsupported_critical_extensions_present_single_response(sr: &SingleResponse) 
     }
 }
 
-/// unsupported_critical_extensions_present__response returns true if any critical extension
-/// is present with a SingleResponse
+/// unsupported_critical_extensions_present_response returns true if any critical extension
+/// is present in a SingleResponse
 fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
     match &rd.response_extensions {
         Some(exts) => {
@@ -465,8 +465,8 @@ fn verify_response_signature(
 }
 
 /// send_ocsp_request sends an OCSP request for `target_cert` to the location identified by `uri_to_check`
-/// using information from `issuers_cert`, processes the response per `pe` and `cps` and returns information
-/// via `cpr` (in the `result_index` slot) and `enc_resp`.
+/// using the name and key from `issuer`, processes the response per `pe` and `cps` and records what it
+/// found in `cpr`, in the `result_index` slot.
 ///
 /// The only extension type listed in section 4 of RFC 6960 that is supported by this function is
 /// nonce, the usage of which is governed by the PS_OCSP_AIA_NONCE_SETTING setting in the `cps` parameter.
@@ -551,19 +551,21 @@ pub async fn send_ocsp_request(
     }
 }
 
-/// Processes an OCSP request that may have been dynamically obtained or obtained from CertificationPath
-/// due to stapling.
+/// Processes an OCSP response that may have been dynamically obtained or taken from a
+/// [`CertificationPath`](crate::CertificationPath) because it was stapled.
 ///
 /// The [`PkiEnvironment`], [`CertificationPathSettings`] and [`CertificationPathResults`] parameters
 /// are assumed to be the same as used for prior validation of a certification path containing the
-/// target certificate, which is provided via the `target_certificate` parameter.
+/// target certificate, which is provided via the `target_cert` parameter.
 ///
-/// The enc_ocsp_resp parameter provides the response to process. The issuers_cert parameter provides
-/// the certificate to use when calculating the name hash and key hash necessary to verify the response.
-/// The responders certificate is required to be present in the OCSP response, at present, and must be
-/// verified using the issuers_cert.
+/// The `enc_ocsp_resp` parameter provides the response to process. The `issuer` parameter supplies the
+/// subject name and public key used to calculate the name hash and key hash that identify the
+/// certificate in the response, and to verify it; it is a [`SubjectNameAndKey`] rather than a
+/// certificate, so a determination is bound to the issuer's key and issuers sharing a subject name
+/// cannot answer for one another. A responder's certificate is required to be present in the OCSP
+/// response at present, and is verified against `issuer`.
 ///
-/// The result_index parameter is used when preparing results and the uri_to_check parameter is used
+/// The `result_index` parameter is used when preparing results and the `uri_to_check` parameter is used
 /// when generating log messages.
 #[allow(clippy::too_many_arguments)]
 pub fn process_ocsp_response(
