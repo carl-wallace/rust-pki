@@ -272,7 +272,7 @@ impl PkiEnvironment {
         self.verify_signature_digest_callbacks.clear();
     }
 
-    /// verify_signature_digest iterates over verify_signature_digest_callbacks until an authoritative answer is found
+    /// verify_signature_ctx_digest iterates over verify_signature_ctx_digest_callbacks until an authoritative answer is found
     /// or all options have been exhausted
     pub fn verify_signature_digest(
         &self,
@@ -389,7 +389,7 @@ impl PkiEnvironment {
         self.verify_signature_message_ctx_callbacks.clear();
     }
 
-    /// verify_signature_ctx_message iterates over verify_signature_message_ctx_callbacks until an authoritative answer is found
+    /// verify_signature_message_ctx iterates over verify_signature_message_ctx_callbacks until an authoritative answer is found
     /// or all options have been exhausted
     pub fn verify_signature_message_ctx(
         &self,

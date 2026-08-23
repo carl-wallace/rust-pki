@@ -96,7 +96,7 @@ pub enum OcspNonceSetting {
     SendNonceTolerateMismatchAbsence,
 }
 
-/// The `ValidPolicyTreeNode` is used to represent nodes returned via a `PR_VALID_POLICY_TREE` entry in a
+/// The `ValidPolicyTreeNode` is used to represent nodes returned via a [`PR_FINAL_VALID_POLICY_GRAPH`](crate::PR_FINAL_VALID_POLICY_GRAPH) entry in a
 /// [`CertificationPathResults`](crate::CertificationPathResults) instance. Each node in the valid_policy_tree includes three data
 //  objects: the valid policy, a set of associated policy qualifiers, and a set of one or more expected
 //  policy values. Each node relative to a depth x.
@@ -521,9 +521,10 @@ impl CertificationPathSettings {
         None
     }
 
-    /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-    /// [`CertificationPathSettings`] map as a NameConstraintsSet object instead of as a NameConstraintsSettings object.
-    /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
+    /// `get_initial_permitted_subtrees_as_set` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from
+    /// a [`CertificationPathSettings`] map as a [`NameConstraintsSet`] instead of as a
+    /// [`NameConstraintsSettings`], which is what [`get_initial_permitted_subtrees`](Self::get_initial_permitted_subtrees)
+    /// returns. `Ok(None)` when the setting is absent.
     pub fn get_initial_permitted_subtrees_as_set(
         &self,
         bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
@@ -564,8 +565,9 @@ impl CertificationPathSettings {
         Ok(NameConstraintsSet::default())
     }
 
-    /// `get_initial_permitted_subtrees` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value from a
-    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSet`] value is returned, else NameConstraintsSet::default() is returned.
+    /// `get_initial_permitted_subtrees_with_default` retrieves the `PS_INITIAL_PERMITTED_SUBTREES` value
+    /// from a [`CertificationPathSettings`] map, returning [`NameConstraintsSettings::default`] when the
+    /// setting is absent.
     pub fn get_initial_permitted_subtrees_with_default(&self) -> NameConstraintsSettings {
         if self.0.contains_key(PS_INITIAL_PERMITTED_SUBTREES) {
             return match &self.0[PS_INITIAL_PERMITTED_SUBTREES] {
@@ -585,8 +587,10 @@ impl CertificationPathSettings {
         );
     }
 
-    /// `set_initial_permitted_subtrees` is used to set the `PS_INITIAL_PERMITTED_SUBTREES` value in
-    /// a [`CertificationPathSettings`] map given a NameConstraintsSet object instead of a NameConstraintsSettings object.
+    /// `set_initial_permitted_subtrees_from_set` sets the `PS_INITIAL_PERMITTED_SUBTREES` value in a
+    /// [`CertificationPathSettings`] map from a [`NameConstraintsSet`] instead of from a
+    /// [`NameConstraintsSettings`], which is what [`set_initial_permitted_subtrees`](Self::set_initial_permitted_subtrees)
+    /// takes.
     pub fn set_initial_permitted_subtrees_from_set(
         &mut self,
         ncs: &NameConstraintsSet,
@@ -612,9 +616,10 @@ impl CertificationPathSettings {
         None
     }
 
-    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-    /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
-    /// If present, a [`NameConstraintsSet`] value is returned, else None is returned.
+    /// `get_initial_excluded_subtrees_as_set` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
+    /// [`CertificationPathSettings`] map as a [`NameConstraintsSet`] instead of as a
+    /// [`NameConstraintsSettings`], which is what [`get_initial_excluded_subtrees`](Self::get_initial_excluded_subtrees)
+    /// returns. `Ok(None)` when the setting is absent.
     pub fn get_initial_excluded_subtrees_as_set(
         &self,
         bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
@@ -633,9 +638,10 @@ impl CertificationPathSettings {
         Ok(None)
     }
 
-    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-    /// [`CertificationPathSettings`] map as a NameConstraintsSet instead of as a NameConstraintsSetttings.
-    /// If present, a [`NameConstraintsSet`] value is returned, else a default instance is returned.
+    /// `get_initial_excluded_subtrees_with_default_as_set` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES`
+    /// value from a [`CertificationPathSettings`] map as a [`NameConstraintsSet`] instead of as a
+    /// [`NameConstraintsSettings`], returning [`NameConstraintsSet::default`] when the setting is
+    /// absent.
     pub fn get_initial_excluded_subtrees_with_default_as_set(
         &self,
         bufs: &mut BTreeMap<String, Vec<Vec<u8>>>,
@@ -654,8 +660,9 @@ impl CertificationPathSettings {
         Ok(NameConstraintsSet::default())
     }
 
-    /// `get_initial_excluded_subtrees` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value from a
-    /// [`CertificationPathSettings`] map. If present, a [`NameConstraintsSettings`] value is returned, else NameConstraintsSet::default() is returned.
+    /// `get_initial_excluded_subtrees_with_default` retrieves the `PS_INITIAL_EXCLUDED_SUBTREES` value
+    /// from a [`CertificationPathSettings`] map, returning [`NameConstraintsSettings::default`] when the
+    /// setting is absent.
     pub fn get_initial_excluded_subtrees_with_default(&self) -> NameConstraintsSettings {
         if self.0.contains_key(PS_INITIAL_EXCLUDED_SUBTREES) {
             return match &self.0[PS_INITIAL_EXCLUDED_SUBTREES] {
@@ -719,8 +726,9 @@ impl CertificationPathSettings {
         );
     }
 
-    ///`set_extended_key_usage` is used to set `PS_EXTENDED_KEY_USAGE` items in a [`CertificationPathSettings`] instance
-    /// given an ObjectIdentifierSet instead of a Strings object.
+    /// `set_extended_key_usage_from_oid_set` sets `PS_EXTENDED_KEY_USAGE` items in a
+    /// [`CertificationPathSettings`] instance from an [`ObjectIdentifierSet`] instead of from a
+    /// [`Strings`], which is what [`set_extended_key_usage`](Self::set_extended_key_usage) takes.
     pub fn set_extended_key_usage_from_oid_set(&mut self, v: ObjectIdentifierSet) {
         let mut s = Strings::new();
         for o in v {

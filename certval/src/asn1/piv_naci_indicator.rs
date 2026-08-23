@@ -1,4 +1,4 @@
-//! OID and type for the PivNaciIndicator indicate type in FIPS 201-2 Appendix B
+//! OID and type for the NACI-indicator extension defined in FIPS 201-2 Appendix B
 
 use const_oid::ObjectIdentifier;
 

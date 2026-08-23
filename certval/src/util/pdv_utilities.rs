@@ -390,7 +390,8 @@ pub(crate) const EMAIL_PATTERN: &str =
 // // URI regular expression pattern from RFC 2396 Appendix B
 // pub(crate) const URI_PATTERN: &str = "^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?";
 
-/// `descended_from_rfc822` returns true if new_name is equal to or descended from prev_name and false otherwise.
+/// `descended_from_host` returns true if `cand` is equal to or descended from `prev_name` and false
+/// otherwise. Not to be confused with `descended_from_rfc822`, which compares email addresses.
 pub fn descended_from_host(prev_name: &Ia5String, cand: &str, is_uri: bool) -> bool {
     let base = prev_name.as_bytes();
     let cand = cand.as_bytes();

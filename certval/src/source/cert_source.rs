@@ -901,7 +901,7 @@ impl CertSource {
         );
     }
 
-    /// serialize_partial_paths returns a buffer containing a CBOR encoding of the buffers_and_paths
+    /// serialize returns a buffer containing a CBOR encoding of the buffers_and_paths
     /// field of a CertSource instance. This can be deserialized then used as input to the process
     /// to prepare a new CertSource instance for use.
     pub fn serialize(&self, format: CertificationPathBuilderFormats) -> Result<Vec<u8>> {
@@ -1733,7 +1733,8 @@ fn pub_key_repeats(path: &CertificationPath) -> bool {
     false
 }
 
-/// get_filename_from_ta_metadata returns the string from the MD_LOCATOR in the metadata or an
+/// get_filename_from_ta_metadata returns the trust anchor's locator, i.e. the name of the file or
+/// URI it was read from, or an
 /// empty string.
 pub fn get_filename_from_cert_metadata(cert: &PDVCertificate) -> String {
     cert.locator().map(str::to_string).unwrap_or_default()

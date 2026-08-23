@@ -13,8 +13,9 @@ use crate::Error;
 use crate::PathValidationStatus;
 use crate::Result;
 
-/// `CertificationPathProcessingTypes` is used to define a variant map with types associated with
-/// performing certification path discovery and validation.
+/// `CertificationPathResultsTypes` is used to define a variant map with types associated with the
+/// results of certification path discovery and validation. Its counterpart on the input side is
+/// [`CertificationPathProcessingTypes`].
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum CertificationPathResultsTypes {
@@ -84,7 +85,7 @@ impl CertificationPathResults {
     }
 }
 
-/// `PR_PROCESS_EXTENSIONS` is used to retrieve an ObjectIdentifierSet value, i.e., BTreeSet of ObjectIdentifier,
+/// `PR_PROCESSED_EXTENSIONS` is used to retrieve an ObjectIdentifierSet value, i.e., BTreeSet of ObjectIdentifier,
 /// from a [`CertificationPathResults`] object. This list is populated as extensions are processed then used
 /// to check for unprocessed critical extensions.
 pub static PR_PROCESSED_EXTENSIONS: &str = "cprProcessedExtensions";

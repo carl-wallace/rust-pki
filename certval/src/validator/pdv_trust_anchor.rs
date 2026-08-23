@@ -38,7 +38,8 @@ use crate::util::error::*;
 use crate::validator::pdv_extension::*;
 
 /// [`PDVTrustAnchorChoice`] is used to aggregate a binary TrustAnchorChoice, a parsed TrustAnchorChoice,
-/// optional metadata and optional parsed extensions in support of certification path development and
+/// an optional locator naming where it was read from, and optional parsed extensions, in support of
+/// certification path development and
 /// validation operations.
 #[derive(Clone, Eq, PartialEq)]
 pub struct PDVTrustAnchorChoice {

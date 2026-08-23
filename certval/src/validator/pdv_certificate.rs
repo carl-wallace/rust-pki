@@ -28,8 +28,9 @@ use crate::pdv_extension::*;
 use crate::util::error::*;
 use crate::EXTS_OF_INTEREST;
 
-/// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, optional metadata
-/// and optional parsed extensions in support of certification path development and validation operations.
+/// [`PDVCertificate`] is used to aggregate a binary, DER-encoded Certificate, a parsed Certificate, an
+/// optional locator naming where it was read from, and optional parsed extensions, in support of
+/// certification path development and validation operations.
 ///
 /// The parsed extensions are usually those listed in tne [`EXTS_OF_INTEREST`].
 #[derive(Clone, Eq, PartialEq)]

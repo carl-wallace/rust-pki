@@ -426,7 +426,8 @@ pub fn get_domain(oid: ObjectIdentifier) -> crate::Result<Vec<u8>> {
     }
 }
 
-/// verify_signature_message_composite
+/// verify_signature_message_composite_rustcrypto verifies a composite ML-DSA signature over a
+/// message, dispatching to the RustCrypto implementations of the two component algorithms.
 pub fn verify_signature_message_composite_rustcrypto(
     pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
