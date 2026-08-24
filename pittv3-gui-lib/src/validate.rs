@@ -39,7 +39,7 @@ fn err(text: String) -> ResultLine {
 /// Two copies is how the 2026-08-20 bug got in: `validate_target` decoded PEM and the harvest did
 /// not, so a PEM target validated normally and contributed nothing to retrieve. Having one is the
 /// point — a caller cannot reach for the wrong one if there is only one.
-pub use pittv3_lib::der_or_pem::maybe_pem;
+pub use pittv3_lib::der_or_pem::{certs_in, maybe_pem};
 
 /// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
 /// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass
@@ -79,6 +79,20 @@ impl PreparedValidation {
     /// validation path puts it in front of the checker.
     pub fn ocsp_responses(&self) -> &OcspResponses {
         &self.ocsp
+    }
+}
+
+/// Labels one certificate out of an upload. A single-certificate file keeps its own name; every
+/// member of a bundle gets its index appended, so a report can say which one a path used.
+///
+/// Numbering from zero and only when the file held more than one matches how the relay labels the
+/// members of a fetched bundle (`{uri}#{index}`), so uploaded and retrieved sources read alike --
+/// and a bare name always means the file held exactly one certificate.
+fn numbered(name: &str, i: usize, count: usize) -> String {
+    if count > 1 {
+        format!("{name}#{i}")
+    } else {
+        name.to_string()
     }
 }
 
@@ -127,13 +141,21 @@ pub fn prepare_validation(
             }
             continue;
         }
-        match maybe_pem(bytes) {
-            Ok(der) => ta_store.push(CertFile {
-                filename: name.clone(),
-                bytes: der,
-            }),
+        // certs_in rather than maybe_pem: a `.p7c` of cross-certificates and a concatenated PEM
+        // bundle each hold several anchors, and taking only the first (or the container itself)
+        // fails quietly later rather than here.
+        match certs_in(bytes) {
+            Ok(ders) => {
+                let count = ders.len();
+                for (i, der) in ders.into_iter().enumerate() {
+                    ta_store.push(CertFile {
+                        filename: numbered(name, i, count),
+                        bytes: der,
+                    });
+                }
+            }
             Err(_) => out.push(err(format!(
-                "Failed to parse uploaded trust anchor {name} as a PEM/DER certificate or a CBOR store"
+                "Failed to parse uploaded trust anchor {name} as a PEM/DER certificate, a PKCS#7 certificate bundle, or a CBOR store"
             ))),
         }
     }
@@ -165,13 +187,18 @@ pub fn prepare_validation(
             }
             continue;
         }
-        match maybe_pem(bytes) {
-            Ok(der) => cert_source.push(CertFile {
-                filename: name.clone(),
-                bytes: der,
-            }),
+        match certs_in(bytes) {
+            Ok(ders) => {
+                let count = ders.len();
+                for (i, der) in ders.into_iter().enumerate() {
+                    cert_source.push(CertFile {
+                        filename: numbered(name, i, count),
+                        bytes: der,
+                    });
+                }
+            }
             Err(_) => out.push(err(format!(
-                "Failed to parse uploaded CA certificate {name} as a PEM/DER certificate or a CBOR store"
+                "Failed to parse uploaded CA certificate {name} as a PEM/DER certificate, a PKCS#7 certificate bundle, or a CBOR store"
             ))),
         }
     }

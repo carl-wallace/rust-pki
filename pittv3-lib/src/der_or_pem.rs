@@ -10,7 +10,11 @@
 //! So the rule is: decode here, once, at every boundary where caller bytes arrive — and never let a
 //! DER-only parse be the first thing a file meets.
 
-use certval::{Error, Result};
+use certval::{certs_from_signed_data, Error, Result};
+
+// Re-exported so a caller has one place for both halves of "what is a certificate file": which
+// extensions to offer, and how to decode what arrives. pittv3-gui does not depend on certval.
+pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTENSIONS};
 
 /// Returns DER bytes given a buffer that may be PEM or DER encoded.
 ///
@@ -26,6 +30,21 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
         Ok((_label, der)) => Ok(der),
         Err(_) => Err(Error::Unrecognized),
     }
+}
+
+/// Returns every certificate a caller's buffer carries, in DER, whatever container it arrived in.
+///
+/// [`maybe_pem`] answers "what encoding is this one object in"; this answers "what certificates are
+/// in this file", which is the question a trust-anchor or CA input actually asks. The two differ for
+/// exactly the containers that hold more than one certificate: a certs-only PKCS#7 message (`.p7c`,
+/// how DoD PKE publishes cross-certificate bundles) and a concatenated PEM bundle. Passing either to
+/// `maybe_pem` yields well-formed DER that is not a certificate, or only the first of several, and
+/// both fail quietly downstream.
+pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    if let Some(certs) = certs_from_signed_data(bytes) {
+        return Ok(certs);
+    }
+    Ok(vec![maybe_pem(bytes)?])
 }
 
 #[cfg(test)]
@@ -45,6 +64,33 @@ mod tests {
             "DER passes through unchanged"
         );
         assert_eq!(maybe_pem(&pem).unwrap(), der, "PEM decodes to the same DER");
+    }
+
+    /// The reason `certs_in` exists rather than callers using `maybe_pem`: a `.p7c` passes
+    /// `maybe_pem` unchanged, because it is well-formed DER starting with SEQUENCE. It is just not
+    /// a certificate, so every caller that assumed one got nothing and said nothing.
+    #[test]
+    fn certs_in_expands_a_container_that_maybe_pem_passes_through_whole() {
+        let p7c = include_bytes!("../../certval/tests/examples/caCertsIssuedTofbcag4.p7c");
+        assert_eq!(
+            maybe_pem(p7c).unwrap(),
+            p7c.to_vec(),
+            "maybe_pem hands back the container, which is the bug this closes"
+        );
+        assert_eq!(6, certs_in(p7c).unwrap().len());
+
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let pem = include_bytes!("../../certval/tests/examples/amazon.com/2-target.pem").to_vec();
+        assert_eq!(
+            vec![der.clone()],
+            certs_in(&der).unwrap(),
+            "a bare certificate is one cert"
+        );
+        assert_eq!(
+            vec![der],
+            certs_in(&pem).unwrap(),
+            "and so is its PEM encoding"
+        );
     }
 
     #[test]

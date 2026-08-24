@@ -11,6 +11,11 @@ use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
 
+use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
+// Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
+#[cfg(not(target_os = "macos"))]
+use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
+
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, TextRow, TimeRow};
@@ -288,12 +293,12 @@ fn PathRow(
     };
 }
 
-/// Extensions offered when picking a certificate file as a trust anchor or CA input. `ta` is an
-/// RFC 5914 TrustAnchorInfo, which is how anchor constraints travel. Only the platforms that need a
-/// separate file dialog filter by extension; the combined macOS dialog does not, since a folder has
-/// no extension to match.
+/// Extensions offered when picking a certificate file as a trust anchor or CA input. Both fan a
+/// file out into every certificate it holds, so this is the bundle list. Only the platforms that
+/// need a separate file dialog filter by extension; the combined macOS dialog does not, since a
+/// folder has no extension to match.
 #[cfg(not(target_os = "macos"))]
-const CERT_EXTENSIONS: &[&str] = &["der", "crt", "cer", "pem", "ta"];
+const CERT_EXTENSIONS: &[&str] = TA_BUNDLE_EXTENSIONS;
 
 /// Table row with a labeled text input and a file selection dialog limited to files of the
 /// indicated type. Thin wrapper over the shared [`BrowseRow`], as with [`FolderRow`].
@@ -397,14 +402,14 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
                             name: "uri-target",
                             sig: s_target,
                             filter_name: "Certificate File",
-                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                            extensions: SINGLE_CERT_EXTENSIONS,
                         }
                         FileRow {
                             label: "Issuer certificate (optional)",
                             name: "uri-issuer",
                             sig: s_issuer,
                             filter_name: "Certificate File",
-                            extensions: ["der", "cer", "crt", "pem"].as_slice(),
+                            extensions: SINGLE_CERT_EXTENSIONS,
                         }
                         tr {
                             CheckboxCell {
@@ -977,7 +982,7 @@ pub(crate) fn App() -> Element {
                                         name: "end-entity-file",
                                         sig: s_end_entity_file,
                                         filter_name: "Certificate File",
-                                        extensions: ["der", "crt"].as_slice(),
+                                        extensions: SINGLE_CERT_EXTENSIONS,
                                     }
                                     FolderRow { label: "End Entity Folder", name: "end-entity-folder", sig: s_end_entity_folder }
                                     tr {
@@ -1285,7 +1290,7 @@ pub(crate) fn App() -> Element {
                                         name: "list-partial-paths-for-target",
                                         sig: s_list_partial_paths_for_target,
                                         filter_name: "Certificate File",
-                                        extensions: ["der", "crt"].as_slice(),
+                                        extensions: SINGLE_CERT_EXTENSIONS,
                                     }
                                     TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
                                 }

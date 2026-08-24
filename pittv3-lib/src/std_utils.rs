@@ -627,7 +627,7 @@ pub async fn validate_cert_folder(
                     let mut do_validate = false;
                     if let Some(filename) = path.to_str() {
                         if let Some(ext) = path.extension().and_then(OsStr::to_str) {
-                            if ["der", "crt", "cer"].contains(&ext) {
+                            if SINGLE_CERT_EXTENSIONS.contains(&ext) {
                                 do_validate = true;
                             }
                         }
@@ -756,7 +756,9 @@ pub fn cleanup_certs(
                 } else {
                     let filename = path.to_str().unwrap_or("");
                     if let Some(ext) = path.extension().and_then(OsStr::to_str) {
-                        if !["der", "crt", "cer"].contains(&ext) {
+                        // Single, not bundle: this decides keep-or-delete per file, which has no
+                        // meaning yet for a container holding several certificates.
+                        if !SINGLE_CERT_EXTENSIONS.contains(&ext) {
                             // non-certificate extension
                             continue;
                         }
@@ -849,7 +851,9 @@ pub fn cleanup_tas(
                 } else {
                     let filename = path.to_str().unwrap_or("");
                     if let Some(ext) = e.path().extension().and_then(OsStr::to_str) {
-                        if !["der", "crt", "cer", "ta"].contains(&ext) {
+                        // Single, not bundle: as with cleanup_certs, the keep-or-delete decision
+                        // is per file.
+                        if !SINGLE_CERT_EXTENSIONS.contains(&ext) && "ta" != ext {
                             // non-certificate extension
                             continue;
                         }

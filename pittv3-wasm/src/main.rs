@@ -10,7 +10,10 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use certval::{CertificationPathSettings, PkiEnvironment, RevocationCache, TimeOfInterest};
+use certval::{
+    CertificationPathSettings, PkiEnvironment, RevocationCache, TimeOfInterest,
+    CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
+};
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
@@ -1120,16 +1123,23 @@ fn App() -> Element {
     // supertype is offered; on desktop that supertype would defeat the extension filter, so keep
     // the strict list there. See is_touch_device.
     let touch = is_touch_device();
-    let ta_accept = if touch {
-        ".der,.crt,.cer,.pem,.ta,.cbor,application/octet-stream"
-    } else {
-        ".der,.crt,.cer,.pem,.ta,.cbor"
+    // Built from the shared lists rather than restated, so an extension added there reaches the
+    // picker too; `cbor` is not a certificate encoding, so it is appended here where a store is
+    // also a valid drop.
+    let accept = |exts: &[&str]| -> String {
+        let mut s = exts
+            .iter()
+            .chain(["cbor"].iter())
+            .map(|e| format!(".{e}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        if touch {
+            s.push_str(",application/octet-stream");
+        }
+        s
     };
-    let ca_accept = if touch {
-        ".der,.crt,.cer,.pem,.cbor,application/octet-stream"
-    } else {
-        ".der,.crt,.cer,.pem,.cbor"
-    };
+    let ta_accept = accept(TA_BUNDLE_EXTENSIONS);
+    let ca_accept = accept(CERT_BUNDLE_EXTENSIONS);
 
     rsx! {
         style { {PITTV3_CSS} }

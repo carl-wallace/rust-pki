@@ -152,10 +152,13 @@ fn add_file_to_vec(
     let initial_count = certsvec.len();
 
     if check_extension {
+        // This walk fans every file out through decode_pem_to_ders, so it takes the bundle list:
+        // a p7c or a concatenated PEM contributes all of its certificates. Without the extensions
+        // here they are skipped silently and only a directly named file works.
         let file_exts = if collect_tas {
-            vec!["der", "crt", "cer", "ta"]
+            TA_BUNDLE_EXTENSIONS
         } else {
-            vec!["der", "crt", "cer"]
+            CERT_BUNDLE_EXTENSIONS
         };
         match path.extension().and_then(OsStr::to_str) {
             Some(ext) => {
