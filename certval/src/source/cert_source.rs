@@ -231,23 +231,23 @@ impl PartialEq for CertFile {
 /// The command below can be used to validate a target certificate issued by the CA in the 0th slot.
 ///
 /// ```text
-/// ./pittv3 -t ~/Desktop/Pittv3/pitt_tas_focused/ --cbor ~/Desktop/Pittv3/pitt_focused.cbor -v -e ~/Desktop/somecert.der
+/// pittv3 -t ~/pitt/tas -b ~/pitt/pitt_focused_2026.cbor -i 1787616000 -s ~/pitt/no-remote-ocsp.json --crl-folder ~/pitt/crls -v -e ~/pitt/target-2026.der
 /// ```
 ///
 /// The following output results in the location specified in the logging configuration. It shows
 /// two certification paths were found and validated.
 ///
 /// ```text
-/// Stats for ~/Desktop/somecert.der
-/// * Paths found: 2
-/// * Valid paths found: 2
-/// * Invalid paths found: 0
-/// * Status codes
-/// - Success: 2 - Result folder indices: [0, 1]
-/// Total paths found: 2
-/// Total valid paths found: 2
-/// Total invalid paths found: 0
-/// 5.016054ms to deserialize graph and perform build and validation operation(s) for 1 file(s)
+/// 2026-08-24T08:57:48.298425-05:00 INFO pittv3_lib::options_std - Stats for ~/pitt/target-2026.der
+/// 2026-08-24T08:57:48.298428-05:00 INFO pittv3_lib::options_std - 	 * Paths found: 2
+/// 2026-08-24T08:57:48.298441-05:00 INFO pittv3_lib::options_std - 	 * Valid paths found: 2
+/// 2026-08-24T08:57:48.298444-05:00 INFO pittv3_lib::options_std - 	 * Invalid paths found: 0
+/// 2026-08-24T08:57:48.298446-05:00 INFO pittv3_lib::options_std - 	 * Status codes
+/// 2026-08-24T08:57:48.298450-05:00 INFO pittv3_lib::options_std - 		 - Valid: 2 - Result folder indices: [0, 1]
+/// 2026-08-24T08:57:48.298453-05:00 INFO pittv3_lib::options_std - Total paths found: 2
+/// 2026-08-24T08:57:48.298456-05:00 INFO pittv3_lib::options_std - Total valid paths found: 2
+/// 2026-08-24T08:57:48.298458-05:00 INFO pittv3_lib::options_std - Total invalid paths found: 0
+/// 2026-08-24T08:57:48.298469-05:00 INFO pittv3_lib::options_std - 236.316542ms to deserialize graph and perform build and validation operation(s) for 1 file(s)
 /// ```
 /// A dump of the partial certification paths included in the CBOR file illustrates why two paths
 /// were found instead of three. When reading the vector containing the indices that compose a
@@ -256,48 +256,51 @@ impl PartialEq for CertFile {
 /// trust anchors changes some partial paths may be orphaned.
 ///
 /// ```text
-/// $ ./target/release/pittv3 -b ~/Desktop/Pittv3/pitt_focused.cbor --list-partial-paths
-/// 2022-01-21T15:36:21.755270-05:00 INFO pittv3::pitt_utils - PITTv3 start
-/// 2022-01-21T15:36:21.756035-05:00 DEBUG pittv3::pitt_utils - DoD Root CA 3:
-/// 2022-01-21T15:36:21.756048-05:00 DEBUG pittv3::pitt_utils -     * Issued by: \[0\] - DoD Interoperability Root CA 2,
-/// 2022-01-21T15:36:21.756055-05:00 DEBUG pittv3::pitt_utils - DOD EMAIL CA-59:
-/// 2022-01-21T15:36:21.756059-05:00 DEBUG pittv3::pitt_utils -     * Issued by: \[1\] - DoD Root CA 3,
-/// 2022-01-21T15:36:21.756064-05:00 DEBUG pittv3::pitt_utils - DOD EMAIL CA-59:
-/// 2022-01-21T15:36:21.756068-05:00 DEBUG pittv3::pitt_utils -     * Issued by: \[0, 1\] - DoD Interoperability Root CA 2,
-/// 2022-01-21T15:36:21.756096-05:00 INFO pittv3::pitt_utils - PITTv3 end
+/// $ pittv3 -b ~/pitt/pitt_focused_2026.cbor -t ~/pitt/tas -i 1787616000 --list-partial-paths
+/// 2026-08-24T08:57:48.026823-05:00 DEBUG pittv3 - PITTv3 start
+/// 2026-08-24T08:57:48.028019-05:00 INFO certval::source::cert_source - CN=DOD EMAIL CA-63:
+/// 2026-08-24T08:57:48.028051-05:00 INFO certval::source::cert_source - 	* TA subject: CN=DoD Root CA 3 - [1],
+/// 2026-08-24T08:57:48.028063-05:00 INFO certval::source::cert_source - CN=DoD Root CA 3:
+/// 2026-08-24T08:57:48.028071-05:00 INFO certval::source::cert_source - 	* TA subject: CN=DoD Interoperability Root CA 2 - [0],
+/// 2026-08-24T08:57:48.028080-05:00 INFO certval::source::cert_source - CN=DOD EMAIL CA-63:
+/// 2026-08-24T08:57:48.028088-05:00 INFO certval::source::cert_source - 	* TA subject: CN=DoD Interoperability Root CA 2 - [0, 1],
+/// 2026-08-24T08:57:48.028095-05:00 INFO certval::source::cert_source - 2 certificates yielded:
+///  - 2 paths with 1 certificate;
+///  - 1 paths with 2 certificates
+/// 2026-08-24T08:57:48.028120-05:00 DEBUG pittv3 - PITTv3 end
 /// ```
 /// The discovered paths are the second and third available, as left CA certificate in the first
 /// partial path did not issue the target certificate being validated. This is illustrated below by
 /// listing all partial paths for the target certificate.
 ///
 /// ```text
-/// $ ./pittv3 -b ~/Desktop/Pittv3/pitt_focused.cbor --list-partial-paths-for-target ~/Desktop/somecert.der
-/// 2022-01-21T15:40:41.462043-05:00 INFO pittv3::pitt_utils - PITTv3 start
-/// 2022-01-21T15:40:41.462870-05:00 DEBUG pittv3::pitt_utils - DOD EMAIL CA-59:
-/// 2022-01-21T15:40:41.462884-05:00 DEBUG pittv3::pitt_utils -     * Issued by: \[1\] - DoD Root CA 3,
-/// 2022-01-21T15:40:41.462890-05:00 DEBUG pittv3::pitt_utils - DOD EMAIL CA-59:
-/// 2022-01-21T15:40:41.462895-05:00 DEBUG pittv3::pitt_utils -     * Issued by: \[0, 1\] - DoD Interoperability Root CA 2,
-/// 2022-01-21T15:40:41.462906-05:00 DEBUG pittv3::pitt_utils - Index: 0 ; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0 ; Issuer: DoD Interoperability Root CA 2; DoD Root CA 3
-/// 2022-01-21T15:40:41.462915-05:00 DEBUG pittv3::pitt_utils - Index: 1 ; SKID: 771441A65D9526D01DFF953B628CEAB7B55D3B92 ; Issuer: DoD Root CA 3; DOD EMAIL CA-59
-/// 2022-01-21T15:40:41.462920-05:00 INFO pittv3::pitt_utils - Found 2 partial paths featuring 2 different intermediate CA certificates
-/// 2022-01-21T15:40:41.462944-05:00 INFO pittv3::pitt_utils - PITTv3 end
+/// $ pittv3 -b ~/pitt/pitt_focused_2026.cbor -t ~/pitt/tas -i 1787616000 -z ~/pitt/target-2026.der
+/// 2026-08-24T08:57:48.036677-05:00 DEBUG pittv3 - PITTv3 start
+/// 2026-08-24T08:57:48.037662-05:00 INFO certval::source::cert_source - CN=DOD EMAIL CA-63:
+/// 2026-08-24T08:57:48.037680-05:00 INFO certval::source::cert_source - 	* TA subject: CN=DoD Root CA 3 - [1],
+/// 2026-08-24T08:57:48.037691-05:00 INFO certval::source::cert_source - CN=DOD EMAIL CA-63:
+/// 2026-08-24T08:57:48.037699-05:00 INFO certval::source::cert_source - 	* TA subject: CN=DoD Interoperability Root CA 2 - [0, 1],
+/// 2026-08-24T08:57:48.037710-05:00 INFO certval::source::cert_source - Index: 0; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0; Issuer: CN=DoD Interoperability Root CA 2; Subject: CN=DoD Root CA 3
+/// 2026-08-24T08:57:48.037721-05:00 INFO certval::source::cert_source - Index: 1; SKID: 4D31AD51D64E577E67693325037EC629A5DDBAF3; Issuer: CN=DoD Root CA 3; Subject: CN=DOD EMAIL CA-63
+/// 2026-08-24T08:57:48.037725-05:00 INFO certval::source::cert_source - Found 2 partial paths featuring 2 different intermediate CA certificates
+/// 2026-08-24T08:57:48.037747-05:00 DEBUG pittv3 - PITTv3 end
 /// ```
 /// To complete the picture, below are dump of the buffers contained in the CBOR file and in the
 /// operative trust anchors folder:
 ///
 /// ```text
-/// $ ./pittv3 -b ~/Desktop/Pittv3/pitt_focused.cbor --list-buffers
-/// 2022-01-21T15:43:08.765425-05:00 INFO pittv3::pitt_utils - PITTv3 start
-/// 2022-01-21T15:43:08.766190-05:00 DEBUG pittv3::pitt_utils - Index: 0; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0; Iss: DoD Interoperability Root CA 2; Sub: DoD Root CA 3
-/// 2022-01-21T15:43:08.766208-05:00 DEBUG pittv3::pitt_utils - Index: 1; SKID: 771441A65D9526D01DFF953B628CEAB7B55D3B92; Iss: DoD Root CA 3; Sub: DOD EMAIL CA-59
-/// 2022-01-21T15:43:08.766233-05:00 INFO pittv3::pitt_utils - PITTv3 end
+/// $ pittv3 -b ~/pitt/pitt_focused_2026.cbor -i 1787616000 --list-buffers
+/// 2026-08-24T08:57:48.045727-05:00 DEBUG pittv3 - PITTv3 start
+/// 2026-08-24T08:57:48.046067-05:00 INFO certval::source::cert_source - Index: 0; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0; Issuer: CN=DoD Interoperability Root CA 2; Subject: CN=DoD Root CA 3
+/// 2026-08-24T08:57:48.046085-05:00 INFO certval::source::cert_source - Index: 1; SKID: 4D31AD51D64E577E67693325037EC629A5DDBAF3; Issuer: CN=DoD Root CA 3; Subject: CN=DOD EMAIL CA-63
+/// 2026-08-24T08:57:48.046101-05:00 DEBUG pittv3 - PITTv3 end
 /// ```
 /// ```text
-/// $ ./pittv3 -b ~/Desktop/Pittv3/pitt_focused.cbor --list-trust-anchors -t ~/Desktop/Pittv3/pitt_tas_focused/
-/// 2022-01-21T15:43:38.552252-05:00 INFO pittv3::pitt_utils - PITTv3 start
-/// 2022-01-21T15:43:38.553131-05:00 DEBUG pittv3::pitt_utils - Index: 0; SKID: FFF8AE138B922B799241A3765C2C819E9AC59C78; Subject: DoD Interoperability Root CA 2
-/// 2022-01-21T15:43:38.553151-05:00 DEBUG pittv3::pitt_utils - Index: 1; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0; Subject: DoD Root CA 3
-/// 2022-01-21T15:43:38.553176-05:00 INFO pittv3::pitt_utils - PITTv3 end
+/// $ pittv3 -b ~/pitt/pitt_focused_2026.cbor -t ~/pitt/tas -i 1787616000 --list-trust-anchors
+/// 2026-08-24T08:57:48.053886-05:00 DEBUG pittv3 - PITTv3 start
+/// 2026-08-24T08:57:48.054229-05:00 INFO certval::source::ta_source - Index:   0; SKID: FFF8AE138B922B799241A3765C2C819E9AC59C78; Subject: CN=DoD Interoperability Root CA 2; Filename: ~/pitt/tas/29.der
+/// 2026-08-24T08:57:48.054242-05:00 INFO certval::source::ta_source - Index:   1; SKID: 6C8A94A277B180721D817A16AAF2DCCE66EE45C0; Subject: CN=DoD Root CA 3; Filename: ~/pitt/tas/11.der
+/// 2026-08-24T08:57:48.054428-05:00 DEBUG pittv3 - PITTv3 end
 /// ```
 /// The resulting paths will flow as follows:
 /// - From the target through the certificate at Index 1 to the trust anchor at Index 1
