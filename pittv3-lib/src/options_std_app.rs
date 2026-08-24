@@ -10,45 +10,34 @@
 //! The options shown below are available when PITT is built this way.
 //!
 //! ```text
-//! $ ./target/release/pittv3 -h
-//! pittv3 0.1.1
-//! PKI Interoperability Test Tool v3 (PITTv3)
+//! $ pittv3 -h
+//! PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+//! of trust anchors, intermediate CA certificates and end entity certificates.
 //!
-//! USAGE:
-//!     pittv3 [OPTIONS]
 //!
-//! OPTIONS:
-//!     -h, --help       Print help information
-//!     -V, --version    Print version information
+//! Usage: pittv3 [OPTIONS]
+//!
+//! Options:
+//!   -h, --help     Print help
+//!   -V, --version  Print version
 //!
 //! COMMON OPTIONS:
-//!     -i, --time-of-interest <TIME_OF_INTEREST>
-//!             Time to use for path validation expressed as the number of seconds since Unix epoch
-//!             (defaults to current system time) [default: 1648038820]
-//!
-//!     -l, --logging-config <LOGGING_CONFIG>
-//!             Full path and filename of YAML-formatted configuration file for log4rs logging
-//!             mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
-//!
-//!     -o, --error-folder <ERROR_FOLDER>
-//!             Full path of folder to receive binary DER-encoded certificates from paths that fail path
-//!             validation. If absent, errant files are not saved for review
+//!   -i, --time-of-interest <TIME_OF_INTEREST>
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 1787579866]
+//!   -l, --logging-config <LOGGING_CONFIG>
+//!           Full path and filename of YAML-formatted configuration file for log4rs logging mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
+//!   -o, --error-folder <ERROR_FOLDER>
+//!           Full path of folder to receive binary DER-encoded certificates from paths that fail path validation. If absent, errant files are not saved for review
 //!
 //! VALIDATION:
-//!     -e, --end-entity-file <END_ENTITY_FILE>
-//!             Full path and filename of a binary DER-encoded certificate to validate
-//!
-//!     -r, --results-folder <RESULTS_FOLDER>
-//!             Full path and filename of folder to receive binary DER-encoded certificates from
-//!             certification paths. Folders will be created beneath this using a hash of the target
-//!             certificate. Within that folder, folders will be created with a number indicating each
-//!             path, i.e., the number indicates the order in which the path was returned for
-//!             consideration. For best results, this folder should be cleaned in between runs. PITTv3
-//!             does not perform hygiene on this folder or its contents
-//!
-//!     -v, --validate-all
-//!             Flag that indicates all available certification paths should be validated for each
-//!             target
+//!   -v, --validate-all
+//!           Flag that indicates all available certification paths should be validated for each target
+//!       --validate-self-signed
+//!           Check if certificate passed as end_entity_file is self-signed
+//!   -e, --end-entity-file <END_ENTITY_FILE>
+//!           Full path and filename of a binary DER-encoded certificate to validate
+//!   -r, --results-folder <RESULTS_FOLDER>
+//!           Full path and filename of folder to receive binary DER-encoded certificates from certification paths. Folders will be created beneath this using a hash of the target certificate. Within that folder, folders will be created with a number indicating each path, i.e., the number indicates the order in which the path was returned for consideration. For best results, this folder should be cleaned in between runs. PITTv3 does not perform hygiene on this folder or its contents
 //! ```
 
 #![cfg(any(all(feature = "std_app", not(feature = "std")), doc))]

@@ -375,7 +375,7 @@ struct DeferDecodeBasicOcspResponse {
     ///   signature                BIT STRING,
     pub signature: Vec<u8>,
 
-    ///    certs               \[0\] EXPLICIT SEQUENCE OF Certificate OPTIONAL }
+    ///    certs               [0] EXPLICIT SEQUENCE OF Certificate OPTIONAL }
     //#[asn1(context_specific = "0", optional = "true", tag_mode = "EXPLICIT")]
     pub certs: Option<alloc::vec::Vec<Any>>,
 }

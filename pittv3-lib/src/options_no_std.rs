@@ -11,26 +11,23 @@
 //! may be added for this mode.
 //!
 //! ```text
-//! $ ./target/release/pittv3 -h
-//! pittv3 0.1.1
-//! PKI Interoperability Test Tool v3 (PITTv3)
+//! $ pittv3 -h
+//! PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+//! of trust anchors, intermediate CA certificates and end entity certificates.
 //!
-//! USAGE:
-//!     pittv3 [OPTIONS]
 //!
-//! OPTIONS:
-//!     -h, --help       Print help information
-//!     -V, --version    Print version information
+//! Usage: pittv3 [OPTIONS]
+//!
+//! Options:
+//!   -h, --help     Print help
+//!   -V, --version  Print version
 //!
 //! COMMON OPTIONS:
-//!     -i, --time-of-interest <TIME_OF_INTEREST>
-//!             Time to use for path validation expressed as the number of seconds since Unix epoch
-//!             (defaults to current system time) [default: 0]
+//!   -i, --time-of-interest <TIME_OF_INTEREST>
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 0]
 //!
 //! VALIDATION:
-//!     -v, --validate-all    Flag that indicates all available certification paths compiled into the
-//!                           app should be validated for each target, instead of stopping after finding
-//!                           first valid path
+//!       --validate-all  Flag that indicates all available certification paths compiled into the app should be validated for each target, instead of stopping after finding first valid path
 //! ```
 #![cfg(any(not(feature = "std_app"), doc))]
 

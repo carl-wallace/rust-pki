@@ -8,154 +8,96 @@
 //!
 //! The default build is the same as `--no-default-features --features remote`.
 //!
-//! The options shown below are available when remote support is not available:
+//! The options shown below are those of the default build, which includes remote support:
 //!
 //! ```text
-//! $ ./target/release/pittv3
-//! pittv3 0.1.1
-//! PKI Interoperability Test Tool v3 (PITTv3)
+//! $ pittv3 -h
+//! PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
+//! of trust anchors, intermediate CA certificates and end entity certificates.
 //!
-//! USAGE:
-//!     pittv3 [OPTIONS]
 //!
-//! OPTIONS:
-//!     -h, --help       Print help information
-//!     -V, --version    Print version information
+//! Usage: pittv3 [OPTIONS]
+//!
+//! Options:
+//!   -h, --help     Print help
+//!   -V, --version  Print version
 //!
 //! COMMON OPTIONS:
-//!     -b, --cbor <CBOR>
-//!             Full path and filename of file to provide and/or receive CBOR-formatted representation
-//!             of buffers containing binary DER-encoded CA certificates and map containing set of
-//!             partial certification paths
-//!
-//!     -c, --ca-folder <CA_FOLDER>
-//!             Full path of folder containing binary, DER-encoded intermediate CA certificates.
-//!             Required when generate action is performed. When path validation is performed, the
-//!             certificates in this folder are added to the graph that is built, augmenting any CBOR
-//!             store in use, and the folder doubles as a place to store downloaded files when dynamic
-//!             building is used and download_folder is not specified
-//!
-//!     -d, --download-folder <DOWNLOAD_FOLDER>
-//!             Full path and filename of folder to receive downloaded binary DER-encoded certificates,
-//!             if absent at generate time, the ca_folder is used. Additionally, this is used to
-//!             designate where exported buffers are written by dump_cert_at_index or list_buffers
-//!
-//!     -i, --time-of-interest <TIME_OF_INTEREST>
-//!             Time to use for path validation expressed as the number of seconds since Unix epoch
-//!             (defaults to current system time) [default: 1648039783]
-//!
-//!     -l, --logging-config <LOGGING_CONFIG>
-//!             Full path and filename of YAML-formatted configuration file for log4rs logging
-//!             mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
-//!
-//!     -o, --error-folder <ERROR_FOLDER>
-//!             Full path of folder to receive binary DER-encoded certificates from paths that fail path
-//!             validation. If absent, errant files are not saved for review
-//!
-//!     -t, --ta-folder <TA_FOLDER>
-//!             Full path of folder containing binary DER-encoded trust anchors to use when generating
-//!             CBOR file containing partial certification paths and when validating certification paths
+//!   -t, --ta-folder <TA_FOLDER>
+//!           Full path of a folder containing binary DER-encoded trust anchors, or of a single such file, to use when generating CBOR file containing partial certification paths and when validating certification paths. A file may hold several concatenated PEM objects
+//!       --ta-cbor <TA_CBOR>
+//!           Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by --generate --cbor-ta-store and the form the certval trust store providers serialize. This is the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which case the anchors from both are used
+//!       --webpki-tas
+//!           Use trust anchors from webpki-roots crate (which are from Mozilla)
+//!   -b, --cbor <CBOR>
+//!           Full path and filename of file to provide and/or receive CBOR-formatted representation of buffers containing binary DER-encoded CA certificates and map containing set of partial certification paths
+//!   -i, --time-of-interest <TIME_OF_INTEREST>
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 1787579866]
+//!   -l, --logging-config <LOGGING_CONFIG>
+//!           Full path and filename of YAML-formatted configuration file for log4rs logging mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
+//!   -o, --error-folder <ERROR_FOLDER>
+//!           Full path of folder to receive binary DER-encoded certificates from paths that fail path validation. If absent, errant files are not saved for review
+//!   -d, --download-folder <DOWNLOAD_FOLDER>
+//!           Full path and filename of folder to receive downloaded binary DER-encoded certificates, if absent at generate time, the ca_folder is used, which requires it to name a folder rather than a single file. Additionally, this is used to designate where exported buffers are written by dump_cert_at_index or list_buffers
+//!   -c, --ca-folder <CA_FOLDER>
+//!           Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a single such file (which may hold several concatenated PEM objects, e.g. a fullchain). Required when generate action is performed. When path validation is performed, these certificates are added to the graph that is built, augmenting any CBOR store in use. A folder also doubles as a place to store downloaded files when dynamic building is used and download_folder is not specified
 //!
 //! GENERATION:
-//!         --cbor-ta-store    Flag that indicates generated CBOR file will contain only trust anchors
-//!                            (so no need for partial paths and no need to exclude self-signed
-//!                            certificates)
-//!     -g, --generate         Flag that indicates a fresh CBOR-formatted file containing buffers of CA
-//!                            certificates and map containing set of partial certification paths should
-//!                            be generated and saved to location indicated by cbor parameter
+//!   -g, --generate           Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and map containing set of partial certification paths should be generated and saved to location indicated by cbor parameter
+//!   -a, --chase-aia-and-sia  Flag that indicates whether AIA and SIA URIs should be consulted when performing generate action
+//!       --cbor-ta-store      Flag that indicates generated CBOR file will contain only trust anchors  (so no need for partial paths and no need to exclude self-signed certificates). The anchors are read from the ca_folder input, which may name a single file, and the result is the form ta_cbor takes
 //!
 //! VALIDATION:
-//!         --crl-folder <CRL_FOLDER>
-//!             Full path of folder containing binary, DER-encoded intermediate CA certificates.
-//!             Required when generate action is performed. This is not used when path validation is
-//!             performed other than as a place to store downloaded files when dynamic building is used
-//!             and download_folder is not specified
-//!
-//!     -e, --end-entity-file <END_ENTITY_FILE>
-//!             Full path and filename of a binary DER-encoded certificate to validate
-//!
-//!     -f, --end-entity-folder <END_ENTITY_FOLDER>
-//!             Full path folder to recursively traverse for binary DER-encoded certificates to
-//!            validate. Only files with .der, .crt or cert as file extension are processed
-//!
-//!     -r, --results-folder <RESULTS_FOLDER>
-//!             Full path and filename of folder to receive binary DER-encoded certificates from
-//!             certification paths. Folders will be created beneath this using a hash of the target
-//!             certificate. Within that folder, folders will be created with a number indicating each
-//!             path, i.e., the number indicates the order in which the path was returned for
-//!             consideration. For best results, this folder should be cleaned in between runs. PITTv3
-//!             does not perform hygiene on this folder or its contents
-//!
-//!     -s, --settings <SETTINGS>
-//!             Full path and filename of JSON-formatted certification path validation settings
-//!
-//!     -v, --validate-all
-//!             Flag that indicates all available certification paths should be validated for each
-//!             target
+//!   -v, --validate-all
+//!           Flag that indicates all available certification paths should be validated for each target
+//!       --validate-self-signed
+//!           Check if certificate passed as end_entity_file is self-signed
+//!   -y, --dynamic-build
+//!           Process AIA and SIA during path validation, as appropriate. Either ca_folder or download_folder must be specified when using this flag to provide a place to store downloaded artifacts
+//!   -e, --end-entity-file <END_ENTITY_FILE>
+//!           Full path and filename of a binary DER-encoded certificate to validate
+//!   -f, --end-entity-folder <END_ENTITY_FOLDER>
+//!           Full path folder to recursively traverse for binary DER-encoded certificates to validate. Only files with .der, .crt or cert as file extension are processed
+//!   -r, --results-folder <RESULTS_FOLDER>
+//!           Full path and filename of folder to receive binary DER-encoded certificates from certification paths. Folders will be created beneath this using a hash of the target certificate. Within that folder, folders will be created with a number indicating each path, i.e., the number indicates the order in which the path was returned for consideration. For best results, this folder should be cleaned in between runs. PITTv3 does not perform hygiene on this folder or its contents
+//!   -s, --settings <SETTINGS>
+//!           Full path and filename of JSON-formatted certification path validation settings
+//!       --crl-folder <CRL_FOLDER>
+//!           Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed before path validation begins. Only files with a .crl extension are processed. The indexed CRLs are the local revocation source, consulted before any remote retrieval, and the folder also receives CRLs fetched remotely along with the last-modified map that makes those fetches conditional. Note that the folder is written as well as read: indexing deletes any CRL that is not valid at the time of interest, i.e. one whose thisUpdate is in the future or whose nextUpdate has passed
+//!       --keep-crl-entries-in-memory
+//!           When set together with --crl-folder, retain the revoked serial numbers of each verified full/direct CRL in memory so subsequent certificates under the same scope are answered without re-parsing or re-verifying the CRL
 //!
 //! CLEANUP:
-//!         --cleanup        Paired with ca_folder to remove expired, unparseable certificates, self-
-//!                          signed certificates and non-CA certificates from consideration. When paired
-//!                          with error_folder, the errant files are moved instead of deleted. After
-//!                          cleanup completes, the application exits with no other parameters acted
-//!                          upon
-//!         --report-only    Pair with cleanup to generate list of files that would be cleaned up by
-//!                          cleanup operation without actually deleting or moving files
-//!         --ta-cleanup     Paired with ta_folder to remove expired or unparseable certificatesfrom
-//!                          consideration. When paired with error_folder, the errant files are moved
-//!                          instead of deleted. After cleanup completes, the application exits with no
-//!                          other parameters acted upon
+//!       --cleanup      Paired with ca_folder to remove expired, unparseable certificates, self-signed certificates and non-CA certificates from consideration. When paired with error_folder, the errant files are moved instead of deleted. After cleanup completes, the application exits with no other parameters acted upon
+//!       --ta-cleanup   Paired with ta_folder to remove expired or unparseable certificatesfrom consideration. When paired with error_folder, the errant files are moved instead of deleted. After cleanup completes, the application exits with no other parameters acted upon
+//!       --report-only  Pair with cleanup to generate list of files that would be cleaned up by cleanup operation without actually deleting or moving files
 //!
 //! DIAGNOSTICS:
-//!         --dump-cert-at-index <DUMP_CERT_AT_INDEX>
-//!             Outputs the certificate at the specified index to a file names <index>.der in the
-//!             download_folder if specified, else current working directory
-//!
-//!         --list-aia-and-sia
-//!             Outputs all URIs from AIA and SIA extensions found in certificates present in CBOR file.
-//!             Add downloads_folder to save certificates that are valid as of time_of_interest from the
-//!             downloaded artifacts (use time_of_interest=0 to download all). Specify a blocklist or
-//!             last_modified_map if desired via CertificationPathSettings or rely on default files that
-//!            will be generated and managed in folder used to download artifacts
-//!
-//!         --list-buffers
-//!             Outputs all buffers present in CBOR file
-//!
-//!         --list-name-constraints
-//!             Outputs all name constraints found in certificates present in CBOR file
-//!
-//!         --list-partial-paths
-//!             Outputs all partial paths present in CBOR file. If a ta_folder is provided, the CBOR
-//!             file will be re-evaluated using ta_folder and time_of_interest (possibly changing the
-//!             set of partial paths relative to that read from CBOR). Use of a logging-config option is
-//!             recommended for large CBOR files
-//!
-//!         --list-trust-anchors
-//!             Outputs all buffers present in trust anchors folder
-//!
-//!     -p, --list-partial-paths-for-leaf-ca <LIST_PARTIAL_PATHS_FOR_LEAF_CA>
-//!             Outputs all partial paths present in CBOR file relative to the indicated leaf CA. If a
-//!             ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and
-//!             time_of_interest (possibly changing the set of partial paths relative to that read from
-//!             CBOR)
-//!
-//!     -z, --list-partial-paths-for-target <LIST_PARTIAL_PATHS_FOR_TARGET>
-//!             Outputs all partial paths present in CBOR file relative to the indicated target. If a
-//!             ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and
-//!             time_of_interest (possibly changing the set of partial paths relative to that read from
-//!             CBOR)
+//!       --list-partial-paths
+//!           Outputs all partial paths present in CBOR file. If a ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and time_of_interest (possibly changing the set of partial paths relative to that read from CBOR). Use of a logging-config option is recommended for large CBOR files
+//!       --list-buffers
+//!           Outputs all buffers present in CBOR file
+//!       --list-aia-and-sia
+//!           Outputs all URIs from AIA and SIA extensions found in certificates present in CBOR file. Add downloads_folder to save certificates that are valid as of time_of_interest from the downloaded artifacts (use time_of_interest=0 to download all). Specify a blocklist or last_modified_map if desired via CertificationPathSettings or rely on default files that will be generated and managed in folder used to download artifacts
+//!       --list-name-constraints
+//!           Outputs all name constraints found in certificates present in CBOR file
+//!       --list-trust-anchors
+//!           Outputs all buffers present in trust anchors folder
+//!       --dump-cert-at-index <DUMP_CERT_AT_INDEX>
+//!           Outputs the certificate at the specified index to a file names `<index>.der` in the download_folder if specified, else current working directory
+//!   -z, --list-partial-paths-for-target <LIST_PARTIAL_PATHS_FOR_TARGET>
+//!           Outputs all partial paths present in CBOR file relative to the indicated target. If a ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and time_of_interest (possibly changing the set of partial paths relative to that read from CBOR)
+//!   -p, --list-partial-paths-for-leaf-ca <LIST_PARTIAL_PATHS_FOR_LEAF_CA>
+//!           Outputs all partial paths present in CBOR file relative to the indicated leaf CA. If a ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and time_of_interest (possibly changing the set of partial paths relative to that read from CBOR)
 //!
 //! TOOLS:
-//!         --mozilla-csv <MOZILLA_CSV>    Parses the given CSV file and saves files to folder indicated
-//!                                        by the ca_folder parameter. The CSV file is assumed to be as
-//!                                        posted as the "Non-revoked, non-expired Intermediate CA
-//!                                        Certificates chaining up to roots in Mozilla's program with
-//!                                        the Websites trust bit set (CSV with PEM of raw certificate
-//!                                        data)" report available on the Mozilla wiki page at
-//!                                        <https://wiki.mozilla.org/CA/Intermediate_Certificates>
+//!       --mozilla-csv <MOZILLA_CSV>  Parses the given CSV file and saves files to folder indicated by the ca_folder parameter. The CSV file is assumed to be as posted as the "Non-revoked, non-expired Intermediate CA Certificates chaining up to roots in Mozilla's program with the Websites trust bit set (CSV with PEM of raw certificate data)" report available on the Mozilla wiki page at <https://wiki.mozilla.org/CA/Intermediate_Certificates>
+//!       --check-uris <CHECK_URIS>    Checks the HTTP URIs in the AIA, SIA, CRL DP and freshest-CRL extensions of the certificate at the given path, reporting per-URI reachability and correctness. Runs independently of path processing; no CBOR store or trust anchors are required
+//!       --issuer <ISSUER>            Optional issuer certificate (path) for --check-uris, used to verify CRL signatures and check OCSP URIs. Auto-discovered from AIA caIssuers when omitted
+//!       --no-auto-discover           Disables auto-discovery of the issuer certificate from AIA caIssuers during --check-uris
 //! ```
 //!
-//! Options with remote support are the same as above with the two additions to the indicated shown below:
+//! A build without remote support omits the two options shown below:
 //!
 //! ```text
 //! GENERATION:

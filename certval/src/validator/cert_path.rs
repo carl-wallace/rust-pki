@@ -15,8 +15,8 @@ pub struct CertificationPath {
     pub target: PDVCertificate,
     /// `intermediates` contains zero or more intermediate CA certificates, beginning with the certificate that
     /// was issued by `trust_anchor` and proceeding in order to a certificate that issued the target, i.e.,
-    /// `intermediates\[0\]` can be used to verify `intermediates\[1\]`, `intermediates\[1\]` can be used to verify
-    /// `intermediates\[2\]`, etc. until `intermediates[intermediates.len() - 1]` can be used to verify `target`.
+    /// `intermediates[0]` can be used to verify `intermediates[1]`, `intermediates[1]` can be used to verify
+    /// `intermediates[2]`, etc. until `intermediates[intermediates.len() - 1]` can be used to verify `target`.
     #[readonly]
     pub intermediates: CertificateChain,
     /// `trust_anchor` contains the trust anchor for the certification path
