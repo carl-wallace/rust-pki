@@ -14,7 +14,7 @@ use crate::{
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
-use der::{asn1::ObjectIdentifier, Decode, Encode};
+use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -1007,42 +1007,23 @@ pub fn verify_signatures(
             cpr.set_failure_index(pos as u32 + 1);
             return Err(Error::PathValidation(PathValidationStatus::EncodingError));
         }
-
-        // Skip the (expensive) signature verification when a configured signature cache reports this
-        // exact certificate-and-issuer-key pair as already verified, e.g. by the path builder. The
-        // cheap structural checks above still run, and with no cache configured this is always false,
-        // so the signature is verified as usual.
-        let verified_from_cache = pe.has_signature_cache()
-            && working_spki
-                .to_der()
-                .ok()
-                .map(|spki_der| {
-                    pe.is_signature_verified(
-                        &signature_cache_hash(cur_cert.as_bytes()),
-                        &signature_cache_hash(&spki_der),
-                    )
-                })
-                .unwrap_or(false);
-
-        if !verified_from_cache {
-            let r = pe.verify_signature_message(
-                pe,
-                &defer_cert.tbs_field,
-                cur_cert.decoded().signature().raw_bytes(),
-                cur_cert.decoded().tbs_certificate().signature(),
-                &working_spki,
+        let r = pe.verify_signature_message(
+            pe,
+            &defer_cert.tbs_field,
+            cur_cert.decoded().signature().raw_bytes(),
+            cur_cert.decoded().tbs_certificate().signature(),
+            &working_spki,
+        );
+        if let Err(e) = r {
+            log_error_for_ca(
+                cur_cert,
+                format!("signature verification error: {e:?}").as_str(),
             );
-            if let Err(e) = r {
-                log_error_for_ca(
-                    cur_cert,
-                    format!("signature verification error: {e:?}").as_str(),
-                );
-                cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
-                cpr.set_failure_index(pos as u32 + 1);
-                return Err(Error::PathValidation(
-                    PathValidationStatus::SignatureVerificationFailure,
-                ));
-            }
+            cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
+            cpr.set_failure_index(pos as u32 + 1);
+            return Err(Error::PathValidation(
+                PathValidationStatus::SignatureVerificationFailure,
+            ));
         }
 
         working_spki = cur_cert

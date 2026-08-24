@@ -480,10 +480,17 @@ pub trait RevocationStatusCache {
 /// signature is verified as usual, so correctness never depends on the cache being present or
 /// populated.
 pub trait SignatureVerificationCache {
-    /// Returns true if a signature over the certificate identified by `cert_hash` by the key
-    /// identified by `issuer_spki_hash` has already been verified successfully.
-    fn is_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) -> bool;
+    /// Returns true if the signed data identified by `signed_data_hash`, verified by the key
+    /// identified by `issuer_spki_hash`, has already been verified successfully.
+    ///
+    /// Both arguments are opaque digests minted by [`PkiEnvironment`]; an implementation stores and
+    /// compares them and must not attempt to interpret either as a certificate or derive one of its
+    /// own. The signed data is whatever was verified -- a TBSCertificate, a TBSCertList, an OCSP
+    /// tbsResponseData -- and the digest commits to the signature and signature algorithm alongside
+    /// it, so an entry means "this exact signature verified under this exact key".
+    fn is_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool;
 
-    /// Records a successful signature verification.
-    fn add_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]);
+    /// Records a successful signature verification. See [`SignatureVerificationCache::is_verified`]
+    /// for what the two digests mean.
+    fn add_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]);
 }
