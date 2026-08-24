@@ -25,4 +25,61 @@ pub mod uri_check;
 #[cfg(feature = "sha1_sig")]
 pub mod sha1_sig;
 
+/// Runs this build's entry point, for a caller that has an async runtime.
+///
+/// Choosing the entry point belongs here, not in the binary. The three `options_*` modules gate
+/// themselves on *this crate's* features, and a binary can only test its own; cargo unifies features
+/// across a workspace build, so the two can disagree. A binary built below `std`, linked against a
+/// `pittv3-lib` that a sibling crate pulled up to `std`, would otherwise reach for an entry point
+/// that is no longer compiled.
+#[cfg(feature = "std")]
+pub async fn run(args: &Pittv3Args) -> report::ValidationReport {
+    options_std::options_std(args).await
+}
+
+/// Runs this build's entry point, for a caller that has an async runtime.
+#[cfg(all(feature = "std_app", not(feature = "std")))]
+pub async fn run(args: &Pittv3Args) -> report::ValidationReport {
+    options_std_app::options_std_app(args);
+    report::ValidationReport::default()
+}
+
+/// Runs this build's entry point, for a caller that has an async runtime.
+#[cfg(not(feature = "std_app"))]
+pub async fn run(args: &Pittv3Args) -> report::ValidationReport {
+    options_no_std::options_no_std(args);
+    report::ValidationReport::default()
+}
+
+/// Runs this build's entry point from a synchronous caller.
+///
+/// The counterpart to [`run`] for a binary built without its own async runtime. Only the `std` arm
+/// needs one, and only reachable through feature unification -- see [`run`].
+#[cfg(feature = "std")]
+pub fn run_blocking(args: &Pittv3Args) -> report::ValidationReport {
+    match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(options_std::options_std(args)),
+        Err(e) => {
+            report::ValidationReport::failed(format!("failed to start an async runtime: {e}"))
+        }
+    }
+}
+
+/// Runs this build's entry point from a synchronous caller.
+#[cfg(all(feature = "std_app", not(feature = "std")))]
+pub fn run_blocking(args: &Pittv3Args) -> report::ValidationReport {
+    options_std_app::options_std_app(args);
+    report::ValidationReport::default()
+}
+
+/// Runs this build's entry point from a synchronous caller.
+#[cfg(not(feature = "std_app"))]
+pub fn run_blocking(args: &Pittv3Args) -> report::ValidationReport {
+    options_no_std::options_no_std(args);
+    report::ValidationReport::default()
+}
+
 pub use crate::args::Pittv3Args;
