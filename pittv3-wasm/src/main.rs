@@ -8,11 +8,11 @@ mod validate;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use web_time::{SystemTime, UNIX_EPOCH};
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use certval::{
-    CertificationPathSettings, PkiEnvironment, RevocationCache, TimeOfInterest,
-    CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
+    CertSource, CertificationPathSettings, PkiEnvironment, RevocationCache, TaSource,
+    TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
@@ -20,6 +20,7 @@ use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
+use pittv3_gui_lib::validate::certs_in;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
@@ -318,9 +319,37 @@ fn App() -> Element {
     // Transient status line for the settings-file load/save controls (cleared on next action)
     let mut settings_status = use_signal(String::new);
     let mut targets = use_signal(Vec::<TargetReport>::new);
+    // Wall clock for the run that produced `targets`. `from_targets` sums what the paths report,
+    // which is the validating alone -- with retrieval through the service that is a small fraction
+    // of what the user waited for. pittv3-service overrides it the same way (orchestrate.rs).
+    let mut run_ms = use_signal(|| 0u64);
+
     let mut notes = use_signal(Vec::<ResultLine>::new);
     let mut uploaded_tas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
+
+    // What an upload actually contributes, which is certificates and not files: since the 08-24
+    // fan-out one `.p7c` of cross-certificates carries several, and reporting the file count made
+    // the label read "1 trust anchor(s)" for six. Mirrors prepare_validation's dispatch so the
+    // number shown is the number that will be used.
+    let loaded_ta_count = use_memo(move || {
+        uploaded_tas()
+            .iter()
+            .map(|(_, bytes)| match TaSource::new_from_cbor(bytes) {
+                Ok(src) => src.get_tas().len(),
+                Err(_) => certs_in(bytes).map(|c| c.len()).unwrap_or(0),
+            })
+            .sum::<usize>()
+    });
+    let loaded_ca_count = use_memo(move || {
+        uploaded_cas()
+            .iter()
+            .map(|(_, bytes)| match CertSource::new_from_cbor(bytes) {
+                Ok(src) => src.get_buffers().len(),
+                Err(_) => certs_in(bytes).map(|c| c.len()).unwrap_or(0),
+            })
+            .sum::<usize>()
+    });
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     // Which of the two ways of naming an end entity certificate the form is offering. Not a
     // property of what gets loaded -- both sources feed the one list, and switching does not
@@ -640,7 +669,8 @@ fn App() -> Element {
     // downloads the accumulated results as a JSON-serialized ValidationReport via a synthesized
     // anchor click
     let save_results = move |_| {
-        let report = ValidationReport::from_targets(&targets.read(), effective_toi());
+        let mut report = ValidationReport::from_targets(&targets.read(), effective_toi());
+        report.duration_ms = run_ms();
         let json = serde_json::to_string_pretty(&report).unwrap_or_default();
         let uri = format!(
             "data:application/json;charset=utf-8,{}",
@@ -840,6 +870,7 @@ fn App() -> Element {
     // validates the loaded self-contained hackathon artifacts_certs_r5.zip archive(s); lives on its
     // own tab, so it is a separate action from certificate validation
     let validate_zips = move |_| {
+        let started = Instant::now();
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
@@ -849,6 +880,7 @@ fn App() -> Element {
             notes.write().extend(lines);
             targets.write().extend(reports);
         }
+        run_ms.set(started.elapsed().as_millis() as u64);
         view.set(RESULTS_VIEW);
     };
 
@@ -895,6 +927,7 @@ fn App() -> Element {
     };
 
     let validate_loaded = move || async move {
+        let started = Instant::now();
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
@@ -1107,6 +1140,7 @@ fn App() -> Element {
         drop(guard);
         notes.write().extend(lines);
         targets.write().extend(reports);
+        run_ms.set(started.elapsed().as_millis() as u64);
         validating.set(false);
         view.set(RESULTS_VIEW);
     };
@@ -1255,7 +1289,7 @@ fn App() -> Element {
                                     },
                                 }
                                 span { class: "hint",
-                                    "{uploaded_tas().len()} trust anchor(s), {uploaded_cas().len()} intermediate(s) loaded "
+                                    "{loaded_ta_count} trust anchor(s), {loaded_ca_count} intermediate(s) loaded "
                                     button {
                                         onclick: move |_| {
                                             uploaded_tas.write().clear();
@@ -1571,10 +1605,14 @@ fn App() -> Element {
                             }
                             if !targets.read().is_empty() {
                                 ResultsView {
-                                    report: ValidationReport::from_targets(
-                                        &targets.read(),
-                                        effective_toi(),
-                                    ),
+                                    report: {
+                                        let mut r = ValidationReport::from_targets(
+                                            &targets.read(),
+                                            effective_toi(),
+                                        );
+                                        r.duration_ms = run_ms();
+                                        r
+                                    },
                                 }
                             }
                             if !notes.read().is_empty() {

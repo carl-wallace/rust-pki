@@ -466,7 +466,11 @@ fn validate_target(
             let path = PathReport {
                 status: Some(*pvs),
                 error: Some(format!("{e:?}")),
+                // The target alone. Whether that lone certificate is an anchor is the environment's
+                // to answer -- a target that is itself a trust anchor looks exactly the same here --
+                // so ask rather than infer from the shape or the outcome.
                 certs: vec![target_summary.clone()],
+                no_anchor: pe.is_cert_a_trust_anchor(&target).is_err(),
                 failure_reasons: vec![reason],
                 ..Default::default()
             };

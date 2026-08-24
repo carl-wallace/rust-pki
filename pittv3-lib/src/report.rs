@@ -202,8 +202,19 @@ pub struct PathReport {
     /// Rendering of the error returned by path validation, absent when the path validated
     pub error: Option<String>,
     /// Certificates comprising the path in trust-anchor-first order, i.e., `certs[0]` is the trust
-    /// anchor and `certs[certs.len() - 1]` is the target certificate
+    /// anchor and `certs[certs.len() - 1]` is the target certificate. When `no_anchor` is set there
+    /// is no path and this holds the rejected target alone.
     pub certs: Vec<CertSummary>,
+    /// Set when `certs[0]` is not a trust anchor: the target was rejected during path building, so
+    /// no path — and therefore no anchor — exists.
+    ///
+    /// Only slot 0 can be an anchor, so only slot 0 is in question. It cannot be settled from the
+    /// shape, because a lone certificate is also how a target that *is* an anchor appears, nor from
+    /// the outcome, because that is a consequence rather than the fact. The producer asks
+    /// [`PkiEnvironment::is_cert_a_trust_anchor`] and records the answer; a reader that instead
+    /// assumed slot 0 is always an anchor labelled a rejected end entity as one.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub no_anchor: bool,
     /// Revocation status outcomes for the certificates in the path (empty when revocation checking
     /// was not performed)
     pub revocation: Vec<RevocationOutcome>,
@@ -266,6 +277,9 @@ impl PathReport {
             status,
             error: if path_failed { error_string } else { None },
             certs,
+            // A path was built, so it begins with the anchor it was built to: `certs` was assembled
+            // trust-anchor-first above.
+            no_anchor: false,
             revocation: revocation_outcomes_from_cpr(cpr, path.intermediates.len() + 1),
             failure_index,
             failure_reasons,
@@ -889,6 +903,7 @@ mod tests {
                 paths: vec![PathReport {
                     status: Some(PathValidationStatus::InvalidNotAfterDate),
                     error: Some("PathValidation(InvalidNotAfterDate)".to_string()),
+                    no_anchor: false,
                     certs: vec![
                         CertSummary {
                             subject: "CN=Root".to_string(),
