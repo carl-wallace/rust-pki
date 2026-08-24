@@ -24,16 +24,6 @@ use log4rs::encode::pattern::PatternEncoder;
 extern crate cfg_if;
 
 cfg_if! {
-    if #[cfg(feature = "std")] {
-        use pittv3_lib::options_std::*;
-    } else if #[cfg(feature = "std_app")] {
-        use pittv3_lib::options_std_app::*;
-    } else if #[cfg(not(feature = "std_app"))] {
-        use pittv3_lib::options_no_std::*;
-    }
-}
-
-cfg_if! {
     if #[cfg(feature = "std_app")] {
         /// Point of entry for PITTv3 application.
         #[tokio::main]
@@ -75,18 +65,13 @@ cfg_if! {
             }
             debug!("PITTv3 start");
 
-            // process options available under std, revocation,std and remote features
-            #[cfg(feature = "std")]
-            {
-                let report = options_std(&args).await;
-                if let Some(e) = &report.error {
-                    eprintln!("error: {e}");
-                    std::process::exit(1);
-                }
+            // Which entry point this resolves to is pittv3-lib's decision, not ours: its modules
+            // gate on its own features, which cargo may have unified above the ones we asked for.
+            let report = pittv3_lib::run(&args).await;
+            if let Some(e) = &report.error {
+                eprintln!("error: {e}");
+                std::process::exit(1);
             }
-
-            #[cfg(not(feature = "std"))]
-            options_std_app(&args);
 
             debug!("PITTv3 end");
         }
@@ -98,8 +83,8 @@ cfg_if! {
 
             debug!("PITTv3 start");
 
-            // process options available under no-default features and revocation feature
-            options_no_std(&args);
+            // See the note in the other main: pittv3-lib picks its own entry point.
+            let _report = pittv3_lib::run_blocking(&args);
 
             debug!("PITTv3 end");
         }

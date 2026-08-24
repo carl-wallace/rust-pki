@@ -126,6 +126,28 @@ jobs:
           targets: thumbv7em-none-eabihf
       - run: cargo build -p certval --no-default-features --target thumbv7em-none-eabihf
 
+  # The six build commands the module documentation gives, run exactly as documented: from the
+  # workspace root, without -p. That is the point of the job -- with -p they resolve features for
+  # pittv3 alone and cannot regress. Without it, cargo resolves across default-members, pittv3-gui
+  # asks pittv3-lib for `remote` (which implies `std`), and pittv3-lib comes up above whatever
+  # pittv3 itself asked for. Anything in the binary that decides by its own features what
+  # pittv3-lib contains desynchronizes there, which is how three of these six stopped compiling.
+  #
+  # Cheap despite naming the frontends: only the pittv3 bin target is built, so the dioxus tree is
+  # resolved into the graph and never compiled. That keeps this leg clear of the 1.88 MSRV and the
+  # Linux system packages the other jobs exclude those crates for, hence stable only.
+  documented-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --bin pittv3
+      - run: cargo build --bin pittv3 --no-default-features --features std
+      - run: cargo build --bin pittv3 --no-default-features --features revocation,std
+      - run: cargo build --bin pittv3 --no-default-features --features std_app
+      - run: cargo build --bin pittv3 --no-default-features --features revocation
+      - run: cargo build --bin pittv3 --no-default-features
+
   x509-limbo:
     runs-on: ubuntu-latest
     steps:

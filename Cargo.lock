@@ -5146,6 +5146,7 @@ dependencies = [
  "sha2 0.11.0",
  "spki",
  "tempfile",
+ "tokio",
  "tokio-test",
  "walkdir",
  "x509-cert",

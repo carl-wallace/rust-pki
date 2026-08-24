@@ -36,6 +36,10 @@ pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 certval = { path = "../certval", default-features = false}
 cms = { version = "0.3.0-pre.2", optional = true }
 reqwest = { version = "0.13.4", optional = true }
+# Only so `run_blocking` can drive the async `options_std` for a caller that has no runtime of its
+# own. Already present transitively under `remote` (via reqwest); named here so the `std`-without-
+# `remote` build has it too.
+tokio = { version = "1.52.3", default-features = false, features = ["rt"], optional = true }
 rsa = { version = "0.10.0-rc.18", optional = true, features = ["encoding"] }
 sha1 = {version = "0.11.0", default-features = false, features = ["oid"]}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
@@ -72,7 +76,7 @@ default = ["remote", "webpki"]
 # does -- including a browser, which reaches repositories through a relay rather than an HTTP client.
 revocation = ["certval/revocation", "dep:cms"]
 std_app = ["certval/revocation"]
-std = ["std_app", "certval/std", "revocation", "walkdir", "csv"]
+std = ["std_app", "certval/std", "revocation", "walkdir", "csv", "dep:tokio"]
 remote = ["certval/remote", "revocation", "std", "dep:reqwest"]
 pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]

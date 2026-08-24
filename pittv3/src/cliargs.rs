@@ -260,6 +260,7 @@ pub struct Pittv3CliArgs {
 
 impl From<Pittv3CliArgs> for Pittv3Args {
     fn from(v: Pittv3CliArgs) -> Self {
+        #[allow(clippy::needless_update)]
         Pittv3Args {
             #[cfg(feature = "std")]
             ta_folder: v.ta_folder,
@@ -331,6 +332,10 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             issuer: v.issuer,
             #[cfg(feature = "remote")]
             no_auto_discover: v.no_auto_discover,
+            // pittv3-lib's feature set is a superset of ours -- ours forward to it and cargo only
+            // ever adds -- so it can carry fields this initializer does not name. Let those default
+            // rather than tracking a shape we cannot see.
+            ..Default::default()
         }
     }
 }
