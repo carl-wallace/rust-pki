@@ -19,6 +19,7 @@ use const_oid::db::fips204::{ID_ML_DSA_44, ID_ML_DSA_65, ID_ML_DSA_87};
 // All twelve parameter sets: the `s`/`f` suffix (small signature vs fast signing) and the hash
 // family are the whole of what distinguishes them, so naming only some would be worse than naming
 // none -- a reader would not know whether an unnamed OID was a variant or a different algorithm.
+use cms::content_info::ContentInfo;
 use const_oid::db::fips205::{
     ID_SLH_DSA_SHAKE_128_F, ID_SLH_DSA_SHAKE_128_S, ID_SLH_DSA_SHAKE_192_F, ID_SLH_DSA_SHAKE_192_S,
     ID_SLH_DSA_SHAKE_256_F, ID_SLH_DSA_SHAKE_256_S, ID_SLH_DSA_SHA_2_128_F, ID_SLH_DSA_SHA_2_128_S,
@@ -1028,6 +1029,102 @@ pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(trim_to_outer_der_sequence(der))
 }
 
+/// Extensions for an input whose caller fans a file out into every certificate it holds.
+///
+/// Membership is a property of the *caller*, not of the format: a site belongs here once it loops
+/// over what [`decode_pem_to_ders`] returns, and moving a site between this and
+/// [`SINGLE_CERT_EXTENSIONS`] is then a one-line change. Offering `p7c` where the caller takes one
+/// certificate would advertise a file it will go on to reject.
+pub const CERT_BUNDLE_EXTENSIONS: &[&str] = &["der", "crt", "cer", "p7c", "p7b", "pem"];
+
+/// [`CERT_BUNDLE_EXTENSIONS`] plus `ta`, an RFC 5914 `TrustAnchorInfo` — how anchor constraints
+/// travel, and meaningful only where trust anchors are being read.
+pub const TA_BUNDLE_EXTENSIONS: &[&str] = &["der", "crt", "cer", "p7c", "p7b", "pem", "ta"];
+
+/// Extensions for an input that must resolve to exactly one certificate — a validation target, its
+/// issuer, an end entity. See [`CERT_BUNDLE_EXTENSIONS`] for why these are separate lists.
+pub const SINGLE_CERT_EXTENSIONS: &[&str] = &["der", "crt", "cer", "pem"];
+
+/// Returns the certificates carried by a degenerate certs-only PKCS#7 `SignedData`, or `None` when
+/// `bytes` are not one.
+///
+/// This is the shape DoD PKE publishes cross-certificate bundles in (`.p7c`) and the shape an SIA
+/// `caRepository` commonly serves. It is a container, not a certificate: a caller that only tries
+/// `Certificate::from_der` sees well-formed DER that is not a certificate and silently gets nothing,
+/// which is why the expansion belongs beside the PEM decoding rather than at each call site.
+///
+/// `None` rather than an empty vector distinguishes "not this format" from "this format, no
+/// certificates in it", so a caller can fall through to its own single-object handling.
+pub fn certs_from_signed_data(bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
+    let ci = ContentInfo::from_der(bytes).ok()?;
+    let content = ci.content.to_der().ok()?;
+    let sd = SignedDataDeferAll::from_der(content.as_slice()).ok()?;
+    Some(sd.certificates?.0)
+}
+
+/// A `CertificateSet` whose members are kept as the DER they arrived in.
+///
+/// Re-encoding is not merely wasted work here: a certificate that was not strict DER on the wire
+/// comes back out changed, and its signature then verifies against nothing. Capturing the bytes is
+/// the same reason [`DeferDecodeSigned`] exists for a single certificate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateSetDefer(pub Vec<Vec<u8>>);
+
+impl ::der::FixedTag for CertificateSetDefer {
+    const TAG: ::der::Tag = ::der::Tag::Sequence;
+}
+
+impl<'a> ::der::DecodeValue<'a> for CertificateSetDefer {
+    type Error = ::der::Error;
+
+    fn decode_value<R: ::der::Reader<'a>>(
+        reader: &mut R,
+        header: ::der::Header,
+    ) -> ::der::Result<Self> {
+        reader.read_nested(header.length(), |reader| {
+            let mut certs = Vec::new();
+            while !reader.is_finished() {
+                certs.push(reader.tlv_bytes()?.to_vec());
+            }
+            Ok(Self(certs))
+        })
+    }
+}
+
+impl ::der::EncodeValue for CertificateSetDefer {
+    fn value_len(&self) -> ::der::Result<::der::Length> {
+        let mut len = ::der::Length::ZERO;
+        for cert in &self.0 {
+            len = (len + ::der::Length::new(cert.len() as u32))?;
+        }
+        Ok(len)
+    }
+
+    fn encode_value(&self, writer: &mut impl ::der::Writer) -> ::der::Result<()> {
+        for cert in &self.0 {
+            writer.write(cert)?;
+        }
+        Ok(())
+    }
+}
+
+/// `SignedData` with every field but `certificates` left undecoded.
+///
+/// A certs-only message is a container whose other fields are vestigial -- `encapContentInfo` has
+/// absent content, `signerInfos` is empty -- and decoding them can only turn a bundle full of
+/// perfectly good certificates into a parse failure. Only what is being asked for is interpreted.
+#[derive(Clone, Debug, Eq, PartialEq, ::der::Sequence)]
+struct SignedDataDeferAll {
+    pub version: ::der::Any,
+    pub digest_algorithms: ::der::Any,
+    pub encap_content_info: ::der::Any,
+    #[asn1(context_specific = "0", tag_mode = "IMPLICIT", optional = "true")]
+    pub certificates: Option<CertificateSetDefer>,
+    #[asn1(context_specific = "1", tag_mode = "IMPLICIT", optional = "true")]
+    pub crls: Option<CertificateSetDefer>,
+    pub signer_infos: ::der::Any,
+}
+
 /// Decodes every object in a possibly multi-object PEM input, in file order, returning one DER buffer
 /// per object. A bare-DER input (no `-----BEGIN` marker) yields a single-element vector. Each PEM block
 /// is decoded through [`decode_pem_to_der`], so the same strict-then-lenient handling and outer-SEQUENCE
@@ -1038,8 +1135,12 @@ pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
 /// contract. Available in no_std.
 pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     let text = String::from_utf8_lossy(bytes);
-    // No PEM armor anywhere: defer to the single-object decoder (handles bare DER and passthrough).
+    // No PEM armor anywhere: a certs-only PKCS#7 container fans out into its certificates, and
+    // anything else defers to the single-object decoder (handles bare DER and passthrough).
     if !text.contains("-----BEGIN") {
+        if let Some(certs) = certs_from_signed_data(bytes) {
+            return Ok(certs);
+        }
         return Ok(alloc::vec![decode_pem_to_der(bytes)?]);
     }
 
@@ -1056,7 +1157,12 @@ pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
             block.push('\n');
             if line.contains("-----END") {
                 in_block = false;
-                ders.push(decode_pem_to_der(block.as_bytes())?);
+                let der = decode_pem_to_der(block.as_bytes())?;
+                // A block may itself be a certs-only container (`-----BEGIN PKCS7-----`).
+                match certs_from_signed_data(&der) {
+                    Some(certs) => ders.extend(certs),
+                    None => ders.push(der),
+                }
                 block.clear();
             }
         }
@@ -1145,6 +1251,42 @@ fn decode_pem_to_der_lenient_and_passthrough() {
         .join("\r\n");
     let odd_width = format!("-----BEGIN X-----\r\n{wrapped}\r\n-----END X-----\r\n");
     assert_eq!(decode_pem_to_der(odd_width.as_bytes()).unwrap(), der);
+}
+
+#[test]
+fn certs_only_pkcs7_fans_out_into_its_certificates() {
+    use x509_cert::Certificate;
+
+    // A real DoD PKE cross-certificate bundle: a container, not a certificate. Before this it
+    // reached the caller whole, parsed as neither, and contributed nothing.
+    let p7c = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
+    let ders = decode_pem_to_ders(p7c).unwrap();
+    assert_eq!(
+        6,
+        ders.len(),
+        "every certificate in the bundle, not just the first"
+    );
+    for der in &ders {
+        Certificate::from_der(der).expect("each buffer is a certificate in its own right");
+    }
+
+    // Not a container: unchanged, one buffer out.
+    let cert = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    assert_eq!(1, decode_pem_to_ders(cert).unwrap().len());
+
+    // The distinction certs_from_signed_data draws, which is what lets the caller fall through.
+    assert!(certs_from_signed_data(p7c).is_some());
+    assert!(certs_from_signed_data(cert).is_none());
+
+    // The property the deferred decode exists for: each certificate is the DER that was in the
+    // file, byte for byte, not a re-encoding of a parsed one. A re-encode of input that was not
+    // strict DER would still parse here while no longer verifying against its signature.
+    for der in &ders {
+        assert!(
+            p7c.windows(der.len()).any(|w| w == der.as_slice()),
+            "certificate DER appears verbatim in the container"
+        );
+    }
 }
 
 #[test]

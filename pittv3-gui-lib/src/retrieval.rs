@@ -31,8 +31,6 @@ use certval::{
 // response either.
 #[cfg(feature = "revocation")]
 use certval::build_ocsp_request;
-use cms::content_info::ContentInfo;
-use cms::signed_data::SignedData;
 use der::{Decode, Encode};
 use x509_cert::certificate::Raw;
 // Only the CertID comparison is generic over the profile, and that exists only with `revocation`.
@@ -42,31 +40,16 @@ use x509_cert::crl::CertificateList;
 #[cfg(feature = "revocation")]
 use x509_ocsp::{BasicOcspResponse, CertId, OcspRequest, OcspResponse, OcspResponseStatus};
 
-use crate::validate::{maybe_pem, PreparedValidation};
+use crate::validate::{certs_in, maybe_pem, PreparedValidation};
 
 /// Extracts the certificates from a retrieved body, which by convention is either a single
 /// DER-encoded certificate or a certs-only SignedData message, i.e., a `.p7c`. The message form is
 /// tried first because both begin with a SEQUENCE and only the message parses as one.
 pub fn certificates_in(body: &[u8]) -> Vec<Vec<u8>> {
-    if let Ok(ci) = ContentInfo::from_der(body) {
-        if let Ok(content) = ci.content.to_der() {
-            if let Ok(sd) = SignedData::from_der(content.as_slice()) {
-                let mut certs = vec![];
-                for set in sd.certificates.iter() {
-                    for choice in set.0.iter() {
-                        if let Ok(der) = choice.to_der() {
-                            certs.push(der);
-                        }
-                    }
-                }
-                return certs;
-            }
-        }
-    }
-    match body.first() {
-        Some(0x30) => vec![body.to_vec()],
-        _ => vec![],
-    }
+    // Shares the decoder with the trust-anchor and CA inputs rather than carrying its own. It also
+    // gains PEM as a side effect, which this had never handled: a repository serving a PEM
+    // certificate produced nothing here while the same bytes uploaded by hand worked.
+    certs_in(body).unwrap_or_default()
 }
 
 /// Collects the authority and subject information access URIs carried by `certs`, deduplicated and
