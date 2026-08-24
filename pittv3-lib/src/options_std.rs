@@ -774,6 +774,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     }
 
     let mut pe = PkiEnvironment::default();
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
     pe.populate_5280_pki_environment();
 
     #[cfg(feature = "sha1_sig")]
@@ -1113,6 +1114,24 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
 
             // Save the URI count before doing any validation, which will harvest new URIs
             uri_threshold = fresh_uris.len();
+        }
+
+        // Nothing arrived this pass, so there is nothing left for the loop to do. `threshold` is the
+        // size of the pool this pass started with, and a path is only returned to the caller when
+        // `above_threshold` finds an index at or above it, which no path can satisfy once the pool
+        // has stopped growing -- so this pass would find zero paths, rebuild the same graph and
+        // re-serialize it to the same bytes, and the next pass would do it again.
+        //
+        // The loop had no other way out of that. The fetch block above stops running once the URI
+        // set stops changing, and the `break` for a non-dynamic run lives inside it, so a dynamic
+        // run that has run out of URIs to chase skips the test that would have ended it and keeps
+        // going until the pass cap. Whether that shows up depends on whether some other exit fires
+        // first: a run that finds a definitive answer for every target leaves through the
+        // `all_definitive` break below, while `--validate-all`, or any run that never finds a path,
+        // stays in the loop for the full remaining passes.
+        if 0 < pass && cert_source.len() == threshold {
+            debug!("Nothing was added to the certificate pool on pass {pass}; stopping");
+            break;
         }
 
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing

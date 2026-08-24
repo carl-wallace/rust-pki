@@ -362,10 +362,29 @@ impl PkiEnvironment {
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
+        // The key commits to the signature and the algorithm as well as the signed bytes and the
+        // verifying key: an entry must mean "THIS signature verified", not "some signature over
+        // these bytes verified once", or a certificate whose signature is swapped for garbage
+        // would hit an entry left by its legitimate twin.
+        let cache_key = if self.has_signature_cache() {
+            signature_cache_key(message_to_verify, signature, signature_alg, spki)
+        } else {
+            None
+        };
+        if let Some((m, k)) = &cache_key {
+            if self.is_signature_verified(m, k) {
+                return Ok(());
+            }
+        }
         for f in &self.verify_signature_message_callbacks {
             match f.verify_signature_message(pe, message_to_verify, signature, signature_alg, spki)
             {
-                Ok(r) => return Ok(r),
+                Ok(r) => {
+                    if let Some((m, k)) = &cache_key {
+                        self.add_verified_signature(m, k);
+                    }
+                    return Ok(r);
+                }
                 Err(Error::Unrecognized) => continue,
                 Err(e) => return Err(e),
             }
@@ -698,8 +717,10 @@ impl PkiEnvironment {
     }
 
     /// add_signature_cache adds a [`SignatureVerificationCache`] object to the list. Adding one opts
-    /// the environment into memoizing successful certificate signature verifications; with none
-    /// added, signatures are verified on every path validation as usual.
+    /// the environment into caching every signature verification it performs successfully -- graph
+    /// building and path validation, and CRL and OCSP response signatures alike, since the cache sits
+    /// in [`PkiEnvironment::verify_signature_message`] rather than at any one caller. With none
+    /// added, every signature is verified afresh each time it is presented, as usual.
     pub fn add_signature_cache(&mut self, c: Box<dyn SignatureVerificationCache + Send + Sync>) {
         self.signature_cache.push(c);
     }
@@ -710,24 +731,36 @@ impl PkiEnvironment {
     }
 
     /// has_signature_cache returns true if at least one [`SignatureVerificationCache`] is configured.
-    /// Callers use this to avoid computing cache keys when memoization is not in use.
+    ///
+    /// This reports how the environment was set up, not that caching is doing anything: a configured
+    /// cache may have reached its capacity and be dropping new entries, or be an implementation that
+    /// never reports a hit.
+    /// Callers use this to avoid computing cache keys when caching is not in use.
     pub fn has_signature_cache(&self) -> bool {
         !self.signature_cache.is_empty()
     }
 
-    /// is_signature_verified returns true if any configured [`SignatureVerificationCache`] reports the
-    /// signature over `cert_hash` by the key identified by `issuer_spki_hash` as already verified.
-    pub fn is_signature_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
+    /// Returns true if any configured [`SignatureVerificationCache`] reports the signed data
+    /// identified by `signed_data_hash`, verified by the key identified by `issuer_spki_hash`, as
+    /// already verified.
+    ///
+    /// Private on purpose. Only [`PkiEnvironment::verify_signature_message`] creates cache keys, which
+    /// is what lets an entry carry a single unambiguous meaning: were callers able to insert keys of
+    /// their own devising, one that committed to less than this one does -- the signed bytes without
+    /// the signature, say -- would be indistinguishable from a sound entry on the way back out.
+    fn is_signature_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
         self.signature_cache
             .iter()
-            .any(|c| c.is_verified(cert_hash, issuer_spki_hash))
+            .any(|c| c.is_verified(signed_data_hash, issuer_spki_hash))
     }
 
-    /// add_verified_signature records a successful signature verification in each configured
+    /// Records a successful signature verification in each configured
     /// [`SignatureVerificationCache`]. It is a no-op when no cache has been added.
-    pub fn add_verified_signature(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) {
+    ///
+    /// Private for the reason given on [`PkiEnvironment::is_signature_verified`].
+    fn add_verified_signature(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) {
         for c in &self.signature_cache {
-            c.add_verified(cert_hash, issuer_spki_hash);
+            c.add_verified(signed_data_hash, issuer_spki_hash);
         }
     }
 
@@ -887,15 +920,35 @@ impl PkiEnvironment {
 
 /// Computes the hash used to key a [`SignatureVerificationCache`] entry from a certificate DER or an
 /// issuer subject-public-key-info DER. SHA-256 uniquely identifies the input for this purpose.
-pub(crate) fn signature_cache_hash(bytes: &[u8]) -> Vec<u8> {
+fn signature_cache_key(
+    message_to_verify: &[u8],
+    signature: &[u8],
+    signature_alg: &AlgorithmIdentifierOwned,
+    spki: &SubjectPublicKeyInfoOwned,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let alg_der = der::Encode::to_der(signature_alg).ok()?;
+    let spki_der = der::Encode::to_der(spki).ok()?;
+    let mut buf = Vec::with_capacity(message_to_verify.len() + signature.len() + alg_der.len());
+    buf.extend_from_slice(message_to_verify);
+    buf.extend_from_slice(signature);
+    buf.extend_from_slice(&alg_der);
+    Some((signature_cache_hash(&buf), signature_cache_hash(&spki_der)))
+}
+
+fn signature_cache_hash(bytes: &[u8]) -> Vec<u8> {
     use sha2::{Digest, Sha256};
     Sha256::digest(bytes).to_vec()
 }
 
 /// A bounded, thread-safe [`SignatureVerificationCache`] backed by an in-memory set. Recording stops
-/// once the cap is reached so a long-lived environment that validates many distinct certificates
-/// cannot grow it without bound; the graph builder records certificate-authority edges first, so the
-/// frequently reused entries are retained.
+/// once the cap is reached so a long-lived environment that validates many distinct signatures cannot
+/// grow it without bound.
+///
+/// Every successful verification the environment performs is recorded, including one-shot checks --
+/// a self-signature test during ingest, an end-entity signature -- that will never be asked for
+/// again. Which entries survive the cap is therefore whichever the run happened to reach first, not
+/// the ones with the most reuse. For an estate large enough to reach the cap, prefer a cache of your
+/// own with an eviction policy that suits it.
 #[cfg(feature = "std")]
 pub struct DefaultSignatureVerificationCache {
     verified: std::sync::RwLock<alloc::collections::BTreeSet<(Vec<u8>, Vec<u8>)>>,
@@ -930,17 +983,17 @@ impl Default for DefaultSignatureVerificationCache {
 
 #[cfg(feature = "std")]
 impl SignatureVerificationCache for DefaultSignatureVerificationCache {
-    fn is_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
+    fn is_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
         match self.verified.read() {
-            Ok(set) => set.contains(&(cert_hash.to_vec(), issuer_spki_hash.to_vec())),
+            Ok(set) => set.contains(&(signed_data_hash.to_vec(), issuer_spki_hash.to_vec())),
             Err(_) => false,
         }
     }
 
-    fn add_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) {
+    fn add_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) {
         if let Ok(mut set) = self.verified.write() {
             if set.len() < self.cap {
-                set.insert((cert_hash.to_vec(), issuer_spki_hash.to_vec()));
+                set.insert((signed_data_hash.to_vec(), issuer_spki_hash.to_vec()));
             }
         }
     }
@@ -950,12 +1003,12 @@ impl SignatureVerificationCache for DefaultSignatureVerificationCache {
 /// inspect it) while also handing it to a [`PkiEnvironment`] via `add_signature_cache`.
 #[cfg(feature = "std")]
 impl<T: SignatureVerificationCache + ?Sized> SignatureVerificationCache for alloc::sync::Arc<T> {
-    fn is_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
-        (**self).is_verified(cert_hash, issuer_spki_hash)
+    fn is_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
+        (**self).is_verified(signed_data_hash, issuer_spki_hash)
     }
 
-    fn add_verified(&self, cert_hash: &[u8], issuer_spki_hash: &[u8]) {
-        (**self).add_verified(cert_hash, issuer_spki_hash)
+    fn add_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) {
+        (**self).add_verified(signed_data_hash, issuer_spki_hash)
     }
 }
 

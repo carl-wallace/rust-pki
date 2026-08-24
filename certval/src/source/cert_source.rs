@@ -42,7 +42,7 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_NAME_CONSTRAINTS,
     ID_CE_SUBJECT_ALT_NAME, ID_CE_SUBJECT_KEY_IDENTIFIER,
 };
-use der::{Decode, Encode};
+use der::Decode;
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::certificate::CertificateInner;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -50,7 +50,6 @@ use x509_cert::name::Name;
 
 use crate::{
     compare_names,
-    environment::pki_environment::signature_cache_hash,
     environment::pki_environment_traits::*,
     general_subtree_to_string, get_leaf_rdn,
     pdv_certificate::*,
@@ -1302,16 +1301,6 @@ impl CertSource {
                                         spki,
                                     );
                                     if let Ok(_r) = r {
-                                        // Cache this trust-anchor-to-CA signature so path
-                                        // validation need not re-verify it (skipped without a cache).
-                                        if pe.has_signature_cache() {
-                                            if let Ok(spki_der) = spki.to_der() {
-                                                pe.add_verified_signature(
-                                                    &signature_cache_hash(cur_cert.as_bytes()),
-                                                    &signature_cache_hash(&spki_der),
-                                                );
-                                            }
-                                        }
                                         let new_path = vec![cur_cert_index];
                                         if new_additions.contains_key(&cur_cert_hex_skid) {
                                             if !new_additions[&cur_cert_hex_skid]
@@ -1375,21 +1364,6 @@ impl CertSource {
                                                 .subject_public_key_info(),
                                         );
                                         if let Ok(_r) = r {
-                                            // Cache this CA-to-CA signature so path validation need
-                                            // not re-verify it (skipped without a cache).
-                                            if pe.has_signature_cache() {
-                                                if let Ok(spki_der) = prospective_ca_cert
-                                                    .as_ref()
-                                                    .tbs_certificate()
-                                                    .subject_public_key_info()
-                                                    .to_der()
-                                                {
-                                                    pe.add_verified_signature(
-                                                        &signature_cache_hash(cur_cert.as_bytes()),
-                                                        &signature_cache_hash(&spki_der),
-                                                    );
-                                                }
-                                            }
                                             if !self.pub_key_in_path(cur_cert, prospective_path) {
                                                 let mut new_path = prospective_path.clone();
                                                 new_path.push(cur_cert_index);
@@ -1824,16 +1798,17 @@ fn get_certificates_test() {
 }
 
 // Building the partial-path graph records the trust-anchor-to-CA signature it verifies into a
-// configured signature cache, so path validation can later skip re-verifying it. The cache is added
-// through a retained Arc handle so the recorded edge can be inspected afterward.
+// configured signature cache, so path validation can later skip re-verifying it.
+//
+// The cache key is the environment's own business -- nothing outside `PkiEnvironment` can mint one --
+// so this asserts the observable consequence instead of the key bytes: with every verification
+// callback removed, no signature can be verified afresh, and the same edge still coming back Ok can
+// only mean it was served from the cache.
 #[cfg(all(feature = "std", feature = "rsa"))]
 #[test]
 fn build_records_verified_signatures() {
-    use crate::environment::pki_environment::{
-        signature_cache_hash, DefaultSignatureVerificationCache,
-    };
+    use crate::environment::pki_environment::DefaultSignatureVerificationCache;
     use crate::PDVTrustAnchorChoice;
-    use alloc::sync::Arc;
 
     let ta_der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
     let ca_der =
@@ -1849,10 +1824,7 @@ fn build_records_verified_signatures() {
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source));
-
-    // Keep a shared handle to the cache so it can be inspected after the build.
-    let cache = Arc::new(DefaultSignatureVerificationCache::new());
-    pe.add_signature_cache(Box::new(cache.clone()));
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
 
     let cps = CertificationPathSettings::new();
     let mut cert_source = CertSource::new();
@@ -1863,15 +1835,38 @@ fn build_records_verified_signatures() {
     cert_source.initialize(&cps).unwrap();
     cert_source.find_all_partial_paths(&pe, &cps);
 
-    // The build verified the trust-anchor-to-CA signature, so the cache holds that edge keyed by the
-    // CA certificate hash and the trust anchor's subject-public-key-info hash.
     let ta = PDVTrustAnchorChoice::try_from(ta_der.as_slice()).unwrap();
     let ta_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
-    let cert_hash = signature_cache_hash(ca_der);
-    let spki_hash = signature_cache_hash(&ta_spki.to_der().unwrap());
+    let defer_ca = DeferDecodeSigned::from_der(ca_der.as_slice()).unwrap();
+
+    // Negative control: the same environment minus both the callbacks and the cache cannot verify
+    // anything, which is what makes the assertion below non-vacuous.
+    let mut bare = PkiEnvironment::new();
+    bare.populate_5280_pki_environment();
+    bare.clear_verify_signature_message_callbacks();
     assert!(
-        cache.is_verified(&cert_hash, &spki_hash),
-        "graph build should record the trust-anchor-to-CA signature"
+        bare.verify_signature_message(
+            &bare,
+            &defer_ca.tbs_field,
+            defer_ca.signature.raw_bytes(),
+            &defer_ca.signature_algorithm,
+            ta_spki,
+        )
+        .is_err(),
+        "control: with no callbacks and no cache, nothing can verify"
+    );
+
+    pe.clear_verify_signature_message_callbacks();
+    assert!(
+        pe.verify_signature_message(
+            &pe,
+            &defer_ca.tbs_field,
+            defer_ca.signature.raw_bytes(),
+            &defer_ca.signature_algorithm,
+            ta_spki,
+        )
+        .is_ok(),
+        "graph build should have recorded the trust-anchor-to-CA signature"
     );
 }
 
