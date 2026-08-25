@@ -38,8 +38,8 @@ base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 # opens a WebSocket to /_dioxus on the origin serving the page and reconnects on failure. Only the
 # dioxus CLI answers that path; trunk, which builds and serves this crate, rewrites unknown paths to
 # index.html, so the handshake gets a 200 instead of a 101 and the retry loop floods the console with
-# errors that hide the app's own output. Keep logger -- it installs the console bridge that carries
-# the log crate's output to the browser.
+# errors that hide the app's own output. Keep logger -- it installs the tracing subscriber the app
+# logs through, and which `log_capture` forwards the log crate's records into.
 dioxus = { version = "0.7.9", default-features = false, features = ["web", "launch", "logger", "lib"] }
 log = "0.4.33"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
