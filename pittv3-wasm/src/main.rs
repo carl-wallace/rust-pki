@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 #![warn(rust_2018_idioms)]
 
+mod log_capture;
 mod relay;
 mod validate;
 
@@ -219,6 +220,17 @@ fn run_settings(
 }
 
 fn main() {
+    // Install the tracing subscriber before dioxus would. `initialize_default` returns early once a
+    // dispatcher is set, so this wins rather than races -- and it has to, because that default picks
+    // INFO whenever `debug_assertions` is off, which is every release build. The console would then
+    // drop forwarded `debug` records no matter what the log-detail control said, and the two filters
+    // would disagree. At TRACE the subscriber gates nothing and `log::set_max_level` is the single
+    // control, which is what the UI offers.
+    _ = dioxus::logger::init(dioxus::logger::tracing::Level::TRACE);
+    // Before launch: preparation and the store fetches happen as the app comes up, and their `log`
+    // output is exactly what a report about a failed run needs to carry. Info by default -- Debug is
+    // every URI and every revocation attempt, which buries what is usually being looked for.
+    log_capture::install(log::LevelFilter::Info);
     dioxus::launch(App);
 }
 
@@ -323,6 +335,16 @@ fn App() -> Element {
     // which is the validating alone -- with retrieval through the service that is a small fraction
     // of what the user waited for. pittv3-service overrides it the same way (orchestrate.rs).
     let mut run_ms = use_signal(|| 0u64);
+
+    // The log buffer lives outside dioxus's reactivity, so nothing re-renders when a run fills it.
+    // This tick is bumped where the buffer changes, which is what makes the line count on the button
+    // current rather than whatever it was when the view was last built for another reason.
+    let mut log_tick = use_signal(|| 0usize);
+    let mut log_level = use_signal(|| "info".to_string());
+    let log_lines = use_memo(move || {
+        log_tick();
+        log_capture::len()
+    });
 
     let mut notes = use_signal(Vec::<ResultLine>::new);
     let mut uploaded_tas = use_signal(Vec::<(String, Vec<u8>)>::new);
@@ -683,6 +705,17 @@ fn App() -> Element {
         let _ = dioxus::document::eval(&js);
     };
 
+    // downloads whatever the validation stack has said so far, as text
+    let save_log = move |_| {
+        let text = log_capture::contents();
+        let uri = format!("data:text/plain;charset=utf-8,{}", percent_encode(&text));
+        let js = format!(
+            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"pittv3-log-{}.txt\"; a.click();",
+            now_as_unix_epoch()
+        );
+        let _ = dioxus::document::eval(&js);
+    };
+
     // Builds the per-path export entries once for whichever export was asked for, so the archive and
     // the log describe the same paths in the same order.
     let build_entries = move || -> Vec<Vec<(String, Vec<u8>)>> {
@@ -881,6 +914,7 @@ fn App() -> Element {
             targets.write().extend(reports);
         }
         run_ms.set(started.elapsed().as_millis() as u64);
+        log_tick += 1;
         view.set(RESULTS_VIEW);
     };
 
@@ -1141,6 +1175,7 @@ fn App() -> Element {
         notes.write().extend(lines);
         targets.write().extend(reports);
         run_ms.set(started.elapsed().as_millis() as u64);
+        log_tick += 1;
         validating.set(false);
         view.set(RESULTS_VIEW);
     };
@@ -1535,6 +1570,34 @@ fn App() -> Element {
                             }
                         }
                         fieldset {
+                            legend { "Logging" }
+                            div { class: "controls",
+                                label { r#for: "log-level", "Log detail: " }
+                                select {
+                                    id: "log-level",
+                                    onchange: move |ev| {
+                                        let level = match ev.value().as_str() {
+                                            "off" => log::LevelFilter::Off,
+                                            "debug" => log::LevelFilter::Debug,
+                                            _ => log::LevelFilter::Info,
+                                        };
+                                        log_capture::set_level(level);
+                                        log_level.set(ev.value());
+                                    },
+                                    option { value: "info", selected: log_level() == "info", "info" }
+                                    option { value: "debug", selected: log_level() == "debug", "debug" }
+                                    option { value: "off", selected: log_level() == "off", "off" }
+                                }
+                                span { class: "hint",
+                                    "What the validation stack records, and what \"Save log\" on the \
+                                     Results view then hands over. Applies to runs made from here on, \
+                                     not to one already finished. Debug adds every URI fetched and \
+                                     every revocation determination attempted, which is a great deal \
+                                     of output on a run over many certificates."
+                                }
+                            }
+                        }
+                        fieldset {
                             legend { "Settings file" }
                             div { class: "controls",
                                 label { "Save settings: " }
@@ -1568,6 +1631,19 @@ fn App() -> Element {
                                         onclick: save_results,
                                         title: "Download the structured report as JSON",
                                         "Save report"
+                                    }
+                                    button {
+                                        onclick: save_log,
+                                        title: "Download what the validation stack logged, as text",
+                                        "Save log ({log_lines} line(s))"
+                                    }
+                                    button {
+                                        onclick: move |_| {
+                                            log_capture::clear();
+                                            log_tick += 1;
+                                        },
+                                        title: "Discard what has been logged so far",
+                                        "Clear log"
                                     }
                                     button {
                                         disabled: retained_paths.read().is_empty(),
