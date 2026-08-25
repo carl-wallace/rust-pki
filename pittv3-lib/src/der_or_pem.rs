@@ -7,10 +7,15 @@
 //! same encoding later stopped the URI checker before it began. Two bugs, one cause, in code that
 //! had each grown its own parse.
 //!
+//! The same shape recurred on 2026-08-25 one layer in: the container expansion below was itself a
+//! DER-only parse, so a PEM-armored `.p7b` — how DoD PKE publishes its CA bundle — got past it,
+//! decoded to a well-formed SignedData, and was taken for a certificate. Forty-nine certificates
+//! arrived as one unusable object and nothing said so.
+//!
 //! So the rule is: decode here, once, at every boundary where caller bytes arrive — and never let a
-//! DER-only parse be the first thing a file meets.
+//! DER-only parse be the first thing a file meets, the expansion of a container included.
 
-use certval::{certs_from_signed_data, Error, Result};
+use certval::{certs_from_signed_data, decode_pem_to_ders, Error, Result};
 
 // Re-exported so a caller has one place for both halves of "what is a certificate file": which
 // extensions to offer, and how to decode what arrives. pittv3-gui does not depend on certval.
@@ -36,16 +41,40 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
 ///
 /// [`maybe_pem`] answers "what encoding is this one object in"; this answers "what certificates are
 /// in this file", which is the question a trust-anchor or CA input actually asks. The two differ for
-/// exactly the containers that hold more than one certificate: a certs-only PKCS#7 message (`.p7c`,
-/// how DoD PKE publishes cross-certificate bundles) and a concatenated PEM bundle. Passing either to
-/// `maybe_pem` yields well-formed DER that is not a certificate, or only the first of several, and
-/// both fail quietly downstream.
+/// exactly the containers that hold more than one certificate: a certs-only PKCS#7 message (`.p7c`
+/// or `.p7b`, how DoD PKE publishes cross-certificate and CA bundles) and a concatenated PEM
+/// bundle. Passing either to `maybe_pem` yields well-formed DER that is not a certificate, or only
+/// the first of several, and both fail quietly downstream.
+///
+/// Either container may itself arrive PEM-armored, and a `.p7b` is a certs-only PKCS#7 message
+/// whichever of the two encodings it is written in — but only the DER spelling survives a container
+/// parse applied to the bytes as they arrived. So the armored case is handed to
+/// [`decode_pem_to_ders`], which is what the CLI's folder loader already reads bundles with: it
+/// takes each block in turn and expands a block that is itself a certs-only message. Deferring to it
+/// rather than decoding here keeps one implementation of "what objects are in this file"; it is also
+/// the more forgiving decoder, which matters because some DoD and FPKI tools wrap base64 at a width
+/// strict RFC 7468 rejects.
 pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     if let Some(certs) = certs_from_signed_data(bytes) {
         return Ok(certs);
     }
-    Ok(vec![maybe_pem(bytes)?])
+    // Bare DER is one object, already in the encoding the caller wants. Same leading tags as
+    // maybe_pem, for the same reason.
+    if matches!(bytes.first(), Some(0x30 | 0xA1 | 0xA2)) {
+        return Ok(vec![bytes.to_vec()]);
+    }
+    // Guarded on the armor rather than left to decode_pem_to_ders, which passes unarmored bytes
+    // through as a single object: bytes that are neither DER nor PEM have to stay an error here, or
+    // an unreadable upload becomes a certificate-shaped nothing that fails quietly later instead.
+    if !bytes.windows(ARMOR.len()).any(|w| w == ARMOR) {
+        return Err(Error::Unrecognized);
+    }
+    decode_pem_to_ders(bytes)
 }
+
+/// The pre-encapsulation boundary, matched as the same prefix [`decode_pem_to_ders`] looks for so
+/// the two cannot disagree about whether a buffer is armored.
+const ARMOR: &[u8] = b"-----BEGIN";
 
 #[cfg(test)]
 mod tests {
@@ -90,6 +119,88 @@ mod tests {
             vec![der],
             certs_in(&pem).unwrap(),
             "and so is its PEM encoding"
+        );
+    }
+
+    /// The 2026-08-25 bug: DoD PKE ships its CA bundle in both spellings, and only the DER one
+    /// expanded. The PEM one decoded to the container itself and passed for a single certificate,
+    /// so an upload of forty-nine anchors contributed one unusable object and reported no error.
+    /// The two spellings of one bundle must reduce to the same certificates.
+    #[test]
+    fn a_pem_armored_pkcs7_expands_like_its_der_spelling() {
+        let der = include_bytes!("../../certval/tests/examples/caCertsIssuedTofbcag4.p7c");
+        let pem = pem_rfc7468::encode_string("PKCS7", pem_rfc7468::LineEnding::LF, der).unwrap();
+
+        let from_der = certs_in(der).unwrap();
+        assert_eq!(6, from_der.len());
+        assert_eq!(
+            from_der,
+            certs_in(pem.as_bytes()).unwrap(),
+            "the armor is an encoding of the container, not a certificate"
+        );
+        assert_eq!(
+            maybe_pem(pem.as_bytes()).unwrap(),
+            der.to_vec(),
+            "maybe_pem still hands back the container, which is what certs_in must not do"
+        );
+    }
+
+    /// A concatenated PEM bundle — how DoD PKE publishes a CA chain — is several documents in one
+    /// file. The single-document decoder `maybe_pem` reaches for reads one and rejects the trailing
+    /// data, so the whole file was refused rather than yielding the certificates it plainly holds.
+    /// The preamble is part of the case: such files are published with it.
+    #[test]
+    fn a_concatenated_pem_bundle_yields_every_certificate() {
+        let ta = include_bytes!("../../certval/tests/examples/amazon.com/0-ta.der").to_vec();
+        let ca = include_bytes!("../../certval/tests/examples/amazon.com/1.der").to_vec();
+        let ee = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+
+        let armor = |der: &[u8]| {
+            pem_rfc7468::encode_string("CERTIFICATE", pem_rfc7468::LineEnding::LF, der).unwrap()
+        };
+        // Interleaved with the commentary such files are published with, which the decoder has to
+        // step over rather than choke on.
+        let bundle = format!(
+            "subject=Amazon Root CA 1\n{}\nsubject=Amazon RSA 2048 M01\n{}\n{}",
+            armor(&ta),
+            armor(&ca),
+            armor(&ee)
+        );
+
+        assert_eq!(vec![ta, ca, ee], certs_in(bundle.as_bytes()).unwrap());
+    }
+
+    /// A bundle may mix the two: an armored container beside a bare certificate. Each block is
+    /// expanded on its own, so the result is every certificate in the file and not a count of
+    /// blocks.
+    #[test]
+    fn blocks_are_expanded_individually_not_counted() {
+        let ee = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let p7c = include_bytes!("../../certval/tests/examples/caCertsIssuedTofbcag4.p7c");
+
+        let mixed = format!(
+            "{}{}",
+            pem_rfc7468::encode_string("PKCS7", pem_rfc7468::LineEnding::LF, p7c).unwrap(),
+            pem_rfc7468::encode_string("CERTIFICATE", pem_rfc7468::LineEnding::LF, &ee).unwrap()
+        );
+
+        let certs = certs_in(mixed.as_bytes()).unwrap();
+        assert_eq!(7, certs.len(), "six from the container plus the bare one");
+        assert_eq!(ee, certs[6]);
+    }
+
+    /// The multi-object decoder passes unarmored bytes through as a single object, which for an
+    /// upload would turn an unreadable file into one certificate-shaped entry that fails silently
+    /// somewhere else. `certs_in` has to refuse it here, where the caller still has a name to put
+    /// in the message.
+    #[test]
+    fn an_unreadable_upload_is_an_error_not_an_object() {
+        assert!(certs_in(b"").is_err());
+        assert!(certs_in(b"not a certificate in any encoding").is_err());
+        assert!(
+            certs_in(b"-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----")
+                .is_err(),
+            "armor alone does not make a file readable"
         );
     }
 
