@@ -104,6 +104,18 @@ pub struct Pittv3Args {
     #[cfg(feature = "std")]
     pub cbor_ta_store: bool,
 
+    /// Include the folder downloaded intermediates are written to among the CA certificates a run
+    /// builds paths from, so certificates fetched by earlier runs are reused rather than fetched
+    /// again.
+    ///
+    /// The folder is the one dynamic building writes to: `download_folder` if given, otherwise
+    /// `ca_folder`, either of which may come from the settings file. Naming that folder in
+    /// `ca_inputs` does the same thing; this exists because the folder is configured elsewhere, so
+    /// a pool entry naming it goes stale the moment it is reconfigured.
+    #[cfg(feature = "remote")]
+    #[serde(default)]
+    pub use_downloaded_cas: bool,
+
     /// Flag that indicates all available certification paths should be validated for each target.
     #[cfg(feature = "std_app")]
     pub validate_all: bool,

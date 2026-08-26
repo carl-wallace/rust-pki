@@ -53,6 +53,15 @@ legend {
   align-items: center;
 }
 
+/* A hint long enough to wrap makes its grid row taller than the control it explains. Centering then
+   floats the control against a block of text, putting the first line of the explanation above the
+   thing it explains. Aligning to the top lines the control up with that first line instead. Rows
+   whose contents are a single line are unaffected: their items already fill the row. */
+.controls > .label-cell,
+.controls > .field {
+  align-self: start;
+}
+
 /* The label column, right-aligned so each label sits against the field it names. */
 .controls > .label-cell {
   grid-column: 1;

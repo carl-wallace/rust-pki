@@ -1392,6 +1392,59 @@ fn null_permitted_bucket_gates_only_its_own_name_form() {
     );
 }
 
+// A mailbox-form rfc822 constraint compares local parts exactly (RFC 5280 7.5: local-part an exact
+// match, host-part case-insensitive), and the same comparison serves both subtree directions. That
+// makes exact matching protective in one direction and permissive in the other, for one pair of
+// inputs:
+//
+//   permitted Admin@example.test, certificate admin@example.test -> rejected (narrower than a
+//   case-folding implementation, so the error falls closed)
+//   excluded  Admin@example.test, certificate admin@example.test -> accepted (wider, so the error
+//   falls open, and a CA barred from a mailbox may still issue it in another case)
+//
+// Both verdicts are what 7.5 specifies and neither is a defect; the point of pinning them together
+// is that the exclusion direction is the surprising one, and anything that would change it -- e.g.
+// case-folding local parts when testing exclusions, as OpenSSL's ia5ncasecmp does throughout --
+// should be a decision someone states rather than a drift. subject_within_excluded_subtrees applies
+// the identical comparison to a PKCS#9 emailAddress in the subject DN.
+#[cfg(feature = "std")]
+#[test]
+fn rfc822_local_part_case_sensitivity_test() {
+    let mailbox_constraint = |addr: &str| GeneralSubtree {
+        base: GeneralName::Rfc822Name(Ia5String::new(addr).unwrap()),
+        minimum: 0,
+        maximum: None,
+    };
+    let san =
+        |addr: &str| SubjectAltName(vec![GeneralName::Rfc822Name(Ia5String::new(addr).unwrap())]);
+
+    let constrained = NameConstraintsSet {
+        rfc822_name: vec![mailbox_constraint("Admin@example.test")],
+        ..Default::default()
+    };
+
+    // Control: the constraint is operative, so the address it names matches in both directions.
+    // Without this the assertions below would also pass against a set that constrains nothing.
+    assert!(constrained.san_within_permitted_subtrees(&Some(&san("Admin@example.test"))));
+    assert!(constrained.san_within_excluded_subtrees(&Some(&san("Admin@example.test"))));
+
+    // The host part still folds, in both directions -- it is only the local part that is exact.
+    assert!(constrained.san_within_permitted_subtrees(&Some(&san("Admin@EXAMPLE.TEST"))));
+    assert!(constrained.san_within_excluded_subtrees(&Some(&san("Admin@EXAMPLE.TEST"))));
+
+    // The local part is exact, so a case-varied address is outside the constrained namespace --
+    // which denies it when the namespace is permitted, and admits it when the namespace is excluded.
+    assert!(
+        !constrained.san_within_permitted_subtrees(&Some(&san("admin@example.test"))),
+        "a case-varied local part is not within a permitted mailbox subtree"
+    );
+    assert!(
+        !constrained.san_within_excluded_subtrees(&Some(&san("admin@example.test"))),
+        "a case-varied local part is not within an excluded mailbox subtree either, so it is \
+         admitted -- the permissive half of exact local-part matching"
+    );
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn intersection_tests() {
