@@ -38,19 +38,24 @@ legend {
   padding: 0 0.4rem;
 }
 
-table {
-  border: none;
-  border-collapse: collapse;
-  width: 100%;
+/* ---- form layout ----
+
+   A row is a two-column grid rather than a table row: a label column that hugs the longest label,
+   and a field column that takes everything left. The table this replaced fixed the label column at
+   230px, which on a narrow window left the field column too little to work with and pushed the
+   trailing buttons past the edge of the form -- "Export..." and "Add..." were being clipped. A grid
+   gives the label exactly what it needs and the field the remainder, at any width. */
+
+.controls {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
 }
 
-td {
-  padding: 0.15rem 0.25rem;
-}
-
-/* fixed-width label column so fields align across fieldsets */
-td:first-child {
-  width: 230px;
+/* The label column, right-aligned so each label sits against the field it names. */
+.controls > .label-cell {
+  grid-column: 1;
   text-align: right;
   white-space: nowrap;
 }
@@ -60,56 +65,93 @@ label {
 }
 
 input[type="text"] {
-  width: 100%;
   box-sizing: border-box;
 }
 
-/* Input column absorbs the remaining row width; the aux/button column hugs its content, so fields
-   fill the fieldset instead of leaving dead space to the right. */
-td.grow {
-  width: 100%;
-}
-td.nowrap {
-  width: 1%;
-  white-space: nowrap;
+/* The field column: the control together with whatever buttons act on it, on one line while they
+   fit and wrapping as a unit when they do not.
+
+   min-width: 0 is what keeps those buttons on screen. A flex item will not shrink below its
+   min-content width by default, so without this the text input refuses to give ground and the
+   buttons beside it are pushed out of the form -- the clipping this layout replaced. */
+.controls > .field {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
-/* Checkbox cell: label + box together, left-aligned and content-width (overrides the 230px
-   right-aligned first-column rule when a checkbox row leads a table). A trailing td.grow in the
-   row soaks up the slack so the groups hug the left instead of spreading across the width. */
-td.check {
-  width: 1%;
-  white-space: nowrap;
-  text-align: left;
-  padding-right: 1.25rem;
+.controls > .field input[type="text"] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.controls > .field button {
+  flex: 0 0 auto;
+}
+
+/* A hint explains the row above it, so it takes the field column and a line of its own. Putting it
+   beside the control is what turned the TLS-server explanation into a seven-line tower squeezed
+   between a fixed label column and a button. */
+.controls > .hint {
+  grid-column: 2;
+  margin-top: -0.15rem;
+}
+
+.hint {
+  color: var(--muted);
+}
+
+/* A checkbox labels itself: the box and its text travel together at the start of the field column
+   instead of being stretched across it. */
+.controls > .field.check {
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+}
+
+/* Checkboxes that qualify each other share one row rather than each claiming a label column. */
+.controls > .field.check-group {
+  gap: 1.25rem;
 }
 
 input[type="checkbox"] {
   vertical-align: middle;
 }
 
-.hint {
+/* What a pool holds, beside the buttons that fill and empty it. Muted, because it reports a state
+   rather than labeling a control, and the paths themselves are its tooltip. */
+.pool-count {
   color: var(--muted);
-  padding-left: 0.5rem;
+  margin-left: 0.25rem;
+  white-space: nowrap;
 }
 
-/* Heading for a run of rows within a fieldset, for the cases where the rows share a condition the
-   fields cannot each restate. Legend vocabulary at a smaller weight, so it reads as subordinate to
-   the fieldset rather than competing with it. The rule above it is what closes the group before. */
-td.subgroup {
+/* ---- disclosure panels ----
+
+   Optional inputs are collapsed behind a summary, as in the wasm frontend, so the form opens
+   showing what a run actually needs and the rest is one click away rather than always on screen. */
+
+/* One box, whether or not its contents collapse. A group that is always shown is a `div.panel` and
+   an optional one a `details.panel`, so the two sit as peers rather than one appearing to contain
+   the other. */
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin: 0 0 0.75rem 0;
+}
+
+/* Bold sentence case, as in the browser frontend. These were set in legend vocabulary -- uppercase,
+   letter-spaced and muted -- which made a summary shout the moment a panel carried a long title. */
+details.panel > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+details.panel > .controls {
   padding-top: 0.6rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  text-align: left;
-  white-space: normal;
-}
-tr.subgroup + tr td {
-  padding-top: 0.1rem;
-}
-tr.subgroup:not(:first-child) td.subgroup {
-  border-top: 1px solid var(--border);
 }
 
 /* Explains that a group of settings cannot take effect in this frontend. Set apart from a plain
@@ -125,6 +167,16 @@ button[type="submit"] {
   font-size: 1rem;
   padding: 0.35rem 1.5rem;
   margin-top: 0.25rem;
+}
+
+/* The action at the foot of a view. It names what it will do rather than that it will do it, so it
+   carries a sentence and needs room to wrap on a narrow window. */
+.run-button {
+  font-size: 1rem;
+  padding: 0.4rem 1.5rem;
+  margin-top: 0.25rem;
+  max-width: 100%;
+  white-space: normal;
 }
 
 /* ---- results view ---- */
@@ -276,11 +328,10 @@ button[type="submit"] {
   font-size: 0.8rem;
 }
 
-.cert-table td,
-.cert-table td:first-child {
-  width: auto;
-  text-align: left;
-  white-space: normal;
+/* A data table, unlike the forms above, which are grids. The width/text-align/white-space resets
+   the :first-child arm used to carry are gone with the global td rules they countered; what is left
+   is what a cell of certificate data actually needs. */
+.cert-table td {
   overflow-wrap: anywhere;
   padding: 0.15rem 0.4rem;
 }

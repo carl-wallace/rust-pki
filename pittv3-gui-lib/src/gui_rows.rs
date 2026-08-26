@@ -1,5 +1,9 @@
 //! Labeled input rows shared by the GUI frontends.
 //!
+//! A row emits two grid children -- a label cell and a field cell -- for a `.controls` grid to
+//! place, plus an optional hint on its own line. It emits no container of its own, so a caller
+//! composes rows into a group and decides how that group is framed.
+//!
 //! These are the building blocks of the argument-shaped forms (Validate, Generate, Diagnostics on
 //! the desktop) as distinct from the override-aware settings form in
 //! [`gui_settings`](crate::gui_settings), whose rows carry `Option` values and a default/override
@@ -80,7 +84,7 @@ pub fn toi_datetime_value(toi: &str) -> String {
     }
 }
 
-/// Table row with a labeled text input and no accompanying selection dialog.
+/// Row with a labeled text input and no accompanying selection dialog.
 ///
 /// `title` overrides the label's tooltip; left empty it falls back to the argument help for `name`.
 #[component]
@@ -92,25 +96,21 @@ pub fn TextRow(
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
-        tr {
-            td {
-                div { title, class: "visible",
-                    label { r#for: name.clone(), "{label}: " }
-                }
-            }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
+        div { title, class: "visible label-cell",
+            label { r#for: name.clone(), "{label}: " }
+        }
+        div { class: "field",
+            input {
+                r#type: "text",
+                name,
+                value: "{sig}",
+                oninput: move |ev| sig.set(ev.value()),
             }
         }
     }
 }
 
-/// Table row with a labeled text input and a browse button. The browse action is supplied by the
+/// Row with a labeled text input and a browse button. The browse action is supplied by the
 /// frontend, since choosing a file or folder is the one part of this row that is not portable.
 ///
 /// An input that accepts either a file or a folder can supply a second action as `on_browse_alt`,
@@ -129,39 +129,33 @@ pub fn BrowseRow(
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
-        tr {
-            td {
-                div { title, class: "visible",
-                    label { r#for: name.clone(), "{label}: " }
-                }
+        div { title, class: "visible label-cell",
+            label { r#for: name.clone(), "{label}: " }
+        }
+        div { class: "field",
+            input {
+                r#type: "text",
+                name,
+                value: "{sig}",
+                oninput: move |ev| sig.set(ev.value()),
             }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
+            button {
+                r#type: "button",
+                onclick: move |_| on_browse.call(()),
+                "..."
             }
-            td { class: "nowrap",
+            if let Some(on_browse_alt) = on_browse_alt {
                 button {
                     r#type: "button",
-                    onclick: move |_| on_browse.call(()),
-                    "..."
-                }
-                if let Some(on_browse_alt) = on_browse_alt {
-                    button {
-                        r#type: "button",
-                        onclick: move |_| on_browse_alt.call(()),
-                        "{alt_label}"
-                    }
+                    onclick: move |_| on_browse_alt.call(()),
+                    "{alt_label}"
                 }
             }
         }
     }
 }
 
-/// Table row for a time of interest held as an epoch string: the epoch field, a Now button, and a
+/// Row for a time of interest held as an epoch string: the epoch field, a Now button, and a
 /// human-readable picker mirroring it in UTC.
 #[component]
 pub fn TimeRow(
@@ -172,44 +166,42 @@ pub fn TimeRow(
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
-        tr {
-            td {
-                div { title, class: "visible",
-                    label { r#for: name.clone(), "{label}: " }
-                }
+        div { title, class: "visible label-cell",
+            label { r#for: name.clone(), "{label}: " }
+        }
+        div { class: "field",
+            input {
+                r#type: "text",
+                name,
+                value: "{sig}",
+                oninput: move |ev| sig.set(ev.value()),
             }
-            td { class: "grow",
-                input {
-                    r#type: "text",
-                    name,
-                    value: "{sig}",
-                    oninput: move |ev| sig.set(ev.value()),
-                }
+            button {
+                r#type: "button",
+                onclick: move |_| sig.set(now_as_unix_epoch().to_string()),
+                "Now"
             }
-            td { class: "nowrap",
-                button {
-                    r#type: "button",
-                    onclick: move |_| sig.set(now_as_unix_epoch().to_string()),
-                    "Now"
-                }
-                // Editable human-readable picker mirroring the epoch field (UTC). onchange fires
-                // only on a complete datetime, so it never clobbers a mid-edit epoch value.
-                input {
-                    r#type: "datetime-local",
-                    step: "1",
-                    value: toi_datetime_value(&sig()),
-                    onchange: move |ev| {
-                        if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
-                            sig.set(secs.to_string());
-                        }
-                    },
-                }
+            // Editable human-readable picker mirroring the epoch field (UTC). onchange fires
+            // only on a complete datetime, so it never clobbers a mid-edit epoch value.
+            input {
+                r#type: "datetime-local",
+                step: "1",
+                value: toi_datetime_value(&sig()),
+                onchange: move |ev| {
+                    if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                        sig.set(secs.to_string());
+                    }
+                },
             }
         }
     }
 }
 
-/// Labeled checkbox cell for use within a table row
+/// Labeled checkbox: the box and the text it belongs to, as one field-column item.
+///
+/// Emits no label column of its own, so several of these sit together on one row under a shared
+/// label -- a checkbox states its own name, and giving each one a label column would spread a pair
+/// of related switches across the width of the form.
 #[component]
 pub fn CheckboxCell(
     label: String,
@@ -219,16 +211,89 @@ pub fn CheckboxCell(
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
-        td { class: "check",
-            div { title, class: "visible",
-                label { r#for: name.clone(), "{label}: " }
-                input {
-                    r#type: "checkbox",
-                    name,
-                    checked: sig(),
-                    onchange: move |ev| sig.set(ev.checked()),
+        div { title, class: "visible",
+            label { r#for: name.clone(), "{label}: " }
+            input {
+                r#type: "checkbox",
+                name,
+                checked: sig(),
+                onchange: move |ev| sig.set(ev.checked()),
+            }
+        }
+    }
+}
+
+/// Row holding a *pool* of inputs rather than one: any number of paths, each a file or a
+/// folder, added and removed one at a time.
+///
+/// This is the row a frontend uses where the arguments take a `Vec<String>` — trust anchors, CA
+/// certificates, targets, revocation artifacts. The single-path [`BrowseRow`] remains for the
+/// arguments that name one thing, which after the pools were added are the ones naming an *output*:
+/// the store a generate run writes, the folder the Mozilla CSV tool fills.
+///
+/// What the pool holds is reported as a count, not as a row per entry, which is how the browser
+/// frontend reports an upload and what keeps a pool of any size to one line. The paths are the
+/// count's tooltip, so they remain available without being on the page. A pool is emptied whole;
+/// there is deliberately no per-entry control, since a row of them for every path is the clutter
+/// this replaced. Everything arrives through `on_add`, which supplies however many paths a
+/// frontend's picker returned; a native multi-select adds several at once, and a frontend with no
+/// picker at all can leave the button off by passing `None`.
+///
+/// What each entry yields is deliberately *not* shown. A folder is read when the run reads it, so a
+/// count here would be a claim about a moment that has passed; the run reports what each input
+/// actually contributed, which is the honest place for it.
+#[component]
+pub fn PathListRow(
+    label: String,
+    name: String,
+    sig: Signal<Vec<String>>,
+    #[props(default)] title: String,
+    #[props(default)] on_add: Option<EventHandler<()>>,
+    #[props(default)] on_add_alt: Option<EventHandler<()>>,
+    #[props(default)] alt_label: String,
+    /// Shown under the rows when the pool is empty, to say what belongs here.
+    #[props(default)]
+    hint: String,
+) -> Element {
+    let title = tooltip(title, &name);
+    let entries = sig();
+    // What the pool holds, as a count. The paths themselves are the tooltip, so the whole of a
+    // pool is available on hover without any of it taking room on the page.
+    let loaded = match entries.len() {
+        1 => "1 entry".to_string(),
+        n => format!("{n} entries"),
+    };
+    let listing = entries.join("\n");
+    rsx! {
+        div { title, class: "visible label-cell",
+            label { r#for: name.clone(), "{label}: " }
+        }
+        div { class: "field",
+            if let Some(on_add) = on_add {
+                button {
+                    r#type: "button",
+                    onclick: move |_| on_add.call(()),
+                    "Add\u{2026}"
                 }
             }
+            if let Some(on_add_alt) = on_add_alt {
+                button {
+                    r#type: "button",
+                    onclick: move |_| on_add_alt.call(()),
+                    "{alt_label}"
+                }
+            }
+            if !entries.is_empty() {
+                span { class: "pool-count", title: "{listing}", "{loaded}" }
+                button {
+                    r#type: "button",
+                    onclick: move |_| sig.write().clear(),
+                    "Clear"
+                }
+            }
+        }
+        if entries.is_empty() && !hint.is_empty() {
+            span { class: "hint", "{hint}" }
         }
     }
 }

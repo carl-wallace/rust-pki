@@ -22,6 +22,18 @@ pub struct Pittv3Args {
     #[cfg(feature = "std")]
     pub ta_cbor: Option<String>,
 
+    /// Additional trust anchor inputs, each naming a folder, a certificate, a bundle holding
+    /// several, or a CBOR-formatted trust anchor store. Every entry is resolved the same way
+    /// `ta_folder` and `ta_cbor` resolve theirs, from the path and then from the bytes, and the
+    /// anchors from all of them are combined into one store.
+    ///
+    /// This is the plural form of those two arguments and exists because a trust anchor set is
+    /// often assembled from several places at once. It is input-only: `ta_folder` and `ta_cbor`
+    /// remain for the single-input case and are used together with this when both are given.
+    #[cfg(feature = "std")]
+    #[serde(default)]
+    pub ta_inputs: Vec<String>,
+
     /// Use trust anchors from webpki-roots crate (which are from Mozilla)
     #[cfg(feature = "webpki")]
     pub webpki_tas: bool,
@@ -61,6 +73,19 @@ pub struct Pittv3Args {
     /// download_folder is not specified.
     #[cfg(feature = "std")]
     pub ca_folder: Option<String>,
+
+    /// Additional intermediate CA inputs, each naming a folder, a certificate, a bundle holding
+    /// several, or a CBOR-formatted store (whose partial paths are adopted along with its
+    /// certificates). Every entry is resolved the same way `ca_folder` and `cbor` resolve theirs,
+    /// and all of them feed the one graph a run builds.
+    ///
+    /// This is the plural, input-only form of those two arguments. `ca_folder` and `cbor` keep the
+    /// roles this cannot take: `cbor` is also the file a generate run writes, and `ca_folder` also
+    /// names where the Mozilla CSV tool saves certificates and where dynamic building stores what
+    /// it downloads when `download_folder` is absent.
+    #[cfg(feature = "std")]
+    #[serde(default)]
+    pub ca_inputs: Vec<String>,
 
     /// Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and
     /// map containing set of partial certification paths should be generated and saved to location
@@ -107,6 +132,14 @@ pub struct Pittv3Args {
     #[cfg(feature = "std")]
     pub end_entity_folder: Option<String>,
 
+    /// Additional certificates to validate, each entry naming either a single certificate or a
+    /// folder to traverse for them. This is the plural form of `end_entity_file` and
+    /// `end_entity_folder`, which remain for the single-input case and are validated alongside
+    /// these when given.
+    #[cfg(feature = "std")]
+    #[serde(default)]
+    pub ee_inputs: Vec<String>,
+
     /// Full path and filename of folder to receive binary DER-encoded certificates from certification
     /// paths. Folders will be created beneath this using a hash of the target certificate. Within
     /// that folder, folders will be created with a number indicating each path, i.e., the number
@@ -129,6 +162,20 @@ pub struct Pittv3Args {
     /// whose nextUpdate has passed.
     #[cfg(feature = "std")]
     pub crl_folder: Option<String>,
+
+    /// Revocation artifacts to staple into candidate certification paths, repeatable. Each entry
+    /// may name a single artifact or a folder to traverse, and may hold either a CRL or an OCSP
+    /// response — the bytes decide, since an OCSP response has no settled file extension. CRLs are
+    /// matched to path positions by issuer name, OCSP responses by the CertID each answers about.
+    ///
+    /// This is read-only, which is what distinguishes it from `crl_folder`: that argument names an
+    /// *index*, written as well as read, and indexing deletes any CRL not valid at the time of
+    /// interest. An artifact named here is used and left alone. Supply what a run needs when there
+    /// is no network to fetch it from, or when the answer should come from a captured artifact
+    /// rather than from whatever a responder says today.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[serde(default)]
+    pub rev_inputs: Vec<String>,
 
     /// When set together with crl_folder, retain the revoked serial numbers of each verified
     /// full/direct CRL in memory so subsequent certificates under the same scope are answered

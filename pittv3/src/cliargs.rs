@@ -24,6 +24,15 @@ pub struct Pittv3CliArgs {
     #[clap(long, help_heading = "COMMON OPTIONS")]
     pub ta_cbor: Option<String>,
 
+    /// Additional trust anchor input, repeatable. Each occurrence may name a folder, a
+    /// certificate, a bundle holding several, or a CBOR-formatted trust anchor store; what it is
+    /// comes from the path and then from the bytes, so the four need not be sorted into different
+    /// arguments first. This is the plural form of --ta-folder and --ta-cbor, which still work and
+    /// are used alongside it.
+    #[cfg(feature = "std")]
+    #[clap(long = "ta", value_name = "TA_INPUT", help_heading = "COMMON OPTIONS")]
+    pub ta_inputs: Vec<String>,
+
     /// Use trust anchors from webpki-roots crate (which are from Mozilla)
     #[cfg(feature = "webpki")]
     #[clap(long, help_heading = "COMMON OPTIONS")]
@@ -70,6 +79,15 @@ pub struct Pittv3CliArgs {
     #[cfg(feature = "std")]
     #[clap(short, long, help_heading = "COMMON OPTIONS")]
     pub ca_folder: Option<String>,
+
+    /// Additional intermediate CA input, repeatable. Each occurrence may name a folder, a
+    /// certificate, a bundle holding several, or a CBOR-formatted store, and all of them feed the
+    /// one graph a run builds. This is the plural form of --ca-folder and --cbor for validation.
+    /// It is not consulted when generating: --ca-folder names the folder generation reads, and
+    /// --cbor the file it writes.
+    #[cfg(feature = "std")]
+    #[clap(long = "ca", value_name = "CA_INPUT", help_heading = "COMMON OPTIONS")]
+    pub ca_inputs: Vec<String>,
 
     /// Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and
     /// map containing set of partial certification paths should be generated and saved to location
@@ -125,6 +143,13 @@ pub struct Pittv3CliArgs {
     #[clap(long, short = 'f', help_heading = "VALIDATION")]
     pub end_entity_folder: Option<String>,
 
+    /// Additional certificate to validate, repeatable. Each occurrence may name a single
+    /// certificate or a folder to traverse for them. This is the plural form of --end-entity-file
+    /// and --end-entity-folder, which still work and are validated alongside it.
+    #[cfg(feature = "std")]
+    #[clap(long = "ee", value_name = "EE_INPUT", help_heading = "VALIDATION")]
+    pub ee_inputs: Vec<String>,
+
     /// Full path and filename of folder to receive binary DER-encoded certificates from certification
     /// paths. Folders will be created beneath this using a hash of the target certificate. Within
     /// that folder, folders will be created with a number indicating each path, i.e., the number
@@ -150,6 +175,16 @@ pub struct Pittv3CliArgs {
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "VALIDATION")]
     pub crl_folder: Option<String>,
+
+    /// Revocation artifact to staple into candidate certification paths, repeatable. Each
+    /// occurrence may name a single artifact or a folder to traverse, and may hold either a CRL or
+    /// an OCSP response — the bytes decide, since an OCSP response has no settled file extension.
+    /// CRLs are matched to path positions by issuer name, OCSP responses by the CertID each answers
+    /// about. Unlike --crl-folder, which is an index that deletes CRLs not valid at the time of
+    /// interest, artifacts named here are read and left alone.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[clap(long = "rev", value_name = "REV_INPUT", help_heading = "VALIDATION")]
+    pub rev_inputs: Vec<String>,
 
     /// When set together with --crl-folder, retain the revoked serial numbers of each verified
     /// full/direct CRL in memory so subsequent certificates under the same scope are answered
@@ -266,6 +301,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             ta_folder: v.ta_folder,
             #[cfg(feature = "std")]
             ta_cbor: v.ta_cbor,
+            #[cfg(feature = "std")]
+            ta_inputs: v.ta_inputs,
             #[cfg(feature = "webpki")]
             webpki_tas: v.webpki_tas,
             #[cfg(feature = "std")]
@@ -279,6 +316,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             download_folder: v.download_folder,
             #[cfg(feature = "std")]
             ca_folder: v.ca_folder,
+            #[cfg(feature = "std")]
+            ca_inputs: v.ca_inputs,
             #[cfg(feature = "std")]
             generate: v.generate,
             #[cfg(feature = "remote")]
@@ -294,12 +333,16 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             end_entity_file: v.end_entity_file,
             #[cfg(feature = "std")]
             end_entity_folder: v.end_entity_folder,
+            #[cfg(feature = "std")]
+            ee_inputs: v.ee_inputs,
             #[cfg(feature = "std_app")]
             results_folder: v.results_folder,
             #[cfg(feature = "std")]
             settings: v.settings,
             #[cfg(feature = "std")]
             crl_folder: v.crl_folder,
+            #[cfg(all(feature = "std", feature = "revocation"))]
+            rev_inputs: v.rev_inputs,
             #[cfg(feature = "std")]
             keep_crl_entries_in_memory: v.keep_crl_entries_in_memory,
             #[cfg(feature = "std")]

@@ -11,7 +11,6 @@
 //! The options shown below are those of the default build, which includes remote support:
 //!
 //! ```text
-//! $ pittv3 -h
 //! PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
 //! of trust anchors, intermediate CA certificates and end entity certificates.
 //!
@@ -27,6 +26,8 @@
 //!           Full path of a folder containing binary DER-encoded trust anchors, or of a single such file, to use when generating CBOR file containing partial certification paths and when validating certification paths. A file may hold several concatenated PEM objects
 //!       --ta-cbor <TA_CBOR>
 //!           Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by --generate --cbor-ta-store and the form the certval trust store providers serialize. This is the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which case the anchors from both are used
+//!       --ta <TA_INPUT>
+//!           Additional trust anchor input, repeatable. Each occurrence may name a folder, a certificate, a bundle holding several, or a CBOR-formatted trust anchor store; what it is comes from the path and then from the bytes, so the four need not be sorted into different arguments first. This is the plural form of --ta-folder and --ta-cbor, which still work and are used alongside it
 //!       --webpki-tas
 //!           Use trust anchors from webpki-roots crate (which are from Mozilla)
 //!   -b, --cbor <CBOR>
@@ -41,6 +42,8 @@
 //!           Full path and filename of folder to receive downloaded binary DER-encoded certificates, if absent at generate time, the ca_folder is used, which requires it to name a folder rather than a single file. Additionally, this is used to designate where exported buffers are written by dump_cert_at_index or list_buffers
 //!   -c, --ca-folder <CA_FOLDER>
 //!           Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a single such file (which may hold several concatenated PEM objects, e.g. a fullchain). Required when generate action is performed. When path validation is performed, these certificates are added to the graph that is built, augmenting any CBOR store in use. A folder also doubles as a place to store downloaded files when dynamic building is used and download_folder is not specified
+//!       --ca <CA_INPUT>
+//!           Additional intermediate CA input, repeatable. Each occurrence may name a folder, a certificate, a bundle holding several, or a CBOR-formatted store, and all of them feed the one graph a run builds. This is the plural form of --ca-folder and --cbor for validation. It is not consulted when generating: --ca-folder names the folder generation reads, and --cbor the file it writes
 //!
 //! GENERATION:
 //!   -g, --generate           Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and map containing set of partial certification paths should be generated and saved to location indicated by cbor parameter
@@ -58,12 +61,16 @@
 //!           Full path and filename of a binary DER-encoded certificate to validate
 //!   -f, --end-entity-folder <END_ENTITY_FOLDER>
 //!           Full path folder to recursively traverse for binary DER-encoded certificates to validate. Only files with .der, .crt or cert as file extension are processed
+//!       --ee <EE_INPUT>
+//!           Additional certificate to validate, repeatable. Each occurrence may name a single certificate or a folder to traverse for them. This is the plural form of --end-entity-file and --end-entity-folder, which still work and are validated alongside it
 //!   -r, --results-folder <RESULTS_FOLDER>
 //!           Full path and filename of folder to receive binary DER-encoded certificates from certification paths. Folders will be created beneath this using a hash of the target certificate. Within that folder, folders will be created with a number indicating each path, i.e., the number indicates the order in which the path was returned for consideration. For best results, this folder should be cleaned in between runs. PITTv3 does not perform hygiene on this folder or its contents
 //!   -s, --settings <SETTINGS>
 //!           Full path and filename of JSON-formatted certification path validation settings
 //!       --crl-folder <CRL_FOLDER>
 //!           Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed before path validation begins. Only files with a .crl extension are processed. The indexed CRLs are the local revocation source, consulted before any remote retrieval, and the folder also receives CRLs fetched remotely along with the last-modified map that makes those fetches conditional. Note that the folder is written as well as read: indexing deletes any CRL that is not valid at the time of interest, i.e. one whose thisUpdate is in the future or whose nextUpdate has passed
+//!       --rev <REV_INPUT>
+//!           Revocation artifact to staple into candidate certification paths, repeatable. Each occurrence may name a single artifact or a folder to traverse, and may hold either a CRL or an OCSP response — the bytes decide, since an OCSP response has no settled file extension. CRLs are matched to path positions by issuer name, OCSP responses by the CertID each answers about. Unlike --crl-folder, which is an index that deletes CRLs not valid at the time of interest, artifacts named here are read and left alone
 //!       --keep-crl-entries-in-memory
 //!           When set together with --crl-folder, retain the revoked serial numbers of each verified full/direct CRL in memory so subsequent certificates under the same scope are answered without re-parsing or re-verifying the CRL
 //!
@@ -598,7 +605,15 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
             }
         }
     } else if args.validate_self_signed {
-        if let Some(eff) = &args.end_entity_file {
+        // The first target named, from either the singular argument or the pool: this asks about
+        // one certificate, and a frontend that has replaced its end entity box with a list has no
+        // singular argument to put it in.
+        if let Some(eff) = args
+            .end_entity_file
+            .iter()
+            .chain(args.ee_inputs.iter())
+            .next()
+        {
             if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&eff)) {
                 let parsed_cert = parse_cert(t.as_slice(), eff.as_str());
                 if let Ok(target_cert) = parsed_cert {
@@ -750,8 +765,15 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             // indistinguishable from having supplied no folder at all — and this is the loudest
             // thing that can be said at the point where the anchors went missing.
             if ta_store.is_empty() {
-                if let Some(ta_folder) = &args.ta_folder {
-                    error!("No trust anchors were loaded from {ta_folder}. {TA_FOLDER_EMPTY}");
+                let named = args
+                    .ta_folder
+                    .iter()
+                    .chain(args.ta_inputs.iter())
+                    .map(String::as_str)
+                    .collect::<Vec<&str>>()
+                    .join(", ");
+                if !named.is_empty() {
+                    error!("No trust anchors were loaded from {named}. {TA_FOLDER_EMPTY}");
                 }
             }
             // Cached beside the graph and under the same key: the graph's partial paths end at
@@ -775,18 +797,39 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     }
 
     // if there's nothing to validate, there is nothing further to do
-    if args.end_entity_folder.is_none() && args.end_entity_file.is_none() {
+    if args.end_entity_folder.is_none()
+        && args.end_entity_file.is_none()
+        && args.ee_inputs.is_empty()
+    {
         return ValidationReport::default();
     }
 
     if !ta_store_added {
         #[cfg(feature = "webpki")]
-        error!("One of the ta_cbor, ta_folder or webpki arguments must be provided");
+        error!("One of the ta_cbor, ta_folder, ta_inputs or webpki arguments must be provided");
 
         #[cfg(not(feature = "webpki"))]
-        error!("Either the ta_cbor or ta_folder argument must be provided");
+        error!("One of the ta_cbor, ta_folder or ta_inputs arguments must be provided");
         return ValidationReport::default();
     };
+
+    // Built once and threaded through, rather than derived per target: it carries the revocation
+    // artifacts the run was handed, and reading those again for every certificate would read the
+    // same files once per target.
+    let mut validate_opts = ValidateOpts::from_args(args);
+    #[cfg(feature = "revocation")]
+    {
+        let supplied = load_revocation_inputs(args.rev_inputs.iter().map(String::as_str));
+        if !supplied.is_empty() {
+            info!(
+                "Read {} CRL(s) and {} OCSP response(s) to staple into candidate paths",
+                supplied.crls.len(),
+                supplied.ocsp_responses.len()
+            );
+        }
+        validate_opts.crls = supplied.crls;
+        validate_opts.ocsp_responses = supplied.ocsp_responses;
+    }
 
     // The pass value governs two actions during the loop. AIA/SIA fetch operations are only
     // performed on second and subsequent loops. The threshold for evaluating partial paths is set
@@ -915,60 +958,19 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         // it is augmented rather than displaced, since both are just certificates to build from. A
         // generate run is exempt because the CBOR read above was built from this same folder.
         if 0 == pass && !args.generate && !graph_from_cache {
-            if let Some(ca_folder) = &args.ca_folder {
-                let before = cert_source.len();
-                // Either a folder of intermediates or a single file naming one, matching the trust
-                // anchor side; a PEM bundle such as a fullchain counts as the single file.
-                let toi = cps.get_time_of_interest();
-                let r = if Path::new(ca_folder).is_file() {
-                    cert_file_to_vec(&pe, ca_folder, &mut cert_source, toi)
-                } else {
-                    cert_folder_to_vec(&pe, ca_folder, &mut cert_source, toi)
-                };
-                if let Err(e) = r {
-                    error!("Failed to read certificates from {ca_folder}: {e:?}");
-                }
-                // As on the trust anchor side: a file that yielded nothing may be a CBOR
-                // certificate store, which is what this app's store export writes. Merge its
-                // certificates into the same source, so a run can draw on a selected store and an
-                // exported one at once — the `cbor` argument holds only one path.
-                let from_cbor_store = cert_source.len() == before && Path::new(ca_folder).is_file();
-                if from_cbor_store {
-                    // `before` decides which of the two a store is here. At zero nothing else has
-                    // contributed, so the store is the whole CA input and no path can span it and
-                    // another source: adopt it as it stands, partial paths included, which is what
-                    // the `cbor` argument does with the same bytes. Above zero it is being merged
-                    // with material it was not searched against, and a path spanning the two exists
-                    // only once they are searched together, so take the certificates alone and let
-                    // the search below build the graph over the union.
-                    if 0 == before {
-                        if let Some(store) = cbor_cert_store(ca_folder) {
-                            // Only skip the search if the store actually carries paths. A store
-                            // exported without them is certificates in a different container, and
-                            // adopting it would otherwise leave the run with no graph at all.
-                            ca_store_paths_adopted = store.num_partial_paths() > 0;
-                            cert_source = store;
-                        }
-                    } else if let Some(certs) = cbor_cert_store_certs(ca_folder) {
-                        for cf in certs {
-                            cert_source.push(cf);
-                        }
-                    }
-                }
-                ca_folder_certs = cert_source.len() - before;
-                if from_cbor_store && ca_store_paths_adopted {
-                    info!(
-                        "Read {ca_folder_certs} certificate(s) and {} partial path(s) from the CBOR store at {ca_folder}",
-                        cert_source.num_partial_paths()
-                    );
-                } else if from_cbor_store {
-                    info!(
-                        "Read {ca_folder_certs} certificate(s) from the CBOR store at {ca_folder}"
-                    );
-                } else {
-                    info!("Read {ca_folder_certs} certificate(s) from {ca_folder}");
-                }
-            }
+            // The singular argument first, then the pool, so a log read top to bottom follows the
+            // order the inputs were named in.
+            let outcome = load_ca_inputs(
+                &pe,
+                args.ca_folder
+                    .iter()
+                    .chain(args.ca_inputs.iter())
+                    .map(String::as_str),
+                &mut cert_source,
+                cps.get_time_of_interest(),
+            );
+            ca_folder_certs = outcome.certs;
+            ca_store_paths_adopted = outcome.paths_adopted;
         }
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
@@ -1140,7 +1142,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                         &cps,
                         filename.as_str(),
                         stats_for_file,
-                        args,
+                        &validate_opts,
                         &mut fresh_uris,
                         threshold,
                     )
@@ -1155,11 +1157,50 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 &cps,
                 folder.as_str(),
                 &mut stats,
-                args,
+                &validate_opts,
                 &mut fresh_uris,
                 threshold,
             )
             .await;
+        }
+
+        // The pool, after the two singular arguments. Each entry says for itself whether it is a
+        // certificate or a folder of them, where `end_entity_file` and `end_entity_folder` are told
+        // apart by which argument carried them: a set of targets is assembled from both kinds at
+        // once, and sorting them into two arguments first is work the run can do instead.
+        for input in &args.ee_inputs {
+            if Path::new(input).is_dir() {
+                validate_cert_folder(
+                    &pe,
+                    &cps,
+                    input.as_str(),
+                    &mut stats,
+                    &validate_opts,
+                    &mut fresh_uris,
+                    threshold,
+                )
+                .await;
+                continue;
+            }
+            stats.init_for_target(input);
+            let Some(stats_for_file) = stats.get_mut(input) else {
+                continue;
+            };
+            // validate when validating all or we don't have a definitive answer yet
+            if args.validate_all
+                || (stats_for_file.valid_paths_per_target == 0 && !stats_for_file.target_is_revoked)
+            {
+                let _ = validate_cert_file(
+                    &pe,
+                    &cps,
+                    input.as_str(),
+                    stats_for_file,
+                    &validate_opts,
+                    &mut fresh_uris,
+                    threshold,
+                )
+                .await;
+            }
         }
 
         pe.clear_certificate_sources();
@@ -1231,8 +1272,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     // has every reason to believe they provided the intermediates.
     // A graph off the cache did not read the folder this run, and a graph is only cached once the
     // folder has contributed to it, so a zero count here says nothing about the folder.
-    let ca_folder_empty =
-        args.ca_folder.is_some() && !args.generate && 0 == ca_folder_certs && !graph_from_cache;
+    let ca_folder_empty = (args.ca_folder.is_some() || !args.ca_inputs.is_empty())
+        && !args.generate
+        && 0 == ca_folder_certs
+        && !graph_from_cache;
     // Distinguishes "no folder was given" from "the folder was given and nothing survived reading
     // it", which the shared diagnosis cannot tell apart because both leave the environment empty
     let ta_folder_empty = args.ta_folder.is_some() && pe.get_trust_anchors().is_empty();

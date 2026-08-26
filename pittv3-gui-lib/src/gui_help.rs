@@ -21,26 +21,34 @@ pub fn HelpView() -> Element {
             h2 { "Quick start: validating a certificate" }
             ul {
                 li {
-                    "Pick a Trust Store. The built-in stores come from the certval trust store "
+                    "Pick a trust anchor / CA store. The built-in stores come from the certval "
+                    "trust store "
                     "providers and supply trust anchors, and for most environments the "
                     "intermediate CA certificates as well, so nothing else need be assembled. "
                     "Choose the custom entry to supply your own instead."
                 }
                 li {
-                    "For a custom store, give trust anchors as a folder of DER-encoded anchors "
-                    "(TA Folder), as a CBOR trust anchor store (TA CBOR), or both — the two are "
-                    "combined. WebPKI trust anchors (Mozilla roots) can be enabled alongside them."
+                    "Add trust anchors to the Trust Anchors list. Each entry may be a folder, a "
+                    "certificate, a PEM or PKCS#7 bundle, or a CBOR trust anchor store — what an "
+                    "entry is comes from the path and then from its contents, so they need not be "
+                    "sorted by kind. Everything listed is combined, and an anchor named twice is "
+                    "carried once."
                 }
                 li {
-                    "Point CA CBOR at a store of intermediate CA certificates, or leave it empty "
-                    "and enable Dynamic Build to fetch intermediates via AIA/SIA. A built-in "
-                    "store that carries intermediates supplies these itself."
+                    "Add intermediate CA certificates the same way, or leave the list empty and "
+                    "enable Dynamic Build to fetch them via AIA/SIA. A built-in store that carries "
+                    "intermediates supplies these itself, and anything listed is added to them."
                 }
                 li {
-                    "Select the certificate to validate (End Entity File) or a folder of "
-                    "certificates (End Entity Folder), then run. Results appear in the Results "
-                    "view, one expandable entry per certificate validated, showing its status and "
-                    "the paths considered for it."
+                    "Add the certificates to validate to the End Entity Certificates list, as "
+                    "files or as folders to traverse. To judge what a server is actually serving, "
+                    "name it under From a TLS Server instead: the handshake's certificate joins "
+                    "that list, anything sent with it joins the CA list, and a stapled OCSP "
+                    "response joins the revocation artifacts."
+                }
+                li {
+                    "Run. Results appear in the Results view, one expandable entry per certificate "
+                    "validated, showing its status and the paths considered for it."
                 }
             }
 
@@ -101,8 +109,19 @@ pub fn HelpView() -> Element {
                     "responders, otherwise-valid paths report as Valid (revocation undetermined)."
                 }
                 li {
-                    "Provide CRLs via the CRL Folder option, or let dynamic builds fetch them "
-                    "from CRL distribution points; OCSP responders are taken from AIA extensions."
+                    "Add CRLs and OCSP responses you already hold to the CRLs and OCSP Responses "
+                    "list. They are read and left alone, and what each artifact is comes from its "
+                    "contents rather than its name. A response is matched to the certificate it "
+                    "answers about, so it does not matter which one you added it for."
+                }
+                li {
+                    "CRL Folder is a different thing: an index, written as well as read, from "
+                    "which CRLs not valid at the time of interest are deleted. Point it at a "
+                    "working folder, never at material you want to keep."
+                }
+                li {
+                    "Otherwise let dynamic builds fetch CRLs from distribution points; OCSP "
+                    "responders are taken from AIA extensions."
                 }
                 li {
                     "The OCSP nonce setting controls whether requests carry a nonce and whether "

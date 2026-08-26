@@ -115,49 +115,47 @@ fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>) ->
         _ => String::new(),
     };
     rsx! {
-        tr {
-            td { label { "Time of interest (Unix epoch, 0 disables): " } }
-            td {
-                input {
-                    r#type: "number",
-                    min: "0",
-                    value: display,
-                    placeholder: "run time",
-                    oninput: move |ev| {
-                        let v = ev.value();
-                        if v.trim().is_empty() {
-                            onchange.call(None);
-                        } else if let Ok(parsed) = v.trim().parse::<u64>() {
-                            onchange.call(Some(parsed));
-                        }
-                    },
-                }
-                button {
-                    r#type: "button",
-                    onclick: move |_| onchange.call(Some(now_as_unix_epoch())),
-                    "Now"
-                }
-                // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
-                input {
-                    r#type: "datetime-local",
-                    step: "1",
-                    value: picker,
-                    onchange: move |ev| {
-                        if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
-                            onchange.call(Some(secs));
-                        }
-                    },
-                }
-            }
-            td {
-                span { class: "hint",
-                    if value.is_some() {
-                        "override (UTC)"
-                    } else {
-                        "default: the time of the run"
-                    }
-                }
-            }
+        div { class: "label-cell",
+            label { "Time of interest (Unix epoch, 0 disables): " }
+        }
+        div { class: "field",
+            input {
+                                r#type: "number",
+                                min: "0",
+                                value: display,
+                                placeholder: "run time",
+                                oninput: move |ev| {
+                                    let v = ev.value();
+                                    if v.trim().is_empty() {
+                                        onchange.call(None);
+                                    } else if let Ok(parsed) = v.trim().parse::<u64>() {
+                                        onchange.call(Some(parsed));
+                                    }
+                                },
+                            }
+                            button {
+                                r#type: "button",
+                                onclick: move |_| onchange.call(Some(now_as_unix_epoch())),
+                                "Now"
+                            }
+                            // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
+                            input {
+                                r#type: "datetime-local",
+                                step: "1",
+                                value: picker,
+                                onchange: move |ev| {
+                                    if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                                        onchange.call(Some(secs));
+                                    }
+                                },
+                            }
+            span { class: "hint",
+                                if value.is_some() {
+                                    "override (UTC)"
+                                } else {
+                                    "default: the time of the run"
+                                }
+                            }
         }
     }
 }
@@ -196,24 +194,22 @@ fn BoolRow(
     onchange: EventHandler<bool>,
 ) -> Element {
     rsx! {
-        tr {
-            td { label { "{label}: " } }
-            td {
-                input {
-                    r#type: "checkbox",
-                    checked,
-                    onchange: move |ev| onchange.call(ev.checked()),
-                }
-            }
-            td {
-                span { class: "hint",
-                    if overridden {
-                        "override"
-                    } else {
-                        {default_note.unwrap_or("default")}
-                    }
-                }
-            }
+        div { class: "label-cell",
+            label { "{label}: " }
+        }
+        div { class: "field",
+            input {
+                                r#type: "checkbox",
+                                checked,
+                                onchange: move |ev| onchange.call(ev.checked()),
+                            }
+            span { class: "hint",
+                                if overridden {
+                                    "override"
+                                } else {
+                                    {default_note.unwrap_or("default")}
+                                }
+                            }
         }
     }
 }
@@ -228,33 +224,31 @@ fn NumberRow(
 ) -> Element {
     let display = value.map(|v| v.to_string()).unwrap_or_default();
     rsx! {
-        tr {
-            td { label { "{label}: " } }
-            td {
-                input {
-                    r#type: "number",
-                    min: "0",
-                    value: display,
-                    placeholder,
-                    oninput: move |ev| {
-                        let v = ev.value();
-                        if v.trim().is_empty() {
-                            onchange.call(None);
-                        } else if let Ok(parsed) = v.trim().parse::<u64>() {
-                            onchange.call(Some(parsed));
-                        }
-                    },
-                }
-            }
-            td {
-                span { class: "hint",
-                    if value.is_some() {
-                        "override"
-                    } else {
-                        "default"
-                    }
-                }
-            }
+        div { class: "label-cell",
+            label { "{label}: " }
+        }
+        div { class: "field",
+            input {
+                                r#type: "number",
+                                min: "0",
+                                value: display,
+                                placeholder,
+                                oninput: move |ev| {
+                                    let v = ev.value();
+                                    if v.trim().is_empty() {
+                                        onchange.call(None);
+                                    } else if let Ok(parsed) = v.trim().parse::<u64>() {
+                                        onchange.call(Some(parsed));
+                                    }
+                                },
+                            }
+            span { class: "hint",
+                                if value.is_some() {
+                                    "override"
+                                } else {
+                                    "default"
+                                }
+                            }
         }
     }
 }
@@ -268,31 +262,29 @@ fn SettingTextRow(
 ) -> Element {
     let overridden = value.is_some();
     rsx! {
-        tr {
-            td { label { "{label}: " } }
-            td {
-                input {
-                    r#type: "text",
-                    value: value.unwrap_or_default(),
-                    oninput: move |ev| {
-                        let v = ev.value();
-                        if v.is_empty() {
-                            onchange.call(None);
-                        } else {
-                            onchange.call(Some(v));
-                        }
-                    },
-                }
-            }
-            td {
-                span { class: "hint",
-                    if overridden {
-                        "override"
-                    } else {
-                        "default"
-                    }
-                }
-            }
+        div { class: "label-cell",
+            label { "{label}: " }
+        }
+        div { class: "field",
+            input {
+                                r#type: "text",
+                                value: value.unwrap_or_default(),
+                                oninput: move |ev| {
+                                    let v = ev.value();
+                                    if v.is_empty() {
+                                        onchange.call(None);
+                                    } else {
+                                        onchange.call(Some(v));
+                                    }
+                                },
+                            }
+            span { class: "hint",
+                                if overridden {
+                                    "override"
+                                } else {
+                                    "default"
+                                }
+                            }
         }
     }
 }
@@ -608,26 +600,24 @@ pub fn EditSettings(
 
             match tab() {
                 SettingsTab::Policy => rsx! {
-                    table {
-                        tbody {
-                            BoolRow {
-                                label: "Require explicit policy",
-                                checked: m.initial_explicit_policy_indicator.unwrap_or(false),
-                                overridden: m.initial_explicit_policy_indicator.is_some(),
-                                onchange: move |v| model.write().initial_explicit_policy_indicator = Some(v),
-                            }
-                            BoolRow {
-                                label: "Inhibit policy mapping",
-                                checked: m.initial_policy_mapping_inhibit_indicator.unwrap_or(false),
-                                overridden: m.initial_policy_mapping_inhibit_indicator.is_some(),
-                                onchange: move |v| model.write().initial_policy_mapping_inhibit_indicator = Some(v),
-                            }
-                            BoolRow {
-                                label: "Inhibit anyPolicy",
-                                checked: m.initial_inhibit_any_policy_indicator.unwrap_or(false),
-                                overridden: m.initial_inhibit_any_policy_indicator.is_some(),
-                                onchange: move |v| model.write().initial_inhibit_any_policy_indicator = Some(v),
-                            }
+                    div { class: "controls",
+                        BoolRow {
+                            label: "Require explicit policy",
+                            checked: m.initial_explicit_policy_indicator.unwrap_or(false),
+                            overridden: m.initial_explicit_policy_indicator.is_some(),
+                            onchange: move |v| model.write().initial_explicit_policy_indicator = Some(v),
+                        }
+                        BoolRow {
+                            label: "Inhibit policy mapping",
+                            checked: m.initial_policy_mapping_inhibit_indicator.unwrap_or(false),
+                            overridden: m.initial_policy_mapping_inhibit_indicator.is_some(),
+                            onchange: move |v| model.write().initial_policy_mapping_inhibit_indicator = Some(v),
+                        }
+                        BoolRow {
+                            label: "Inhibit anyPolicy",
+                            checked: m.initial_inhibit_any_policy_indicator.unwrap_or(false),
+                            overridden: m.initial_inhibit_any_policy_indicator.is_some(),
+                            onchange: move |v| model.write().initial_inhibit_any_policy_indicator = Some(v),
                         }
                     }
                     OidListEditor {
@@ -649,40 +639,38 @@ pub fn EditSettings(
                     }
                 },
                 SettingsTab::TrustAndPath => rsx! {
-                    table {
-                        tbody {
-                            BoolRow {
-                                label: "Enforce trust anchor constraints (RFC 5937)",
-                                checked: m.enforce_trust_anchor_constraints.unwrap_or(false),
-                                overridden: m.enforce_trust_anchor_constraints.is_some(),
-                                onchange: move |v| model.write().enforce_trust_anchor_constraints = Some(v),
-                            }
-                            BoolRow {
-                                label: "Enforce trust anchor validity",
-                                checked: m.enforce_trust_anchor_validity.unwrap_or(true),
-                                overridden: m.enforce_trust_anchor_validity.is_some(),
-                                onchange: move |v| model.write().enforce_trust_anchor_validity = Some(v),
-                            }
-                            BoolRow {
-                                label: "Require trust anchor store membership",
-                                checked: m.require_ta_store.unwrap_or(true),
-                                overridden: m.require_ta_store.is_some(),
-                                onchange: move |v| model.write().require_ta_store = Some(v),
-                            }
-                            BoolRow {
-                                label: "Filter candidate paths while building",
-                                checked: m.use_validator_filter_when_building.unwrap_or(true),
-                                overridden: m.use_validator_filter_when_building.is_some(),
-                                onchange: move |v| model.write().use_validator_filter_when_building = Some(v),
-                            }
-                            NumberRow {
-                                label: "Initial path length constraint",
-                                value: m.initial_path_length_constraint.map(|v| v as u64),
-                                placeholder: "15",
-                                onchange: move |v: Option<u64>| {
-                                    model.write().initial_path_length_constraint = v.map(|v| v.min(255) as u8);
-                                },
-                            }
+                    div { class: "controls",
+                        BoolRow {
+                            label: "Enforce trust anchor constraints (RFC 5937)",
+                            checked: m.enforce_trust_anchor_constraints.unwrap_or(false),
+                            overridden: m.enforce_trust_anchor_constraints.is_some(),
+                            onchange: move |v| model.write().enforce_trust_anchor_constraints = Some(v),
+                        }
+                        BoolRow {
+                            label: "Enforce trust anchor validity",
+                            checked: m.enforce_trust_anchor_validity.unwrap_or(true),
+                            overridden: m.enforce_trust_anchor_validity.is_some(),
+                            onchange: move |v| model.write().enforce_trust_anchor_validity = Some(v),
+                        }
+                        BoolRow {
+                            label: "Require trust anchor store membership",
+                            checked: m.require_ta_store.unwrap_or(true),
+                            overridden: m.require_ta_store.is_some(),
+                            onchange: move |v| model.write().require_ta_store = Some(v),
+                        }
+                        BoolRow {
+                            label: "Filter candidate paths while building",
+                            checked: m.use_validator_filter_when_building.unwrap_or(true),
+                            overridden: m.use_validator_filter_when_building.is_some(),
+                            onchange: move |v| model.write().use_validator_filter_when_building = Some(v),
+                        }
+                        NumberRow {
+                            label: "Initial path length constraint",
+                            value: m.initial_path_length_constraint.map(|v| v as u64),
+                            placeholder: "15",
+                            onchange: move |v: Option<u64>| {
+                                model.write().initial_path_length_constraint = v.map(|v| v.min(255) as u8);
+                            },
                         }
                     }
                 },
@@ -696,36 +684,34 @@ pub fn EditSettings(
                         value: m.extended_key_usage.clone(),
                         onchange: move |v| model.write().extended_key_usage = v,
                     }
-                    table {
-                        tbody {
-                            BoolRow {
-                                label: "Enforce EKU across path",
-                                checked: m.extended_key_usage_path.unwrap_or(false),
-                                overridden: m.extended_key_usage_path.is_some(),
-                                onchange: move |v| model.write().extended_key_usage_path = Some(v),
-                            }
-                            BoolRow {
-                                label: "Forbid self-signed end entities",
-                                checked: m.forbid_self_signed_ee.unwrap_or(false),
-                                overridden: m.forbid_self_signed_ee.is_some(),
-                                onchange: move |v| model.write().forbid_self_signed_ee = Some(v),
-                            }
-                            BoolRow {
-                                label: "Enforce algorithm and key size constraints",
-                                checked: m.enforce_alg_and_key_size_constraints.unwrap_or(false),
-                                overridden: m.enforce_alg_and_key_size_constraints.is_some(),
-                                onchange: move |v| model.write().enforce_alg_and_key_size_constraints = Some(v),
-                            }
-                            TimeOfInterestRow {
-                                value: m.time_of_interest,
-                                onchange: move |v| model.write().time_of_interest = v,
-                            }
-                            BoolRow {
-                                label: "Ignore expired certificates when building",
-                                checked: m.ignore_expired.unwrap_or(false),
-                                overridden: m.ignore_expired.is_some(),
-                                onchange: move |v| model.write().ignore_expired = Some(v),
-                            }
+                    div { class: "controls",
+                        BoolRow {
+                            label: "Enforce EKU across path",
+                            checked: m.extended_key_usage_path.unwrap_or(false),
+                            overridden: m.extended_key_usage_path.is_some(),
+                            onchange: move |v| model.write().extended_key_usage_path = Some(v),
+                        }
+                        BoolRow {
+                            label: "Forbid self-signed end entities",
+                            checked: m.forbid_self_signed_ee.unwrap_or(false),
+                            overridden: m.forbid_self_signed_ee.is_some(),
+                            onchange: move |v| model.write().forbid_self_signed_ee = Some(v),
+                        }
+                        BoolRow {
+                            label: "Enforce algorithm and key size constraints",
+                            checked: m.enforce_alg_and_key_size_constraints.unwrap_or(false),
+                            overridden: m.enforce_alg_and_key_size_constraints.is_some(),
+                            onchange: move |v| model.write().enforce_alg_and_key_size_constraints = Some(v),
+                        }
+                        TimeOfInterestRow {
+                            value: m.time_of_interest,
+                            onchange: move |v| model.write().time_of_interest = v,
+                        }
+                        BoolRow {
+                            label: "Ignore expired certificates when building",
+                            checked: m.ignore_expired.unwrap_or(false),
+                            overridden: m.ignore_expired.is_some(),
+                            onchange: move |v| model.write().ignore_expired = Some(v),
                         }
                     }
                 },
@@ -791,65 +777,63 @@ pub fn EditSettings(
                     }
                     details { class: "advanced",
                         summary { "Advanced" }
-                        table {
-                            tbody {
-                                BoolRow {
-                                    label: "Check revocation status (master)",
-                                    checked: m.check_revocation_status
-                                        .unwrap_or(revocation_default.unwrap_or(true)),
-                                    overridden: m.check_revocation_status.is_some(),
-                                    // Only when this frontend's unset value disagrees with certval's,
-                                    // so the ordinary case still reads plainly as "default".
-                                    default_note: match revocation_default {
-                                        Some(false) => {
-                                            Some("default — off for this run; tick to check anyway")
-                                        }
-                                        _ => None,
-                                    },
-                                    onchange: move |v| model.write().check_revocation_status = Some(v),
-                                }
-                                BoolRow {
-                                    label: "Check CRLs",
-                                    checked: m.check_crls.unwrap_or(true),
-                                    overridden: m.check_crls.is_some(),
-                                    onchange: move |v| model.write().check_crls = Some(v),
-                                }
-                                BoolRow {
-                                    label: "Check OCSP from AIA",
-                                    checked: m.check_ocsp_from_aia.unwrap_or(true),
-                                    overridden: m.check_ocsp_from_aia.is_some(),
-                                    onchange: move |v| model.write().check_ocsp_from_aia = Some(v),
-                                }
-                                BoolRow {
-                                    label: "Fetch CRLs from HTTP CRL DPs",
-                                    checked: m.check_crldp_http.unwrap_or(true),
-                                    overridden: m.check_crldp_http.is_some(),
-                                    onchange: move |v| model.write().check_crldp_http = Some(v),
-                                }
-                                BoolRow {
-                                    label: "Fetch CRLs from LDAP CRL DPs (no LDAP support)",
-                                    checked: m.check_crldp_ldap.unwrap_or(false),
-                                    overridden: m.check_crldp_ldap.is_some(),
-                                    onchange: move |v| model.write().check_crldp_ldap = Some(v),
-                                }
-                                BoolRow {
-                                    label: "Allow stale CRLs within grace periods",
-                                    checked: m.crl_grace_periods_as_last_resort.unwrap_or(true),
-                                    overridden: m.crl_grace_periods_as_last_resort.is_some(),
-                                    onchange: move |v| model.write().crl_grace_periods_as_last_resort = Some(v),
-                                }
-                                NumberRow {
-                                    label: "Revocation max age (seconds, 0 disables)",
-                                    value: m.revocation_max_age_secs,
-                                    placeholder: "0",
-                                    onchange: move |v| model.write().revocation_max_age_secs = v,
-                                }
-                                NumberRow {
-                                    label: "CRL timeout (seconds)",
-                                    value: m.crl_timeout_secs,
-                                    placeholder: "60",
-                                    onchange: move |v| model.write().crl_timeout_secs = v,
-                                }
+                        div { class: "controls",
+                            BoolRow {
+                                label: "Check revocation status (master)",
+                                checked: m.check_revocation_status
+                                    .unwrap_or(revocation_default.unwrap_or(true)),
+                                overridden: m.check_revocation_status.is_some(),
+                                // Only when this frontend's unset value disagrees with certval's,
+                                // so the ordinary case still reads plainly as "default".
+                                default_note: match revocation_default {
+                                    Some(false) => {
+                                        Some("default — off for this run; tick to check anyway")
+                                    }
+                                    _ => None,
+                                },
+                                onchange: move |v| model.write().check_revocation_status = Some(v),
+                            }
+                            BoolRow {
+                                label: "Check CRLs",
+                                checked: m.check_crls.unwrap_or(true),
+                                overridden: m.check_crls.is_some(),
+                                onchange: move |v| model.write().check_crls = Some(v),
+                            }
+                            BoolRow {
+                                label: "Check OCSP from AIA",
+                                checked: m.check_ocsp_from_aia.unwrap_or(true),
+                                overridden: m.check_ocsp_from_aia.is_some(),
+                                onchange: move |v| model.write().check_ocsp_from_aia = Some(v),
+                            }
+                            BoolRow {
+                                label: "Fetch CRLs from HTTP CRL DPs",
+                                checked: m.check_crldp_http.unwrap_or(true),
+                                overridden: m.check_crldp_http.is_some(),
+                                onchange: move |v| model.write().check_crldp_http = Some(v),
+                            }
+                            BoolRow {
+                                label: "Fetch CRLs from LDAP CRL DPs (no LDAP support)",
+                                checked: m.check_crldp_ldap.unwrap_or(false),
+                                overridden: m.check_crldp_ldap.is_some(),
+                                onchange: move |v| model.write().check_crldp_ldap = Some(v),
+                            }
+                            BoolRow {
+                                label: "Allow stale CRLs within grace periods",
+                                checked: m.crl_grace_periods_as_last_resort.unwrap_or(true),
+                                overridden: m.crl_grace_periods_as_last_resort.is_some(),
+                                onchange: move |v| model.write().crl_grace_periods_as_last_resort = Some(v),
+                            }
+                            NumberRow {
+                                label: "Revocation max age (seconds, 0 disables)",
+                                value: m.revocation_max_age_secs,
+                                placeholder: "0",
+                                onchange: move |v| model.write().revocation_max_age_secs = v,
+                            }
+                            NumberRow {
+                                label: "CRL timeout (seconds)",
+                                value: m.crl_timeout_secs,
+                                placeholder: "60",
+                                onchange: move |v| model.write().crl_timeout_secs = v,
                             }
                         }
                     }
@@ -864,63 +848,59 @@ pub fn EditSettings(
                                 .to_string(),
                         }
                     }
-                    table {
-                        tbody {
-                            BoolRow {
-                                label: "Retrieve from HTTP AIA and SIA",
-                                checked: m.retrieve_from_aia_sia_http.unwrap_or(true),
-                                overridden: m.retrieve_from_aia_sia_http.is_some(),
-                                onchange: move |v| model.write().retrieve_from_aia_sia_http = Some(v),
-                            }
-                            BoolRow {
-                                label: "Retrieve from LDAP AIA and SIA (no LDAP support)",
-                                checked: m.retrieve_from_aia_sia_ldap.unwrap_or(false),
-                                overridden: m.retrieve_from_aia_sia_ldap.is_some(),
-                                onchange: move |v| model.write().retrieve_from_aia_sia_ldap = Some(v),
-                            }
-                            NumberRow {
-                                label: "Maximum AIA/SIA certificates",
-                                value: m.max_aia_sia_certs,
-                                placeholder: "2000",
-                                onchange: move |v| model.write().max_aia_sia_certs = v,
-                            }
+                    div { class: "controls",
+                        BoolRow {
+                            label: "Retrieve from HTTP AIA and SIA",
+                            checked: m.retrieve_from_aia_sia_http.unwrap_or(true),
+                            overridden: m.retrieve_from_aia_sia_http.is_some(),
+                            onchange: move |v| model.write().retrieve_from_aia_sia_http = Some(v),
+                        }
+                        BoolRow {
+                            label: "Retrieve from LDAP AIA and SIA (no LDAP support)",
+                            checked: m.retrieve_from_aia_sia_ldap.unwrap_or(false),
+                            overridden: m.retrieve_from_aia_sia_ldap.is_some(),
+                            onchange: move |v| model.write().retrieve_from_aia_sia_ldap = Some(v),
+                        }
+                        NumberRow {
+                            label: "Maximum AIA/SIA certificates",
+                            value: m.max_aia_sia_certs,
+                            placeholder: "2000",
+                            onchange: move |v| model.write().max_aia_sia_certs = v,
                         }
                     }
                 },
                 SettingsTab::Folders => rsx! {
-                    table {
-                        tbody {
-                            SettingTextRow {
-                                label: "Trust anchor folder",
-                                value: m.trust_anchor_folder.clone(),
-                                onchange: move |v| model.write().trust_anchor_folder = v,
-                            }
-                            SettingTextRow {
-                                label: "CA folder",
-                                value: m.certification_authority_folder.clone(),
-                                onchange: move |v| model.write().certification_authority_folder = v,
-                            }
-                            SettingTextRow {
-                                label: "Download folder",
-                                value: m.download_folder.clone(),
-                                onchange: move |v| model.write().download_folder = v,
-                            }
-                            SettingTextRow {
-                                label: "Last-modified map file",
-                                value: m.last_modified_map_file.clone(),
-                                onchange: move |v| model.write().last_modified_map_file = v,
-                            }
-                            SettingTextRow {
-                                label: "URI blocklist file",
-                                value: m.uri_blocklist_file.clone(),
-                                onchange: move |v| model.write().uri_blocklist_file = v,
-                            }
-                            BoolRow {
-                                label: "CBOR contains only trust anchors",
-                                checked: m.cbor_ta_store.unwrap_or(false),
-                                overridden: m.cbor_ta_store.is_some(),
-                                onchange: move |v| model.write().cbor_ta_store = Some(v),
-                            }
+                    div { class: "controls",
+                        SettingTextRow {
+                            label: "Trust anchor folder",
+                            value: m.trust_anchor_folder.clone(),
+                            onchange: move |v| model.write().trust_anchor_folder = v,
+                        }
+                        SettingTextRow {
+                            label: "CA folder",
+                            value: m.certification_authority_folder.clone(),
+                            onchange: move |v| model.write().certification_authority_folder = v,
+                        }
+                        SettingTextRow {
+                            label: "Download folder",
+                            value: m.download_folder.clone(),
+                            onchange: move |v| model.write().download_folder = v,
+                        }
+                        SettingTextRow {
+                            label: "Last-modified map file",
+                            value: m.last_modified_map_file.clone(),
+                            onchange: move |v| model.write().last_modified_map_file = v,
+                        }
+                        SettingTextRow {
+                            label: "URI blocklist file",
+                            value: m.uri_blocklist_file.clone(),
+                            onchange: move |v| model.write().uri_blocklist_file = v,
+                        }
+                        BoolRow {
+                            label: "CBOR contains only trust anchors",
+                            checked: m.cbor_ta_store.unwrap_or(false),
+                            overridden: m.cbor_ta_store.is_some(),
+                            onchange: move |v| model.write().cbor_ta_store = Some(v),
                         }
                     }
                 },

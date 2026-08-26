@@ -5093,6 +5093,7 @@ dependencies = [
  "log4rs",
  "pittv3-gui-lib",
  "pittv3-lib",
+ "pittv3-relay",
  "rfd",
  "serde_json",
  "tempfile",

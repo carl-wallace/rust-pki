@@ -25,6 +25,13 @@ pub fn arg_help(name: &str) -> &'static str {
             "is the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which ",
             "case the anchors from both are used.",
         ),
+        "ta" => concat!(
+            "Additional trust anchor input, repeatable. Each occurrence may name a folder, a ",
+            "certificate, a bundle holding several, or a CBOR-formatted trust anchor store; what it ",
+            "is comes from the path and then from the bytes, so the four need not be sorted into ",
+            "different arguments first. This is the plural form of --ta-folder and --ta-cbor, which ",
+            "still work and are used alongside it.",
+        ),
         "webpki-tas" => "Use trust anchors from webpki-roots crate (which are from Mozilla)",
         "cbor" => concat!(
             "Full path and filename of file to provide and/or receive CBOR-formatted representation of ",
@@ -57,6 +64,13 @@ pub fn arg_help(name: &str) -> &'static str {
             "folder also doubles as a place to store downloaded files when dynamic building is used and ",
             "download_folder is not specified.",
         ),
+        "ca" => concat!(
+            "Additional intermediate CA input, repeatable. Each occurrence may name a folder, a ",
+            "certificate, a bundle holding several, or a CBOR-formatted store, and all of them feed ",
+            "the one graph a run builds. This is the plural form of --ca-folder and --cbor for ",
+            "validation. It is not consulted when generating: --ca-folder names the folder generation ",
+            "reads, and --cbor the file it writes.",
+        ),
         "generate" => concat!(
             "Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and ",
             "map containing set of partial certification paths should be generated and saved to location ",
@@ -84,6 +98,12 @@ pub fn arg_help(name: &str) -> &'static str {
             "Full path folder to recursively traverse for binary DER-encoded certificates to validate. ",
             "Only files with .der, .crt or cert as file extension are processed.",
         ),
+        "ee" => concat!(
+            "Additional certificate to validate, repeatable. Each occurrence may name a single ",
+            "certificate or a folder to traverse for them. This is the plural form of ",
+            "--end-entity-file and --end-entity-folder, which still work and are validated alongside ",
+            "it.",
+        ),
         "results-folder" => concat!(
             "Full path and filename of folder to receive binary DER-encoded certificates from ",
             "certification paths. Folders will be created beneath this using a hash of the target ",
@@ -93,6 +113,14 @@ pub fn arg_help(name: &str) -> &'static str {
             "on this folder or its contents.",
         ),
         "settings" => "Full path and filename of JSON-formatted certification path validation settings.",
+        "rev" => concat!(
+            "Revocation artifact to staple into candidate certification paths, repeatable. Each ",
+            "occurrence may name a single artifact or a folder to traverse, and may hold either a ",
+            "CRL or an OCSP response \u{2014} the bytes decide, since an OCSP response has no settled ",
+            "file extension. CRLs are matched to path positions by issuer name, OCSP responses by ",
+            "the CertID each answers about. Unlike --crl-folder, which is an index that deletes ",
+            "CRLs not valid at the time of interest, artifacts named here are read and left alone.",
+        ),
         "crl-folder" => concat!(
             "Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed ",
             "before path validation begins. Only files with a .crl extension are processed. The indexed ",

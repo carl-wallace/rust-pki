@@ -80,7 +80,10 @@ pub struct CheckedUri {
 pub struct NetworkPolicy {
     /// URI schemes that may be retrieved.
     pub schemes: Vec<String>,
-    /// Ports that may be connected to.
+    /// Ports that may be connected to. An empty list permits any port, as with `allow_hosts`; a
+    /// non-empty list is exhaustive. A deployment that wants to narrow the destinations names the
+    /// ports it permits -- an empty list is how a caller that is not a public relay, such as a
+    /// desktop peek the user drives directly, says it has no port restriction to apply.
     pub ports: Vec<u16>,
     /// Hosts that may be retrieved from. An empty list permits any host that survives the
     /// remaining checks; a non-empty list is exhaustive.
@@ -153,7 +156,7 @@ impl NetworkPolicy {
             Some(p) => p,
             None => return Err(PolicyError::Port(0)),
         };
-        if !self.ports.contains(&port) {
+        if !self.ports.is_empty() && !self.ports.contains(&port) {
             return Err(PolicyError::Port(port));
         }
 
@@ -386,6 +389,42 @@ mod tests {
             policy.check_uri("not a uri"),
             Err(PolicyError::Malformed(_))
         ));
+    }
+
+    /// The two port semantics, which a caller picks between by whether it supplies a list.
+    ///
+    /// A public relay names its ports and the list is exhaustive; a caller with no port restriction
+    /// to apply supplies none. An empty list previously refused *every* port, because
+    /// `Vec::contains` is false for all of them -- which left the desktop peek, the one caller that
+    /// wants any port, unable to reach anything at all.
+    #[test]
+    fn an_empty_port_list_permits_any_port() {
+        let exhaustive = NetworkPolicy::default();
+        assert_eq!(exhaustive.ports, vec![80, 443]);
+        assert!(exhaustive.check_uri("https://ocsp.example.com/").is_ok());
+        assert_eq!(
+            exhaustive
+                .check_uri("https://ocsp.example.com:8443/")
+                .unwrap_err(),
+            PolicyError::Port(8443)
+        );
+
+        let unrestricted = NetworkPolicy {
+            ports: vec![],
+            ..NetworkPolicy::default()
+        };
+        assert!(unrestricted.check_uri("https://ocsp.example.com/").is_ok());
+        assert!(unrestricted
+            .check_uri("https://ocsp.example.com:8443/")
+            .is_ok());
+
+        // An empty port list is not a way around the rest of the policy.
+        assert_eq!(
+            unrestricted
+                .check_uri("ldap://directory.example.com/")
+                .unwrap_err(),
+            PolicyError::Scheme("ldap".to_string())
+        );
     }
 
     #[test]
