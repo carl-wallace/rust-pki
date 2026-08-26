@@ -814,4 +814,47 @@ mod tests {
         assert_eq!(rs2.get_last_modified(uri), Some(value.to_string()));
         assert_eq!(rs2.get_last_modified("http://example.test/other"), None);
     }
+
+    // One CRL, written twice: AmazonRootCA1.der.crl and AmazonRootCA1.pem.crl differ only in
+    // encoding, so indexing them side by side and demanding the same CrlInfo from each requires the
+    // PEM decode to be transparent rather than merely non-fatal. Every other CRL fixture in the
+    // repository is bare DER, which left PEM CRL support resting on a decoder that certificates
+    // exercised and CRLs did not: narrowing it would have stopped armored CRLs loading with nothing
+    // failing.
+    #[test]
+    fn a_pem_encoded_crl_indexes_as_its_der_counterpart() {
+        let fixtures = Path::new("tests/examples/pem_crl");
+        let der = fixtures.join("AmazonRootCA1.der.crl");
+        let pem = fixtures.join("AmazonRootCA1.pem.crl");
+
+        // The premise the rest of the test rests on, checked rather than taken on trust from how the
+        // pair was minted: regenerating one file and not the other then fails as the mismatched pair
+        // it is, instead of looking like a decoder fault.
+        assert_eq!(
+            get_file_as_byte_vec_pem(&pem).unwrap(),
+            fs::read(&der).unwrap()
+        );
+
+        // Indexed from a copy because indexing DELETES any CRL that is not valid at the time of
+        // interest, and this CRL expired in 2022. TimeOfInterest::disabled() skips the validity
+        // check, so nothing is pruned as written; the copy is what keeps the fixtures safe if that
+        // time of interest is ever changed.
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["AmazonRootCA1.der.crl", "AmazonRootCA1.pem.crl"] {
+            fs::copy(fixtures.join(name), dir.path().join(name)).unwrap();
+        }
+
+        let cs = CrlSourceFolders::new(dir.path().to_str().unwrap());
+        assert_eq!(2, cs.index_crls(TimeOfInterest::disabled()).unwrap());
+
+        let inner = cs.inner.read().unwrap();
+        let mut infos = inner.crl_info.clone();
+        assert_eq!(2, infos.len());
+        // The filename is the one field that legitimately differs between the two.
+        for info in infos.iter_mut() {
+            info.filename = None;
+        }
+        assert_eq!(infos[0], infos[1]);
+        assert!(infos[0].issuer_name.contains("Amazon Root CA 1"));
+    }
 }
