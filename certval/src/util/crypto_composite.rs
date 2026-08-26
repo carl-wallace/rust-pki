@@ -5,9 +5,9 @@
 use crate::crypto::{is_ecdsa, is_eddsa, is_rsa};
 use crate::util::pqc_oids::*;
 use crate::{
-    Error, PkiEnvironment, PKIXALG_ECDSA_WITH_SHA256, PKIXALG_ECDSA_WITH_SHA384,
-    PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1, PKIXALG_SECP521R1,
-    PKIXALG_SHA256_WITH_RSA_ENCRYPTION, PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
+    Error, PathValidationStatus, PkiEnvironment, PKIXALG_ECDSA_WITH_SHA256,
+    PKIXALG_ECDSA_WITH_SHA384, PKIXALG_ECDSA_WITH_SHA512, PKIXALG_SECP256R1, PKIXALG_SECP384R1,
+    PKIXALG_SECP521R1, PKIXALG_SHA256_WITH_RSA_ENCRYPTION, PKIXALG_SHA384_WITH_RSA_ENCRYPTION,
 };
 use alloc::{vec, vec::Vec};
 use const_oid::db::fips204::*;
@@ -249,9 +249,13 @@ fn split_sig(pqc_oid: ObjectIdentifier, composite: &[u8]) -> crate::Result<(&[u8
     };
     // split_at would panic if the composite is shorter than the expected ML-DSA component,
     // so bound-check the caller-supplied bytes and return an error instead.
+    // Not Unrecognized: the composite OID was matched, so this callback does handle the algorithm
+    // and the bytes are simply too short. Unrecognized would say the opposite -- that no provider
+    // handles this -- which sends the caller on to the other callbacks for nothing and reports a
+    // truncated signature as a gap in what this build can verify rather than as a bad signature.
     composite.split_at_checked(split_at).ok_or_else(|| {
         error!("composite signature too short to split at {split_at} for PQC OID {pqc_oid}");
-        Error::Unrecognized
+        Error::PathValidation(PathValidationStatus::EncodingError)
     })
 }
 
@@ -291,8 +295,9 @@ fn split_key(
     let (pqc_key, trad_key) = match composite.split_at_checked(split_at) {
         Some(parts) => parts,
         None => {
+            // Malformed input, not an unhandled algorithm -- see the note in split_sig.
             error!("composite key too short to split at {split_at} for PQC OID {pqc_oid}");
-            return Err(Error::Unrecognized);
+            return Err(Error::PathValidation(PathValidationStatus::EncodingError));
         }
     };
 

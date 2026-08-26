@@ -1,6 +1,6 @@
 //! Types related to collection of certification path processing statistics
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use certval::CertificationPathResults;
 
 use crate::report::{CertSummary, PathReport};
@@ -31,6 +31,20 @@ pub struct PathValidationStats {
     /// before the report is assembled. Cleared as soon as a path is found, so a diagnosis from an
     /// early pass of the dynamic-building loop does not survive a later pass that succeeds.
     pub no_paths_hints: Vec<String>,
+    /// Fingerprints of the certification paths already reported for this target, one per path, over
+    /// the trust anchor followed by the intermediates in order followed by the target.
+    ///
+    /// The dynamic-building loop validates a target once per pass against a pool that grows between
+    /// passes, and the counters and reports below accumulate across those passes rather than a later
+    /// pass replacing an earlier one. A path the builder offers on two passes would therefore be
+    /// reported twice, and was: a run against a peeked `www.microsoft.com` reported ten paths where
+    /// the browser, which has no such loop, reported five. Membership here is what makes a path
+    /// reported at most once however many passes surface it.
+    ///
+    /// The anchor is part of the fingerprint because two paths over the same intermediates but from
+    /// different anchors are genuinely different paths, and collapsing them would hide the
+    /// cross-certified routes that dynamic building exists to find.
+    pub reported_chains: BTreeSet<Vec<u8>>,
 }
 
 impl Default for PathValidationStats {
@@ -53,6 +67,7 @@ impl PathValidationStats {
             path_reports: vec![],
             target_summary: None,
             no_paths_hints: vec![],
+            reported_chains: BTreeSet::new(),
         }
     }
 }

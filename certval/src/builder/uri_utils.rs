@@ -19,7 +19,9 @@ cfg_if! {
     if #[cfg(feature = "remote")] {
         use crate::{Error, PkiEnvironment, Result};
         use crate::source::cert_source::CertFile;
-        use crate::util::pdv_utilities::{is_self_signed_with_buffer, valid_at_time};
+        use crate::util::pdv_utilities::{
+            is_self_signed_with_buffer, trim_to_outer_der_sequence, valid_at_time,
+        };
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
         use x509_cert::certificate::{CertificateInner,Raw};
@@ -192,8 +194,13 @@ fn save_cert(
                 return saved;
             }
 
+            // Store what the certificate actually is, not what arrived around it. A certificate
+            // read from a file reaches the pool through decode_pem_to_der, which ends in this same
+            // trim, so normalizing here keeps the two entry paths producing identical bytes for an
+            // identical certificate -- and CertFile equality, which the deduplication just below and
+            // the dynamic-building loop's "did the pool grow" test both rest on, is byte equality.
             let cf = CertFile {
-                bytes: bytes.to_vec(),
+                bytes: trim_to_outer_der_sequence(bytes.to_vec()),
                 filename: target.to_string(),
             };
             if !buffers.contains(&cf) {

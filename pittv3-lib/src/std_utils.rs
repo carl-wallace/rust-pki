@@ -5,7 +5,7 @@
 extern crate alloc;
 
 use alloc::string::String;
-use log::{error, info};
+use log::{debug, error, info};
 use std::{ffi::OsStr, fs, path::Path, time::Instant};
 use walkdir::WalkDir;
 
@@ -578,6 +578,24 @@ pub(crate) async fn validate_cert_file(
     .await
 }
 
+/// Identifies a certification path by its certificates: the trust anchor, then the intermediates in
+/// order, then the target, hashed together.
+///
+/// Order is part of the identity, so the same certificates arranged into a different chain hash
+/// differently, and the anchor is included so that two routes over identical intermediates from
+/// different anchors stay distinct.
+#[cfg(feature = "std")]
+fn chain_fingerprint(path: &CertificationPath) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(path.trust_anchor.encoded_ta.as_slice());
+    for ca in path.intermediates.iter() {
+        hasher.update(ca.as_bytes());
+    }
+    hasher.update(path.target.as_bytes());
+    hasher.finalize().to_vec()
+}
+
 /// `validate_cert_bytes` attempts to validate the certificate parsed from `target_bytes` using the
 /// resources available via the [`PkiEnvironment`]
 /// parameter and the settings available via
@@ -651,7 +669,30 @@ pub async fn validate_cert_bytes(
     // A path was found, so any diagnosis from an earlier pass of the dynamic-building loop is stale
     stats.no_paths_hints.clear();
 
+    // Counts the paths this call actually reports, which is what the totals and the result-folder
+    // indices must be keyed on. `paths.len()` is what the builder offered, and the two differ by
+    // however many the deduplication below suppresses -- reporting the builder's number is what made
+    // a run that recorded five paths announce ten.
+    let mut reported = 0usize;
+
     for (i, path) in paths.iter_mut().enumerate() {
+        // The dynamic-building loop calls back in once per pass, and the builder can offer a path an
+        // earlier pass already returned. Skip it before validating rather than after: a repeat costs
+        // a signature check and a revocation round trip, and reporting it a second time is what made
+        // one target's five paths read as ten.
+        //
+        // Logged at debug on every suppression on purpose. Deduplicating here is a backstop over
+        // whatever the builder's own `threshold` did, so silence would hide the builder handing back
+        // paths it was asked to withhold; a run that suppresses nothing says the threshold held.
+        let chain = chain_fingerprint(path);
+
+        if !stats.reported_chains.insert(chain) {
+            debug!(
+                "Suppressing a certification path already reported for {cert_filename} (offered again with threshold {threshold})"
+            );
+            continue;
+        }
+
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
@@ -670,6 +711,9 @@ pub async fn validate_cert_bytes(
             Err(e) => {
                 error!("Failed to enforce trust anchor constraints for {cert_filename} with {e:?}");
                 stats.invalid_paths_per_target += 1;
+                // Counted like any other reported path: it was found, judged and recorded as
+                // invalid, so leaving it out of the total would make the reports outnumber the paths.
+                reported += 1;
                 stats.path_reports.push(PathReport::from_path_results(
                     path,
                     &CertificationPathResults::new(),
@@ -698,10 +742,11 @@ pub async fn validate_cert_bytes(
             pe,
             &opts.results_folder,
             path,
-            stats.paths_per_target + i,
+            stats.paths_per_target + reported,
             Some(&cpr),
             Some(&path_cps),
         );
+        reported += 1;
         stats.path_reports.push(PathReport::from_path_results(
             path,
             &cpr,
@@ -745,7 +790,7 @@ pub async fn validate_cert_bytes(
             }
         }
     }
-    stats.paths_per_target += paths.len();
+    stats.paths_per_target += reported;
 
     let finish = Instant::now();
     let duration2 = finish - start2;
