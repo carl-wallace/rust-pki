@@ -33,12 +33,11 @@ use certval::{
 use certval::build_ocsp_request;
 use der::{Decode, Encode};
 use x509_cert::certificate::Raw;
-// Only the CertID comparison is generic over the profile, and that exists only with `revocation`.
-#[cfg(feature = "revocation")]
-use x509_cert::certificate::Profile;
 use x509_cert::crl::CertificateList;
+// Deciding which certificate a response answers about lives in pittv3-lib so the command line and
+// the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
 #[cfg(feature = "revocation")]
-use x509_ocsp::{BasicOcspResponse, CertId, OcspRequest, OcspResponse, OcspResponseStatus};
+use pittv3_lib::ocsp_match::{answered_cert_ids, answers_about, SHA1_CERT_ID_OID};
 
 use crate::validate::{certs_in, maybe_pem, PreparedValidation};
 
@@ -456,37 +455,6 @@ pub struct OcspStapleOutcome {
     pub notes: Vec<String>,
 }
 
-/// Reads the `CertID`s an OCSP response answers about, or says why it answers about none.
-///
-/// Split out from [`staple_uploaded_ocsp`] because it is the half that depends only on the bytes:
-/// everything it can reject, it rejects without a prepared environment or a path in sight.
-#[cfg(feature = "revocation")]
-fn answered_cert_ids(bytes: &[u8]) -> core::result::Result<Vec<CertId>, String> {
-    let response = OcspResponse::from_der(bytes).map_err(|_| "Not an OCSP response".to_string())?;
-    if response.response_status != OcspResponseStatus::Successful {
-        return Err(format!(
-            "OCSP response reports {:?} rather than an answer",
-            response.response_status
-        ));
-    }
-    let rb = response
-        .response_bytes
-        .as_ref()
-        .ok_or_else(|| "OCSP response carries no response bytes".to_string())?;
-    let basic = BasicOcspResponse::from_der(rb.response.as_bytes())
-        .map_err(|_| "OCSP response body could not be read".to_string())?;
-    let ids: Vec<CertId> = basic
-        .tbs_response_data
-        .responses
-        .iter()
-        .map(|single| single.cert_id.clone())
-        .collect();
-    match ids.is_empty() {
-        true => Err("OCSP response answers about no certificate".to_string()),
-        false => Ok(ids),
-    }
-}
-
 /// Files an OCSP response the user supplied by hand against whichever certificates it answers
 /// about, so a no-network run can determine revocation status from it.
 ///
@@ -567,27 +535,15 @@ pub fn staple_uploaded_ocsp(
                 if filed.contains(&key) {
                     continue;
                 }
-                // Decoded under the `Raw` profile because that is the profile certval encoded it
-                // with: `build_ocsp_request` takes the serial straight off a `CertificateInner<Raw>`,
-                // and `SerialNumber<Rfc5280>` enforces a length constraint `Raw` does not. Reading
-                // it back as Rfc5280 would therefore fail for a certificate whose serial is longer
-                // than the RFC permits -- and, because the failure was a `continue`, would drop that
-                // certificate from consideration without a word. Round-tripping under the profile it
-                // was written with cannot fail that way.
-                let Ok(request) = build_ocsp_request(cert.decoded(), issuer, None) else {
-                    unaskable += 1;
-                    continue;
-                };
-                let Ok(request) = OcspRequest::<Raw>::from_der(&request) else {
-                    unaskable += 1;
-                    continue;
-                };
-                let Some(asked) = request.tbs_request.request_list.first() else {
+                // `answers_about` builds the request certval would have sent and compares its
+                // CertID; `None` means no request could be built for this certificate, which is a
+                // different outcome from a mismatch and is counted as such.
+                let Some(matched) = answers_about(&answered, cert, issuer) else {
                     unaskable += 1;
                     continue;
                 };
                 examined += 1;
-                if !answered.iter().any(|id| same_cert_id(id, &asked.req_cert)) {
+                if !matched {
                     continue;
                 }
                 sink.insert(key.clone(), response.to_vec());
@@ -611,7 +567,7 @@ pub fn staple_uploaded_ocsp(
             .iter()
             .map(|id| id.hash_algorithm.oid.to_string())
             .collect::<Vec<String>>();
-        let non_sha1 = algs.iter().any(|oid| oid != SHA1_OID);
+        let non_sha1 = algs.iter().any(|oid| oid != SHA1_CERT_ID_OID);
         let mut note = format!(
             "OCSP response answers about serial(s) {about}; examined {examined} certificate(s) on \
              the paths built for the loaded certificates and none is that certificate."
@@ -625,7 +581,7 @@ pub fn staple_uploaded_ocsp(
         if non_sha1 {
             note.push_str(&format!(
                 " The response uses CertID hash {}, while the comparison is made with SHA-1 \
-                 ({SHA1_OID}), so it cannot be matched this way.",
+                 ({SHA1_CERT_ID_OID}), so it cannot be matched this way.",
                 algs.join(", ")
             ));
         }
@@ -639,10 +595,6 @@ pub fn staple_uploaded_ocsp(
     }
     out
 }
-
-/// The OID certval builds a `CertID` with, named so a miss can report a response that used another.
-#[cfg(feature = "revocation")]
-const SHA1_OID: &str = "1.3.14.3.2.26";
 
 /// Lowercase hex, for naming a serial in a note.
 #[cfg(feature = "revocation")]
@@ -661,13 +613,6 @@ fn hex(bytes: &[u8]) -> String {
 /// read as `Rfc5280`, the request certval built is read back as `Raw`. The comparison is on the
 /// encoded values, which are profile-independent, so this is a widening rather than a loosening.
 #[cfg(feature = "revocation")]
-fn same_cert_id<A: Profile, B: Profile>(a: &CertId<A>, b: &CertId<B>) -> bool {
-    a.hash_algorithm.oid == b.hash_algorithm.oid
-        && a.issuer_name_hash.as_bytes() == b.issuer_name_hash.as_bytes()
-        && a.issuer_key_hash.as_bytes() == b.issuer_key_hash.as_bytes()
-        && a.serial_number.as_bytes() == b.serial_number.as_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

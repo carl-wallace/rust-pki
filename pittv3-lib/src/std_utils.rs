@@ -89,18 +89,168 @@ pub fn cbor_cert_store(path: &str) -> Option<CertSource> {
     CertSource::new_from_cbor(&bytes).ok()
 }
 
-/// Builds the trust anchor store named by the `ta_cbor` and `ta_folder` arguments, or `None` when
-/// neither was given.
+/// What a set of CA inputs contributed, reported by [`load_ca_inputs`].
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CaInputs {
+    /// Certificates the inputs added to the source.
+    pub certs: usize,
+    /// Whether the source now holds a graph that already describes every path through it, so
+    /// searching for partial paths would recompute an answer that was serialized precisely so it
+    /// would not have to be. True only when a single CBOR store carrying partial paths was the
+    /// whole of the CA input.
+    pub paths_adopted: bool,
+}
+
+/// Adds the CA certificates named by `paths` to `cert_source`, in the order given.
 ///
-/// The two inputs are the trust anchor counterparts of `cbor` and `ca_folder`, and are combined
-/// into one [`TaSource`] rather than being registered as two sources: certval refuses to anchor on
-/// a key identifier that resolves to different keys across the sources registered on an
-/// environment, so a store and a folder that share an anchor must be deduplicated before either is
-/// added. [`CertVector::push`] does that.
+/// Each entry may name a folder of intermediates, a single certificate, a bundle holding several
+/// (a fullchain PEM, a `.p7c`), or a CBOR certificate store; which it is comes from the path and
+/// then, when a file yielded nothing, from the bytes. The CA-side counterpart of
+/// [`push_trust_anchor_input`], and interchangeable for the same reason: the material arrives in
+/// whatever shape its source published it in.
+///
+/// A CBOR store is treated one of two ways, and the distinction is what makes several inputs safe
+/// to combine. When it is the only thing that contributed it is adopted as it stands, partial paths
+/// included — that is what the `cbor` argument does with the same bytes. When anything else
+/// contributed, before it or after it, only its certificates are taken: a path spanning two sources
+/// exists only once they are searched together, so paths computed against the store alone would not
+/// describe the union, and the caller is told to search by a false `paths_adopted`.
+///
+/// An input that cannot be read is logged and skipped rather than failing the run, since the others
+/// may still carry what a path needs.
+#[cfg(feature = "std")]
+pub fn load_ca_inputs<'a>(
+    pe: &PkiEnvironment,
+    paths: impl IntoIterator<Item = &'a str>,
+    cert_source: &mut CertSource,
+    time_of_interest: TimeOfInterest,
+) -> CaInputs {
+    let start = cert_source.len();
+    // Length at the moment a store was adopted whole. Anything added afterwards means its paths no
+    // longer span the source, which is why this is compared rather than merely set.
+    let mut adopted_at = None;
+
+    for path in paths {
+        let before = cert_source.len();
+        let r = if Path::new(path).is_file() {
+            cert_file_to_vec(pe, path, cert_source, time_of_interest)
+        } else {
+            cert_folder_to_vec(pe, path, cert_source, time_of_interest)
+        };
+        if let Err(e) = r {
+            error!("Failed to read certificates from {path}: {e:?}");
+        }
+
+        let from_cbor_store = cert_source.len() == before && Path::new(path).is_file();
+        if from_cbor_store {
+            if 0 == before {
+                if let Some(store) = cbor_cert_store(path) {
+                    // Only claim the graph if the store actually carries paths. A store exported
+                    // without them is certificates in a different container, and adopting it would
+                    // otherwise leave the run with no graph at all.
+                    if store.num_partial_paths() > 0 {
+                        adopted_at = Some(store.len());
+                    }
+                    *cert_source = store;
+                }
+            } else if let Some(certs) = cbor_cert_store_certs(path) {
+                for cf in certs {
+                    cert_source.push(cf);
+                }
+            }
+        }
+
+        let contributed = cert_source.len() - before;
+        if from_cbor_store && adopted_at.is_some() {
+            info!(
+                "Read {contributed} certificate(s) and {} partial path(s) from the CBOR store at {path}",
+                cert_source.num_partial_paths()
+            );
+        } else if from_cbor_store {
+            info!("Read {contributed} certificate(s) from the CBOR store at {path}");
+        } else {
+            info!("Read {contributed} certificate(s) from {path}");
+        }
+    }
+
+    CaInputs {
+        certs: cert_source.len() - start,
+        paths_adopted: adopted_at == Some(cert_source.len()),
+    }
+}
+
+/// Adds the trust anchors named by one input to `ta_store`, returning how many it contributed.
+///
+/// `path` may name a folder of anchors, a single certificate, a bundle holding several, or a CBOR
+/// trust anchor store; which it is comes from the path and then, when a file yielded nothing, from
+/// the bytes. That the four are interchangeable is the point: a trust anchor set is assembled from
+/// whatever the material happened to arrive as, and the caller should not have to sort it first.
+///
+/// A single anchor is as reasonable a thing to nominate as a folder of them — the material often
+/// arrives as one file — so naming a file is not a lesser case, and the alternative would be asking
+/// the user to build a directory around one certificate.
+///
+/// An input that yields no anchor is not an error (see `TA_FOLDER_EMPTY` in `options_std`), only a
+/// zero return. An input that cannot be *read*, though, is: `Err` carries a message naming it, and
+/// the caller is expected to stop. That is the opposite of what [`load_ca_inputs`] does with the
+/// same mistake, on purpose. A missing intermediate costs a path, which the run reports as a path
+/// it did not find; a missing anchor costs trust, and a run against fewer anchors than the user
+/// named does not look wrong — it looks like an answer.
+#[cfg(feature = "std")]
+pub fn push_trust_anchor_input(
+    pe: &PkiEnvironment,
+    path: &str,
+    ta_store: &mut TaSource,
+    time_of_interest: TimeOfInterest,
+) -> core::result::Result<usize, String> {
+    let named_file = Path::new(path).is_file();
+    let before = ta_store.len();
+    let r = if named_file {
+        ta_file_to_vec(pe, path, ta_store, time_of_interest)
+    } else {
+        ta_folder_to_vec(pe, path, ta_store, time_of_interest)
+    };
+    if let Err(e) = r {
+        return Err(format!(
+            "failed to load trust anchors from {path} with error {e:?}"
+        ));
+    }
+
+    // A file that yielded no anchor may be a CBOR trust anchor store rather than certificate
+    // material — the shape this app's own store export writes. Read it as one and merge it in,
+    // which is what `ta_cbor` does with the same bytes.
+    if named_file && ta_store.len() == before {
+        if let Some(anchors) = cbor_ta_store_anchors(path) {
+            for cf in anchors {
+                ta_store.push(cf);
+            }
+            info!(
+                "Read {} trust anchor(s) from the CBOR store at {path}",
+                ta_store.len() - before
+            );
+        }
+    }
+
+    Ok(ta_store.len() - before)
+}
+
+/// Builds the trust anchor store named by the `ta_cbor`, `ta_folder` and `ta_inputs` arguments, or
+/// `None` when none of them was given.
+///
+/// Those inputs are the trust anchor counterparts of `cbor`, `ca_folder` and `ca_inputs`, and are
+/// combined into one [`TaSource`] rather than being registered as several sources: certval refuses
+/// to anchor on a key identifier that resolves to different keys across the sources registered on
+/// an environment, so inputs that share an anchor must be deduplicated before any of them is added.
+/// [`CertVector::push`] does that.
+///
+/// `ta_folder` and `ta_inputs` are read by [`push_trust_anchor_input`], so each of their entries may
+/// be a folder, a certificate, a bundle or a CBOR store; `ta_cbor` is the one input that must be a
+/// CBOR store, and says so when it is not.
 ///
 /// The returned source is initialized and ready to hand to
 /// [`PkiEnvironment::add_trust_anchor_source`]. `Err` carries a message naming the input that
-/// failed, for a caller to surface; a folder that yields no anchor is not an error here (see
+/// failed, for a caller to surface; an input that yields no anchor is not an error here (see
 /// `TA_FOLDER_EMPTY` in `options_std`), only an empty result.
 #[cfg(feature = "std")]
 pub fn load_trust_anchors(
@@ -108,7 +258,7 @@ pub fn load_trust_anchors(
     args: &Pittv3Args,
     time_of_interest: TimeOfInterest,
 ) -> core::result::Result<Option<TaSource>, String> {
-    if args.ta_cbor.is_none() && args.ta_folder.is_none() {
+    if args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty() {
         return Ok(None);
     }
 
@@ -137,39 +287,11 @@ pub fn load_trust_anchors(
         }
     }
 
-    if let Some(ta_folder) = &args.ta_folder {
-        // A single anchor is as reasonable a thing to nominate as a folder of them — the material
-        // often arrives as one file — so the argument takes either and the path itself says which.
-        // Naming a file is not a lesser case: an anchor store assembled from several sources is
-        // reached by naming them, and the alternative is asking the user to build a directory
-        // around one certificate.
-        let named_file = Path::new(ta_folder).is_file();
-        let before = ta_store.len();
-        let r = if named_file {
-            ta_file_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
-        } else {
-            ta_folder_to_vec(pe, ta_folder, &mut ta_store, time_of_interest)
-        };
-        if let Err(e) = r {
-            return Err(format!(
-                "failed to load trust anchors from {ta_folder} with error {e:?}"
-            ));
-        }
-
-        // A file that yielded no anchor may be a CBOR trust anchor store rather than certificate
-        // material — the shape this app's own store export writes. Read it as one and merge it in,
-        // which is what `ta_cbor` does with the same bytes.
-        if named_file && ta_store.len() == before {
-            if let Some(anchors) = cbor_ta_store_anchors(ta_folder) {
-                for cf in anchors {
-                    ta_store.push(cf);
-                }
-                info!(
-                    "Read {} trust anchor(s) from the CBOR store at {ta_folder}",
-                    ta_store.len() - before
-                );
-            }
-        }
+    // The singular argument first, then the pool, so a log read top to bottom follows the order the
+    // inputs were named in. Nothing depends on the order otherwise: `push` deduplicates, so an
+    // anchor appearing in two inputs is carried once whichever was read first.
+    for path in args.ta_folder.iter().chain(args.ta_inputs.iter()) {
+        push_trust_anchor_input(pe, path, &mut ta_store, time_of_interest)?;
     }
 
     if let Err(e) = ta_store.initialize() {
@@ -199,6 +321,10 @@ pub struct ValidateOpts {
     /// DER-encoded CRLs to staple into candidate certification paths prior to validation (matched
     /// to path positions by issuer name), enabling single-artifact revocation input
     pub crls: Vec<Vec<u8>>,
+    /// DER-encoded OCSP responses to staple into candidate certification paths prior to validation,
+    /// matched to path positions by the `CertID` each response answers about rather than by issuer
+    /// name: a response names one certificate, where a CRL covers all of an issuer's
+    pub ocsp_responses: Vec<Vec<u8>>,
 }
 
 impl ValidateOpts {
@@ -212,7 +338,10 @@ impl ValidateOpts {
             dynamic_build: false,
             results_folder: args.results_folder.clone(),
             error_folder: args.error_folder.clone(),
+            // Left empty here and filled by the caller, because reading them is I/O and this is
+            // called once per target: `options_std` reads the pool once and assigns it.
             crls: vec![],
+            ocsp_responses: vec![],
         }
     }
 }
@@ -229,6 +358,144 @@ fn dynamic_build_state(opts: &ValidateOpts) -> Option<bool> {
 #[cfg(not(feature = "remote"))]
 fn dynamic_build_state(_opts: &ValidateOpts) -> Option<bool> {
     None
+}
+
+/// Reads every DER- or PEM-encoded revocation artifact named by `paths` into memory, sorted into
+/// the CRLs and the OCSP responses by what the bytes turn out to be.
+///
+/// Each entry may name a single artifact or a folder to traverse. Nothing is filtered by extension,
+/// deliberately: an OCSP response has no settled one — tools write `.ors`, `.der`, `.resp`, or
+/// nothing at all — so a name-based filter is a guess that silently drops the file it failed to
+/// anticipate. Deciding from the bytes cannot fail that way, and a file that is neither is reported
+/// and skipped.
+///
+/// This is read-only. It is the non-destructive counterpart of `crl_folder`, which is an *index*:
+/// that folder is written as well as read, and indexing deletes any CRL not valid at the time of
+/// interest. An artifact named here is used and left alone.
+#[cfg(all(feature = "std", feature = "revocation"))]
+pub fn load_revocation_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> RevocationInputs {
+    use x509_cert::certificate::Raw;
+    use x509_cert::crl::CertificateList;
+
+    let mut out = RevocationInputs::default();
+    for path in paths {
+        let p = Path::new(path);
+        let files: Vec<std::path::PathBuf> = if p.is_file() {
+            vec![p.to_path_buf()]
+        } else {
+            WalkDir::new(p)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| !e.file_type().is_dir())
+                .map(|e| e.path().to_path_buf())
+                .collect()
+        };
+        if files.is_empty() {
+            error!("No revocation artifact was read from {path}");
+            continue;
+        }
+        for file in files {
+            let name = file.to_string_lossy().to_string();
+            // PEM-aware, because a CRL is commonly distributed that way and the CRL folder reader
+            // accepts both; an OCSP response is always DER, and passing DER through is a no-op.
+            let Ok(bytes) = get_file_as_byte_vec_pem(&file) else {
+                error!("Failed to read {name}");
+                continue;
+            };
+            if CertificateList::<Raw>::from_der(bytes.as_slice()).is_ok() {
+                out.crls.push(bytes);
+                continue;
+            }
+            match crate::ocsp_match::answered_cert_ids(bytes.as_slice()) {
+                Ok(_) => out.ocsp_responses.push(bytes),
+                // The OCSP reader's message is the more specific of the two -- it distinguishes
+                // "not an OCSP response" from a response that reports an error status or answers
+                // about nothing -- so it is the one worth showing.
+                Err(why) => error!("Ignoring {name}: it is not a CRL, and {why}"),
+            }
+        }
+    }
+    out
+}
+
+/// The revocation artifacts a run was handed, split by kind. Two vectors rather than one because
+/// they are stapled by different rules: a CRL matches on issuer name, an OCSP response on the
+/// `CertID` it answers about.
+#[cfg(all(feature = "std", feature = "revocation"))]
+#[derive(Clone, Debug, Default)]
+pub struct RevocationInputs {
+    /// DER-encoded CRLs.
+    pub crls: Vec<Vec<u8>>,
+    /// DER-encoded OCSP responses.
+    pub ocsp_responses: Vec<Vec<u8>>,
+}
+
+#[cfg(all(feature = "std", feature = "revocation"))]
+impl RevocationInputs {
+    /// Whether nothing at all was read.
+    pub fn is_empty(&self) -> bool {
+        self.crls.is_empty() && self.ocsp_responses.is_empty()
+    }
+}
+
+/// `staple_ocsp_responses` staples caller-provided DER-encoded OCSP responses into a candidate
+/// certification path, filing each response against the positions whose certificate it answers
+/// about. Positions that already carry a response are left alone.
+///
+/// The response says what it is about, so the caller does not have to: an OCSP `CertID` names the
+/// certificate and its issuer, and [`ocsp_match`](crate::ocsp_match) builds the request certval
+/// would have sent for each position and compares. One response can therefore answer for more than
+/// one position, and a response that answers for none is stapled nowhere — the path is validated as
+/// though it had not been supplied, which is what the caller would want: the response is about some
+/// other certificate.
+#[cfg(all(feature = "std", feature = "revocation"))]
+fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
+    use crate::ocsp_match::{answered_cert_ids, answers_about};
+
+    if responses.is_empty() {
+        return;
+    }
+
+    let mut parsed = vec![];
+    for bytes in responses {
+        match answered_cert_ids(bytes.as_slice()) {
+            Ok(ids) => parsed.push((ids, bytes)),
+            Err(why) => error!("Failed to read a provided OCSP response for stapling: {why}"),
+        }
+    }
+
+    let num_certs = path.intermediates.len() + 1;
+    let mut staples: Vec<(usize, Vec<u8>)> = vec![];
+    for pos in 0..num_certs {
+        if path
+            .ocsp_responses
+            .get(pos)
+            .map(|r| r.is_some())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        // Position 0 is issued by the trust anchor; every other position by the one before it.
+        let cert = if pos < path.intermediates.len() {
+            &path.intermediates[pos]
+        } else {
+            &path.target
+        };
+        let issuer: &dyn SubjectNameAndKey = if 0 == pos {
+            &path.trust_anchor.decoded_ta
+        } else {
+            path.intermediates[pos - 1].as_ref()
+        };
+        for (ids, bytes) in &parsed {
+            if answers_about(ids, cert, issuer) == Some(true) {
+                staples.push((pos, (*bytes).clone()));
+                break;
+            }
+        }
+    }
+    for (pos, bytes) in staples {
+        path.ocsp_responses[pos] = Some(bytes);
+    }
 }
 
 /// `staple_crls` staples caller-provided DER-encoded CRLs into a candidate certification path by
@@ -283,27 +550,28 @@ fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
 /// available via [`CertificationPathSettings`](certval::CertificationPathSettings)
 /// parameter.
 ///
-/// This is a thin file-reading wrapper around [`validate_cert_bytes`]. The `args` parameter
-/// contributes `results_folder`, `validate_all`, `error_folder` and `dynamic_build`.
+/// This is a thin file-reading wrapper around [`validate_cert_bytes`]. `opts` is taken already
+/// built rather than derived from [`Pittv3Args`] here, because it now carries the revocation
+/// artifacts a run was handed and reading those per target would read the same files once for every
+/// certificate validated.
 #[cfg(feature = "std")]
 pub(crate) async fn validate_cert_file(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
     cert_filename: &str,
     stats: &mut PathValidationStats,
-    args: &Pittv3Args,
+    opts: &ValidateOpts,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) -> Result<()> {
     let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
-    let opts = ValidateOpts::from_args(args);
     validate_cert_bytes(
         pe,
         cps,
         cert_filename,
         target_bytes.as_slice(),
         stats,
-        &opts,
+        opts,
         fresh_uris,
         threshold,
     )
@@ -391,6 +659,8 @@ pub async fn validate_cert_bytes(
         );
         let path_start = Instant::now();
         staple_crls(path, &opts.crls);
+        #[cfg(feature = "revocation")]
+        staple_ocsp_responses(path, &opts.ocsp_responses);
         let mut cpr = CertificationPathResults::new();
 
         // fold RFC 5914 trust anchor constraints into the settings per RFC 5937; this is a no-op
@@ -606,7 +876,7 @@ pub async fn validate_cert_folder(
     cps: &CertificationPathSettings,
     certs_folder: &str,
     stats: &mut PathValidationStatsGroup,
-    args: &Pittv3Args,
+    opts: &ValidateOpts,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) {
@@ -617,7 +887,7 @@ pub async fn validate_cert_folder(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != certs_folder {
-                            validate_cert_folder(pe, cps, s, stats, args, fresh_uris, threshold)
+                            validate_cert_folder(pe, cps, s, stats, opts, fresh_uris, threshold)
                                 .await;
                         }
                     } else {
@@ -635,7 +905,7 @@ pub async fn validate_cert_folder(
                         if do_validate {
                             stats.init_for_target(filename);
                             if let Some(stats_for_file) = stats.get_mut(filename) {
-                                if args.validate_all
+                                if opts.validate_all
                                     || (stats_for_file.valid_paths_per_target == 0
                                         && !stats_for_file.target_is_revoked)
                                 {
@@ -645,7 +915,7 @@ pub async fn validate_cert_folder(
                                         cps,
                                         filename,
                                         stats_for_file,
-                                        args,
+                                        opts,
                                         fresh_uris,
                                         threshold,
                                     )
@@ -666,8 +936,12 @@ pub async fn validate_cert_folder(
 }
 
 /// generate takes a Pittv3Args structure containing at least `cbor`, `ca-folder` and a source of
-/// trust anchors (`ta-cbor`, `ta-folder` or `webpki-tas`) and then calls
+/// trust anchors (`ta-cbor`, `ta-folder`, `ta-inputs` or `webpki-tas`) and then calls
 /// [`build_graph`].
+///
+/// The CA material is the one folder `ca-folder` names, because [`build_graph`] reads it from a
+/// single certification-authority-folder setting; the `ca-inputs` pool is a validation-time input
+/// and is not consulted here.
 /// Where dynamic building is in effect, the `download-folder` option will be used if present (else
 /// ca-folder is used as destination for downloaded artifacts).
 #[cfg(feature = "std")]
@@ -678,19 +952,20 @@ pub async fn generate(
 ) {
     let start = Instant::now();
 
-    let no_anchors = args.ta_cbor.is_none() && args.ta_folder.is_none();
+    let no_anchors =
+        args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty();
 
     // Reported through the log rather than stdout: a GUI captures the log and never sees a
     // println, so a run that stopped here looked to a user like a run that did nothing at all.
     #[cfg(feature = "webpki")]
     if args.cbor.is_none() || (no_anchors && !args.webpki_tas) || args.ca_folder.is_none() {
-        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or webpki-tas");
+        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder, ta-inputs or webpki-tas. Generation reads its CA certificates from the one folder ca-folder names, so a ca-inputs pool does not satisfy it.");
         return;
     }
 
     #[cfg(not(feature = "webpki"))]
     if args.cbor.is_none() || no_anchors || args.ca_folder.is_none() {
-        error!("The cbor and ca-folder options are required when generate is specified plus either ta-cbor or ta-folder");
+        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or ta-inputs. Generation reads its CA certificates from the one folder ca-folder names, so a ca-inputs pool does not satisfy it.");
         return;
     }
 

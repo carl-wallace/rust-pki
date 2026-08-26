@@ -1,10 +1,11 @@
-//! Integration tests for `load_trust_anchors`, which resolves the `ta_cbor` and `ta_folder`
-//! arguments into one trust anchor source.
+//! Integration tests for `load_trust_anchors`, which resolves the `ta_cbor`, `ta_folder` and
+//! `ta_inputs` arguments into one trust anchor source.
 //!
-//! The interesting property is that the two inputs are interchangeable and combinable: a store
-//! generated from a folder must anchor exactly what the folder does, and supplying both must not
-//! produce a doubled anchor set — certval refuses to anchor on a key identifier that resolves to
-//! more than one key, so a duplicated anchor would disable itself.
+//! The interesting property is that the inputs are interchangeable and combinable: a store
+//! generated from a folder must anchor exactly what the folder does, a pool entry must resolve to
+//! the same anchors whichever shape it names, and supplying several must not produce a doubled
+//! anchor set — certval refuses to anchor on a key identifier that resolves to more than one key,
+//! so a duplicated anchor would disable itself.
 #![cfg(feature = "std")]
 
 use std::fs;
@@ -48,6 +49,15 @@ fn write_ta_store(dir: &Path) -> String {
     let path = dir.join("ta.cbor");
     fs::write(&path, cbor).unwrap();
     path.to_str().unwrap().to_string()
+}
+
+/// Arguments naming only the pool, which is the shape a frontend that has dropped the singular
+/// arguments produces.
+fn args_with_inputs(ta_inputs: &[String]) -> Pittv3Args {
+    Pittv3Args {
+        ta_inputs: ta_inputs.to_vec(),
+        ..Default::default()
+    }
 }
 
 fn load(args: &Pittv3Args) -> Option<TaSource> {
@@ -110,4 +120,70 @@ fn an_unreadable_store_is_an_error_rather_than_an_empty_set() {
     fs::write(&junk, b"not a cbor store").unwrap();
     let args = args_with(Some(junk.to_str().unwrap().to_string()), None);
     assert!(load_trust_anchors(&PkiEnvironment::default(), &args, toi()).is_err());
+}
+
+/// A pool entry naming a folder anchors what `ta_folder` naming the same folder anchors. The pool
+/// is the plural form of that argument, not a second route with its own reading rules.
+#[test]
+fn a_pool_entry_naming_a_folder_matches_ta_folder() {
+    let from_pool = load(&args_with_inputs(&[ta_folder()])).expect("a pool entry was supplied");
+    let from_folder = load(&args_with(None, Some(ta_folder()))).expect("a folder was supplied");
+
+    assert!(!from_pool.is_empty(), "the fixture folder holds an anchor");
+    assert_eq!(anchor_der(&from_pool), anchor_der(&from_folder));
+}
+
+/// A pool entry may name a CBOR store, which is what folds the `ta_cbor` argument into the same
+/// list: the entry is read as certificate material first and as a store once that yields nothing.
+#[test]
+fn a_pool_entry_may_be_a_cbor_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let ta_cbor = write_ta_store(dir.path());
+
+    let from_pool = load(&args_with_inputs(&[ta_cbor])).expect("a pool entry was supplied");
+    let from_folder = load(&args_with(None, Some(ta_folder()))).expect("a folder was supplied");
+
+    assert_eq!(anchor_der(&from_pool), anchor_der(&from_folder));
+}
+
+/// Every input is read, and an anchor arriving by more than one of them is still carried once.
+/// Both halves matter: the first is what makes a pool worth having, and the second is what keeps a
+/// pool from disabling the anchors it was given.
+#[test]
+fn the_pool_and_the_singular_arguments_are_combined_without_duplication() {
+    let dir = tempfile::tempdir().unwrap();
+    let ta_cbor = write_ta_store(dir.path());
+
+    let combined = load(&Pittv3Args {
+        ta_cbor: Some(ta_cbor.clone()),
+        ta_folder: Some(ta_folder()),
+        ta_inputs: vec![ta_folder(), ta_cbor],
+        ..Default::default()
+    })
+    .expect("inputs were supplied");
+    let alone = load(&args_with(None, Some(ta_folder()))).expect("a folder was supplied");
+
+    assert_eq!(
+        anchor_der(&combined),
+        anchor_der(&alone),
+        "the same anchor arriving four ways must be carried once"
+    );
+}
+
+/// An unreadable pool entry fails the load rather than being skipped, and it fails it even though
+/// the entries beside it were fine. Anchors are the one input where carrying on quietly is the
+/// dangerous outcome: a run short one anchor does not report an error, it reports a different
+/// answer, and the user has no way to tell it apart from the answer they asked for. The CA pool
+/// makes the opposite choice for the opposite reason — see `load_ca_inputs`.
+#[test]
+fn an_unreadable_pool_entry_fails_the_load() {
+    let args = args_with_inputs(&["does/not/exist".to_string(), ta_folder()]);
+    // `TaSource` is not Debug, so the Ok side cannot be unwrapped into an assertion message.
+    match load_trust_anchors(&PkiEnvironment::default(), &args, toi()) {
+        Err(e) => assert!(
+            e.contains("does/not/exist"),
+            "the message names the input: {e}"
+        ),
+        Ok(_) => panic!("an entry naming nothing readable is an error"),
+    }
 }

@@ -18,7 +18,7 @@ use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
-use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, TextRow, TimeRow};
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, PathListRow, TextRow, TimeRow};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
@@ -33,6 +33,7 @@ use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 
+use crate::peek;
 use crate::stores;
 
 /// Presents a folder selection dialog and assigns the selection, if any, to `sig`
@@ -158,6 +159,84 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
     }
 }
 
+/// Appends `picked` to the pool in `sig`, dropping paths already in it. Selecting the same folder
+/// twice is a slip rather than an instruction to read it twice, and a duplicate entry would show as
+/// a second row the user then has to notice and remove.
+fn extend_pool(mut sig: Signal<Vec<String>>, picked: Vec<String>) {
+    let mut pool = sig.write();
+    for path in picked {
+        if !pool.contains(&path) {
+            pool.push(path);
+        }
+    }
+}
+
+/// Presents a multi-select dialog accepting files and folders together and appends what was chosen
+/// to the pool in `sig`. macOS only, as with [`pick_file_or_folder_into`]: `rfd` implements the
+/// combined dialog for that platform alone.
+#[cfg(target_os = "macos")]
+async fn pick_files_or_folders_into(sig: Signal<Vec<String>>) {
+    let picked = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_files_or_folders()
+        .await;
+    if let Some(picked) = picked {
+        extend_pool(
+            sig,
+            picked
+                .iter()
+                .map(|f| f.path().to_string_lossy().to_string())
+                .collect(),
+        );
+    }
+}
+
+/// Presents a multi-select folder dialog and appends the chosen folders to the pool in `sig`.
+#[cfg(not(target_os = "macos"))]
+async fn pick_folders_into(sig: Signal<Vec<String>>) {
+    let picked = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_folders()
+        .await;
+    if let Some(picked) = picked {
+        extend_pool(
+            sig,
+            picked
+                .iter()
+                .map(|f| f.path().to_string_lossy().to_string())
+                .collect(),
+        );
+    }
+}
+
+/// Presents a multi-select file dialog and appends the chosen files to the pool in `sig`.
+///
+/// `extensions` names the kinds worth suggesting; as with [`pick_file_into`] a permissive filter
+/// sits beside it, because a named filter is enforced on some platforms and would then make a file
+/// it failed to anticipate unselectable rather than merely unsuggested.
+#[cfg(not(target_os = "macos"))]
+async fn pick_files_into(
+    sig: Signal<Vec<String>>,
+    filter_name: &'static str,
+    extensions: &'static [&'static str],
+) {
+    let picked = AsyncFileDialog::new()
+        .add_filter(filter_name, extensions)
+        .add_filter("All Files", &["*"])
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .pick_files()
+        .await;
+    if let Some(picked) = picked {
+        extend_pool(
+            sig,
+            picked
+                .iter()
+                .map(|f| f.path().to_string_lossy().to_string())
+                .collect(),
+        );
+    }
+}
+
 /// Presents a file selection dialog limited to files of the indicated type and assigns the
 /// selection, if any, to `sig`
 async fn pick_file_into(
@@ -217,6 +296,31 @@ fn path_or_none(sig: Signal<String>) -> Option<String> {
     string_or_none(sig).map(|s| expand_tilde(&s))
 }
 
+/// Returns the entries of a pool signal as the arguments carry them: tilde expanded as with
+/// [`path_or_none`], and blank rows dropped, so an empty entry left over from a form saved by an
+/// older build never reaches a run as an input naming nothing.
+fn pool(sig: Signal<Vec<String>>) -> Vec<String> {
+    sig()
+        .iter()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| expand_tilde(s.trim()))
+        .collect()
+}
+
+/// Drops repeats from a pool, keeping the first occurrence, so a pool assembled from the singular
+/// arguments a run saved before pools existed does not list the same path twice. `--ca-folder` and
+/// a `--ca` entry naming that same folder is the ordinary way this happens, and the merge below
+/// folds both into one list.
+fn dedup_pool(v: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(v.len());
+    for p in v {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
 /// Returns the value of `sig` as a usize, or None if the value is empty or cannot be parsed
 fn usize_or_none(sig: Signal<String>) -> Option<usize> {
     match string_or_none(sig) {
@@ -248,7 +352,7 @@ fn FolderRow(
     }
 }
 
-/// Table row for an input that accepts either a folder of certificates or a single certificate
+/// Row for an input that accepts either a folder of certificates or a single certificate
 /// file, which is what the trust anchor and CA inputs take.
 ///
 /// macOS can offer both in one dialog, so there the `...` button does; every other platform has to
@@ -293,6 +397,60 @@ fn PathRow(
     };
 }
 
+/// Row for a pool of inputs that may each be a file or a folder — the trust anchor, CA and
+/// end entity lists on the Validate view, and the revocation artifacts beside them.
+///
+/// Thin wrapper over the shared [`PathListRow`], supplying the native pickers. The platform split
+/// is [`PathRow`]'s: macOS offers files and folders in one dialog, so one Add button does both;
+/// everywhere else the two dialogs are separate and so are the buttons. Either way a typed path of
+/// either kind works, because the run decides from the path rather than from which button produced
+/// it.
+#[component]
+fn PoolRow(
+    label: String,
+    name: String,
+    sig: Signal<Vec<String>>,
+    filter_name: &'static str,
+    extensions: &'static [&'static str],
+    #[props(default)] title: String,
+    #[props(default)] hint: String,
+) -> Element {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (filter_name, extensions);
+        return rsx! {
+            PathListRow {
+                label,
+                name,
+                sig,
+                title,
+                hint,
+                on_add: move |_| {
+                    spawn(pick_files_or_folders_into(sig));
+                },
+            }
+        };
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    return rsx! {
+        PathListRow {
+            label,
+            name,
+            sig,
+            title,
+            hint,
+            on_add: move |_| {
+                spawn(pick_files_into(sig, filter_name, extensions));
+            },
+            on_add_alt: move |_| {
+                spawn(pick_folders_into(sig));
+            },
+            alt_label: "Folders\u{2026}",
+        }
+    };
+}
+
 /// Extensions offered when picking a certificate file as a trust anchor or CA input. Both fan a
 /// file out into every certificate it holds, so this is the bundle list. Only the platforms that
 /// need a separate file dialog filter by extension; the combined macOS dialog does not, since a
@@ -300,7 +458,19 @@ fn PathRow(
 #[cfg(not(target_os = "macos"))]
 const CERT_EXTENSIONS: &[&str] = TA_BUNDLE_EXTENSIONS;
 
-/// Table row with a labeled text input and a file selection dialog limited to files of the
+/// Extensions suggested for the trust anchor and CA pools: the bundle list plus the CBOR stores
+/// this app itself exports, which those pools read as readily as they read a certificate.
+const TA_POOL_EXTENSIONS: &[&str] = &[
+    "der", "crt", "cer", "p7c", "p7b", "pem", "ta", "cbor", "pki",
+];
+
+/// Extensions suggested for the revocation pool. Only a suggestion, and a thin one: `.crl` is
+/// conventional but nothing requires it, and an OCSP response has no settled extension at all —
+/// which is why a permissive filter sits beside this one and why the contents, not the name,
+/// decide what an artifact is.
+const REV_POOL_EXTENSIONS: &[&str] = &["crl", "ocspResp", "ors", "resp", "der"];
+
+/// Row with a labeled text input and a file selection dialog limited to files of the
 /// indicated type. Thin wrapper over the shared [`BrowseRow`], as with [`FolderRow`].
 #[component]
 fn FileRow(
@@ -395,30 +565,27 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
                 p { class: "hint",
                     "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. An issuer, supplied or auto-discovered, adds CRL signature verification and OCSP checks."
                 }
-                table {
-                    tbody {
-                        FileRow {
-                            label: "Target certificate",
-                            name: "uri-target",
-                            sig: s_target,
-                            filter_name: "Certificate File",
-                            extensions: SINGLE_CERT_EXTENSIONS,
-                        }
-                        FileRow {
-                            label: "Issuer certificate (optional)",
-                            name: "uri-issuer",
-                            sig: s_issuer,
-                            filter_name: "Certificate File",
-                            extensions: SINGLE_CERT_EXTENSIONS,
-                        }
-                        tr {
-                            CheckboxCell {
-                                label: "Attempt auto-discovery if issuer not specified",
-                                name: "uri-auto",
-                                sig: s_auto,
-                            }
-                            td { class: "grow" }
-                        }
+                div { class: "controls",
+                    FileRow {
+                        label: "Target certificate",
+                        name: "uri-target",
+                        sig: s_target,
+                        filter_name: "Certificate File",
+                        extensions: SINGLE_CERT_EXTENSIONS,
+                    }
+                    FileRow {
+                        label: "Issuer certificate (optional)",
+                        name: "uri-issuer",
+                        sig: s_issuer,
+                        filter_name: "Certificate File",
+                        extensions: SINGLE_CERT_EXTENSIONS,
+                    }
+                    div { class: "field check-group",
+                        CheckboxCell {
+                                                    label: "Attempt auto-discovery if issuer not specified",
+                                                    name: "uri-auto",
+                                                    sig: s_auto,
+                                                }
                     }
                 }
                 div { class: "modal-actions",
@@ -495,10 +662,11 @@ const VIEWS: &[(View, &str)] = &[
 fn StoreRow(sig: Signal<usize>, status: Signal<String>) -> Element {
     let mut sig = sig;
     rsx! {
-        tr {
-            td { label { r#for: "store", "Trust Store: " } }
-            td { class: "grow",
-                select {
+        div { class: "label-cell",
+            label { r#for: "store", "Trust anchor / CA store: " }
+        }
+        div { class: "field",
+            select {
                     id: "store",
                     name: "store",
                     onchange: move |ev| {
@@ -516,24 +684,21 @@ fn StoreRow(sig: Signal<usize>, status: Signal<String>) -> Element {
                         selected: sig() == stores::CUSTOM,
                         "{stores::CUSTOM_LABEL}"
                     }
-                    for (i, s) in stores::STORES.iter().enumerate() {
-                        option { value: "{i + 1}", selected: sig() == i + 1, "{s.label}" }
-                    }
+                for (i, s) in stores::STORES.iter().enumerate() {
+                    option { value: "{i + 1}", selected: sig() == i + 1, "{s.label}" }
                 }
             }
             // Offered for a built-in store alone: a custom selection is already files on disk, so
             // there would be nothing to write that the user does not have, and webpki's anchors
             // are built during a run rather than held here.
-            td { class: "nowrap",
-                if sig() != stores::CUSTOM && !stores::is_webpki(sig()) {
-                    button {
-                        r#type: "button",
-                        title: "Write this store's trust anchors and CBOR stores into a folder",
-                        onclick: move |_| {
-                            spawn(export_store_into(sig(), status));
-                        },
-                        "Export..."
-                    }
+            if sig() != stores::CUSTOM && !stores::is_webpki(sig()) {
+                button {
+                    r#type: "button",
+                    title: "Write this store's trust anchors and CBOR stores into a folder",
+                    onclick: move |_| {
+                        spawn(export_store_into(sig(), status));
+                    },
+                    "Export..."
                 }
             }
         }
@@ -549,27 +714,7 @@ fn StoreStatusRow(status: Signal<String>) -> Element {
         return rsx! {};
     }
     rsx! {
-        tr {
-            td { }
-            td { class: "grow",
-                div { class: "hint", "{status}" }
-            }
-            td { }
-        }
-    }
-}
-
-/// Heading for a run of rows within a fieldset, spanning the full width.
-///
-/// For what the rows have in common and the fields cannot each restate — that everything below is
-/// *additional* to a store already supplying trust material, say. Stating that per field, or worse
-/// per store, is the thing this exists to avoid.
-#[component]
-fn SubgroupRow(title: String) -> Element {
-    rsx! {
-        tr { class: "subgroup",
-            td { class: "subgroup", colspan: "3", "{title}" }
-        }
+        span { class: "hint", "{status}" }
     }
 }
 
@@ -590,28 +735,24 @@ fn StoreHint(selection: usize) -> Element {
     };
     let has_ca = stores::has_ca_store(selection);
     rsx! {
-        tr {
-            td { }
-            td { class: "grow",
-                // A block rather than a span: `.hint` carries a left padding, and on an inline box
-                // that indents the first line alone, leaving the wrapped lines hanging to its left.
-                div { class: "hint",
-                    if has_ca {
-                        "Trust anchors and intermediate CAs from {store.pki}. "
-                    } else {
-                        "Trust anchors from {store.pki}. Supply intermediates below or turn on dynamic build. "
-                    }
-                    "{store.note}"
-                }
+        span { class: "hint",
+            if has_ca {
+                "Trust anchors and intermediate CAs from {store.pki}. "
+            } else {
+                "Trust anchors from {store.pki}. Supply intermediates below or turn on dynamic build. "
             }
-            td { }
+            "{store.note}"
         }
     }
 }
 
-/// Run button shown at the foot of each action view
+/// Action shown at the foot of each view, named for what it will do.
+///
+/// It said "Run Command(s)" everywhere, which named the command line the view assembles rather than
+/// the thing the view is for; the plural belonged to a form that stood in for several invocations.
+/// Each caller now supplies the sentence, as the browser frontend does.
 #[component]
-fn RunButton(running: bool, onrun: EventHandler<()>) -> Element {
+fn RunButton(running: bool, onrun: EventHandler<()>, label: String) -> Element {
     rsx! {
         div { style: "text-align:center",
             button {
@@ -622,7 +763,7 @@ fn RunButton(running: bool, onrun: EventHandler<()>) -> Element {
                 if running {
                     "Running…"
                 } else {
-                    "Run Command(s)"
+                    "{label}"
                 }
             }
         }
@@ -648,6 +789,41 @@ pub(crate) fn App() -> Element {
         }
     };
 
+    // The four input pools the Validate view edits. Seeded from the saved arguments, and — for the
+    // trust anchor and CA pools — from the singular arguments a run saved before the pools existed,
+    // so a form filled in by an older build comes back as the same inputs rather than as an empty
+    // list. The store selection is the exception: it writes the cache paths it materialized into
+    // `ta_cbor`/`cbor`, and folding those into a pool the user can edit would invite editing a file
+    // the next run overwrites, which is what `saved_or_empty` already guards.
+    let s_ta_inputs = use_signal(|| {
+        let mut v = sa.ta_inputs.clone();
+        if !from_store {
+            v.extend(sa.ta_cbor.clone().filter(|p| !p.is_empty()));
+        }
+        v.extend(sa.ta_folder.clone().filter(|p| !p.is_empty()));
+        dedup_pool(v)
+    });
+    let s_ca_inputs = use_signal(|| {
+        let mut v = sa.ca_inputs.clone();
+        if !from_store {
+            v.extend(sa.cbor.clone().filter(|p| !p.is_empty()));
+        }
+        v.extend(sa.ca_folder.clone().filter(|p| !p.is_empty()));
+        dedup_pool(v)
+    });
+    let s_ee_inputs = use_signal(|| {
+        let mut v = sa.ee_inputs.clone();
+        v.extend(sa.end_entity_file.clone().filter(|p| !p.is_empty()));
+        v.extend(sa.end_entity_folder.clone().filter(|p| !p.is_empty()));
+        dedup_pool(v)
+    });
+    let s_rev_inputs = use_signal(|| sa.rev_inputs.clone());
+    // Not persisted with the arguments: a host is the way a target was *obtained*, and what the run
+    // validates is the file that came back. Restoring the host would suggest the next run re-asks.
+    let mut s_peek_host = use_signal(String::new);
+    let mut s_peek_status = use_signal(String::new);
+    let mut s_peeking = use_signal(|| false);
+
     let s_ta_folder = use_signal(|| sa.ta_folder.clone().unwrap_or_default());
     let s_cbor = use_signal(|| saved_or_empty(&sa.cbor));
     let s_store = use_signal(|| saved_store);
@@ -668,8 +844,6 @@ pub(crate) fn App() -> Element {
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_validate_self_signed = use_signal(|| sa.validate_self_signed);
     let s_dynamic_build = use_signal(|| sa.dynamic_build);
-    let s_end_entity_file = use_signal(|| sa.end_entity_file.clone().unwrap_or_default());
-    let s_end_entity_folder = use_signal(|| sa.end_entity_folder.clone().unwrap_or_default());
     let s_results_folder = use_signal(|| sa.results_folder.clone().unwrap_or_default());
     // Effective settings file. Saved args win; otherwise the default in ~/.pittv3 so the app always
     // has settings, matching the browser frontend where localStorage always answers. The file need
@@ -729,6 +903,11 @@ pub(crate) fn App() -> Element {
         Ok(Pittv3Args {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
+            // The Validate view's pools. Passed alongside the singular arguments rather than
+            // instead of them, because those still have rows on Generate, Cleanup and Diagnostics
+            // and are the same arguments; an input named twice is carried once, since `push`
+            // deduplicates on both the anchor and the certificate side.
+            ta_inputs: pool(s_ta_inputs),
             // Set by the store selector alone. As a checkbox this could be combined with any other
             // anchor set, which is the two-TaSource case load_trust_anchors merges its own inputs
             // to avoid; a single-select control cannot express it.
@@ -741,17 +920,23 @@ pub(crate) fn App() -> Element {
             error_folder: path_or_none(s_error_folder),
             download_folder: path_or_none(s_download_folder),
             ca_folder: path_or_none(s_ca_folder),
+            ca_inputs: pool(s_ca_inputs),
             generate: s_generate(),
             chase_aia_and_sia: s_chase_aia_and_sia(),
             cbor_ta_store: s_cbor_ta_store(),
             validate_all: s_validate_all(),
             validate_self_signed: s_validate_self_signed(),
             dynamic_build: s_dynamic_build(),
-            end_entity_file: path_or_none(s_end_entity_file),
-            end_entity_folder: path_or_none(s_end_entity_folder),
+            // No singular counterpart: unlike the trust anchor and CA arguments these had rows on
+            // the Validate view alone, so the pool replaced them outright rather than joining them.
+            // Sending both would validate a target named in each of them twice.
+            end_entity_file: None,
+            end_entity_folder: None,
+            ee_inputs: pool(s_ee_inputs),
             results_folder: path_or_none(s_results_folder),
             settings: path_or_none(s_settings),
             crl_folder: path_or_none(s_crl_folder),
+            rev_inputs: pool(s_rev_inputs),
             keep_crl_entries_in_memory: false,
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
@@ -769,6 +954,37 @@ pub(crate) fn App() -> Element {
             issuer: None,
             no_auto_discover: false,
         })
+    };
+
+    // Takes what a host presents and files it across the pools it belongs in. Spawned rather than
+    // awaited so the window stays live during a handshake against a host that is slow to answer.
+    let mut take_presented = move |_: ()| {
+        if s_peeking() {
+            return;
+        }
+        let host = s_peek_host().trim().to_string();
+        if host.is_empty() {
+            return;
+        }
+        s_peeking.set(true);
+        s_peek_status.set(format!("Asking {host} for its certificates..."));
+        spawn(async move {
+            match peek::take_presented_certificates(&host).await {
+                Ok(peeked) => {
+                    s_peek_status.set(peeked.summary());
+                    extend_pool(s_ee_inputs, vec![peeked.end_entity]);
+                    extend_pool(s_ca_inputs, peeked.chain);
+                    if let Some(response) = peeked.stapled_ocsp {
+                        extend_pool(s_rev_inputs, vec![response]);
+                    }
+                }
+                Err(msg) => {
+                    error!("{msg}");
+                    s_peek_status.set(msg);
+                }
+            }
+            s_peeking.set(false);
+        });
     };
 
     let run_command = move |_: ()| {
@@ -908,155 +1124,201 @@ pub(crate) fn App() -> Element {
             on_select: move |i: usize| s_view.set(VIEWS[i].0),
             {
                 match s_view() {
-                    View::Validate => rsx! {
-                        // Two boxes rather than one: the first is the PKI a run is judged against —
-                        // certval's own PkiEnvironment, anchors and intermediates and revocation
-                        // material — and the second is what is judged and how. "Validation" named
-                        // the view rather than either of them.
-                        fieldset {
-                            legend { "PKI Environment" }
-                            table {
-                                tbody {
+                    View::Validate => {
+                        // Named for what the run will do, and counting what it will judge -- the
+                        // same filter the arguments apply, so the number on the button is the
+                        // number of targets, not the number of rows in the pool.
+                        let targets = pool(s_ee_inputs).len();
+                        let validate_label = match targets {
+                            0 => "Validate using the current store and settings".to_string(),
+                            1 => "Validate 1 certificate using the current store and settings"
+                                .to_string(),
+                            n => format!(
+                                "Validate {n} certificates using the current store and settings"
+                            ),
+                        };
+                        rsx! {
+                            // Peer boxes rather than a nesting, matching the wasm frontend: the store,
+                            // the material that supplements it, the revocation artifacts, the targets
+                            // and the run's own settings are five things a run needs, not one inside
+                            // another. The store had been unboxed content at the head of a "PKI
+                            // Environment" group, which read as though the panels below belonged to it.
+                            div { class: "panel",
+                                div { class: "controls",
                                     StoreRow { sig: s_store, status: s_store_export }
                                     StoreHint { selection: s_store() }
                                     StoreStatusRow { status: s_store_export }
-                                    // "Additional" only when a store is supplying material to add
-                                    // to: for a custom selection these fields are the trust
-                                    // material, not a supplement to it.
-                                    if s_store() == stores::CUSTOM {
-                                        SubgroupRow { title: "Trust Anchors and Certification Authorities" }
-                                    } else {
-                                        SubgroupRow { title: "Additional Trust Anchors and Certification Authorities" }
-                                    }
-                                    PathRow {
-                                        label: "TA Folder or File",
-                                        name: "ta-folder",
-                                        sig: s_ta_folder,
-                                    }
-                                    // Shown only for a custom selection: a built-in store is itself
-                                    // a trust anchor CBOR, and the run writes its path here.
-                                    if s_store() == stores::CUSTOM {
-                                        FileRow {
-                                            label: "TA CBOR",
-                                            name: "ta-cbor",
-                                            sig: s_ta_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                            extensions: ["cbor", "pki", "ta"].as_slice(),
-                                        }
-                                    }
-                                    if !stores::has_ca_store(s_store()) {
-                                        FileRow {
-                                            label: "CA CBOR",
-                                            name: "cbor",
-                                            sig: s_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized PKI",
-                                            extensions: ["cbor", "pki"].as_slice(),
-                                        }
-                                    }
-                                    // Intermediates as loose files, the counterpart of the CA CBOR
-                                    // row: a run reads them into the graph it builds, so no store
-                                    // has to be generated first. Shown whatever the store
-                                    // selection, unlike CA CBOR, because a folder augments a
-                                    // store's certificates rather than being displaced by them —
-                                    // and hidden only while dynamic build is on, which reveals the
-                                    // same field below as the folder fetched certificates are
-                                    // written to.
-                                    if !s_dynamic_build() {
-                                        PathRow {
-                                            label: "CA Folder or File",
-                                            name: "ca-folder",
-                                            sig: s_ca_folder,
-                                        }
-                                    }
-                                    SubgroupRow { title: "Revocation" }
-                                    FolderRow { label: "CRL Folder", name: "crl-folder", sig: s_crl_folder }
                                 }
                             }
-                        }
-                        fieldset {
-                            legend { "Target and Settings" }
-                            table {
-                                tbody {
-                                    FileRow {
-                                        label: "End Entity File",
-                                        name: "end-entity-file",
-                                        sig: s_end_entity_file,
+                            // Supplementary material, collapsed: a store selection above is a
+                            // complete environment on its own, so these open the form only for
+                            // the runs that add to it. Open by default for a custom selection,
+                            // where they are not supplementary but the whole of the trust
+                            // material and an empty panel would hide the fields a run needs.
+                            details { class: "panel", open: s_store() == stores::CUSTOM,
+                                summary {
+                                    if s_store() == stores::CUSTOM {
+                                        "Trust anchors and certification authorities"
+                                    } else {
+                                        "Additional trust anchors and certification authorities"
+                                    }
+                                }
+                                div { class: "controls",
+                                    // One list per kind rather than a box per shape. A trust
+                                    // anchor set is assembled from whatever the material arrived
+                                    // as, and every shape the old rows took apart — a folder, a
+                                    // certificate, a bundle, a CBOR store — is decided from the
+                                    // path and then from the bytes, so sorting them into separate
+                                    // arguments was work the run can do instead.
+                                    PoolRow {
+                                        label: "Trust Anchors",
+                                        name: "ta",
+                                        sig: s_ta_inputs,
+                                        filter_name: "Trust anchor, bundle or CBOR store",
+                                        extensions: TA_POOL_EXTENSIONS,
+                                        hint: "Folders, certificates, PEM or PKCS#7 bundles, or a CBOR trust anchor store.",
+                                    }
+                                    // Shown whatever dynamic build is set to. This pool is `--ca`,
+                                    // which `load_ca_inputs` folds into the graph on the first pass
+                                    // regardless; the row that changes role under dynamic build is the
+                                    // singular `--ca-folder` in the run settings, which then doubles as
+                                    // the place fetched certificates are written. Hiding this one with
+                                    // that one cost a working input its control.
+                                    PoolRow {
+                                        label: "Intermediate CA Certificates",
+                                        name: "ca",
+                                        sig: s_ca_inputs,
+                                        filter_name: "CA certificate, bundle or CBOR store",
+                                        extensions: TA_POOL_EXTENSIONS,
+                                        hint: "Folders, certificates, bundles, or a CBOR store. A store is used with its precomputed paths when it is the only entry.",
+                                    }
+                                }
+                            }
+                            // Revocation material is optional in the same way, and a run that
+                            // supplies none is the common one.
+                            details { class: "panel",
+                                summary { "Revocation data (CRLs and OCSP responses)" }
+                                div { class: "controls",
+                                    // Read-only, unlike the CRL folder below it, which is an index:
+                                    // that folder is written as well as read, and indexing deletes
+                                    // any CRL not valid at the time of interest.
+                                    PoolRow {
+                                        label: "CRLs and OCSP Responses",
+                                        name: "rev",
+                                        sig: s_rev_inputs,
+                                        filter_name: "CRL or OCSP response",
+                                        extensions: REV_POOL_EXTENSIONS,
+                                        hint: "Artifacts to judge this path against, used and left alone. What each one is comes from its contents, not its name.",
+                                    }
+                                    FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
+                                }
+                            }
+                            fieldset {
+                                legend { "End Entity Certificate" }
+                                div { class: "controls",
+                                    PoolRow {
+                                        label: "End Entity Certificates",
+                                        name: "ee",
+                                        sig: s_ee_inputs,
                                         filter_name: "Certificate File",
                                         extensions: SINGLE_CERT_EXTENSIONS,
+                                        hint: "Certificates to validate, or folders to traverse for them.",
                                     }
-                                    FolderRow { label: "End Entity Folder", name: "end-entity-folder", sig: s_end_entity_folder }
-                                    tr {
-                                        td { label { r#for: "settings", "Settings: " } }
-                                        td { class: "grow",
-                                            input {
-                                                r#type: "text",
-                                                name: "settings",
-                                                value: "{s_settings}",
-                                                oninput: move |ev| s_settings.set(ev.value()),
-                                            }
+                                    // A host is another way of naming a target, so it sits with the
+                                    // list it fills rather than on a tool of its own. What it takes
+                                    // is distributed across three pools — the server's certificate
+                                    // to validate, what came with it to build paths from, a stapled
+                                    // response to judge by — which is why the row reports where the
+                                    // files went instead of leaving the user to find them.
+                                    // The full explanation is the label's tooltip rather than a hint on
+                                    // the page: it describes a control the user has already decided to
+                                    // use by the time it matters, and on the page it was a paragraph
+                                    // standing between two fields.
+                                    div {
+                                        title: "Complete a TLS handshake with a host and keep what it sent: the host's own \
+                                                certificate joins the end entity list, anything sent with it joins the CA \
+                                                certificates, and a stapled OCSP response is kept as revocation data. \
+                                                Nothing is requested over the connection. Making the handshake does not \
+                                                judge the certificate \u{2014} that is what Validate is for.",
+                                        class: "visible label-cell",
+                                        label { r#for: "peek-host", "From a TLS Server: " }
+                                    }
+                                    div { class: "field",
+                                        input {
+                                            r#type: "text",
+                                            name: "peek-host",
+                                            placeholder: "example.com or example.com:8443",
+                                            value: "{s_peek_host}",
+                                            oninput: move |ev| s_peek_host.set(ev.value()),
                                         }
-                                        td { class: "nowrap",
-                                            button {
-                                                r#type: "button",
-                                                onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
-                                                "..."
-                                            }
-                                            button {
-                                                r#type: "button",
-                                                disabled: s_settings().is_empty(),
-                                                onclick: move |_| {
-                                                    let dom = VirtualDom::new_with_props(
-                                                        EditSettingsWindow,
-                                                        EditSettingsWindowProps { path: s_settings() },
-                                                    );
-                                                    window.new_window(dom, Default::default());
-                                                },
-                                                "Edit"
-                                            }
+                                        button {
+                                            r#type: "button",
+                                            disabled: s_peeking() || s_peek_host().trim().is_empty(),
+                                            onclick: move |_| take_presented(()),
+                                            "Get certificates"
                                         }
                                     }
-                                    // A run honors this file, so name it rather than leaving the
-                                    // user to infer it from a path field they never filled in.
-                                    tr {
-                                        td { }
-                                        td { class: "grow",
-                                            // Block, for the reason given on StoreHint: an inline
-                                            // .hint indents its first line only. Both lines here
-                                            // are short enough not to wrap today.
-                                            div { class: "hint",
-                                                if s_settings().is_empty() {
-                                                    "This run will use certval defaults."
-                                                } else {
-                                                    "This run will use the settings above."
-                                                }
-                                            }
-                                        }
-                                        td { }
+                                    if !s_peek_status().is_empty() {
+                                        span { class: "hint", "{s_peek_status}" }
                                     }
                                 }
                             }
-                            table {
-                                tbody {
+                            // How a run behaves, as against what it judges: the settings file it
+                            // honors, the time it judges against, and the switches that change how
+                            // paths are built. A peer of the boxes above, not a tail on the targets.
+                            div { class: "panel",
+                                div { class: "controls",
+                                    div { class: "label-cell",
+                                        label { r#for: "settings", "Settings: " }
+                                    }
+                                    div { class: "field",
+                                        input {
+                                            r#type: "text",
+                                            name: "settings",
+                                            value: "{s_settings}",
+                                            oninput: move |ev| s_settings.set(ev.value()),
+                                        }
+                                        button {
+                                            r#type: "button",
+                                            onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
+                                            "..."
+                                        }
+                                        button {
+                                            r#type: "button",
+                                            disabled: s_settings().is_empty(),
+                                            onclick: move |_| {
+                                                let dom = VirtualDom::new_with_props(
+                                                    EditSettingsWindow,
+                                                    EditSettingsWindowProps { path: s_settings() },
+                                                );
+                                                window.new_window(dom, Default::default());
+                                            },
+                                            "Edit"
+                                        }
+                                    }
+                                    // Only when no file is named. With one in the field, saying a run
+                                    // will use it repeats what the filled field already says; with none,
+                                    // that certval's own defaults apply is not visible anywhere else.
+                                    if s_settings().is_empty() {
+                                        span { class: "hint", "This run will use certval defaults." }
+                                    }
+                                }
+                                div { class: "controls",
                                     TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                                 }
-                            }
-                            table {
-                                tbody {
-                                    tr {
+                                div { class: "controls",
+                                    div { class: "field check-group",
                                         CheckboxCell { label: "Validate All", name: "validate-all", sig: s_validate_all }
                                         CheckboxCell { label: "Dynamic Build", name: "dynamic-build", sig: s_dynamic_build }
-                                        td { class: "grow" }
                                     }
                                 }
-                            }
-                            // Dynamic build fetches missing intermediates at run time and needs a
-                            // place to store them; either a download folder or a CA folder satisfies
-                            // this, so the download folder is shown only while dynamic build is
-                            // enabled and the CA folder moves here from its input row above, since
-                            // it then serves both roles.
-                            if s_dynamic_build() {
-                                table {
-                                    tbody {
+                                // Dynamic build fetches missing intermediates at run time and needs a
+                                // place to store them; either a download folder or a CA folder satisfies
+                                // this, so the download folder is shown only while dynamic build is
+                                // enabled and the CA folder moves here from its input row above, since
+                                // it then serves both roles.
+                                if s_dynamic_build() {
+                                    div { class: "controls",
                                         FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
                                         FolderRow {
                                             label: "CA Folder",
@@ -1065,15 +1327,13 @@ pub(crate) fn App() -> Element {
                                             title: "Full path of folder containing binary DER-encoded intermediate CA certificates. These are added to the graph built for path validation, and the folder receives certificates fetched during dynamic building when no download folder is given.",
                                         }
                                     }
+                                    p { class: "hint",
+                                        "Dynamic build stores fetched intermediates here. Provide a download folder or a CA folder."
+                                    }
                                 }
-                                p { class: "hint",
-                                    "Dynamic build stores fetched intermediates here. Provide a download folder or a CA folder."
-                                }
-                            }
-                            details { class: "advanced",
-                                summary { "Advanced" }
-                                table {
-                                    tbody {
+                                details { class: "advanced",
+                                    summary { "Advanced" }
+                                    div { class: "controls",
                                         FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
                                         FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
                                         FileRow {
@@ -1084,110 +1344,90 @@ pub(crate) fn App() -> Element {
                                             extensions: ["yaml"].as_slice(),
                                         }
                                     }
-                                }
-                                table {
-                                    tbody {
-                                        tr {
+                                    div { class: "controls",
+                                        div { class: "field check-group",
                                             // "WebPKI TAs" was here. It is an anchor set, so it is
                                             // an entry in the store selector now — see StoreSource.
                                             CheckboxCell { label: "Validate Self-Signed", name: "validate-self-signed", sig: s_validate_self_signed }
-                                            td { class: "grow" }
                                         }
                                         // The environment the last run over these inputs used,
                                         // which exists as files only because it is cached: nothing
                                         // else writes the assembled anchors and the merged graph
                                         // out as a pair.
-                                        tr {
-                                            td { }
-                                            td { class: "grow",
-                                                button {
-                                                    r#type: "button",
-                                                    title: "Write this run's trust anchors and its certificate graph to a folder, as ta.cbor and ca.cbor",
-                                                    onclick: move |_| {
-                                                        match current_args() {
-                                                            Ok(args) => {
-                                                                spawn(export_environment_into(args, s_graph_export));
-                                                            }
-                                                            Err(msg) => {
-                                                                error!("{msg}");
-                                                                s_graph_export.set(msg);
-                                                            }
+                                        div { class: "field",
+                                            button {
+                                                r#type: "button",
+                                                title: "Write this run's trust anchors and its certificate graph to a folder, as ta.cbor and ca.cbor",
+                                                onclick: move |_| {
+                                                    match current_args() {
+                                                        Ok(args) => {
+                                                            spawn(export_environment_into(args, s_graph_export));
                                                         }
-                                                    },
-                                                    "Export PKI Environment..."
-                                                }
+                                                        Err(msg) => {
+                                                            error!("{msg}");
+                                                            s_graph_export.set(msg);
+                                                        }
+                                                    }
+                                                },
+                                                "Export PKI Environment..."
                                             }
-                                            td { }
                                         }
                                         if !s_graph_export().is_empty() {
-                                            tr {
-                                                td { }
-                                                td { class: "grow",
-                                                    div { class: "hint", "{s_graph_export}" }
-                                                }
-                                                td { }
-                                            }
+                                            span { class: "hint", "{s_graph_export}" }
                                         }
                                     }
                                 }
                             }
+                            RunButton { running: s_running(), onrun: run_command, label: validate_label }
                         }
-                        RunButton { running: s_running(), onrun: run_command }
-                    },
+                    }
                     View::Generate => rsx! {
                         fieldset {
                             legend { "Generation" }
-                            table {
-                                tbody {
-                                    PathRow {
-                                        label: "TA Folder or File",
-                                        name: "ta-folder",
-                                        sig: s_ta_folder,
-                                    }
-                                    PathRow {
-                                        label: "CA Folder or File",
-                                        name: "ca-folder",
-                                        sig: s_ca_folder,
-                                    }
-                                    // The file the run writes — labelled as such, since it sits
-                                    // among inputs and is otherwise indistinguishable from one.
-                                    // Which store it holds follows the CBOR TA store checkbox
-                                    // below, so it is named for the row it will be loaded into on
-                                    // the Validate view. (Same "(output)" convention as the
-                                    // Mozilla CSV view's CA Folder.)
-                                    if s_cbor_ta_store() {
-                                        FileRow {
-                                            label: "TA CBOR (output)",
-                                            name: "cbor",
-                                            sig: s_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                            extensions: ["cbor", "pki", "ta"].as_slice(),
-                                        }
-                                    } else {
-                                        FileRow {
-                                            label: "CA CBOR (output)",
-                                            name: "cbor",
-                                            sig: s_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized PKI",
-                                            extensions: ["cbor", "pki"].as_slice(),
-                                        }
-                                    }
-                                    FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            div { class: "controls",
+                                PathRow {
+                                    label: "TA Folder or File",
+                                    name: "ta-folder",
+                                    sig: s_ta_folder,
                                 }
-                            }
-                            table {
-                                tbody {
-                                    TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                                PathRow {
+                                    label: "CA Folder or File",
+                                    name: "ca-folder",
+                                    sig: s_ca_folder,
                                 }
-                            }
-                            table {
-                                tbody {
-                                    tr {
-                                        CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
-                                        CheckboxCell { label: "Chase SIA and AIA", name: "chase-aia-and-sia", sig: s_chase_aia_and_sia }
-                                        CheckboxCell { label: "CBOR TA store", name: "cbor-ta-store", sig: s_cbor_ta_store }
-                                        td { class: "grow" }
+                                // The file the run writes — labelled as such, since it sits
+                                // among inputs and is otherwise indistinguishable from one.
+                                // Which store it holds follows the CBOR TA store checkbox
+                                // below, so it is named for the row it will be loaded into on
+                                // the Validate view. (Same "(output)" convention as the
+                                // Mozilla CSV view's CA Folder.)
+                                if s_cbor_ta_store() {
+                                    FileRow {
+                                        label: "TA CBOR (output)",
+                                        name: "cbor",
+                                        sig: s_cbor,
+                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                        extensions: ["cbor", "pki", "ta"].as_slice(),
                                     }
+                                } else {
+                                    FileRow {
+                                        label: "CA CBOR (output)",
+                                        name: "cbor",
+                                        sig: s_cbor,
+                                        filter_name: "PITTv3 CBOR-serialized PKI",
+                                        extensions: ["cbor", "pki"].as_slice(),
+                                    }
+                                }
+                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            }
+                            div { class: "controls",
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            }
+                            div { class: "controls",
+                                div { class: "field check-group",
+                                    CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
+                                    CheckboxCell { label: "Chase SIA and AIA", name: "chase-aia-and-sia", sig: s_chase_aia_and_sia }
+                                    CheckboxCell { label: "CBOR TA store", name: "cbor-ta-store", sig: s_cbor_ta_store }
                                 }
                             }
                             p { class: "hint",
@@ -1198,120 +1438,101 @@ pub(crate) fn App() -> Element {
                                 }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command }
+                        RunButton { running: s_running(), onrun: run_command, label: "Generate the store" }
                     },
                     View::Cleanup => rsx! {
                         fieldset {
                             legend { "Cleanup" }
-                            table {
-                                tbody {
-                                    FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                                    FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                                    FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                                }
+                            div { class: "controls",
+                                FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
+                                FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
+                                FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
                             }
-                            table {
-                                tbody {
-                                    TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                                }
+                            div { class: "controls",
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                             }
-                            table {
-                                tbody {
-                                    tr {
-                                        CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
-                                        CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
-                                        CheckboxCell { label: "Report Only", name: "report-only", sig: s_report_only }
-                                        td { class: "grow" }
-                                    }
+                            div { class: "controls",
+                                div { class: "field check-group",
+                                    CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
+                                    CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
+                                    CheckboxCell { label: "Report Only", name: "report-only", sig: s_report_only }
                                 }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command }
+                        RunButton { running: s_running(), onrun: run_command, label: "Clean up the store" }
                     },
                     View::Diagnostics => rsx! {
                         fieldset {
                             legend { "Diagnostics" }
-                            table {
-                                tbody {
-                                    StoreRow { sig: s_store, status: s_store_export }
-                                    StoreHint { selection: s_store() }
-                                    StoreStatusRow { status: s_store_export }
-                                    if !stores::has_ca_store(s_store()) {
-                                        FileRow {
-                                            label: "CA CBOR",
-                                            name: "cbor",
-                                            sig: s_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized PKI",
-                                            extensions: ["cbor", "pki"].as_slice(),
-                                        }
-                                    }
-                                    PathRow {
-                                        label: "TA Folder or File",
-                                        name: "ta-folder",
-                                        sig: s_ta_folder,
-                                    }
-                                    if s_store() == stores::CUSTOM {
-                                        FileRow {
-                                            label: "TA CBOR",
-                                            name: "ta-cbor",
-                                            sig: s_ta_cbor,
-                                            filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                            extensions: ["cbor", "pki", "ta"].as_slice(),
-                                        }
-                                    }
-                                    FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                                }
-                            }
-                            table {
-                                tbody {
-                                    TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                                }
-                            }
-                            table {
-                                tbody {
-                                    tr {
-                                        CheckboxCell { label: "List Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
-                                        CheckboxCell { label: "List Buffers", name: "list-buffers", sig: s_list_buffers }
-                                        CheckboxCell { label: "List SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
-                                        td { class: "grow" }
-                                    }
-                                    tr {
-                                        CheckboxCell { label: "List Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
-                                        CheckboxCell { label: "List Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
-                                        td { class: "grow" }
-                                    }
-                                }
-                            }
-                            table {
-                                tbody {
-                                    TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
+                            div { class: "controls",
+                                StoreRow { sig: s_store, status: s_store_export }
+                                StoreHint { selection: s_store() }
+                                StoreStatusRow { status: s_store_export }
+                                if !stores::has_ca_store(s_store()) {
                                     FileRow {
-                                        label: "List Partial Paths for Target",
-                                        name: "list-partial-paths-for-target",
-                                        sig: s_list_partial_paths_for_target,
-                                        filter_name: "Certificate File",
-                                        extensions: SINGLE_CERT_EXTENSIONS,
+                                        label: "CA CBOR",
+                                        name: "cbor",
+                                        sig: s_cbor,
+                                        filter_name: "PITTv3 CBOR-serialized PKI",
+                                        extensions: ["cbor", "pki"].as_slice(),
                                     }
-                                    TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
                                 }
+                                PathRow {
+                                    label: "TA Folder or File",
+                                    name: "ta-folder",
+                                    sig: s_ta_folder,
+                                }
+                                if s_store() == stores::CUSTOM {
+                                    FileRow {
+                                        label: "TA CBOR",
+                                        name: "ta-cbor",
+                                        sig: s_ta_cbor,
+                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                        extensions: ["cbor", "pki", "ta"].as_slice(),
+                                    }
+                                }
+                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            }
+                            div { class: "controls",
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            }
+                            div { class: "controls",
+                                div { class: "field check-group",
+                                    CheckboxCell { label: "List Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
+                                    CheckboxCell { label: "List Buffers", name: "list-buffers", sig: s_list_buffers }
+                                    CheckboxCell { label: "List SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
+                                }
+                                div { class: "field check-group",
+                                    CheckboxCell { label: "List Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
+                                    CheckboxCell { label: "List Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
+                                }
+                            }
+                            div { class: "controls",
+                                TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
+                                FileRow {
+                                    label: "List Partial Paths for Target",
+                                    name: "list-partial-paths-for-target",
+                                    sig: s_list_partial_paths_for_target,
+                                    filter_name: "Certificate File",
+                                    extensions: SINGLE_CERT_EXTENSIONS,
+                                }
+                                TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command }
+                        RunButton { running: s_running(), onrun: run_command, label: "Run diagnostics" }
                     },
                     View::Tools => rsx! {
                         fieldset {
                             legend { "Tools" }
-                            table {
-                                tbody {
-                                    FileRow {
-                                        label: "Mozilla CSV",
-                                        name: "mozilla-csv",
-                                        sig: s_mozilla_csv,
-                                        filter_name: "CSV file",
-                                        extensions: ["csv"].as_slice(),
-                                    }
-                                    FolderRow { label: "CA Folder (output)", name: "ca-folder", sig: s_ca_folder }
+                            div { class: "controls",
+                                FileRow {
+                                    label: "Mozilla CSV",
+                                    name: "mozilla-csv",
+                                    sig: s_mozilla_csv,
+                                    filter_name: "CSV file",
+                                    extensions: ["csv"].as_slice(),
                                 }
+                                FolderRow { label: "CA Folder (output)", name: "ca-folder", sig: s_ca_folder }
                             }
                             p { class: "hint",
                                 "Parses the Mozilla intermediate CA CSV report and writes the certificates to the CA folder."
@@ -1330,31 +1551,27 @@ pub(crate) fn App() -> Element {
                                 }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command }
+                        RunButton { running: s_running(), onrun: run_command, label: "Check the URIs in this certificate" }
                     },
                     View::Settings => rsx! {
                         fieldset {
                             legend { "Settings" }
-                            table {
-                                tbody {
-                                    tr {
-                                        td { label { r#for: "settings", "Settings file: " } }
-                                        td {
-                                            input {
-                                                r#type: "text",
-                                                name: "settings",
-                                                value: "{s_settings}",
-                                                oninput: move |ev| s_settings.set(ev.value()),
-                                            }
-                                        }
-                                        td {
-                                            button {
-                                                r#type: "button",
-                                                onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
-                                                "..."
-                                            }
-                                        }
-                                    }
+                            div { class: "controls",
+                                div { class: "label-cell",
+                                    label { r#for: "settings", "Settings file: " }
+                                }
+                                div { class: "field",
+                                    input {
+                                                                                r#type: "text",
+                                                                                name: "settings",
+                                                                                value: "{s_settings}",
+                                                                                oninput: move |ev| s_settings.set(ev.value()),
+                                                                            }
+                                    button {
+                                                                                r#type: "button",
+                                                                                onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
+                                                                                "..."
+                                                                            }
                                 }
                             }
                             // Always shown: settings are app state, not a document you must open

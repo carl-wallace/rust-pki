@@ -79,7 +79,7 @@ fn hash_path(hasher: &mut Sha256, label: &str, path: &str) {
 /// cannot silently reuse a graph built without it. The cost is a missed cache when an unrelated
 /// setting changes, which costs exactly what there was before this existed.
 pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option<String> {
-    if args.generate || args.ca_folder.is_none() {
+    if args.generate || (args.ca_folder.is_none() && args.ca_inputs.is_empty()) {
         return None;
     }
     #[cfg(feature = "remote")]
@@ -90,14 +90,19 @@ pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option
 
     let mut hasher = Sha256::new();
     hasher.update(b"pittv3 graph v1");
-    if let Some(ca_folder) = &args.ca_folder {
-        hash_path(&mut hasher, "ca", ca_folder);
+    // Each pool is folded in after the singular argument it generalizes, and in the order the run
+    // will read it. Order-sensitively, on purpose: two orders name the same certificates and would
+    // build the same graph, but telling them apart costs only a rebuild while conflating them would
+    // hand back a graph the caller never asked for. An empty pool contributes nothing, so a run that
+    // names no pool keys exactly as it did before pools existed.
+    for path in args.ca_folder.iter().chain(args.ca_inputs.iter()) {
+        hash_path(&mut hasher, "ca", path);
     }
     if let Some(cbor) = &args.cbor {
         hash_path(&mut hasher, "cbor", cbor);
     }
-    if let Some(ta_folder) = &args.ta_folder {
-        hash_path(&mut hasher, "ta", ta_folder);
+    for path in args.ta_folder.iter().chain(args.ta_inputs.iter()) {
+        hash_path(&mut hasher, "ta", path);
     }
     if let Some(ta_cbor) = &args.ta_cbor {
         hash_path(&mut hasher, "ta_cbor", ta_cbor);

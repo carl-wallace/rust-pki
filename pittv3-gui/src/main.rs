@@ -3,6 +3,7 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod gui;
+mod peek;
 mod stores;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};

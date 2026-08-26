@@ -13,6 +13,7 @@ pub mod der_or_pem;
 pub mod graph_cache;
 pub mod help;
 pub mod no_std_utils;
+pub mod ocsp_match;
 pub mod options_no_std;
 pub mod options_std;
 pub mod options_std_app;

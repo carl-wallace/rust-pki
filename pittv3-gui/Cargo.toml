@@ -22,6 +22,10 @@ rust-version = "1.88"
 [dependencies]
 pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
 pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
+# The TLS handshake that takes a server's certificates. In process rather than through the service:
+# this crate does not depend on certval and does the handshake itself, so a desktop with a socket
+# needs nothing standing between it and the host. See src/peek.rs for the policy differences.
+pittv3-relay = { path = "../pittv3-relay" }
 
 # Trust material for the built-in store selector (see src/stores.rs). Unlike the browser
 # frontend, which fetches its stores by URL and so takes these as build-dependencies, a desktop

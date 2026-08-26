@@ -282,3 +282,53 @@ fn a_store_in_the_ca_row_is_adopted_with_its_paths_rather_than_searched_again() 
 
     unsafe { std::env::remove_var("PITTV3_GRAPH_CACHE") };
 }
+
+/// The pools are part of the graph's identity. They were added after the key was written, and a key
+/// that ignored them would hand a run driven by one pool the graph built for another — the failure
+/// mode a cache has that a rebuild does not. Also pinned: a run whose only CA input is the pool is
+/// cacheable at all, which the `ca_folder.is_none()` gate used to refuse.
+#[test]
+fn the_pools_are_part_of_the_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let ta = folder_with(&dir.path().join("ta"), &["TrustAnchorRootCertificate.crt"]);
+    let ca = folder_with(&dir.path().join("ca"), &["GoodCACert.crt"]);
+    let other = folder_with(&dir.path().join("other"), &["BadSignedCACert.crt"]);
+
+    let pool_only = Pittv3Args {
+        ca_inputs: vec![ca.clone()],
+        ..args_for(dir.path(), Some(ta.clone()), None)
+    };
+    let key = graph_cache::fingerprint_for_args(&pool_only)
+        .expect("a run whose CA input is the pool builds a graph worth caching");
+
+    let different_pool = Pittv3Args {
+        ca_inputs: vec![other.clone()],
+        ..args_for(dir.path(), Some(ta.clone()), None)
+    };
+    assert_ne!(
+        Some(key.clone()),
+        graph_cache::fingerprint_for_args(&different_pool),
+        "a different CA pool is a different graph"
+    );
+
+    let extra_entry = Pittv3Args {
+        ca_inputs: vec![ca.clone(), other.clone()],
+        ..args_for(dir.path(), Some(ta.clone()), None)
+    };
+    assert_ne!(
+        Some(key.clone()),
+        graph_cache::fingerprint_for_args(&extra_entry),
+        "an added entry is a different graph"
+    );
+
+    let extra_anchor = Pittv3Args {
+        ca_inputs: vec![ca],
+        ta_inputs: vec![other],
+        ..args_for(dir.path(), Some(ta), None)
+    };
+    assert_ne!(
+        Some(key),
+        graph_cache::fingerprint_for_args(&extra_anchor),
+        "the partial paths end at the anchors, so the anchor pool keys too"
+    );
+}
