@@ -223,6 +223,43 @@ pub fn CheckboxCell(
     }
 }
 
+/// Grid row pairing a checkbox with the sentence explaining what it changes.
+///
+/// Emits a `.label-cell` and a `.field` into the surrounding `.controls` grid rather than a
+/// self-contained row, which is what lets several of them share one grid and so one label-column
+/// width: a checkbox per grid lands at a different x in every row, because `max-content` is
+/// measured per grid.
+///
+/// [`CheckboxCell`] remains for the case it was built for — several checkboxes side by side in one
+/// field, where the labels are meant to sit next to their boxes rather than in a column.
+#[component]
+pub fn CheckboxRow(
+    label: String,
+    name: String,
+    sig: Signal<bool>,
+    /// What the checkbox changes. Carried as the label's tooltip rather than shown beside it: a
+    /// sentence per checkbox is a paragraph of standing text explaining controls the reader has
+    /// mostly already understood, and it pushes the run button off the view. Falls back to the
+    /// argument help for `name`, so a control named after a flag is described in the flag's words.
+    #[props(default)]
+    title: String,
+) -> Element {
+    let title = tooltip(title, &name);
+    rsx! {
+        div { title, class: "visible label-cell",
+            label { r#for: name.clone(), "{label}: " }
+        }
+        div { class: "field",
+            input {
+                r#type: "checkbox",
+                name,
+                checked: sig(),
+                onchange: move |ev| sig.set(ev.checked()),
+            }
+        }
+    }
+}
+
 /// Row holding a *pool* of inputs rather than one: any number of paths, each a file or a
 /// folder, added and removed one at a time.
 ///

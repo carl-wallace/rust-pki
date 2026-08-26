@@ -1,6 +1,5 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
-use dioxus::desktop::use_window;
 use dioxus::prelude::*;
 
 use futures_util::StreamExt;
@@ -16,9 +15,12 @@ use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
 #[cfg(not(target_os = "macos"))]
 use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 
+use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
-use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, PathListRow, TextRow, TimeRow};
+use pittv3_gui_lib::gui_rows::{
+    BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TextRow, TimeRow,
+};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
@@ -609,16 +611,6 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
     }
 }
 
-/// Hosts the [`EditSettingsFile`] form in a child window, closing the window when the form is done
-#[component]
-fn EditSettingsWindow(path: String) -> Element {
-    let window = use_window();
-    rsx! {
-        style { {PITTV3_CSS} }
-        EditSettingsFile { path, on_close: move |_| window.close() }
-    }
-}
-
 /// Task views reachable from the sidebar
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
@@ -820,7 +812,7 @@ pub(crate) fn App() -> Element {
     let s_rev_inputs = use_signal(|| sa.rev_inputs.clone());
     // Not persisted with the arguments: a host is the way a target was *obtained*, and what the run
     // validates is the file that came back. Restoring the host would suggest the next run re-asks.
-    let mut s_peek_host = use_signal(String::new);
+    let s_peek_host = use_signal(String::new);
     let mut s_peek_status = use_signal(String::new);
     let mut s_peeking = use_signal(|| false);
 
@@ -844,6 +836,7 @@ pub(crate) fn App() -> Element {
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_validate_self_signed = use_signal(|| sa.validate_self_signed);
     let s_dynamic_build = use_signal(|| sa.dynamic_build);
+    let s_use_downloaded_cas = use_signal(|| sa.use_downloaded_cas);
     let s_results_folder = use_signal(|| sa.results_folder.clone().unwrap_or_default());
     // Effective settings file. Saved args win; otherwise the default in ~/.pittv3 so the app always
     // has settings, matching the browser frontend where localStorage always answers. The file need
@@ -877,8 +870,6 @@ pub(crate) fn App() -> Element {
             .unwrap_or_default()
     });
     let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
-
-    let window = use_window();
 
     // run state: the validation run executes on a worker thread so the WebView stays responsive;
     // results and log output flow back over channels and are applied to signals on the UI side only
@@ -927,6 +918,7 @@ pub(crate) fn App() -> Element {
             validate_all: s_validate_all(),
             validate_self_signed: s_validate_self_signed(),
             dynamic_build: s_dynamic_build(),
+            use_downloaded_cas: s_use_downloaded_cas(),
             // No singular counterpart: unlike the trust anchor and CA arguments these had rows on
             // the Validate view alone, so the pool replaced them outright rather than joining them.
             // Sending both would validate a target named in each of them twice.
@@ -958,6 +950,19 @@ pub(crate) fn App() -> Element {
 
     // Takes what a host presents and files it across the pools it belongs in. Spawned rather than
     // awaited so the window stays live during a handshake against a host that is slow to answer.
+    // Why the peek button is inert, answered before anything is attempted. The desktop reaches only
+    // the two conditions that are about the form itself; the browser adds two more about whether a
+    // service is there to make the handshake at all.
+    let peek_blocked_because = move || -> Option<String> {
+        if s_peeking() {
+            return Some("A handshake is now running.".to_string());
+        }
+        if s_peek_host().trim().is_empty() {
+            return Some("Enter a host to take the certificates from.".to_string());
+        }
+        None
+    };
+
     let mut take_presented = move |_: ()| {
         if s_peeking() {
             return;
@@ -1176,7 +1181,6 @@ pub(crate) fn App() -> Element {
                                         sig: s_ta_inputs,
                                         filter_name: "Trust anchor, bundle or CBOR store",
                                         extensions: TA_POOL_EXTENSIONS,
-                                        hint: "Folders, certificates, PEM or PKCS#7 bundles, or a CBOR trust anchor store.",
                                     }
                                     // Shown whatever dynamic build is set to. This pool is `--ca`,
                                     // which `load_ca_inputs` folds into the graph on the first pass
@@ -1190,7 +1194,6 @@ pub(crate) fn App() -> Element {
                                         sig: s_ca_inputs,
                                         filter_name: "CA certificate, bundle or CBOR store",
                                         extensions: TA_POOL_EXTENSIONS,
-                                        hint: "Folders, certificates, bundles, or a CBOR store. A store is used with its precomputed paths when it is the only entry.",
                                     }
                                 }
                             }
@@ -1208,127 +1211,74 @@ pub(crate) fn App() -> Element {
                                         sig: s_rev_inputs,
                                         filter_name: "CRL or OCSP response",
                                         extensions: REV_POOL_EXTENSIONS,
-                                        hint: "Artifacts to judge this path against, used and left alone. What each one is comes from its contents, not its name.",
                                     }
                                     FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
                                 }
                             }
                             fieldset {
-                                legend { "End Entity Certificate" }
-                                div { class: "controls",
-                                    PoolRow {
-                                        label: "End Entity Certificates",
-                                        name: "ee",
-                                        sig: s_ee_inputs,
-                                        filter_name: "Certificate File",
-                                        extensions: SINGLE_CERT_EXTENSIONS,
-                                        hint: "Certificates to validate, or folders to traverse for them.",
-                                    }
-                                    // A host is another way of naming a target, so it sits with the
-                                    // list it fills rather than on a tool of its own. What it takes
-                                    // is distributed across three pools — the server's certificate
-                                    // to validate, what came with it to build paths from, a stapled
-                                    // response to judge by — which is why the row reports where the
-                                    // files went instead of leaving the user to find them.
-                                    // The full explanation is the label's tooltip rather than a hint on
-                                    // the page: it describes a control the user has already decided to
-                                    // use by the time it matters, and on the page it was a paragraph
-                                    // standing between two fields.
-                                    div {
-                                        title: "Complete a TLS handshake with a host and keep what it sent: the host's own \
-                                                certificate joins the end entity list, anything sent with it joins the CA \
-                                                certificates, and a stapled OCSP response is kept as revocation data. \
-                                                Nothing is requested over the connection. Making the handshake does not \
-                                                judge the certificate \u{2014} that is what Validate is for.",
-                                        class: "visible label-cell",
-                                        label { r#for: "peek-host", "From a TLS Server: " }
-                                    }
-                                    div { class: "field",
-                                        input {
-                                            r#type: "text",
-                                            name: "peek-host",
-                                            placeholder: "example.com or example.com:8443",
-                                            value: "{s_peek_host}",
-                                            oninput: move |ev| s_peek_host.set(ev.value()),
+                                EndEntityGroup {
+                                    certificates_row: rsx! {
+                                        PoolRow {
+                                            label: "End Entity Certificates",
+                                            name: "ee",
+                                            sig: s_ee_inputs,
+                                            filter_name: "Certificate File",
+                                            extensions: SINGLE_CERT_EXTENSIONS,
                                         }
-                                        button {
-                                            r#type: "button",
-                                            disabled: s_peeking() || s_peek_host().trim().is_empty(),
-                                            onclick: move |_| take_presented(()),
-                                            "Get certificates"
-                                        }
-                                    }
-                                    if !s_peek_status().is_empty() {
-                                        span { class: "hint", "{s_peek_status}" }
-                                    }
+                                    },
+                                    peek_host: s_peek_host,
+                                    on_peek: move |_| take_presented(()),
+                                    // The desktop opens the socket itself: `pittv3-relay` makes the
+                                    // handshake in process, so nothing about the host leaves the
+                                    // machine on its way to being asked.
+                                    peek_actor: "This app",
+                                    peek_blocked_because: peek_blocked_because(),
+                                    peek_status: s_peek_status(),
                                 }
                             }
                             // How a run behaves, as against what it judges: the settings file it
                             // honors, the time it judges against, and the switches that change how
                             // paths are built. A peer of the boxes above, not a tail on the targets.
                             div { class: "panel",
-                                div { class: "controls",
-                                    div { class: "label-cell",
-                                        label { r#for: "settings", "Settings: " }
-                                    }
-                                    div { class: "field",
-                                        input {
-                                            r#type: "text",
-                                            name: "settings",
-                                            value: "{s_settings}",
-                                            oninput: move |ev| s_settings.set(ev.value()),
+                                // The settings file is named on the Settings view, which owns both
+                                // the path and the form over it; a second copy of the path here was
+                                // the same signal behind a second picker. What is kept is the one
+                                // thing that view cannot say: with no file named, a run falls back
+                                // to certval's own defaults, and nothing else on this page shows it.
+                                if s_settings().is_empty() {
+                                    div { class: "controls center-row",
+                                        span { class: "hint",
+                                            "No settings file, so this run will use certval defaults."
                                         }
-                                        button {
-                                            r#type: "button",
-                                            onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
-                                            "..."
-                                        }
-                                        button {
-                                            r#type: "button",
-                                            disabled: s_settings().is_empty(),
-                                            onclick: move |_| {
-                                                let dom = VirtualDom::new_with_props(
-                                                    EditSettingsWindow,
-                                                    EditSettingsWindowProps { path: s_settings() },
-                                                );
-                                                window.new_window(dom, Default::default());
-                                            },
-                                            "Edit"
-                                        }
-                                    }
-                                    // Only when no file is named. With one in the field, saying a run
-                                    // will use it repeats what the filled field already says; with none,
-                                    // that certval's own defaults apply is not visible anywhere else.
-                                    if s_settings().is_empty() {
-                                        span { class: "hint", "This run will use certval defaults." }
                                     }
                                 }
+                                // Time of interest is not here: it is a certification path setting,
+                                // the settings form already edits it, and `options_std` honors the
+                                // setting over the argument -- so a field here would have been the
+                                // one that loses. The download and CA folders are likewise already
+                                // rows on the settings form's Folders tab, and a run now reads them
+                                // from there when the arguments do not carry them.
+                                // One grid, not three: `max-content` is measured per grid, so a
+                                // checkbox in a grid of its own lands at whatever x its own label
+                                // happens to need and none of them line up.
                                 div { class: "controls",
-                                    TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                                }
-                                div { class: "controls",
-                                    div { class: "field check-group",
-                                        CheckboxCell { label: "Validate All", name: "validate-all", sig: s_validate_all }
-                                        CheckboxCell { label: "Dynamic Build", name: "dynamic-build", sig: s_dynamic_build }
+                                    CheckboxRow {
+                                        label: "Validate all paths",
+                                        name: "validate-all",
+                                        sig: s_validate_all,
+                                        title: "Off stops at the first valid path; on reports every path found.",
                                     }
-                                }
-                                // Dynamic build fetches missing intermediates at run time and needs a
-                                // place to store them; either a download folder or a CA folder satisfies
-                                // this, so the download folder is shown only while dynamic build is
-                                // enabled and the CA folder moves here from its input row above, since
-                                // it then serves both roles.
-                                if s_dynamic_build() {
-                                    div { class: "controls",
-                                        FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                                        FolderRow {
-                                            label: "CA Folder",
-                                            name: "ca-folder",
-                                            sig: s_ca_folder,
-                                            title: "Full path of folder containing binary DER-encoded intermediate CA certificates. These are added to the graph built for path validation, and the folder receives certificates fetched during dynamic building when no download folder is given.",
-                                        }
+                                    CheckboxRow {
+                                        label: "Dynamic Build",
+                                        name: "dynamic-build",
+                                        sig: s_dynamic_build,
+                                        title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view.",
                                     }
-                                    p { class: "hint",
-                                        "Dynamic build stores fetched intermediates here. Provide a download folder or a CA folder."
+                                    CheckboxRow {
+                                        label: "Use downloaded certificates",
+                                        name: "use-downloaded-cas",
+                                        sig: s_use_downloaded_cas,
+                                        title: "Build paths from what earlier runs downloaded as well, so a certificate already fetched is not fetched again.",
                                     }
                                 }
                                 details { class: "advanced",

@@ -5,6 +5,7 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 pub mod export;
+pub mod gui_end_entity;
 pub mod gui_help;
 pub mod gui_results;
 pub mod gui_rows;

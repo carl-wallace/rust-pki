@@ -86,6 +86,12 @@ pub fn arg_help(name: &str) -> &'static str {
             "from the CA input, which may name a single file, and the result is the form --ta-cbor ",
             "takes.",
         ),
+        "use-downloaded-cas" => concat!(
+            "Include the folder downloaded intermediates are written to among the CA certificates ",
+            "a run builds paths from, so certificates fetched by earlier runs are reused rather ",
+            "than fetched again. The folder is the download folder if given, otherwise the CA ",
+            "folder, either of which may come from the settings file.",
+        ),
         "validate-all" => "Flag that indicates all available certification paths should be validated for each target.",
         "validate-self-signed" => "Check if certificate passed as end_entity_file is self-signed.",
         "dynamic-build" => concat!(

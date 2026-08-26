@@ -109,6 +109,14 @@ pub struct Pittv3CliArgs {
     #[clap(long, help_heading = "GENERATION")]
     pub cbor_ta_store: bool,
 
+    /// Include the folder downloaded intermediates are written to among the CA certificates a run
+    /// builds paths from, so certificates fetched by earlier runs are reused rather than fetched
+    /// again. The folder is --download-folder if given, otherwise --ca-folder, either of which may
+    /// come from the settings file.
+    #[cfg(feature = "remote")]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub use_downloaded_cas: bool,
+
     /// Flag that indicates all available certification paths should be validated for each target.
     #[cfg(feature = "std_app")]
     #[clap(short, long, help_heading = "VALIDATION")]
@@ -329,6 +337,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             validate_self_signed: v.validate_self_signed,
             #[cfg(feature = "remote")]
             dynamic_build: v.dynamic_build,
+            #[cfg(feature = "remote")]
+            use_downloaded_cas: v.use_downloaded_cas,
             #[cfg(feature = "std_app")]
             end_entity_file: v.end_entity_file,
             #[cfg(feature = "std")]

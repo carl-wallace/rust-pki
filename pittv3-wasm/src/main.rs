@@ -15,6 +15,7 @@ use certval::{
     CertSource, CertificationPathSettings, PkiEnvironment, RevocationCache, TaSource,
     TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
+use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
@@ -376,11 +377,10 @@ fn App() -> Element {
     // Which of the two ways of naming an end entity certificate the form is offering. Not a
     // property of what gets loaded -- both sources feed the one list, and switching does not
     // discard what the other brought in -- only of which control is on show.
-    let mut ee_from_server = use_signal(|| false);
     // The host someone typed in place of choosing a file, and what came of asking about it. A
     // browser will not hand over the certificate of a site it is talking to, so for the certificate
     // most people actually want to look at, uploading a file was never an option they had.
-    let mut peek_uri = use_signal(String::new);
+    let peek_uri = use_signal(String::new);
     let mut peek_status = use_signal(String::new);
     let mut peek_running = use_signal(|| false);
     let mut loaded_zips = use_signal(Vec::<(String, Vec<u8>)>::new);
@@ -1395,67 +1395,14 @@ fn App() -> Element {
                         // to reach the certificate they came for. Which control is shown follows
                         // the choice; what has been loaded is reported either way, because the list
                         // is shared and switching sources does not discard it.
-                        fieldset {
-                            legend { "End entity certificate" }
-                            div { class: "controls",
-                                label { "Load from: " }
-                                div { class: "radio-group",
-                                    label { class: "radio",
-                                        input {
-                                            r#type: "radio",
-                                            name: "ee-source",
-                                            checked: !ee_from_server(),
-                                            onchange: move |_| ee_from_server.set(false),
-                                        }
-                                        " File"
-                                    }
-                                    label { class: "radio",
-                                        input {
-                                            r#type: "radio",
-                                            name: "ee-source",
-                                            checked: ee_from_server(),
-                                            onchange: move |_| ee_from_server.set(true),
-                                        }
-                                        " TLS server"
-                                    }
+                        EndEntityGroup {
+                            certificates_row: rsx! {
+                                div { class: "label-cell",
+                                    label { r#for: "ee-files", "Certificates: " }
                                 }
-
-                                if ee_from_server() {
-                                    label { r#for: "peek-uri", "Host: " }
-                                    span {
-                                        input {
-                                            id: "peek-uri",
-                                            r#type: "text",
-                                            placeholder: "example.com",
-                                            value: "{peek_uri}",
-                                            oninput: move |ev| peek_uri.set(ev.value()),
-                                        }
-                                        button {
-                                            disabled: peek_blocked_because().is_some(),
-                                            onclick: take_presented_certificates,
-                                            "Get certificates"
-                                        }
-                                    }
-                                    // Beside the control it explains, naming the condition that
-                                    // actually applies rather than the one that usually does.
-                                    if let Some(reason) = peek_blocked_because() {
-                                        span { class: "hint", "{reason}" }
-                                    }
-                                    if !peek_status().is_empty() {
-                                        span { class: "hint", "{peek_status}" }
-                                    }
-                                    span { class: "hint",
-                                        "The service completes a handshake and keeps what the host \
-                                         sent: its own certificate is loaded here, anything sent \
-                                         with it joins the CA certificates path building draws on, \
-                                         and a stapled OCSP response is kept as revocation data. \
-                                         Nothing is requested over the connection. The certificate \
-                                         is not judged by making the handshake — that is what \
-                                         Validate is for."
-                                    }
-                                } else {
-                                    label { "File(s): " }
+                                div { class: "field",
                                     input {
+                                        id: "ee-files",
                                         r#type: "file",
                                         multiple: true,
                                         accept: ".der,.crt,.cer,.pem",
@@ -1465,17 +1412,23 @@ fn App() -> Element {
                                             }
                                         },
                                     }
-                                }
-
-                                label { "Loaded: " }
-                                span {
-                                    "{loaded_ees().len()} certificate(s) "
+                                    span { class: "hint", "{loaded_ees().len()} certificate(s) loaded" }
                                     button {
                                         onclick: move |_| loaded_ees.write().clear(),
                                         "Clear"
                                     }
                                 }
-                            }
+                            },
+                            peek_host: peek_uri,
+                            on_peek: move |_| {
+                                spawn(take_presented_certificates(()));
+                            },
+                            // A service makes the handshake, so the host and the fact that it was
+                            // asked about leave the machine. That is the privacy tier's whole
+                            // subject, so it is named rather than smoothed over.
+                            peek_actor: "The service",
+                            peek_blocked_because: peek_blocked_because().map(str::to_string),
+                            peek_status: peek_status(),
                         }
 
                         // Validate All sits beside the Validate button rather than in Settings: it

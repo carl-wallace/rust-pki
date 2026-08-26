@@ -687,19 +687,30 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         ""
     };
 
-    #[cfg(feature = "remote")]
-    let ca_folder = if let Some(ca_folder) = &args.ca_folder {
-        ca_folder
-    } else {
-        ""
+    let mut cps = match read_settings(&args.settings) {
+        Ok(cps) => cps,
+        Err(e) => {
+            return ValidationReport::failed(format!("failed to parse settings file: {e:?}"));
+        }
     };
 
+    // Where downloaded intermediates go, resolved after the settings are read because the settings
+    // are one of the places it can be named. The argument wins, then the settings file, then the CA
+    // folder — a CLI user's flag still takes precedence, and a GUI user who named the folder in the
+    // settings form no longer has to name it a second time on the run form.
     #[cfg(feature = "remote")]
-    let download_folder = if let Some(download_folder) = &args.download_folder {
-        download_folder
-    } else {
-        ca_folder
-    };
+    let ca_folder = args
+        .ca_folder
+        .clone()
+        .or_else(|| cps.get_certification_authority_folder())
+        .unwrap_or_default();
+
+    #[cfg(feature = "remote")]
+    let download_folder = args
+        .download_folder
+        .clone()
+        .or_else(|| cps.get_download_folder())
+        .unwrap_or_else(|| ca_folder.clone());
 
     #[cfg(feature = "remote")]
     if args.dynamic_build && download_folder.is_empty() {
@@ -707,13 +718,6 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             "a CA folder or download folder is required when dynamic build is enabled",
         );
     }
-
-    let mut cps = match read_settings(&args.settings) {
-        Ok(cps) => cps,
-        Err(e) => {
-            return ValidationReport::failed(format!("failed to parse settings file: {e:?}"));
-        }
-    };
 
     if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
@@ -958,6 +962,17 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         // it is augmented rather than displaced, since both are just certificates to build from. A
         // generate run is exempt because the CBOR read above was built from this same folder.
         if 0 == pass && !args.generate && !graph_from_cache {
+            // Where downloaded intermediates land, when the run was asked to reuse them. Last in the
+            // order so it augments what was named explicitly rather than being mistaken for the
+            // whole CA input: a store named in the pool still gets its partial paths adopted.
+            #[cfg(feature = "remote")]
+            let reuse_downloads = match args.use_downloaded_cas && !download_folder.is_empty() {
+                true => Some(download_folder.clone()),
+                false => None,
+            };
+            #[cfg(not(feature = "remote"))]
+            let reuse_downloads: Option<String> = None;
+
             // The singular argument first, then the pool, so a log read top to bottom follows the
             // order the inputs were named in.
             let outcome = load_ca_inputs(
@@ -965,6 +980,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 args.ca_folder
                     .iter()
                     .chain(args.ca_inputs.iter())
+                    .chain(reuse_downloads.iter())
                     .map(String::as_str),
                 &mut cert_source,
                 cps.get_time_of_interest(),
@@ -1002,7 +1018,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                     // on first dynamic action, pick up certs from downloads folder
                     if cert_folder_to_vec(
                         &pe,
-                        download_folder,
+                        &download_folder,
                         &mut cert_source,
                         TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                     )
@@ -1017,7 +1033,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 let r = fetch_to_buffer(
                     &pe,
                     &fresh_uris,
-                    download_folder,
+                    &download_folder,
                     &mut cert_source,
                     if uri_threshold == 0 {
                         0
