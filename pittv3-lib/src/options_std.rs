@@ -421,12 +421,10 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 
             #[cfg(feature = "remote")]
             {
-                let p = Path::new(&download_folder);
-                let blp = p.join("last_modified_map.json");
-                let lmm_file = blp.to_str().unwrap_or_default();
-
-                let blp = p.join("blocklist.json");
-                let blocklist_file = blp.to_str().unwrap_or_default();
+                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = lmm_file.as_str();
+                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = blocklist_file.as_str();
 
                 if let Some(download_folder) = &args.download_folder {
                     //let mut buffers: Vec<CertFile> = vec![];
@@ -1002,12 +1000,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         if uri_threshold != fresh_uris.len() {
             #[cfg(feature = "remote")]
             if args.dynamic_build {
-                let p = Path::new(&download_folder);
-                let blp = p.join("last_modified_map.json");
-                let lmm_file = blp.to_str().unwrap_or_default();
-
-                let blp = p.join("blocklist.json");
-                let blocklist_file = blp.to_str().unwrap_or_default();
+                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = lmm_file.as_str();
+                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = blocklist_file.as_str();
 
                 // read the last modified map and blocklist once
                 let mut lmm = read_last_modified_map(lmm_file);
