@@ -669,11 +669,14 @@ pub async fn validate_cert_bytes(
     // A path was found, so any diagnosis from an earlier pass of the dynamic-building loop is stale
     stats.no_paths_hints.clear();
 
-    // Counts the paths this call actually reports, which is what the totals and the result-folder
-    // indices must be keyed on. `paths.len()` is what the builder offered, and the two differ by
-    // however many the deduplication below suppresses -- reporting the builder's number is what made
-    // a run that recorded five paths announce ten.
+    // `reported` indexes the result folders, so it advances only for paths actually written.
+    // `suppressed` is subtracted from the total below. The two are deliberately different: a path
+    // the deduplication drops was never a new path and must not be counted, while a path the builder
+    // found and the loop never reached -- validation stops at the first success unless validate_all
+    // is set -- WAS found, and subtracting it would collapse "Paths found" into "Valid paths found"
+    // and hide that a second candidate existed.
     let mut reported = 0usize;
+    let mut suppressed = 0usize;
 
     for (i, path) in paths.iter_mut().enumerate() {
         // The dynamic-building loop calls back in once per pass, and the builder can offer a path an
@@ -690,6 +693,7 @@ pub async fn validate_cert_bytes(
             debug!(
                 "Suppressing a certification path already reported for {cert_filename} (offered again with threshold {threshold})"
             );
+            suppressed += 1;
             continue;
         }
 
@@ -790,7 +794,7 @@ pub async fn validate_cert_bytes(
             }
         }
     }
-    stats.paths_per_target += reported;
+    stats.paths_per_target += paths.len() - suppressed;
 
     let finish = Instant::now();
     let duration2 = finish - start2;
