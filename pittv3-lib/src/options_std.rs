@@ -421,12 +421,10 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 
             #[cfg(feature = "remote")]
             {
-                let p = Path::new(&download_folder);
-                let blp = p.join("last_modified_map.json");
-                let lmm_file = blp.to_str().unwrap_or_default();
-
-                let blp = p.join("blocklist.json");
-                let blocklist_file = blp.to_str().unwrap_or_default();
+                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = lmm_file.as_str();
+                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = blocklist_file.as_str();
 
                 if let Some(download_folder) = &args.download_folder {
                     //let mut buffers: Vec<CertFile> = vec![];
@@ -1002,12 +1000,10 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         if uri_threshold != fresh_uris.len() {
             #[cfg(feature = "remote")]
             if args.dynamic_build {
-                let p = Path::new(&download_folder);
-                let blp = p.join("last_modified_map.json");
-                let lmm_file = blp.to_str().unwrap_or_default();
-
-                let blp = p.join("blocklist.json");
-                let blocklist_file = blp.to_str().unwrap_or_default();
+                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = lmm_file.as_str();
+                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = blocklist_file.as_str();
 
                 // read the last modified map and blocklist once
                 let mut lmm = read_last_modified_map(lmm_file);
@@ -1305,6 +1301,9 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
 
         // Say why the count is zero where the count is reported, not only in the structured report
+        if let Some((_status, reason)) = &s.no_path_reason {
+            info!("\t * No certification path was found because of the target itself: {reason}");
+        }
         if 0 == s.paths_per_target {
             for hint in &s.no_paths_hints {
                 info!("\t * {hint}");
@@ -1358,7 +1357,15 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     for (name, s) in stats.iter_mut() {
         let paths_found = s.paths_per_target > 0;
         let path_reports = core::mem::take(&mut s.path_reports);
-        let status = TargetReport::compute_status(&path_reports, paths_found);
+        // A target that never yielded a path is reported as why rather than rolled up from path
+        // results it has none of
+        let (status, error) = match s.no_path_reason.take() {
+            Some((status, reason)) => (status, Some(reason)),
+            None => (
+                TargetReport::compute_status(&path_reports, paths_found),
+                None,
+            ),
+        };
         let target_summary = s
             .target_summary
             .clone()
@@ -1383,6 +1390,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             status,
             paths: path_reports,
             no_paths_hints,
+            error,
         });
     }
     report

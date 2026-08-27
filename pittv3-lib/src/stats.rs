@@ -3,7 +3,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use certval::CertificationPathResults;
 
-use crate::report::{CertSummary, PathReport};
+use crate::report::{CertSummary, PathReport, TargetStatus};
 
 /// `PathValidationStats` enables collection of some basic statistics related to path validation.
 pub struct PathValidationStats {
@@ -31,6 +31,16 @@ pub struct PathValidationStats {
     /// before the report is assembled. Cleared as soon as a path is found, so a diagnosis from an
     /// early pass of the dynamic-building loop does not survive a later pass that succeeds.
     pub no_paths_hints: Vec<String>,
+    /// Why no certification path was found for this target, when the reason is the target itself
+    /// rather than the material available to build with: the file was not a certificate, or the
+    /// certificate was refused before any path was built. Carries the status to report it as and
+    /// the reason to show.
+    ///
+    /// Recorded where the read, the parse or the build refuses, all of which happen before any path
+    /// exists, so an entry carrying this has no paths and contributes none to the totals. The
+    /// reason belongs on the target for the same reason: nothing was found, so there is nothing for
+    /// it to hang off.
+    pub no_path_reason: Option<(TargetStatus, String)>,
     /// Fingerprints of the certification paths already reported for this target, one per path, over
     /// the trust anchor followed by the intermediates in order followed by the target.
     ///
@@ -67,6 +77,7 @@ impl PathValidationStats {
             path_reports: vec![],
             target_summary: None,
             no_paths_hints: vec![],
+            no_path_reason: None,
             reported_chains: BTreeSet::new(),
         }
     }

@@ -304,6 +304,12 @@ pub enum TargetStatus {
     Invalid,
     /// No certification paths could be found for the target
     NoPathsFound,
+    /// The input was admitted as a certificate and could not be read as one, so no target existed
+    /// to build a path for. Distinct from [`NoPathsFound`](TargetStatus::NoPathsFound), which says
+    /// the store held no issuer for a certificate that was read: nothing about the store or the
+    /// settings bears on this outcome, and reporting it as an absence of paths sent users looking
+    /// at trust material over a file that was never a certificate.
+    ParseError,
 }
 
 /// Results from validating all certification paths processed for one target certificate.
@@ -323,6 +329,12 @@ pub struct TargetReport {
     /// See [`NoPathsContext`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub no_paths_hints: Vec<String>,
+    /// Why the input yielded no target, when the status is
+    /// [`ParseError`](TargetStatus::ParseError). Absent otherwise. The status says a certificate
+    /// could not be read; this says what went wrong reading it, which is the whole of what a run
+    /// can offer about a file it could not decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// What the path builder had to work with, used to explain a zero-path outcome.
@@ -940,6 +952,7 @@ mod tests {
                     duration_ms: 12,
                 }],
                 no_paths_hints: vec![],
+                error: None,
             }],
             totals: ReportTotals {
                 targets: 1,
@@ -1255,6 +1268,7 @@ mod tests {
             status: TargetStatus::Valid,
             paths,
             no_paths_hints: vec![],
+            error: None,
         };
 
         let one = target(vec![path(8), path(19)]);

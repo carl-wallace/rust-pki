@@ -21,7 +21,7 @@ use crate::{
     args::Pittv3Args,
     report::{
         CertSummary, NoPathsContext, PathReport, ProgressEvent, ReportTotals, TargetReport,
-        ValidationReport,
+        TargetStatus, ValidationReport,
     },
     stats::{PVStats, PathValidationStats, PathValidationStatsGroup},
 };
@@ -303,6 +303,128 @@ pub fn load_trust_anchors(
     Ok(Some(ta_store))
 }
 
+/// How many trust anchors the entries in a trust anchor input pool would contribute.
+///
+/// Answers the question the pool's own length cannot: an entry may be a folder, a bundle carrying
+/// several anchors, or a CBOR store, so the number of entries and the number of anchors a run will
+/// have are different numbers, and it is the second one a caller looks at the pool to learn.
+///
+/// The inputs are loaded exactly as [`load_trust_anchors`] loads them and the size of the result is
+/// read off, so this is the number the run will use rather than an estimate of it -- including the
+/// deduplication `push` performs, which a per-entry sum would miss.
+///
+/// An input that cannot be read contributes nothing rather than failing. This describes a set of
+/// inputs while it is still being assembled; the run is where a trust anchor that will not load is
+/// an error, and it says so there.
+///
+/// `time_of_interest` is epoch seconds rather than a [`TimeOfInterest`] so that a frontend reaching
+/// certval only through this crate can ask -- the desktop GUI is one. It matters to the answer:
+/// loading drops an anchor not valid at that time, so a count is a count *as of* a moment. A value
+/// that is not a time leaves validity unchecked, which counts the material rather than nothing.
+#[cfg(feature = "std")]
+pub fn count_trust_anchor_inputs<'a>(
+    paths: impl IntoIterator<Item = &'a str>,
+    time_of_interest: u64,
+) -> usize {
+    let toi = counting_time_of_interest(time_of_interest);
+    let pe = PkiEnvironment::default();
+    let mut ta_store = TaSource::new();
+    for path in paths {
+        if let Err(e) = push_trust_anchor_input(&pe, path, &mut ta_store, toi) {
+            debug!("Counting no trust anchors from {path}: {e}");
+        }
+    }
+    ta_store.len()
+}
+
+/// The time the counting functions judge validity against, from the epoch seconds a frontend holds.
+///
+/// A value certval will not take as a time disables the check rather than substituting one: the
+/// alternative is counting against *some other* moment, and a count that quietly answers a
+/// different question than it was asked is worse than one that checks nothing.
+#[cfg(feature = "std")]
+fn counting_time_of_interest(time_of_interest: u64) -> TimeOfInterest {
+    match TimeOfInterest::from_unix_secs(time_of_interest) {
+        Ok(toi) => toi,
+        Err(_e) => TimeOfInterest::disabled(),
+    }
+}
+
+/// How many certificates the entries in a CA input pool would contribute, the CA-side counterpart
+/// of [`count_trust_anchor_inputs`] and built the same way, by running [`load_ca_inputs`] over a
+/// store of its own.
+///
+/// A CBOR store named on its own is adopted whole, so what comes back for one is the store's own
+/// size; combined with anything else only its certificates count, which is again what the run does
+/// with the same inputs.
+#[cfg(feature = "std")]
+pub fn count_ca_inputs<'a>(
+    paths: impl IntoIterator<Item = &'a str>,
+    time_of_interest: u64,
+) -> usize {
+    let pe = PkiEnvironment::default();
+    let mut cert_source = CertSource::new();
+    load_ca_inputs(
+        &pe,
+        paths,
+        &mut cert_source,
+        counting_time_of_interest(time_of_interest),
+    )
+    .certs
+}
+
+/// How many targets the entries in an end entity input pool would yield.
+///
+/// A folder entry is traversed for the certificates in it, exactly as `validate_cert_folder` does
+/// and by the same extension filter, so a folder counts as the targets it holds rather than as one.
+/// A file entry counts as one target whatever it holds: unlike the trust anchor and CA inputs, an
+/// end entity file is decoded as a single certificate and a bundle named here is not fanned out.
+///
+/// Repeats collapse, because the run keys its per-target statistics by file name and a file named
+/// twice is validated once.
+#[cfg(feature = "std")]
+pub fn count_end_entity_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> usize {
+    let mut targets: Vec<String> = vec![];
+    let mut count = |name: String| {
+        if !targets.contains(&name) {
+            targets.push(name);
+        }
+    };
+
+    for path in paths {
+        if !Path::new(path).is_dir() {
+            count(path.to_string());
+            continue;
+        }
+        for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            let ext = entry.path().extension().and_then(OsStr::to_str);
+            let is_certificate = ext.is_some_and(|ext| SINGLE_CERT_EXTENSIONS.contains(&ext));
+            let Some(name) = entry.path().to_str() else {
+                continue;
+            };
+            if is_certificate {
+                count(name.to_string());
+            }
+        }
+    }
+    targets.len()
+}
+
+/// How many CRLs and how many OCSP responses, in that order, the entries in a revocation input pool
+/// would supply.
+///
+/// Reads the artifacts and discards them, since which kind a file holds is decided from its bytes
+/// (see [`load_revocation_inputs`]) and there is no cheaper way to ask. A folder entry is traversed,
+/// so it counts as what is in it.
+#[cfg(all(feature = "std", feature = "revocation"))]
+pub fn count_revocation_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> (usize, usize) {
+    let inputs = load_revocation_inputs(paths);
+    (inputs.crls.len(), inputs.ocsp_responses.len())
+}
+
 /// `ValidateOpts` conveys the options that govern processing of a single validation target,
 /// decoupling the core validation logic from [`Pittv3Args`] so that non-CLI callers (GUI, web
 /// server) need not fabricate a full argument structure (and never see filesystem paths unless
@@ -564,7 +686,16 @@ pub(crate) async fn validate_cert_file(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) -> Result<()> {
-    let target_bytes = get_file_as_byte_vec_pem(Path::new(&cert_filename))?;
+    // A file the walk admitted and the reader cannot deliver never becomes a target, so record why
+    // here: nothing downstream sees this file again, and without it the entry reaches the report as
+    // an unexplained absence of paths.
+    let target_bytes = match get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            stats.no_path_reason = Some((TargetStatus::ParseError, format!("{e:?}")));
+            return Err(e);
+        }
+    };
     validate_cert_bytes(
         pe,
         cps,
@@ -627,7 +758,19 @@ pub async fn validate_cert_bytes(
     let time_of_interest = cps.get_time_of_interest();
     let cert_filename = name;
 
-    let target_cert = parse_cert(target_bytes, cert_filename)?;
+    // An input reaches here because something claimed it was a certificate -- the walk admits a file
+    // by its extension, and a caller naming bytes directly is making the same claim. When it is not
+    // one, that is the whole of what happened to it: no path was sought, so no store and no setting
+    // is implicated, and saying "no paths found" pointed users at trust material over a file that
+    // was never a certificate.
+    let target_cert = match parse_cert(target_bytes, cert_filename) {
+        Ok(target_cert) => target_cert,
+        Err(e) => {
+            error!("Failed to parse a certificate from {cert_filename}: {e:?}");
+            stats.no_path_reason = Some((TargetStatus::ParseError, format!("{e:?}")));
+            return Err(e);
+        }
+    };
     info!("Start building and validating path(s) for {cert_filename}");
 
     let start2 = Instant::now();
@@ -655,6 +798,18 @@ pub async fn validate_cert_bytes(
     let r = pe.get_paths_for_target(&target_cert, &mut paths, threshold, time_of_interest);
     if let Err(e) = r {
         error!("Failed to find certification paths for target with error {e:?}");
+        // A PathValidation error means a check rejected the target itself while the path was being
+        // built (e.g. it is not valid at the time of interest) -- a rejection of the certificate,
+        // not an absence of candidate issuers. No path exists either way, so this contributes no
+        // paths; what it contributes is the reason, which belongs on the target. Reporting it as
+        // the neutral "no paths found" instead reads like a store or configuration problem when
+        // nothing about either is wrong. Every other error keeps the no-paths-found outcome.
+        if let Error::PathValidation(pvs) = &e {
+            let reason = format!("{pvs:?}");
+            error!("{cert_filename}: certificate rejected during path building - {reason}");
+            stats.no_path_reason = Some((TargetStatus::Invalid, reason));
+            return Err(e);
+        }
         stats.no_paths_hints = diagnose(pe);
         return Err(Error::Unrecognized);
     }
@@ -678,25 +833,36 @@ pub async fn validate_cert_bytes(
     let mut reported = 0usize;
     let mut suppressed = 0usize;
 
-    for (i, path) in paths.iter_mut().enumerate() {
-        // The dynamic-building loop calls back in once per pass, and the builder can offer a path an
-        // earlier pass already returned. Skip it before validating rather than after: a repeat costs
-        // a signature check and a revocation round trip, and reporting it a second time is what made
-        // one target's five paths read as ten.
-        //
-        // Logged at debug on every suppression on purpose. Deduplicating here is a backstop over
-        // whatever the builder's own `threshold` did, so silence would hide the builder handing back
-        // paths it was asked to withhold; a run that suppresses nothing says the threshold held.
-        let chain = chain_fingerprint(path);
-
-        if !stats.reported_chains.insert(chain) {
+    // Every path the builder returned is recorded here, before any of them is validated, rather
+    // than as each one is reached.
+    //
+    // The dynamic-building loop calls back in once per pass and the builder can offer a path an
+    // earlier pass already returned; having recorded it is what lets the repeat be skipped, which
+    // is worth doing before validating rather than after, since a repeat costs a signature check
+    // and a revocation round trip. Recording a path where it is validated misses every path the
+    // loop never reaches -- it stops at the first success unless validate_all is set, and always at
+    // a revoked end entity -- so those went unrecorded, were offered again on the next pass,
+    // suppressed nothing, and were counted a second time. Over eight revoked targets one run
+    // counted twenty paths twice that way, which is what made it report more paths found than the
+    // same material yielded in the browser, whose totals come from the reports themselves.
+    //
+    // Logged at debug on every suppression on purpose. Deduplicating here is a backstop over
+    // whatever the builder's own `threshold` did, so silence would hide the builder handing back
+    // paths it was asked to withhold; a run that suppresses nothing says the threshold held.
+    let mut to_validate = Vec::with_capacity(paths.len());
+    for (i, path) in paths.iter().enumerate() {
+        if stats.reported_chains.insert(chain_fingerprint(path)) {
+            to_validate.push(i);
+        } else {
             debug!(
                 "Suppressing a certification path already reported for {cert_filename} (offered again with threshold {threshold})"
             );
             suppressed += 1;
-            continue;
         }
+    }
 
+    for i in to_validate {
+        let path = &mut paths[i];
         info!(
             "Validating {} certificate path for {}",
             (path.intermediates.len() + 2),
@@ -771,11 +937,16 @@ pub async fn validate_cert_bytes(
                 stats.invalid_paths_per_target += 1;
 
                 log_path(pe, &opts.error_folder, path, i, None, None);
-                if e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) {
-                    info!("Failed to validate {cert_filename} with {e:?}");
+                info!("Failed to validate {cert_filename} with {e:?}");
+                // A revoked end entity is the same certificate on every candidate path, so the
+                // first path to report it has settled the target and the rest cost a signature
+                // check and a revocation lookup to reach the same answer. Stop for the same reason
+                // and under the same condition as a successful path does: the run has what it came
+                // for, unless validate_all asked to see every path regardless.
+                let revoked =
+                    e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity);
+                if revoked && !opts.validate_all {
                     break;
-                } else {
-                    info!("Failed to validate {cert_filename} with {e:?}");
                 }
             }
         }
@@ -866,7 +1037,15 @@ pub async fn validate_targets(
 
         let paths_found = stats_for_target.paths_per_target - prev_paths;
         let path_reports = core::mem::take(&mut stats_for_target.path_reports);
-        let status = TargetReport::compute_status(&path_reports, paths_found > 0);
+        // A target that never yielded a path is reported as why rather than rolled up from path
+        // results it has none of
+        let (status, error) = match stats_for_target.no_path_reason.take() {
+            Some((status, reason)) => (status, Some(reason)),
+            None => (
+                TargetReport::compute_status(&path_reports, paths_found > 0),
+                None,
+            ),
+        };
 
         if let Some(progress) = progress {
             progress(ProgressEvent::PathsFound {
@@ -904,6 +1083,7 @@ pub async fn validate_targets(
             status,
             paths: path_reports,
             no_paths_hints,
+            error,
         });
     }
 

@@ -289,6 +289,55 @@ fn cert_or_ta_folder_to_vec(
     Ok(certsvec.len() - initial_count)
 }
 
+/// Returns the file that records URI last-modified values: the [`PS_LAST_MODIFIED_MAP_FILE`] setting
+/// when one names a file, and `last_modified_map.json` in `download_folder` otherwise.
+///
+/// The setting is documented as the way to name this file and the getter has always existed, but the
+/// callers that fetch built the path from the download folder and never consulted it -- so a value
+/// the settings form accepted, stored and redisplayed had no effect on a run. Resolving it in one
+/// place keeps the precedence from being restated per call site.
+#[cfg(feature = "std")]
+pub fn last_modified_map_file(cps: &CertificationPathSettings, download_folder: &str) -> String {
+    fetch_state_file(
+        cps.get_last_modified_map_file(),
+        download_folder,
+        "last_modified_map.json",
+    )
+}
+
+/// Returns the file listing URIs not worth retrying: the [`PS_URI_BLOCKLIST_FILE`] setting when one
+/// names a file, and `blocklist.json` in `download_folder` otherwise. See
+/// [`last_modified_map_file`] for why the resolution lives here.
+#[cfg(feature = "std")]
+pub fn uri_blocklist_file(cps: &CertificationPathSettings, download_folder: &str) -> String {
+    fetch_state_file(
+        cps.get_uri_blocklist_file(),
+        download_folder,
+        "blocklist.json",
+    )
+}
+
+/// An empty configured value is treated as absent rather than as a request to use "": the settings
+/// form writes an empty string when a field is cleared, and honoring that literally would send the
+/// reader at a path that cannot exist.
+#[cfg(feature = "std")]
+fn fetch_state_file(
+    configured: Option<String>,
+    download_folder: &str,
+    default_name: &str,
+) -> String {
+    if let Some(configured) = configured {
+        if !configured.is_empty() {
+            return configured;
+        }
+    }
+    Path::new(download_folder)
+        .join(default_name)
+        .to_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// `read_last_modified_map` accepts a string containing the name of a file that notionally contains JSON data that
 /// represents last modified information and returns a map of URIs to last modified times.
 ///

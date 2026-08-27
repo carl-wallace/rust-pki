@@ -104,20 +104,8 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         let mut uris_count = 0;
         let max_certs = cps.get_max_aia_sia_certs();
 
-        let p = Path::new(&download_folder);
-        let blp = p.join("last_modified_map.json");
-        let lmm_file = if let Some(bl) = blp.to_str() {
-            bl.to_string()
-        } else {
-            "".to_string()
-        };
-
-        let blp = p.join("blocklist.json");
-        let blocklist_file = if let Some(bl) = blp.to_str() {
-            bl.to_string()
-        } else {
-            "".to_string()
-        };
+        let lmm_file = last_modified_map_file(cps, &download_folder);
+        let blocklist_file = uri_blocklist_file(cps, &download_folder);
 
         loop {
             {
