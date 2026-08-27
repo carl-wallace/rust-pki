@@ -11,7 +11,7 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use certval::*;
-use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport};
+use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport, TargetStatus};
 use web_time::Instant;
 
 use crate::retrieval::{MemoryCrlSource, OcspResponses};
@@ -353,6 +353,35 @@ fn no_paths_report(
         status: TargetReport::compute_status(&[], false),
         paths: vec![],
         no_paths_hints: NoPathsContext::collect(pe, target, toi, None).hints(),
+        error: None,
+    }
+}
+
+/// Reports a target for which no certification path exists because of the target itself rather than
+/// the material available to build with: the file was not a certificate, or the certificate was
+/// refused before any path was built.
+///
+/// No path was built, so none is reported and none is counted. The reason rides on the target,
+/// which is the only thing there is. Reporting it as a one-certificate path instead put an entry in
+/// the path list that was never a path, and the totals -- which count that list -- counted it, so a
+/// run over a folder of expired certificates reported paths it had never found.
+///
+/// A file that could not be read at all is reported rather than dropped: dropping it made a run
+/// report fewer targets than the folder holds, leaving a user comparing the two counts nothing to
+/// reconcile them with.
+fn no_path_reason_report(
+    ee_name: &str,
+    target: Option<CertSummary>,
+    status: TargetStatus,
+    reason: String,
+) -> TargetReport {
+    TargetReport {
+        name: ee_name.to_string(),
+        target,
+        status,
+        paths: vec![],
+        no_paths_hints: vec![],
+        error: Some(reason),
     }
 }
 
@@ -415,15 +444,33 @@ fn validate_target(
     let der = match maybe_pem(ee) {
         Ok(der) => der,
         Err(_) => {
-            out.push(err(format!("Failed to parse {ee_name} as PEM or DER")));
-            return (None, out);
+            let reason = format!("Failed to parse {ee_name} as PEM or DER");
+            out.push(err(reason.clone()));
+            return (
+                Some(no_path_reason_report(
+                    ee_name,
+                    None,
+                    TargetStatus::ParseError,
+                    reason,
+                )),
+                out,
+            );
         }
     };
     let target = match parse_cert(&der, ee_name) {
         Ok(t) => t,
         Err(e) => {
-            out.push(err(format!("Failed to parse certificate {ee_name}: {e:?}")));
-            return (None, out);
+            let reason = format!("Failed to parse certificate {ee_name}: {e:?}");
+            out.push(err(reason.clone()));
+            return (
+                Some(no_path_reason_report(
+                    ee_name,
+                    None,
+                    TargetStatus::ParseError,
+                    reason,
+                )),
+                out,
+            );
         }
     };
     let target_summary = CertSummary::from_cert(&target);
@@ -463,25 +510,13 @@ fn validate_target(
             out.push(err(format!(
                 "{ee_name}: certificate rejected during path building — {reason}"
             )));
-            let path = PathReport {
-                status: Some(*pvs),
-                error: Some(format!("{e:?}")),
-                // The target alone. Whether that lone certificate is an anchor is the environment's
-                // to answer -- a target that is itself a trust anchor looks exactly the same here --
-                // so ask rather than infer from the shape or the outcome.
-                certs: vec![target_summary.clone()],
-                no_anchor: pe.is_cert_a_trust_anchor(&target).is_err(),
-                failure_reasons: vec![reason],
-                ..Default::default()
-            };
             return (
-                Some(TargetReport {
-                    name: ee_name.to_string(),
-                    target: Some(target_summary),
-                    status: TargetReport::compute_status(std::slice::from_ref(&path), true),
-                    paths: vec![path],
-                    no_paths_hints: vec![],
-                }),
+                Some(no_path_reason_report(
+                    ee_name,
+                    Some(target_summary),
+                    TargetStatus::Invalid,
+                    reason,
+                )),
                 out,
             );
         }
@@ -582,6 +617,16 @@ fn validate_target(
                     i + 1,
                     cert_count
                 )));
+                // A revoked end entity is the same certificate on every candidate path, so the
+                // first path to report it has settled the target and the rest cost a signature
+                // check and a revocation lookup to reach the same answer. Stop for the same reason
+                // and under the same condition as a successful path does above: the run has what it
+                // came for, unless validate_all asked to see every path regardless.
+                let revoked =
+                    e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity);
+                if revoked && !validate_all {
+                    break;
+                }
             }
         }
     }
@@ -606,6 +651,7 @@ fn validate_target(
             status,
             paths: path_reports,
             no_paths_hints: vec![],
+            error: None,
         }),
         out,
     )

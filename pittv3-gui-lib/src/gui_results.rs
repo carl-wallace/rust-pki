@@ -50,6 +50,7 @@ fn status_parts(status: TargetStatus) -> (&'static str, &'static str) {
         TargetStatus::Revoked => ("badge badge-revoked", "Revoked"),
         TargetStatus::Invalid => ("badge badge-invalid", "Invalid"),
         TargetStatus::NoPathsFound => ("badge badge-nopaths", "No paths found"),
+        TargetStatus::ParseError => ("badge badge-unreadable", "Not a certificate"),
     }
 }
 
@@ -307,7 +308,12 @@ pub fn TargetCard(target: TargetReport, #[props(default)] open: bool) -> Element
                 }
                 span { class: "hint", " ({path_count} path(s))" }
             }
-            if target.paths.is_empty() {
+            // An input that never became a certificate has no path to report and nothing to say
+            // about the store, so why it could not be read stands in place of both.
+            if let Some(reason) = target.error.clone() {
+                p { class: "hint", "{reason}" }
+            }
+            if target.error.is_none() && target.paths.is_empty() {
                 p { class: "hint",
                     "No certification paths were processed for this target."
                 }
@@ -341,6 +347,7 @@ fn target_status_counts(targets: &[TargetReport]) -> Vec<(&'static str, &'static
         TargetStatus::Revoked,
         TargetStatus::Invalid,
         TargetStatus::NoPathsFound,
+        TargetStatus::ParseError,
     ];
     statuses
         .iter()

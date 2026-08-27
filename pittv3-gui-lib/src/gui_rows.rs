@@ -276,9 +276,12 @@ pub fn CheckboxRow(
 /// frontend's picker returned; a native multi-select adds several at once, and a frontend with no
 /// picker at all can leave the button off by passing `None`.
 ///
-/// What each entry yields is deliberately *not* shown. A folder is read when the run reads it, so a
-/// count here would be a claim about a moment that has passed; the run reports what each input
-/// actually contributed, which is the honest place for it.
+/// What the pool *contributes* is what the count reports, where a frontend can work it out: a
+/// `.p7c` of cross-certificates is six certificates and not one file, and a folder is however many
+/// certificates are in it, so the number of entries is rarely the number a run will have. A
+/// frontend passes that as `contents`; the entry count stands in until it does, and where no
+/// frontend can say. The figure describes the material as it was last read, which for a folder is a
+/// moment that has passed -- what each input actually contributed is reported by the run.
 #[component]
 pub fn PathListRow(
     label: String,
@@ -291,14 +294,23 @@ pub fn PathListRow(
     /// Shown under the rows when the pool is empty, to say what belongs here.
     #[props(default)]
     hint: String,
+    /// What the entries contribute, worded by the frontend because the noun differs by pool
+    /// ("6 trust anchors", "3 CRLs, 1 OCSP response"). Shown in place of the entry count; empty
+    /// where the frontend has nothing to say yet.
+    #[props(default)]
+    contents: String,
 ) -> Element {
     let title = tooltip(title, &name);
     let entries = sig();
     // What the pool holds, as a count. The paths themselves are the tooltip, so the whole of a
     // pool is available on hover without any of it taking room on the page.
-    let loaded = match entries.len() {
+    let entry_count = match entries.len() {
         1 => "1 entry".to_string(),
         n => format!("{n} entries"),
+    };
+    let loaded = match contents.is_empty() {
+        true => entry_count,
+        false => contents.clone(),
     };
     let listing = entries.join("\n");
     rsx! {

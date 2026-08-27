@@ -2,6 +2,10 @@
 
 use dioxus::prelude::*;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use home::home_dir;
 use log::{debug, error, LevelFilter};
@@ -33,6 +37,9 @@ use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std;
 use pittv3_lib::report::ValidationReport;
+use pittv3_lib::std_utils::{
+    count_ca_inputs, count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
+};
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 
 use crate::peek;
@@ -323,6 +330,96 @@ fn dedup_pool(v: Vec<String>) -> Vec<String> {
     out
 }
 
+/// What the four input pools on the Validate view contribute, as against how many entries they
+/// hold. A `.p7c` of cross-certificates is six certificates and a folder is however many are in it,
+/// so an entry count answers a question nobody asked: the number worth showing is the number the
+/// run will have. The browser frontend reports its uploads the same way.
+///
+/// Worked out by the loaders the run itself uses, which means reading every file named. That is
+/// what keeps it off the UI thread: see [`spawn_pool_count`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct PoolCounts {
+    trust_anchors: usize,
+    ca_certificates: usize,
+    crls: usize,
+    ocsp_responses: usize,
+    end_entities: usize,
+}
+
+/// `n` followed by the noun, plural unless there is one of them.
+fn plural(n: usize, noun: &str) -> String {
+    match n {
+        1 => format!("1 {noun}"),
+        n => format!("{n} {noun}s"),
+    }
+}
+
+/// The revocation pool's count, which is two counts: a CRL and an OCSP response are not the same
+/// thing to a run, and the pool takes both because a file says for itself which it is.
+///
+/// A kind that contributed nothing is left out rather than shown as a zero — a pool of CRLs is the
+/// ordinary case and "0 OCSP responses" beside it is noise. Both being empty is worth saying, since
+/// the entries are there on the row and something has to account for them.
+fn revocation_contents(counts: &PoolCounts) -> String {
+    let mut parts = vec![];
+    if counts.crls > 0 {
+        parts.push(plural(counts.crls, "CRL"));
+    }
+    if counts.ocsp_responses > 0 {
+        parts.push(plural(counts.ocsp_responses, "OCSP response"));
+    }
+    match parts.is_empty() {
+        true => "0 revocation artifacts".to_string(),
+        false => parts.join(", "),
+    }
+}
+
+/// The paths a count is about, as the worker thread needs them: owned, since it outlives the render
+/// that read the signals, and carrying the time the material is judged at, which decides the answer
+/// as surely as the paths do.
+struct PoolInputs {
+    ta: Vec<String>,
+    ca: Vec<String>,
+    rev: Vec<String>,
+    ee: Vec<String>,
+    time_of_interest: u64,
+}
+
+/// Counts what the four pools contribute, on a worker thread, and sends the result back tagged with
+/// `generation`.
+///
+/// On a thread rather than in a memo because counting is the loading: a pool naming a folder of a
+/// few thousand certificates, or a CBOR store of them, would otherwise stall the WebView on the
+/// keystroke that named it — the same reason a run does not happen on the UI executor either.
+///
+/// The pause at the top is a debounce with the wait already paid for. Every edit to a pool, and
+/// every keystroke in the time of interest field, asks for a fresh count; a thread that wakes to
+/// find `latest` moved past its own generation has been superseded before it read anything, and
+/// stops without touching the disk.
+fn spawn_pool_count(
+    inputs: PoolInputs,
+    generation: usize,
+    latest: Arc<AtomicUsize>,
+    tx: futures_channel::mpsc::UnboundedSender<(usize, PoolCounts)>,
+) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        if generation != latest.load(Ordering::SeqCst) {
+            return;
+        }
+        let toi = inputs.time_of_interest;
+        let (crls, ocsp_responses) = count_revocation_inputs(inputs.rev.iter().map(String::as_str));
+        let counts = PoolCounts {
+            trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str), toi),
+            ca_certificates: count_ca_inputs(inputs.ca.iter().map(String::as_str), toi),
+            crls,
+            ocsp_responses,
+            end_entities: count_end_entity_inputs(inputs.ee.iter().map(String::as_str)),
+        };
+        let _ = tx.unbounded_send((generation, counts));
+    });
+}
+
 /// Returns the value of `sig` as a usize, or None if the value is empty or cannot be parsed
 fn usize_or_none(sig: Signal<String>) -> Option<usize> {
     match string_or_none(sig) {
@@ -416,6 +513,10 @@ fn PoolRow(
     extensions: &'static [&'static str],
     #[props(default)] title: String,
     #[props(default)] hint: String,
+    /// What the entries contribute, from [`PoolCounts`]. Empty until the first count comes back,
+    /// which is when the row falls back to reporting entries.
+    #[props(default)]
+    contents: String,
 ) -> Element {
     #[cfg(target_os = "macos")]
     {
@@ -427,6 +528,7 @@ fn PoolRow(
                 sig,
                 title,
                 hint,
+                contents,
                 on_add: move |_| {
                     spawn(pick_files_or_folders_into(sig));
                 },
@@ -442,6 +544,7 @@ fn PoolRow(
             sig,
             title,
             hint,
+            contents,
             on_add: move |_| {
                 spawn(pick_files_into(sig, filter_name, extensions));
             },
@@ -826,6 +929,51 @@ pub(crate) fn App() -> Element {
     let mut s_graph_export = use_signal(String::new);
     let s_ta_cbor = use_signal(|| saved_or_empty(&sa.ta_cbor));
     let s_time_of_interest = use_signal(|| get_now_as_unix_epoch().to_string());
+
+    // What those pools hold, kept current beside them. Recounted whenever a pool changes and
+    // whenever the time of interest does, because loading drops material not valid at that time and
+    // so the count is an answer as of a moment.
+    //
+    // Two generations of the same counter: `counts_seq` is bumped by the effect that asks for a
+    // count and read by both the worker (before it starts, as a debounce) and the task that applies
+    // the result (before it writes, so a slow count over a folder cannot overwrite a fast one over
+    // the empty pool that replaced it).
+    let mut s_pool_counts = use_signal(PoolCounts::default);
+    let counts_seq = use_hook(|| Arc::new(AtomicUsize::new(0)));
+    let counts_tx = use_hook(|| {
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<(usize, PoolCounts)>();
+        let seq = counts_seq.clone();
+        // Signals are written here, on the UI executor, and never from the worker thread.
+        spawn(async move {
+            while let Some((generation, counts)) = rx.next().await {
+                if generation == seq.load(Ordering::SeqCst) {
+                    s_pool_counts.set(counts);
+                }
+            }
+        });
+        tx
+    });
+    use_effect({
+        let counts_seq = counts_seq.clone();
+        let counts_tx = counts_tx.clone();
+        move || {
+            let generation = counts_seq.fetch_add(1, Ordering::SeqCst) + 1;
+            spawn_pool_count(
+                PoolInputs {
+                    ta: pool(s_ta_inputs),
+                    ca: pool(s_ca_inputs),
+                    rev: pool(s_rev_inputs),
+                    ee: pool(s_ee_inputs),
+                    time_of_interest: s_time_of_interest()
+                        .parse::<u64>()
+                        .unwrap_or_else(|_| get_now_as_unix_epoch()),
+                },
+                generation,
+                counts_seq.clone(),
+                counts_tx.clone(),
+            );
+        }
+    });
     let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
     let s_error_folder = use_signal(|| sa.error_folder.clone().unwrap_or_default());
     let s_download_folder = use_signal(|| sa.download_folder.clone().unwrap_or_default());
@@ -1130,10 +1278,11 @@ pub(crate) fn App() -> Element {
             {
                 match s_view() {
                     View::Validate => {
-                        // Named for what the run will do, and counting what it will judge -- the
-                        // same filter the arguments apply, so the number on the button is the
-                        // number of targets, not the number of rows in the pool.
-                        let targets = pool(s_ee_inputs).len();
+                        // Named for what the run will do, and counting what it will judge: a
+                        // folder in the pool is one entry and as many targets as it holds, so the
+                        // number on the button comes from the same count as the row above rather
+                        // than from the length of the pool.
+                        let targets = s_pool_counts().end_entities;
                         let validate_label = match targets {
                             0 => "Validate using the current store and settings".to_string(),
                             1 => "Validate 1 certificate using the current store and settings"
@@ -1181,6 +1330,10 @@ pub(crate) fn App() -> Element {
                                         sig: s_ta_inputs,
                                         filter_name: "Trust anchor, bundle or CBOR store",
                                         extensions: TA_POOL_EXTENSIONS,
+                                        contents: plural(
+                                            s_pool_counts().trust_anchors,
+                                            "trust anchor",
+                                        ),
                                     }
                                     // Shown whatever dynamic build is set to. This pool is `--ca`,
                                     // which `load_ca_inputs` folds into the graph on the first pass
@@ -1194,6 +1347,10 @@ pub(crate) fn App() -> Element {
                                         sig: s_ca_inputs,
                                         filter_name: "CA certificate, bundle or CBOR store",
                                         extensions: TA_POOL_EXTENSIONS,
+                                        contents: plural(
+                                            s_pool_counts().ca_certificates,
+                                            "certificate",
+                                        ),
                                     }
                                 }
                             }
@@ -1211,6 +1368,7 @@ pub(crate) fn App() -> Element {
                                         sig: s_rev_inputs,
                                         filter_name: "CRL or OCSP response",
                                         extensions: REV_POOL_EXTENSIONS,
+                                        contents: revocation_contents(&s_pool_counts()),
                                     }
                                     FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
                                 }
@@ -1224,6 +1382,10 @@ pub(crate) fn App() -> Element {
                                             sig: s_ee_inputs,
                                             filter_name: "Certificate File",
                                             extensions: SINGLE_CERT_EXTENSIONS,
+                                            contents: plural(
+                                                s_pool_counts().end_entities,
+                                                "certificate",
+                                            ),
                                         }
                                     },
                                     peek_host: s_peek_host,

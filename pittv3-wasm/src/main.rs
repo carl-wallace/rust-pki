@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use certval::{
-    CertSource, CertificationPathSettings, PkiEnvironment, RevocationCache, TaSource,
-    TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
+    CertFile, CertSource, CertVector, CertificationPathSettings, PkiEnvironment, RevocationCache,
+    TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_results::ResultsView;
@@ -353,25 +353,55 @@ fn App() -> Element {
 
     // What an upload actually contributes, which is certificates and not files: since the 08-24
     // fan-out one `.p7c` of cross-certificates carries several, and reporting the file count made
-    // the label read "1 trust anchor(s)" for six. Mirrors prepare_validation's dispatch so the
-    // number shown is the number that will be used.
+    // the label read "1 trust anchor(s)" for six.
+    //
+    // Counted by pushing into a store rather than by summing what each file parses to, because
+    // `push` drops a certificate the store already holds and a per-file sum cannot: the "issued by"
+    // and "issued to" bundles for a cross-certified pair each carry the same cross-certificate, so
+    // nominating both parsed 17 certificates where the run had 16. The filenames here are the
+    // upload's own rather than prepare_validation's numbering, which changes nothing -- `CertFile`
+    // equality is over the bytes alone.
     let loaded_ta_count = use_memo(move || {
-        uploaded_tas()
-            .iter()
-            .map(|(_, bytes)| match TaSource::new_from_cbor(bytes) {
-                Ok(src) => src.get_tas().len(),
-                Err(_) => certs_in(bytes).map(|c| c.len()).unwrap_or(0),
-            })
-            .sum::<usize>()
+        let mut ta_store = TaSource::new();
+        for (name, bytes) in uploaded_tas().iter() {
+            // A `.cbor` trust-anchor store merges all of its anchors; new_from_cbor rejects
+            // anything else, so certificates and bundles fall through to the parse below
+            if let Ok(src) = TaSource::new_from_cbor(bytes) {
+                for cf in src.get_tas() {
+                    ta_store.push(cf);
+                }
+                continue;
+            }
+            if let Ok(ders) = certs_in(bytes) {
+                for der in ders {
+                    ta_store.push(CertFile {
+                        filename: name.clone(),
+                        bytes: der,
+                    });
+                }
+            }
+        }
+        ta_store.len()
     });
     let loaded_ca_count = use_memo(move || {
-        uploaded_cas()
-            .iter()
-            .map(|(_, bytes)| match CertSource::new_from_cbor(bytes) {
-                Ok(src) => src.get_buffers().len(),
-                Err(_) => certs_in(bytes).map(|c| c.len()).unwrap_or(0),
-            })
-            .sum::<usize>()
+        let mut cert_source = CertSource::new();
+        for (name, bytes) in uploaded_cas().iter() {
+            if let Ok(src) = CertSource::new_from_cbor(bytes) {
+                for cf in src.get_buffers() {
+                    cert_source.push(cf);
+                }
+                continue;
+            }
+            if let Ok(ders) = certs_in(bytes) {
+                for der in ders {
+                    cert_source.push(CertFile {
+                        filename: name.clone(),
+                        bytes: der,
+                    });
+                }
+            }
+        }
+        cert_source.len()
     });
     let mut loaded_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
     // Which of the two ways of naming an end entity certificate the form is offering. Not a

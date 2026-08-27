@@ -1301,6 +1301,9 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         info!("\t * Invalid paths found: {}", s.invalid_paths_per_target);
 
         // Say why the count is zero where the count is reported, not only in the structured report
+        if let Some((_status, reason)) = &s.no_path_reason {
+            info!("\t * No certification path was found because of the target itself: {reason}");
+        }
         if 0 == s.paths_per_target {
             for hint in &s.no_paths_hints {
                 info!("\t * {hint}");
@@ -1354,7 +1357,15 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
     for (name, s) in stats.iter_mut() {
         let paths_found = s.paths_per_target > 0;
         let path_reports = core::mem::take(&mut s.path_reports);
-        let status = TargetReport::compute_status(&path_reports, paths_found);
+        // A target that never yielded a path is reported as why rather than rolled up from path
+        // results it has none of
+        let (status, error) = match s.no_path_reason.take() {
+            Some((status, reason)) => (status, Some(reason)),
+            None => (
+                TargetReport::compute_status(&path_reports, paths_found),
+                None,
+            ),
+        };
         let target_summary = s
             .target_summary
             .clone()
@@ -1379,6 +1390,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             status,
             paths: path_reports,
             no_paths_hints,
+            error,
         });
     }
     report

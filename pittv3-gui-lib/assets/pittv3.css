@@ -258,6 +258,12 @@ button[type="submit"] {
   background: #6b7280;
 }
 
+/* Not a verdict about a certificate but a statement about the file, so it is kept off the
+   valid/invalid palette and set apart from the grey that means no path was found */
+.badge-unreadable {
+  background: #334155;
+}
+
 .results-summary {
   display: flex;
   flex-wrap: wrap;
