@@ -622,7 +622,13 @@ fn index_crls_internal(
                         continue;
                     }
 
-                    let crl_buf = get_file_as_byte_vec_pem(e.path())?;
+                    let crl_buf = match get_file_as_byte_vec_pem(e.path()) {
+                        Ok(crl_buf) => crl_buf,
+                        Err(err) => {
+                            error!("Failed to read CRL at {} with {err}", e.path().display());
+                            continue;
+                        }
+                    };
 
                     let crl = match CertificateList::from_der(crl_buf.as_slice()) {
                         Ok(crl) => crl,
@@ -856,5 +862,35 @@ mod tests {
         }
         assert_eq!(infos[0], infos[1]);
         assert!(infos[0].issuer_name.contains("Amazon Root CA 1"));
+    }
+
+    // A folder holding one good CRL and one file that cannot be parsed must keep the good one
+    // instead of returning prematurely.
+    #[test]
+    fn premature_return_upon_crl_parse_error() {
+        let fixtures = Path::new("tests/examples/pem_crl");
+
+        // Copied for the same reason as the test above: indexing deletes CRLs that are not valid at
+        // the time of interest, and TimeOfInterest::disabled() is what keeps this one from pruning.
+        let dir = tempfile::tempdir().unwrap();
+        fs::copy(
+            fixtures.join("AmazonRootCA1.der.crl"),
+            dir.path().join("AmazonRootCA1.der.crl"),
+        )
+        .unwrap();
+
+        // Use notionally PEM-encoded CRL with a body that is not base64
+        fs::write(
+            dir.path().join("truncated.crl"),
+            b"-----BEGIN X509 CRL-----\n!!!!\n-----END X509 CRL-----\n",
+        )
+        .unwrap();
+
+        let cs = CrlSourceFolders::new(dir.path().to_str().unwrap());
+        assert_eq!(1, cs.index_crls(TimeOfInterest::disabled()).unwrap());
+
+        let inner = cs.inner.read().unwrap();
+        assert_eq!(1, inner.crl_info.len());
+        assert!(inner.crl_info[0].issuer_name.contains("Amazon Root CA 1"));
     }
 }
