@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod crypto_composite;
 pub mod crypto_pqc;
 pub mod error;
+pub(crate) mod lock;
 pub mod pdv_alg_oids;
 pub mod pdv_utilities;
 pub mod pqc_oids;
