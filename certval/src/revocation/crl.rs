@@ -942,12 +942,14 @@ pub(crate) fn build_kept_serials(
     Some(serials)
 }
 
-fn verify_crl(
-    pe: &PkiEnvironment,
-    crl_buf: &[u8],
-    issuer: &dyn SubjectNameAndKey,
-    cpr: &mut CertificationPathResults,
-) -> Result<()> {
+/// Verifies the signature on a CRL using the presumed issuer's public key.
+///
+/// A failure here says the artifact could not be attributed to the issuer, not that the
+/// certification path is bad, so no [`PathValidationStatus`] is recorded: the caller drops the CRL
+/// and moves to the next revocation source, and the path status stays whatever the checks that do
+/// judge the path have made it. Writing a status here would outlive the artifact it described,
+/// because the results map holds one status and the last write wins.
+fn verify_crl(pe: &PkiEnvironment, crl_buf: &[u8], issuer: &dyn SubjectNameAndKey) -> Result<()> {
     let Ok(defer_crl) = DeferDecodeSigned::from_der(crl_buf) else {
         return Err(Error::Unrecognized);
     };
@@ -965,7 +967,6 @@ fn verify_crl(
             .map(name_to_string)
             .unwrap_or_default();
         error!("CRL signature verification error for issuer {subject}: {e:?}");
-        cpr.set_validation_status(PathValidationStatus::SignatureVerificationFailure);
         return Err(Error::PathValidation(
             PathValidationStatus::SignatureVerificationFailure,
         ));
@@ -1103,7 +1104,7 @@ pub(crate) fn process_crl(
     // authority check is deliberately not retained in the results (it may be bogus and would only be
     // re-saved on every pass); log the source URI when it is known so the CRL can still be re-obtained
     // for diagnosis. verify_crl/check_crl_sign already log the specific failure and issuer.
-    if let Err(e) = verify_crl(pe, crl_buf, issuer, cpr).and_then(|_| check_crl_sign(issuer)) {
+    if let Err(e) = verify_crl(pe, crl_buf, issuer).and_then(|_| check_crl_sign(issuer)) {
         if let Some(uri) = uri {
             error!("Discarding unverifiable CRL from {uri} with {e}");
         }

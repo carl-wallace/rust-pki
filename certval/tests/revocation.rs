@@ -950,3 +950,143 @@ fn stapled_ocsp() {
         "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"
     );
 }
+
+// PKITS 4.4.4 (Invalid Bad CRL Signature Test4): the only CRL covering the end entity is signed
+// with a key that is not the issuing CA's, so it cannot be attributed to the issuer and is
+// discarded. Nothing else can answer for that certificate, so the run must end at
+// RevocationStatusNotDetermined -- the artifact's own signature failure is not the path's verdict
+// and must not be reported in its place.
+//
+// This guards the undetermined outcome rather than reproducing a defect: the tail of
+// check_revocation writes RevocationStatusNotDetermined after the discarded CRL either way, so the
+// assertions below hold whether or not verify_crl records a status. That is the point -- dropping
+// the artifact must not cost the run the answer it would otherwise give. The companion test below
+// is the one that fails without the fix.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[tokio::test]
+async fn unverifiable_crl_leaves_revocation_undetermined() {
+    use certval::environment::pki_environment::PkiEnvironment;
+    use certval::path_settings::*;
+    use certval::validator::path_validator::*;
+    use certval::*;
+
+    let der_encoded_ta =
+        include_bytes!("examples/PKITS_data_2048/certs/TrustAnchorRootCertificate.crt");
+    let der_encoded_ca = include_bytes!("examples/PKITS_data_2048/certs/BadCRLSignatureCACert.crt");
+    let der_encoded_ee =
+        include_bytes!("examples/PKITS_data_2048/certs/InvalidBadCRLSignatureTest4EE.crt");
+    let der_encoded_ta_crl = include_bytes!("examples/PKITS_data_2048/crls/TrustAnchorRootCRL.crl");
+    let der_encoded_bad_crl =
+        include_bytes!("examples/PKITS_data_2048/crls/BadCRLSignatureCACRL.crl");
+
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    cert_path.crls[0] = Some(der_encoded_ta_crl.to_vec());
+    cert_path.crls[1] = Some(der_encoded_bad_crl.to_vec());
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_crldp_http(false);
+    // Both certificates are valid 2010-01-01 through 2030-12-31, as is the trust anchor's CRL.
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
+
+    let mut cpr = CertificationPathResults::new();
+    pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr)
+        .expect("PKITS 4.4.4 path should pass basic path validation");
+    assert_eq!(
+        Some(PathValidationStatus::Valid),
+        cpr.get_validation_status()
+    );
+
+    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    assert_eq!(
+        Err(Error::PathValidation(
+            PathValidationStatus::RevocationStatusNotDetermined
+        )),
+        r
+    );
+    assert_eq!(
+        Some(PathValidationStatus::RevocationStatusNotDetermined),
+        cpr.get_validation_status()
+    );
+    // The trust anchor's CRL settled the CA, so the undetermined position is the end entity: index
+    // 1 of the intermediates-plus-target array, reported failure-index style with the anchor at 0.
+    assert_eq!(Some(2), cpr.get_failure_index());
+    let sources = cpr.get_revocation_source().unwrap();
+    assert_eq!(RevocationSource::StapledCrl, sources[0]);
+    assert_eq!(RevocationSource::None, sources[1]);
+}
+
+// A CRL that fails verification is one source declining to answer, not a verdict on the path. When
+// a later source does answer, the discarded artifact must leave no trace in the path status: the
+// run reports the Valid that path validation established, not a signature failure belonging to an
+// artifact that was thrown away.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[tokio::test]
+async fn unverifiable_crl_does_not_taint_a_later_determination() {
+    use certval::environment::pki_environment::PkiEnvironment;
+    use certval::path_settings::*;
+    use certval::validator::path_validator::*;
+    use certval::CrlSourceFolders;
+    use certval::*;
+    use std::path::PathBuf;
+
+    let der_encoded_ta = include_bytes!("examples/makaan.com/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
+    let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
+    // Signed by a different PKI's CA entirely, so it cannot verify under this issuer's key.
+    let der_encoded_bad_crl =
+        include_bytes!("examples/PKITS_data_2048/crls/BadCRLSignatureCACRL.crl");
+
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let toi = TimeOfInterest::from_unix_secs(1647011592).unwrap();
+
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("tests/examples/makaan.com/crls");
+    let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
+    crl_source.index_crls(toi).expect("Failed to index CRLs");
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_crl_source(Box::new(crl_source));
+    pe.add_revocation_cache(Box::new(RevocationCache::new()));
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    // Offered first, ahead of the CRLs in the folder, and discarded when it fails to verify.
+    cert_path.crls[1] = Some(der_encoded_bad_crl.to_vec());
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_require_ta_store(false);
+    cps.set_check_ocsp_from_aia(false);
+    cps.set_check_crldp_http(false);
+    cps.set_time_of_interest(toi);
+
+    let mut cpr = CertificationPathResults::new();
+    pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr)
+        .expect("Failed to successfully validate path");
+
+    check_revocation(&pe, &cps, &mut cert_path, &mut cpr)
+        .await
+        .expect("Failed to successfully check revocation using cached CRLs");
+    assert_eq!(
+        Some(PathValidationStatus::Valid),
+        cpr.get_validation_status()
+    );
+    // The end entity was settled by a CRL from the folder, not by the discarded stapled artifact.
+    let sources = cpr.get_revocation_source().unwrap();
+    assert_eq!(RevocationSource::LocalCrl, sources[1]);
+}
