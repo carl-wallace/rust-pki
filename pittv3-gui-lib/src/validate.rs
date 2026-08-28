@@ -223,6 +223,10 @@ pub fn prepare_validation(
     // --- prepare the environment ONCE ---
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
+    // The graph and the paths built over it re-present the same CA signatures many times;
+    // caching them is sound because a hit means this exact signature already verified under
+    // this exact key.
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
     pe.add_trust_anchor_source(Box::new(ta_store));
     // Registered empty and always, rather than only when the frontend has CRLs: the source is
     // shared by clone, so a frontend that retrieves one later adds it to the same contents this
@@ -775,6 +779,10 @@ pub fn validate_hackathon_zip(
 
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
+    // The graph and the paths built over it re-present the same CA signatures many times;
+    // caching them is sound because a hit means this exact signature already verified under
+    // this exact key.
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
     pe.add_trust_anchor_source(Box::new(ta_store));
     // path building for TA-issued targets happens in the certificate source, so one must be
     // registered even though the R5 format carries no intermediate CA certificates

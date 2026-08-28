@@ -57,7 +57,9 @@ reqwest = { version = "0.13.4", optional = true}
 # Lock for the revocation status cache on targets that take this crate without std, which has no
 # RwLock to offer. Cargo cannot express "revocation and not std", so a std build pulls this in and
 # does not use it; the crate is small and has no dependencies of its own.
-spin = { version = "0.9.9", optional = true, default-features = false, features = ["rwlock"] }
+# Not optional: the caches need a Sync lock in every build, and std::sync::RwLock does not exist
+# on the no_std targets. See util/lock.rs for which one is used where.
+spin = { version = "0.9.9", default-features = false, features = ["rwlock"] }
 getrandom = { version = "0.4", optional = true}
 serde_json = {version = "1.0.150", optional = true, default-features = false, features = ["alloc"] }
 walkdir = { version = "2.5.0", optional = true}
@@ -89,7 +91,10 @@ tokio = { version = "1.52.3", features = ["full", "macros", "time", "rt-multi-th
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki"]
-revocation = ["dep:spin"]
+# Gates code, not dependencies: ~30 cfg(feature = "revocation") sites across the crate. It used to
+# carry dep:spin, which moved to an unconditional dependency when the caches that need a lock stopped
+# being revocation-gated -- see util/lock.rs.
+revocation = []
 std = ["dep:walkdir", "dep:serde_json", "serde/rc", "dep:bitvec", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "dep:pkcs1"]

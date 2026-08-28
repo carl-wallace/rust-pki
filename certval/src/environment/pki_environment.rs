@@ -944,18 +944,19 @@ fn signature_cache_hash(bytes: &[u8]) -> Vec<u8> {
 /// once the cap is reached so a long-lived environment that validates many distinct signatures cannot
 /// grow it without bound.
 ///
+/// Available in every build: the lock behind it is `std::sync::RwLock` where `std` exists and a spin
+/// lock otherwise, so `no_std` consumers get the same cache rather than having to write one.
+///
 /// Every successful verification the environment performs is recorded, including one-shot checks --
 /// a self-signature test during ingest, an end-entity signature -- that will never be asked for
 /// again. Which entries survive the cap is therefore whichever the run happened to reach first, not
 /// the ones with the most reuse. For an estate large enough to reach the cap, prefer a cache of your
 /// own with an eviction policy that suits it.
-#[cfg(feature = "std")]
 pub struct DefaultSignatureVerificationCache {
-    verified: std::sync::RwLock<alloc::collections::BTreeSet<(Vec<u8>, Vec<u8>)>>,
+    verified: crate::util::lock::Lock<alloc::collections::BTreeSet<(Vec<u8>, Vec<u8>)>>,
     cap: usize,
 }
 
-#[cfg(feature = "std")]
 impl DefaultSignatureVerificationCache {
     /// Default maximum number of cached verifications.
     pub const DEFAULT_CAP: usize = 8192;
@@ -968,40 +969,36 @@ impl DefaultSignatureVerificationCache {
     /// Creates a cache that stops recording new entries once `cap` have accumulated.
     pub fn with_capacity(cap: usize) -> Self {
         DefaultSignatureVerificationCache {
-            verified: std::sync::RwLock::new(alloc::collections::BTreeSet::new()),
+            verified: crate::util::lock::Lock::new(alloc::collections::BTreeSet::new()),
             cap,
         }
     }
 }
 
-#[cfg(feature = "std")]
 impl Default for DefaultSignatureVerificationCache {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "std")]
 impl SignatureVerificationCache for DefaultSignatureVerificationCache {
     fn is_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
-        match self.verified.read() {
-            Ok(set) => set.contains(&(signed_data_hash.to_vec(), issuer_spki_hash.to_vec())),
-            Err(_) => false,
-        }
+        self.verified
+            .with_read(|set| set.contains(&(signed_data_hash.to_vec(), issuer_spki_hash.to_vec())))
     }
 
     fn add_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) {
-        if let Ok(mut set) = self.verified.write() {
+        self.verified.with_write(|set| {
             if set.len() < self.cap {
                 set.insert((signed_data_hash.to_vec(), issuer_spki_hash.to_vec()));
             }
-        }
+        })
     }
 }
 
 /// Delegating implementation so a caller can retain a shared handle to a cache (for example to
-/// inspect it) while also handing it to a [`PkiEnvironment`] via `add_signature_cache`.
-#[cfg(feature = "std")]
+/// inspect it) while also handing it to a [`PkiEnvironment`] via `add_signature_cache`. Needs only
+/// `alloc`, so it is available wherever the cache is.
 impl<T: SignatureVerificationCache + ?Sized> SignatureVerificationCache for alloc::sync::Arc<T> {
     fn is_verified(&self, signed_data_hash: &[u8], issuer_spki_hash: &[u8]) -> bool {
         (**self).is_verified(signed_data_hash, issuer_spki_hash)

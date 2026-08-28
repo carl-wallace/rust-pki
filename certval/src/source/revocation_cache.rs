@@ -18,44 +18,7 @@ use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{buffer_to_hex, PathValidationStatus, RevocationStatusCache};
 use crate::{name_to_string, PDVCertificate, SubjectNameAndKey, TimeOfInterest};
 
-#[cfg(feature = "std")]
-type LockImpl<T> = std::sync::RwLock<T>;
-#[cfg(not(feature = "std"))]
-type LockImpl<T> = spin::RwLock<T>;
-
-/// The cache is shared behind `&self` and [`RevocationStatusCache`] requires `Sync`, so interior
-/// mutability has to be a lock rather than a cell -- and `std`'s is unavailable to the targets this
-/// module now serves. The two differ in their guard types and in whether locking can fail, so both
-/// are reached through closures here and the difference stays in one place.
-struct Lock<T>(LockImpl<T>);
-
-impl<T> Lock<T> {
-    fn new(value: T) -> Self {
-        Lock(LockImpl::new(value))
-    }
-
-    // A poisoned lock is recovered rather than treated as a failure: the guarded value is a
-    // BTreeMap that a panicking writer leaves structurally intact, and the worst a stale entry can
-    // do is expire. Refusing to read would silently disable the cache for the process's remaining
-    // life, which is the more damaging failure.
-    #[cfg(feature = "std")]
-    fn with_read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        f(&self.0.read().unwrap_or_else(|e| e.into_inner()))
-    }
-    #[cfg(not(feature = "std"))]
-    fn with_read<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        f(&self.0.read())
-    }
-
-    #[cfg(feature = "std")]
-    fn with_write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        f(&mut self.0.write().unwrap_or_else(|e| e.into_inner()))
-    }
-    #[cfg(not(feature = "std"))]
-    fn with_write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        f(&mut self.0.write())
-    }
-}
+use crate::util::lock::Lock;
 
 struct StatusAndTime {
     status: PathValidationStatus, // Valid or Revoked
