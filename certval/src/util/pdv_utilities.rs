@@ -503,6 +503,13 @@ pub(crate) fn emails_from_dn(name: &Name) -> Vec<Ia5String> {
 }
 
 /// `descended_from_dn` returns true if new_name is equal to or descended from prev_name and false otherwise.
+///
+/// `min` and `max` are the `minimum` and `maximum` of the name-constraint subtree, applied to the
+/// difference in RDN count between the two names: a name fewer than `min` levels below the subtree,
+/// or more than `max` below it, does not match. Both bounds are implemented here, but `check_names`
+/// rejects any subtree carrying a nonzero minimum or a present maximum before matching begins, so
+/// in practice they arrive as 0 and None and neither excludes anything. See that check for why the
+/// rejection is broader than RFC 5280 4.2.1.10 strictly requires.
 pub(crate) fn descended_from_dn(subtree: &Name, name: &Name, min: u32, max: Option<u32>) -> bool {
     //if descendant fewer rdns then it is not a descendant
     if subtree.len() > name.len() {

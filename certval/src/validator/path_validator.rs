@@ -350,6 +350,18 @@ fn name_constraint_matching_budget_exceeded(constraint_count: usize, san_len: us
 /// - Uniform resource identifiers
 ///
 /// Additional name forms may be added in the future.
+///
+/// The `minimum` and `maximum` fields of a name-constraint subtree are rejected rather than
+/// processed. RFC 5280 4.2.1.10 requires `minimum` to be zero and `maximum` to be absent, and
+/// obliges an application that meets other values to process them or reject the certificate --
+/// but only where the extension is critical and the constrained name form appears in a subsequent
+/// certificate. This implementation takes the broader reading: any subtree asserting a nonzero
+/// minimum or a present maximum fails the path, whether or not the extension is critical and
+/// whether or not that name form is ever seen. Rejecting is the sanctioned branch of that
+/// requirement, values outside it are nonconforming to begin with, and they do not occur in
+/// practice. The distinguished-name comparison behind this check does implement both bounds, but
+/// this rejection runs first, so they are consulted only for the conforming values that get past
+/// it.
 pub fn check_names(
     _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -488,7 +500,11 @@ pub fn check_names(
 
                 // RFC 5280 4.2.1.10: minimum MUST be zero and maximum MUST be absent; an
                 // application encountering other values MUST process them or reject the
-                // certificate.
+                // certificate. That obligation is narrower than what happens here -- it binds only
+                // for a critical extension whose constrained name form appears in a subsequent
+                // certificate -- and the broader reading is taken deliberately: any nonconforming
+                // value fails the path. Rejecting is the sanctioned branch, the values are not
+                // conforming to begin with, and they do not occur in practice.
                 if has_min_or_max(&nc.permitted_subtrees) || has_min_or_max(&nc.excluded_subtrees) {
                     log_error_for_ca(ca_cert, "unsupported minimum/maximum in name constraints");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
