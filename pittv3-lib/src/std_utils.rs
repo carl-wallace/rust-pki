@@ -1207,7 +1207,10 @@ pub async fn generate(
         cps.set_download_folder(download_folder.to_string());
     }
 
-    cps.set_cbor_ta_store(args.cbor_ta_store);
+    // Honor the `cbor_ta_store` when set to true (to avoid clobbering a true from a settings file)
+    if args.cbor_ta_store {
+        cps.set_cbor_ta_store(true);
+    }
 
     let graph = build_graph(pe, cps).await;
     match graph {

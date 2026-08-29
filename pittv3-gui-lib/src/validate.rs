@@ -479,23 +479,6 @@ fn validate_target(
     };
     let target_summary = CertSummary::from_cert(&target);
 
-    // validate_path treats a target found in the TA store as trusted and returns success without
-    // verifying its signature (and TA store membership requires only a subjectKeyIdentifier and
-    // public key match, not an exact certificate match), so when the target is a trust anchor
-    // check its signature here to keep bad signatures and unsupported algorithms from being
-    // reported as valid
-    if pe.is_cert_a_trust_anchor(&target).is_ok() {
-        if is_self_signed(pe, &target) {
-            out.push(ok(format!(
-                "{ee_name} is a trust anchor and is self-signed"
-            )));
-        } else {
-            out.push(err(format!(
-                "{ee_name} matches a trust anchor by key but is not self-signed (bad signature or unsupported algorithm)"
-            )));
-        }
-    }
-
     out.push(info(format!(
         "Building and validating path(s) for {} ({})",
         ee_name,
