@@ -30,10 +30,19 @@ fn example(name: &str) -> String {
 /// checking off: these tests are about which certificates reach the graph, and the PKITS fixtures
 /// carry no revocation material to answer with.
 fn settings_file(dir: &Path) -> String {
+    settings_file_named(dir, "settings.json", false)
+}
+
+/// As [`settings_file`], writing to `name` and optionally asking for a trust anchor store in the
+/// settings rather than by the flag.
+fn settings_file_named(dir: &Path, name: &str, ta_store: bool) -> String {
     let mut cps = CertificationPathSettings::new();
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(TOI).unwrap());
     cps.set_check_revocation_status(false);
-    let path = dir.join("settings.json");
+    if ta_store {
+        cps.set_cbor_ta_store(true);
+    }
+    let path = dir.join(name);
     fs::write(&path, serde_json::to_string(&cps).unwrap()).unwrap();
     path.to_str().unwrap().to_string()
 }
@@ -45,13 +54,19 @@ fn run(args: Pittv3Args) -> ValidationReport {
 /// Generates a store at `cbor` from `ca_input`, which may name a file or a folder. `ta_store` picks
 /// which kind: a trust anchor store or the usual store of intermediates and partial paths.
 fn generate(dir: &Path, ca_input: &str, cbor: &Path, ta_store: bool) {
+    generate_with_settings(ca_input, cbor, ta_store, &settings_file(dir));
+}
+
+/// As [`generate`], with the settings file named by the caller so a test can vary what the settings
+/// ask for independently of the arguments.
+fn generate_with_settings(ca_input: &str, cbor: &Path, ta_store: bool, settings: &str) {
     run(Pittv3Args {
         ta_folder: Some(example("TrustAnchorRootCertificate.crt")),
         ca_folder: Some(ca_input.to_string()),
         cbor: Some(cbor.to_str().unwrap().to_string()),
         generate: true,
         cbor_ta_store: ta_store,
-        settings: Some(settings_file(dir)),
+        settings: Some(settings.to_string()),
         time_of_interest: TOI,
         ..Default::default()
     });
@@ -189,5 +204,42 @@ fn generates_a_ca_store_from_a_folder() {
         Some(cbor.to_str().unwrap().to_string()),
     );
 
+    assert_eq!(TargetStatus::Valid, report.targets[0].status);
+}
+
+/// A settings file can turn `cbor_ta_store` on without the flag.
+///
+/// The argument is a bare flag, so its absence is the same `false` as an explicit denial and cannot
+/// be allowed to overwrite a settings value. The CA input is a single self-signed root because that
+/// makes the two outcomes tell each other apart: as a trust anchor store it yields a usable store,
+/// while a store of intermediates and partial paths has nothing to hold and no file is written at
+/// all -- so the file-existence assertion is what fails if the setting is not honored.
+#[test]
+fn a_settings_file_can_turn_on_cbor_ta_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let cbor = dir.path().join("ta.cbor");
+
+    // The flag is false; only the settings file asks for a trust anchor store.
+    generate_with_settings(
+        &example("TrustAnchorRootCertificate.crt"),
+        &cbor,
+        false,
+        &settings_file_named(dir.path(), "settings-ta-store.json", true),
+    );
+
+    assert!(cbor.is_file());
+
+    // Usable as a trust anchor store, which is what distinguishes the two kinds: the same
+    // assertions the flag-driven test makes.
+    let report = validate(
+        dir.path(),
+        None,
+        Some(cbor.to_str().unwrap().to_string()),
+        Some(example("GoodCACert.crt")),
+        None,
+    );
+
+    assert_eq!(None, report.error);
+    assert_eq!(1, report.totals.valid_paths);
     assert_eq!(TargetStatus::Valid, report.targets[0].status);
 }
