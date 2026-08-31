@@ -1,14 +1,64 @@
-//! Sanitizing the path settings that arrive with a validation request.
+//! The settings a validation request runs under: the service's own defaults, and the sanitizing of
+//! what a client sends.
 //!
 //! `CertificationPathSettings` is the tool's own configuration structure, not a wire format. It
 //! carries folder and file names that mean nothing on the far side of an HTTP request and that a
 //! service must not act on, and it carries retrieval ceilings sized for a command-line run rather
 //! than for a shared server. Both are dealt with here, on arrival, rather than by trusting a client
 //! to have omitted them.
+//!
+//! What a request *omits* is settled here too, and by this service rather than by its dependencies.
+//! certval is built here without `std`, which is a build with no clock — `SystemTime` does not
+//! exist in `no_std` — so `TimeOfInterest` has nothing to default to and the time a run validates
+//! against is the caller's to supply. This service is that caller. Leaving it unstated is not a
+//! narrower check but no check: `check_validity` returns `Ok(())` when the time of interest is
+//! disabled, so an omitted value meant a certificate's validity period was never consulted.
+//! [`defaults`] states what a run means instead of leaving an obligation unmet.
 
 use certval::*;
 
 use crate::config::ServiceConfig;
+
+/// The settings a request runs under before anything the client sent is applied.
+///
+/// Written as a profile rather than as one fix, so the next value a `no_std` build leaves to its
+/// caller does not have to be discovered the way this one was — by an expired certificate coming
+/// back valid.
+///
+/// **Time of interest: now.** A `no_std` build has no clock, so certval cannot supply this and does
+/// not pretend to; the time a run validates against is the caller's to state, and `check_validity`
+/// returns `Ok(())` when none was. Leaving it unstated is therefore not a wider validity window but
+/// the absence of the check. The browser frontend states the same value for the same reason
+/// (`pittv3-wasm`'s `run_settings`), which is what keeps a served run and a page run answering
+/// alike.
+pub fn defaults() -> CertificationPathSettings {
+    let mut settings = CertificationPathSettings::default();
+    if let Ok(toi) = TimeOfInterest::from_unix_secs(now_as_unix_secs()) {
+        settings.set_time_of_interest(toi);
+    }
+    settings
+}
+
+/// Applies `requested` over the service's [`defaults`], returning what the run should use.
+///
+/// An overlay rather than a replacement: a client that states one preference is saying what it
+/// wants *differently*, not asking every other value to revert to unstated. Without this, sending
+/// any settings at all would reintroduce the unstated time of interest that sending none used to
+/// produce.
+pub fn with_defaults(requested: Option<CertificationPathSettings>) -> CertificationPathSettings {
+    let mut settings = defaults();
+    if let Some(requested) = requested {
+        settings.0.extend(requested.0);
+    }
+    settings
+}
+
+fn now_as_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// Settings naming a location in the filesystem. A client cannot see the service's filesystem and
 /// has no business steering it there, so these are removed outright rather than validated.
@@ -100,6 +150,50 @@ mod tests {
             cps.0.insert(k.to_string(), v);
         }
         cps
+    }
+
+    /// A run has to validate against a time, and in a build with no clock that time arrives from
+    /// here or not at all. An unstated one is not a wider window: `check_validity` returns without
+    /// consulting a validity period.
+    #[test]
+    fn a_request_that_states_no_settings_still_validates_against_a_time() {
+        let bare = CertificationPathSettings::default();
+        assert!(
+            bare.get_time_of_interest().is_disabled(),
+            "the premise of this test is that the bare default states no time"
+        );
+
+        let settings = with_defaults(None);
+        assert!(!settings.get_time_of_interest().is_disabled());
+    }
+
+    /// Stating one preference says what a run should do differently; it does not withdraw the rest.
+    /// Replacing rather than overlaying would have put the unstated time of interest back for every
+    /// caller who sent any settings at all.
+    #[test]
+    fn stated_settings_ride_on_top_of_the_defaults_rather_than_replacing_them() {
+        let requested = settings_with(vec![(
+            PS_CHECK_REVOCATION_STATUS,
+            CertificationPathProcessingTypes::Bool(false),
+        )]);
+
+        let settings = with_defaults(Some(requested));
+        assert!(!settings.get_check_revocation_status());
+        assert!(!settings.get_time_of_interest().is_disabled());
+    }
+
+    /// The defaults are a floor, not a ceiling: a caller asking about a certificate as of some past
+    /// date gets that date, which is the whole point of the setting.
+    #[test]
+    fn a_stated_time_of_interest_wins() {
+        let mut requested = CertificationPathSettings::new();
+        requested.set_time_of_interest(TimeOfInterest::from_unix_secs(1_647_264_981).unwrap());
+
+        let settings = with_defaults(Some(requested));
+        assert_eq!(
+            settings.get_time_of_interest().as_unix_secs(),
+            1_647_264_981
+        );
     }
 
     #[test]
