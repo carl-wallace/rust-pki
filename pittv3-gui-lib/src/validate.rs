@@ -281,27 +281,11 @@ pub fn validate_prepared(
     (reports, out)
 }
 
-/// One validated path, kept so the artifacts behind it can be exported afterwards.
-///
-/// The path and the results are what an export is assembled from; the settings are the ones that
-/// path was validated under, which is not the run's settings — RFC 5937 trust anchor constraints are
-/// folded in per path — so a manifest reporting the run's would describe inputs the path was not
-/// judged against.
-///
-/// Nothing is computed to produce these. The path and results exist for the duration of the
-/// validation regardless; retaining them is declining to drop them, which is why this is a caller's
-/// choice at the call site rather than a setting a user has to know to turn on before a run they
-/// have not seen the outcome of yet.
-pub struct RetainedPath {
-    /// Name of the target this path was built for, as the caller supplied it
-    pub target_name: String,
-    /// The path as validated
-    pub path: CertificationPath,
-    /// The settings this path was validated under
-    pub cps: CertificationPathSettings,
-    /// The results recorded while validating it
-    pub cpr: CertificationPathResults,
-}
+// Re-exported rather than defined here: `pittv3_lib::std_utils` retains the same type, so an export
+// written against it works with a run this crate prepared and validated or with one the lower crate
+// carried out end to end. Kept in this module's namespace because that is where callers already
+// reach for it.
+pub use pittv3_lib::retained::RetainedPath;
 
 /// As [`validate_prepared`], additionally returning each validated path when `retain` is set, so a
 /// frontend can export the artifacts behind a result without validating a second time.

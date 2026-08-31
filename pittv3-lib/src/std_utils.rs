@@ -23,6 +23,7 @@ use crate::{
         CertSummary, NoPathsContext, PathReport, ProgressEvent, ReportTotals, TargetReport,
         TargetStatus, ValidationReport,
     },
+    retained::RetainedPath,
     stats::{PVStats, PathValidationStats, PathValidationStatsGroup},
 };
 
@@ -677,6 +678,7 @@ fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
 /// artifacts a run was handed and reading those per target would read the same files once for every
 /// certificate validated.
 #[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn validate_cert_file(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -685,6 +687,7 @@ pub(crate) async fn validate_cert_file(
     opts: &ValidateOpts,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
+    retain: Option<&mut Vec<RetainedPath>>,
 ) -> Result<()> {
     // A file the walk admitted and the reader cannot deliver never becomes a target, so record why
     // here: nothing downstream sees this file again, and without it the entry reaches the report as
@@ -696,7 +699,7 @@ pub(crate) async fn validate_cert_file(
             return Err(e);
         }
     };
-    validate_cert_bytes(
+    validate_cert_bytes_retaining(
         pe,
         cps,
         cert_filename,
@@ -705,6 +708,7 @@ pub(crate) async fn validate_cert_file(
         opts,
         fresh_uris,
         threshold,
+        retain,
     )
     .await
 }
@@ -754,6 +758,43 @@ pub async fn validate_cert_bytes(
     opts: &ValidateOpts,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
+) -> Result<()> {
+    validate_cert_bytes_retaining(
+        pe,
+        cps,
+        name,
+        target_bytes,
+        stats,
+        opts,
+        fresh_uris,
+        threshold,
+        None,
+    )
+    .await
+}
+
+/// As [`validate_cert_bytes`], additionally pushing each validated path onto `retain` when one is
+/// given, so a caller can export the artifacts behind a result without validating a second time.
+///
+/// Validating again to produce an export would describe a *different* run — revocation data moves,
+/// and a responder asked twice may answer differently — so the material has to be kept from the run
+/// being reported rather than reconstructed from it afterwards.
+///
+/// Retention is per call site rather than a setting: a results folder has to be asked for before a
+/// run, and this exists for the person who only wants the material once they have seen the outcome.
+/// A caller that means to export keeps the [`PkiEnvironment`] alive too — see
+/// [`crate::retained::RetainedPath`] for why the CRLs are not held here.
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_cert_bytes_retaining(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    name: &str,
+    target_bytes: &[u8],
+    stats: &mut PathValidationStats,
+    opts: &ValidateOpts,
+    fresh_uris: &mut Vec<String>,
+    threshold: usize,
+    mut retain: Option<&mut Vec<RetainedPath>>,
 ) -> Result<()> {
     let time_of_interest = cps.get_time_of_interest();
     let cert_filename = name;
@@ -923,6 +964,20 @@ pub async fn validate_cert_bytes(
             r.as_ref().err(),
             (Instant::now() - path_start).as_millis() as u64,
         ));
+        // Kept for a later export, with the settings this path was actually judged under rather than
+        // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
+        // a manifest reporting the run's settings would name inputs the path was not validated
+        // against. Paths that failed are kept too: a failure is the case someone most wants the
+        // material for. Cloned because `cpr` is moved into `stats` on the next line and the path
+        // belongs to the built set.
+        if let Some(retained) = retain.as_deref_mut() {
+            retained.push(RetainedPath {
+                target_name: name.to_string(),
+                path: path.clone(),
+                cps: path_cps.clone(),
+                cpr: cpr.clone(),
+            });
+        }
         stats.results.push(cpr);
         match r {
             Ok(_) => {
@@ -998,6 +1053,30 @@ pub async fn validate_targets(
     opts: &ValidateOpts,
     progress: Option<&(dyn Fn(ProgressEvent) + Send + Sync + '_)>,
 ) -> ValidationReport {
+    let (report, _) = validate_targets_retaining(pe, cps, targets, opts, progress, false).await;
+    report
+}
+
+/// As [`validate_targets`], additionally returning every validated path when `retain` is set, so a
+/// frontend can export the artifacts behind a result without validating a second time.
+///
+/// Off by default and chosen at the call site: a GUI sets it because the decision to export is made
+/// after seeing the results, while a batch run that will never export should not hold every path it
+/// built. Nothing is computed either way — the paths and results exist for the duration of the run
+/// regardless, and retaining them is declining to drop them — so the cost is holding them for the
+/// life of the caller rather than per target.
+///
+/// A caller that means to export keeps the [`PkiEnvironment`] alive alongside the returned paths:
+/// the CRLs behind a status are recovered from the sources registered on it, not held here.
+pub async fn validate_targets_retaining(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    targets: &[(String, Vec<u8>)],
+    opts: &ValidateOpts,
+    progress: Option<&(dyn Fn(ProgressEvent) + Send + Sync + '_)>,
+    retain: bool,
+) -> (ValidationReport, Vec<RetainedPath>) {
+    let mut retained: Vec<RetainedPath> = vec![];
     let start = Instant::now();
     let mut stats = PathValidationStatsGroup::new();
     let mut fresh_uris: Vec<String> = vec![];
@@ -1023,7 +1102,7 @@ pub async fn validate_targets(
         let prev_valid = stats_for_target.valid_paths_per_target;
         let prev_invalid = stats_for_target.invalid_paths_per_target;
 
-        let _ = validate_cert_bytes(
+        let _ = validate_cert_bytes_retaining(
             pe,
             cps,
             name.as_str(),
@@ -1032,6 +1111,7 @@ pub async fn validate_targets(
             opts,
             &mut fresh_uris,
             0,
+            retain.then_some(&mut retained),
         )
         .await;
 
@@ -1087,18 +1167,18 @@ pub async fn validate_targets(
         });
     }
 
-    ValidationReport {
+    let report = ValidationReport {
         targets: target_reports,
         totals,
         time_of_interest: cps.get_time_of_interest().as_unix_secs(),
         duration_ms: (Instant::now() - start).as_millis() as u64,
         error: None,
-    }
+    };
+    (report, retained)
 }
 
 /// validate_cert_folder recursively traverses the given `certs_folder` and invokes `validate_cert_file`
 /// for each .der, .crt or .cer file that is found.
-#[async_recursion::async_recursion]
 #[cfg(feature = "std")]
 pub async fn validate_cert_folder(
     pe: &PkiEnvironment,
@@ -1109,6 +1189,37 @@ pub async fn validate_cert_folder(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) {
+    validate_cert_folder_retaining(
+        pe,
+        cps,
+        certs_folder,
+        stats,
+        opts,
+        fresh_uris,
+        threshold,
+        None,
+    )
+    .await
+}
+
+/// As [`validate_cert_folder`], additionally pushing each validated path onto `retain` when one is
+/// given, so the artifacts behind a folder run can be exported without validating a second time.
+///
+/// The sink is reborrowed rather than moved on the way down: a folder holding folders recurses, and
+/// each file in each of them contributes to the one collection the caller passed in.
+#[async_recursion::async_recursion]
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_cert_folder_retaining(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    certs_folder: &str,
+    stats: &mut PathValidationStatsGroup,
+    opts: &ValidateOpts,
+    fresh_uris: &mut Vec<String>,
+    threshold: usize,
+    mut retain: Option<&mut Vec<RetainedPath>>,
+) {
     for entry in WalkDir::new(certs_folder) {
         match entry {
             Ok(e) => {
@@ -1116,8 +1227,17 @@ pub async fn validate_cert_folder(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != certs_folder {
-                            validate_cert_folder(pe, cps, s, stats, opts, fresh_uris, threshold)
-                                .await;
+                            validate_cert_folder_retaining(
+                                pe,
+                                cps,
+                                s,
+                                stats,
+                                opts,
+                                fresh_uris,
+                                threshold,
+                                retain.as_deref_mut(),
+                            )
+                            .await;
                         }
                     } else {
                         error!("Skipping file due to invalid Unicode in name",);
@@ -1147,6 +1267,7 @@ pub async fn validate_cert_folder(
                                         opts,
                                         fresh_uris,
                                         threshold,
+                                        retain.as_deref_mut(),
                                     )
                                     .await;
                                 }
