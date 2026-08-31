@@ -4,6 +4,7 @@
 
 mod gui;
 mod peek;
+mod save;
 mod stores;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};

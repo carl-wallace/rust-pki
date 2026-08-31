@@ -192,8 +192,19 @@ button[type="submit"] {
 
 .results-header {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   margin: 0.25rem 0 0.5rem 0;
+}
+
+/* The actions keep their natural width. As flex children they shrink by default, and once the row
+   held enough of them the labels wrapped *inside* the buttons rather than the row wrapping between
+   them -- two-line buttons reading "Save / report". If the row genuinely does not fit, flex-wrap
+   above breaks it between buttons instead. */
+.results-header > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Name for an export, sized to the name rather than to the row: it sits among buttons, and the

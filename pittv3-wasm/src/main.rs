@@ -1606,9 +1606,11 @@ fn App() -> Element {
                     },
                     2 => rsx! {
                         div { class: "results",
+                            h2 { "Results" }
+                            // The heading sits above the row rather than in it: sharing the line
+                            // left too little width for the actions, which then wrapped onto a
+                            // second line and stranded the name field beside Clear.
                             div { class: "results-header",
-                                h2 { "Results" }
-                                span {
                                     button {
                                         disabled: targets.read().is_empty(),
                                         onclick: save_results,
@@ -1616,17 +1618,10 @@ fn App() -> Element {
                                         "Save report"
                                     }
                                     button {
+                                        disabled: log_lines == 0,
                                         onclick: save_log,
-                                        title: "Download what the validation stack logged, as text",
-                                        "Save log ({log_lines} line(s))"
-                                    }
-                                    button {
-                                        onclick: move |_| {
-                                            log_capture::clear();
-                                            log_tick += 1;
-                                        },
-                                        title: "Discard what has been logged so far",
-                                        "Clear log"
+                                        title: "Download what the validation stack logged, as text ({log_lines} line(s))",
+                                        "Save log"
                                     }
                                     button {
                                         disabled: retained_paths.read().is_empty(),
@@ -1648,14 +1643,19 @@ fn App() -> Element {
                                         oninput: move |e| export_name.set(e.value()),
                                     }
                                     button {
+                                        // One Clear rather than two, matching the desktop: a
+                                        // separate "Clear log" was a second button doing part of
+                                        // what this one does, and the row is where that cost shows.
                                         onclick: move |_| {
                                             targets.write().clear();
                                             notes.write().clear();
                                             retained_paths.write().clear();
+                                            log_capture::clear();
+                                            log_tick += 1;
                                         },
+                                        title: "Discard the results and the log",
                                         "Clear"
                                     }
-                                }
                             }
                             if targets.read().is_empty() && notes.read().is_empty() {
                                 p { class: "hint",

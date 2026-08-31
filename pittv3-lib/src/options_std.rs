@@ -134,6 +134,7 @@ use log::{debug, error, info};
 use crate::args::Pittv3Args;
 use crate::graph_cache;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
+use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 
@@ -207,6 +208,37 @@ fn normalize_pem_wrap(pem: &str) -> Option<String> {
 /// report. The CLI ignores the return value (log/file output is unchanged); GUI and server
 /// frontends consume it.
 pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
+    let (report, _) = options_std_retaining(args, false).await;
+    report
+}
+
+/// As [`options_std`], additionally returning the paths a run validated and the environment it
+/// validated them against when `retain` is set.
+///
+/// This is what lets a frontend offer the artifacts behind a result *after* the run: `results_folder`
+/// answers the same need but has to be named before it starts, and validating a second time to
+/// produce an export would describe a different run, since revocation data moves.
+///
+/// `None` comes back whenever nothing was validated — the actions that generate, clean up, or run a
+/// diagnostic have no paths to keep — and whenever `retain` is false, which is the CLI's case and
+/// costs it nothing.
+pub async fn options_std_retaining(
+    args: &Pittv3Args,
+    retain: bool,
+) -> (ValidationReport, Option<RetainedRun>) {
+    let mut kept = None;
+    let report = options_std_inner(args, retain.then_some(&mut kept)).await;
+    (report, kept)
+}
+
+/// The dispatcher itself. Every action other than validation returns a report and writes nothing to
+/// `kept`, which is why "nothing was retained" needs no code in those branches: the slot the caller
+/// declared simply stays empty.
+#[cfg(feature = "std")]
+async fn options_std_inner(
+    args: &Pittv3Args,
+    kept: Option<&mut Option<RetainedRun>>,
+) -> ValidationReport {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
         let mut pe = PkiEnvironment::default();
@@ -653,7 +685,7 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
         };
     } else {
         // Generate, validate certificate file, or validate certificates folder per args.
-        return generate_and_validate(args).await;
+        return generate_and_validate(args, kept).await;
     }
     ValidationReport::default()
 }
@@ -676,8 +708,17 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 /// This function demonstrates deserializing a set of buffers and partial paths, attempting validation
 /// then downloading fresh artifacts, updating the buffers and partial paths and trying again until no
 /// further options are available.
+///
+/// When `retain` is set, every validated path is kept and returned with the environment it was
+/// validated against, so a frontend can export the artifacts behind a result once the run is over
+/// rather than having to name a results folder before it starts.
 #[cfg(feature = "std")]
-async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
+async fn generate_and_validate(
+    args: &Pittv3Args,
+    kept: Option<&mut Option<RetainedRun>>,
+) -> ValidationReport {
+    let retain = kept.is_some();
+    let mut retained: Vec<RetainedPath> = vec![];
     // The CBOR file is required (but can be an empty file if doing dynamic building only)
     let cbor_file = if let Some(cbor) = &args.cbor {
         cbor
@@ -1157,6 +1198,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                         &validate_opts,
                         &mut fresh_uris,
                         threshold,
+                        retain.then_some(&mut retained),
                     )
                     .await;
                 }
@@ -1164,7 +1206,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         }
 
         if let Some(folder) = &args.end_entity_folder {
-            validate_cert_folder(
+            validate_cert_folder_retaining(
                 &pe,
                 &cps,
                 folder.as_str(),
@@ -1172,6 +1214,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                 &validate_opts,
                 &mut fresh_uris,
                 threshold,
+                retain.then_some(&mut retained),
             )
             .await;
         }
@@ -1182,7 +1225,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
         // once, and sorting them into two arguments first is work the run can do instead.
         for input in &args.ee_inputs {
             if Path::new(input).is_dir() {
-                validate_cert_folder(
+                validate_cert_folder_retaining(
                     &pe,
                     &cps,
                     input.as_str(),
@@ -1190,6 +1233,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                     &validate_opts,
                     &mut fresh_uris,
                     threshold,
+                    retain.then_some(&mut retained),
                 )
                 .await;
                 continue;
@@ -1210,6 +1254,7 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
                     &validate_opts,
                     &mut fresh_uris,
                     threshold,
+                    retain.then_some(&mut retained),
                 )
                 .await;
             }
@@ -1391,6 +1436,16 @@ async fn generate_and_validate(args: &Pittv3Args) -> ValidationReport {
             paths: path_reports,
             no_paths_hints,
             error,
+        });
+    }
+    // The environment goes back with the paths when the caller asked to retain: the certificates
+    // travel with a path but the CRLs behind a status do not, and those are recovered from the
+    // sources registered here. Certificate sources were cleared above once building finished, which
+    // an export does not need -- it names artifacts, it does not build further paths.
+    if let Some(slot) = kept {
+        *slot = Some(RetainedRun {
+            environment: pe,
+            paths: retained,
         });
     }
     report

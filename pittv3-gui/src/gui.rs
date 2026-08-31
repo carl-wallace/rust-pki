@@ -19,6 +19,9 @@ use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
 #[cfg(not(target_os = "macos"))]
 use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 
+use std::sync::Mutex;
+
+use crate::save::{self, RetainedArtifacts, DEFAULT_EXPORT_NAME};
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
@@ -35,7 +38,7 @@ use pittv3_gui_lib::settings_store::{default_settings_path, expand_tilde};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
-use pittv3_lib::options_std::options_std;
+use pittv3_lib::options_std::options_std_retaining;
 use pittv3_lib::report::ValidationReport;
 use pittv3_lib::std_utils::{
     count_ca_inputs, count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
@@ -165,6 +168,40 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
         .await;
     if let Some(picked) = picked {
         sig.set(picked.path().to_string_lossy().to_string());
+    }
+}
+
+/// Asks where to put an export and writes it there, reporting either outcome into the run log.
+///
+/// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
+/// the desktop's other writes -- the peek folder, a materialized store -- go under the application
+/// home precisely because nobody chose where they should live. Here somebody is choosing.
+async fn write_export(
+    suggested: String,
+    extensions: &[&str],
+    bytes: Vec<u8>,
+    mut log: Signal<Vec<String>>,
+) {
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_file_name(&suggested)
+        .add_filter("export", extensions)
+        .save_file()
+        .await
+    else {
+        // A cancelled dialog is a decision, not a failure, and saying so would be noise.
+        return;
+    };
+    let path = handle.path().to_path_buf();
+    match std::fs::write(&path, &bytes) {
+        Ok(()) => log.write().push(format!(
+            "Saved {} byte(s) to {}",
+            bytes.len(),
+            path.display()
+        )),
+        Err(e) => log
+            .write()
+            .push(format!("Failed to write {}: {e}", path.display())),
     }
 }
 
@@ -1024,6 +1061,14 @@ pub(crate) fn App() -> Element {
     let mut s_view = use_signal(|| View::Validate);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<ValidationReport>);
+    // What the last run kept, so the results view can save the artifacts behind it without
+    // validating a second time. Held outside the signal system because the run produces it on a
+    // worker thread; see `save::RetainedArtifacts`.
+    let retained: RetainedArtifacts = use_hook(|| Arc::new(Mutex::new(None)));
+    let mut s_export_name = use_signal(|| DEFAULT_EXPORT_NAME.to_string());
+    // Whether the last run left anything to save. The artifacts live behind a mutex the worker
+    // thread fills, which the rsx cannot observe, so the buttons key off this instead.
+    let mut s_can_export = use_signal(|| false);
     let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
@@ -1140,126 +1185,196 @@ pub(crate) fn App() -> Element {
         });
     };
 
-    let run_command = move |_: ()| {
-        if s_running() {
-            return;
-        }
-        let args = match current_args() {
-            Ok(args) => args,
-            Err(msg) => {
-                error!("{msg}");
-                s_log.write().push(msg);
-                s_view.set(View::Results);
+    let run_command = {
+        let retained = retained.clone();
+        move |_: ()| {
+            if s_running() {
                 return;
             }
-        };
-
-        let _ = save_args(&args);
-
-        let mut logging_configured = false;
-
-        if let Some(logging_config) = &args.logging_config {
-            if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
-                println!(
-                    "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
-                );
-            } else {
-                logging_configured = true;
-            }
-        }
-
-        if !logging_configured {
-            // if there's no config, prepare one using stdout plus the channel appender that
-            // streams run output into the Results view (log4rs initialization is one-shot per
-            // process; subsequent attempts fail harmlessly and logging keeps its first shape)
-            let stdout = ConsoleAppender::builder()
-                .encoder(Box::new(PatternEncoder::new("{m}{n}")))
-                .build();
-            match Config::builder()
-                .appender(Appender::builder().build("stdout", Box::new(stdout)))
-                .appender(Appender::builder().build("channel", Box::new(ChannelAppender)))
-                .build(
-                    Root::builder()
-                        .appender("stdout")
-                        .appender("channel")
-                        .build(LevelFilter::Info),
-                ) {
-                Ok(config) => {
-                    let handle = log4rs::init_config(config);
-                    if let Err(e) = handle {
-                        println!(
-                            "ERROR: failed to configure logging for stdout with {e:?}. Continuing without logging."
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("ERROR: failed to prepare default logging configuration with {e:?}. Continuing without logging");
-                }
-            }
-        }
-
-        debug!("PITTv3 start");
-
-        s_running.set(true);
-        s_report.set(None);
-        s_log.write().clear();
-        s_view.set(View::Results);
-
-        let (tx, mut rx) = futures_channel::mpsc::unbounded::<RunEvent>();
-        let (log_tx, mut log_rx) = futures_channel::mpsc::unbounded::<String>();
-        set_log_sink(log_tx);
-
-        // execute the run on a worker thread with its own runtime; awaiting options_std on the
-        // UI executor would block the WebView for the duration of the run
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt,
-                Err(e) => {
-                    let _ = tx.unbounded_send(RunEvent::Failed(format!(
-                        "failed to start runtime for validation run: {e}"
-                    )));
+            let args = match current_args() {
+                Ok(args) => args,
+                Err(msg) => {
+                    error!("{msg}");
+                    s_log.write().push(msg);
+                    s_view.set(View::Results);
                     return;
                 }
             };
-            let report = rt.block_on(options_std(&args));
-            debug!("PITTv3 end");
-            // A report carrying an error means the run could not be carried out (e.g. a missing
-            // required input). Surface it as a failure instead of an empty Results view.
-            let event = match report.error.clone() {
-                Some(msg) => RunEvent::Failed(msg),
-                None => RunEvent::Done(Box::new(report)),
-            };
-            let _ = tx.unbounded_send(event);
-        });
 
-        // apply run events and log lines to signals from tasks on the UI executor (signals must
-        // not be written from the worker thread)
-        spawn(async move {
-            while let Some(line) = log_rx.next().await {
-                s_log.write().push(line);
+            let _ = save_args(&args);
+
+            let mut logging_configured = false;
+
+            if let Some(logging_config) = &args.logging_config {
+                if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
+                    println!(
+                    "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
+                );
+                } else {
+                    logging_configured = true;
+                }
             }
-        });
-        spawn(async move {
-            while let Some(ev) = rx.next().await {
-                match ev {
-                    RunEvent::Progress(_p) => {}
-                    RunEvent::Done(report) => {
-                        clear_log_sink();
-                        s_report.set(Some(*report));
-                        s_running.set(false);
+
+            if !logging_configured {
+                // if there's no config, prepare one using stdout plus the channel appender that
+                // streams run output into the Results view (log4rs initialization is one-shot per
+                // process; subsequent attempts fail harmlessly and logging keeps its first shape)
+                let stdout = ConsoleAppender::builder()
+                    .encoder(Box::new(PatternEncoder::new("{m}{n}")))
+                    .build();
+                match Config::builder()
+                    .appender(Appender::builder().build("stdout", Box::new(stdout)))
+                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)))
+                    .build(
+                        Root::builder()
+                            .appender("stdout")
+                            .appender("channel")
+                            .build(LevelFilter::Info),
+                    ) {
+                    Ok(config) => {
+                        let handle = log4rs::init_config(config);
+                        if let Err(e) = handle {
+                            println!(
+                            "ERROR: failed to configure logging for stdout with {e:?}. Continuing without logging."
+                        );
+                        }
                     }
-                    RunEvent::Failed(msg) => {
-                        clear_log_sink();
-                        error!("{msg}");
-                        s_log.write().push(msg);
-                        s_running.set(false);
+                    Err(e) => {
+                        println!("ERROR: failed to prepare default logging configuration with {e:?}. Continuing without logging");
                     }
                 }
             }
-        });
+
+            debug!("PITTv3 start");
+
+            s_running.set(true);
+            s_report.set(None);
+            s_log.write().clear();
+            s_view.set(View::Results);
+
+            let (tx, mut rx) = futures_channel::mpsc::unbounded::<RunEvent>();
+            let (log_tx, mut log_rx) = futures_channel::mpsc::unbounded::<String>();
+            set_log_sink(log_tx);
+            // A fresh run replaces what the previous one kept, so the buttons never offer artifacts
+            // belonging to a run that is no longer on screen.
+            if let Ok(mut held) = retained.lock() {
+                *held = None;
+            }
+            s_can_export.set(false);
+            let run_retained = retained.clone();
+            let done_retained = retained.clone();
+
+            // execute the run on a worker thread with its own runtime; awaiting options_std on the
+            // UI executor would block the WebView for the duration of the run
+            std::thread::spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let _ = tx.unbounded_send(RunEvent::Failed(format!(
+                            "failed to start runtime for validation run: {e}"
+                        )));
+                        return;
+                    }
+                };
+                // Retention is asked for here and nowhere else: the desktop offers the artifacts after
+                // a run, so it keeps what the run built. The CLI passes false and pays nothing.
+                let (report, run_artifacts) = rt.block_on(options_std_retaining(&args, true));
+                if let Ok(mut held) = run_retained.lock() {
+                    *held = run_artifacts;
+                }
+                debug!("PITTv3 end");
+                // A report carrying an error means the run could not be carried out (e.g. a missing
+                // required input). Surface it as a failure instead of an empty Results view.
+                let event = match report.error.clone() {
+                    Some(msg) => RunEvent::Failed(msg),
+                    None => RunEvent::Done(Box::new(report)),
+                };
+                let _ = tx.unbounded_send(event);
+            });
+
+            // apply run events and log lines to signals from tasks on the UI executor (signals must
+            // not be written from the worker thread)
+            spawn(async move {
+                while let Some(line) = log_rx.next().await {
+                    s_log.write().push(line);
+                }
+            });
+            spawn(async move {
+                while let Some(ev) = rx.next().await {
+                    match ev {
+                        RunEvent::Progress(_p) => {}
+                        RunEvent::Done(report) => {
+                            clear_log_sink();
+                            s_report.set(Some(*report));
+                            // A run that validated nothing leaves nothing to export, which is a
+                            // different state from a run that has not happened yet -- both
+                            // disable the buttons, and neither is an error.
+                            s_can_export.set(
+                                done_retained
+                                    .lock()
+                                    .map(|held| {
+                                        held.as_ref().is_some_and(|run| !run.paths.is_empty())
+                                    })
+                                    .unwrap_or(false),
+                            );
+                            s_running.set(false);
+                        }
+                        RunEvent::Failed(msg) => {
+                            clear_log_sink();
+                            error!("{msg}");
+                            s_log.write().push(msg);
+                            s_running.set(false);
+                        }
+                    }
+                }
+            });
+        }
+    };
+
+    // Saves every retained path's artifacts as one zip -- the same archive the browser downloads,
+    // written where the user says instead of into a download.
+    let save_artifacts = {
+        let retained = retained.clone();
+        move |_: MouseEvent| {
+            let retained = retained.clone();
+            let name = save::export_name(&s_export_name());
+            spawn(async move {
+                match save::artifacts_archive(&retained, &name) {
+                    Ok(None) => s_log
+                        .write()
+                        .push("No validated paths are held from this run to save".to_string()),
+                    Err(e) => s_log
+                        .write()
+                        .push(format!("Failed to build the archive: {e}")),
+                    Ok(Some(bytes)) => {
+                        write_export(format!("{name}.zip"), &["zip"], bytes, s_log).await
+                    }
+                }
+            });
+        }
+    };
+
+    // Saves the manifests alone: every path's account of itself, without the material behind them.
+    let save_path_logs = {
+        let retained = retained.clone();
+        move |_: MouseEvent| {
+            let retained = retained.clone();
+            let name = save::export_name(&s_export_name());
+            spawn(async move {
+                match save::path_logs_text(&retained) {
+                    None => s_log
+                        .write()
+                        .push("No validated paths are held from this run to save".to_string()),
+                    Some(text) => {
+                        write_export(format!("{name}.txt"), &["txt"], text.into_bytes(), s_log)
+                            .await
+                    }
+                }
+            });
+        }
     };
 
     let selected = VIEWS.iter().position(|(v, _)| *v == s_view()).unwrap_or(0);
@@ -1714,7 +1829,33 @@ pub(crate) fn App() -> Element {
                                             spawn(save_report(r));
                                         }
                                     },
-                                    "Save"
+                                    title: "Save the structured report as JSON",
+                                    "Save report"
+                                }
+                                // Saving what a run used is offered here, beside the report, rather
+                                // than below the results: the decision is made after seeing them,
+                                // which is the difference between this and a Results Folder. Same
+                                // order and same archive as the browser.
+                                button {
+                                    r#type: "button",
+                                    disabled: !s_can_export(),
+                                    onclick: save_path_logs,
+                                    title: "Save every path's manifest as one text file",
+                                    "Save path logs"
+                                }
+                                button {
+                                    r#type: "button",
+                                    disabled: !s_can_export(),
+                                    onclick: save_artifacts,
+                                    title: "Save the certificates and revocation data behind every path, as a zip",
+                                    "Save artifacts"
+                                }
+                                input {
+                                    r#type: "text",
+                                    class: "export-name",
+                                    value: "{s_export_name}",
+                                    title: "Name for the export: the archive and the folder inside it",
+                                    oninput: move |e| s_export_name.set(e.value()),
                                 }
                                 button {
                                     r#type: "button",

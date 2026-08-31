@@ -678,6 +678,7 @@ fn staple_crls(path: &mut CertificationPath, crls: &[Vec<u8>]) {
 /// artifacts a run was handed and reading those per target would read the same files once for every
 /// certificate validated.
 #[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn validate_cert_file(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -686,6 +687,7 @@ pub(crate) async fn validate_cert_file(
     opts: &ValidateOpts,
     fresh_uris: &mut Vec<String>,
     threshold: usize,
+    retain: Option<&mut Vec<RetainedPath>>,
 ) -> Result<()> {
     // A file the walk admitted and the reader cannot deliver never becomes a target, so record why
     // here: nothing downstream sees this file again, and without it the entry reaches the report as
@@ -697,7 +699,7 @@ pub(crate) async fn validate_cert_file(
             return Err(e);
         }
     };
-    validate_cert_bytes(
+    validate_cert_bytes_retaining(
         pe,
         cps,
         cert_filename,
@@ -706,6 +708,7 @@ pub(crate) async fn validate_cert_file(
         opts,
         fresh_uris,
         threshold,
+        retain,
     )
     .await
 }
@@ -1176,7 +1179,6 @@ pub async fn validate_targets_retaining(
 
 /// validate_cert_folder recursively traverses the given `certs_folder` and invokes `validate_cert_file`
 /// for each .der, .crt or .cer file that is found.
-#[async_recursion::async_recursion]
 #[cfg(feature = "std")]
 pub async fn validate_cert_folder(
     pe: &PkiEnvironment,
@@ -1187,6 +1189,37 @@ pub async fn validate_cert_folder(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
 ) {
+    validate_cert_folder_retaining(
+        pe,
+        cps,
+        certs_folder,
+        stats,
+        opts,
+        fresh_uris,
+        threshold,
+        None,
+    )
+    .await
+}
+
+/// As [`validate_cert_folder`], additionally pushing each validated path onto `retain` when one is
+/// given, so the artifacts behind a folder run can be exported without validating a second time.
+///
+/// The sink is reborrowed rather than moved on the way down: a folder holding folders recurses, and
+/// each file in each of them contributes to the one collection the caller passed in.
+#[async_recursion::async_recursion]
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+pub async fn validate_cert_folder_retaining(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    certs_folder: &str,
+    stats: &mut PathValidationStatsGroup,
+    opts: &ValidateOpts,
+    fresh_uris: &mut Vec<String>,
+    threshold: usize,
+    mut retain: Option<&mut Vec<RetainedPath>>,
+) {
     for entry in WalkDir::new(certs_folder) {
         match entry {
             Ok(e) => {
@@ -1194,8 +1227,17 @@ pub async fn validate_cert_folder(
                 if e.file_type().is_dir() {
                     if let Some(s) = path.to_str() {
                         if s != certs_folder {
-                            validate_cert_folder(pe, cps, s, stats, opts, fresh_uris, threshold)
-                                .await;
+                            validate_cert_folder_retaining(
+                                pe,
+                                cps,
+                                s,
+                                stats,
+                                opts,
+                                fresh_uris,
+                                threshold,
+                                retain.as_deref_mut(),
+                            )
+                            .await;
                         }
                     } else {
                         error!("Skipping file due to invalid Unicode in name",);
@@ -1225,6 +1267,7 @@ pub async fn validate_cert_folder(
                                         opts,
                                         fresh_uris,
                                         threshold,
+                                        retain.as_deref_mut(),
                                     )
                                     .await;
                                 }
