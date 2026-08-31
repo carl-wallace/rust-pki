@@ -193,7 +193,7 @@ async fn validate(
             .collect(),
         cas: body.cas.into_iter().map(|c| (c.name, c.der)).collect(),
         store_id: body.store_id,
-        settings: body.settings.unwrap_or_default(),
+        settings: crate::settings::with_defaults(body.settings),
         validate_all: body.validate_all,
     };
 

@@ -472,17 +472,19 @@ fn check_limits(limits: &RequestLimits, input: &ValidationInput) -> Result<(), S
     Ok(())
 }
 
-/// Returns the time the run validated against, for stamping the report: the time of interest from
-/// the settings, or the current time when validity checking was left at its default.
+/// Returns the time the run validated against, for stamping the report.
+///
+/// This is the accessor `check_validity` itself consults, so the report names the value that
+/// decided the check rather than a second opinion about it. It resolves three ways: the time the
+/// settings state, `now()` when they state none and certval was built with `std`, and **0 when they
+/// state none and it was not** — the case that matters here, since a `no_std` build has no clock,
+/// the validity check is skipped, and 0 is what `ValidationReport::time_of_interest` documents as
+/// "validity checking was disabled" and what the frontends render as "disabled".
+///
+/// Substituting the current time for that 0 is what this used to do, and it reported a check that
+/// had not happened.
 fn time_of_interest(settings: &CertificationPathSettings) -> u64 {
-    let toi = settings.get_time_of_interest();
-    if !toi.is_disabled() {
-        return toi.as_unix_secs();
-    }
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    settings.get_time_of_interest().as_unix_secs()
 }
 
 #[cfg(test)]
@@ -529,12 +531,26 @@ mod tests {
         assert!(check_limits(&limits, &acceptable).is_ok());
     }
 
+    /// The stamp is whatever the accessor resolves, unaltered. Here that is 0 — certval is built
+    /// without `std` in this crate, so settings stating no time of interest resolve to a disabled
+    /// one, the validity check is skipped, and `ValidationReport::time_of_interest` documents 0 as
+    /// exactly that. The previous version replaced this 0 with the current time, which reported a
+    /// check the run had not made; a request reaching `/api/validate` no longer arrives this way
+    /// (`settings::defaults` states the time), but any other caller still can.
     #[test]
-    fn an_absent_time_of_interest_stamps_the_report_with_now() {
+    fn disabled_toi_test() {
         let mut settings = CertificationPathSettings::default();
-        assert!(time_of_interest(&settings) > 0);
+        assert_eq!(time_of_interest(&settings), 0);
 
         settings.set_time_of_interest(TimeOfInterest::from_unix_secs(1_700_000_000).unwrap());
         assert_eq!(time_of_interest(&settings), 1_700_000_000);
+    }
+
+    /// The settings a request actually runs under state a time, so the report names it rather than
+    /// reporting the run as unchecked -- the pairing of `settings::defaults` with the accessor
+    /// above, which is what keeps a stamped report and a performed check in agreement.
+    #[test]
+    fn service_supplied_toi_test() {
+        assert!(time_of_interest(&crate::settings::with_defaults(None)) > 0);
     }
 }
