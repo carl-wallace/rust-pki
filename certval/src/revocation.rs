@@ -6,7 +6,9 @@
 //!
 //! As shown in the example below, revocation status determination is performed after validating a certification path
 //! via [`PkiEnvironment::validate_path`](crate::PkiEnvironment::validate_path).
-//! For convenience, [`check_revocation`](crate::check_revocation()) implements the [`ValidatePath`](crate::ValidatePath) type.
+//! For convenience, the `check_revocation` function (present under `std`) implements the
+//! [`ValidatePath`](crate::ValidatePath) type. It is not linked here because the name also belongs
+//! to the module holding it, which is present whether or not `std` is.
 //!
 //! ```no_run
 //! #[tokio::test]

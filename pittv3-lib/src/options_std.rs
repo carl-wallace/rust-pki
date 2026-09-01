@@ -765,10 +765,18 @@ async fn generate_and_validate(
         .or_else(|| cps.get_download_folder())
         .unwrap_or_else(|| ca_folder.clone());
 
+    // A writable CAPI store is somewhere to put fetched certificates, so it answers this
+    // requirement the same way a folder does. `fetch_to_buffer` skips the copy on disk when no
+    // folder was named; the certificates still reach the pool the run builds from.
+    #[cfg(all(windows, feature = "capi"))]
+    let have_somewhere_to_put_them = !download_folder.is_empty() || args.capi_ca_store_rw.is_some();
+    #[cfg(not(all(windows, feature = "capi")))]
+    let have_somewhere_to_put_them = !download_folder.is_empty();
+
     #[cfg(feature = "remote")]
-    if args.dynamic_build && download_folder.is_empty() {
+    if args.dynamic_build && !have_somewhere_to_put_them {
         return ValidationReport::failed(
-            "a CA folder or download folder is required when dynamic build is enabled",
+            "a CA folder, download folder or writable CAPI store is required when dynamic build is enabled",
         );
     }
 

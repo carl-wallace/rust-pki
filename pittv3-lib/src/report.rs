@@ -590,7 +590,7 @@ impl ValidationReport {
     ///
     /// This is for a frontend whose targets accumulate across interactions rather than arriving
     /// from a single run: the totals have to be recomputed whenever the set changes, and there are
-    /// no certval run statistics to read them from — unlike [`crate::options_std`], which
+    /// no certval run statistics to read them from — unlike `options_std`, which
     /// accumulates the same counts from `paths_per_target` and friends as it goes.
     ///
     /// `duration_ms` is the sum of what the paths themselves report. There is no one run here to
