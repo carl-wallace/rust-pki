@@ -5,6 +5,8 @@
 extern crate alloc;
 
 use alloc::string::String;
+#[cfg(feature = "capi")]
+use core::str::FromStr;
 use log::{debug, error, info};
 use std::{ffi::OsStr, fs, path::Path, time::Instant};
 use walkdir::WalkDir;
@@ -236,8 +238,65 @@ pub fn push_trust_anchor_input(
     Ok(ta_store.len() - before)
 }
 
-/// Builds the trust anchor store named by the `ta_cbor`, `ta_folder` and `ta_inputs` arguments, or
-/// `None` when none of them was given.
+/// Parses `Location\Name` CAPI store specifications, naming the one that failed.
+///
+/// Rejects the whole set on the first bad entry rather than skipping it: a mistyped store name
+/// would otherwise read as an empty store, and a run that silently proceeds with fewer anchors
+/// than the user asked for is the failure mode worth avoiding here.
+#[cfg(feature = "capi")]
+pub fn parse_capi_stores(specs: &[String]) -> core::result::Result<Vec<CapiStore>, String> {
+    let mut stores = Vec::with_capacity(specs.len());
+    for spec in specs {
+        match CapiStore::from_str(spec) {
+            Ok(store) => stores.push(store),
+            Err(e) => {
+                return Err(format!(
+                    "{spec} is not a usable CAPI store name ({e:?}). Expected a name like \
+                     LocalMachine\\ROOT or CurrentUser\\CA, or a bare store name for a \
+                     current-user store"
+                ))
+            }
+        }
+    }
+    Ok(stores)
+}
+
+/// Reads intermediate CA certificates from CAPI stores into `cert_source`.
+///
+/// The counterpart of [`load_ca_inputs`] for stores rather than paths. Pushed into the same source
+/// so the certificates take part in one graph, and deduplicated against it by
+/// [`CertVector::push`].
+#[cfg(feature = "capi")]
+pub fn load_capi_ca_stores(
+    specs: &[String],
+    cert_source: &mut CertSource,
+) -> core::result::Result<usize, String> {
+    if specs.is_empty() {
+        return Ok(0);
+    }
+    let stores = parse_capi_stores(specs)?;
+    let before = cert_source.len();
+    match certfiles_from_capi(&stores, &CapiReadOptions::default()) {
+        Ok(certfiles) => {
+            for cf in certfiles {
+                cert_source.push(cf);
+            }
+            let added = cert_source.len() - before;
+            info!(
+                "Added {added} certificate(s) from CAPI store(s) {}",
+                specs.join(", ")
+            );
+            Ok(added)
+        }
+        Err(e) => Err(format!(
+            "failed to read certificates from CAPI store(s) {}: {e:?}",
+            specs.join(", ")
+        )),
+    }
+}
+
+/// Builds the trust anchor store named by the `ta_cbor`, `ta_folder`, `ta_inputs` and
+/// `capi_ta_stores` arguments, or `None` when none of them was given.
 ///
 /// Those inputs are the trust anchor counterparts of `cbor`, `ca_folder` and `ca_inputs`, and are
 /// combined into one [`TaSource`] rather than being registered as several sources: certval refuses
@@ -259,11 +318,38 @@ pub fn load_trust_anchors(
     args: &Pittv3Args,
     time_of_interest: TimeOfInterest,
 ) -> core::result::Result<Option<TaSource>, String> {
-    if args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty() {
+    #[cfg(feature = "capi")]
+    let no_capi = args.capi_ta_stores.is_empty();
+    #[cfg(not(feature = "capi"))]
+    let no_capi = true;
+
+    if args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty() && no_capi {
         return Ok(None);
     }
 
     let mut ta_store = TaSource::new();
+
+    // Folded into this store rather than registered as a source of its own, so that the stores are
+    // one more input among the others rather than a second anchor set beside them: a machine root
+    // the user has also placed in a folder is then carried once and logged once. Read before the
+    // file-based inputs below, so a shared anchor keeps the provenance of the store it came from.
+    #[cfg(feature = "capi")]
+    if !args.capi_ta_stores.is_empty() {
+        let stores = parse_capi_stores(&args.capi_ta_stores)?;
+        match certfiles_from_capi(&stores, &CapiReadOptions::default()) {
+            Ok(certfiles) => {
+                for cf in certfiles {
+                    ta_store.push(cf);
+                }
+            }
+            Err(e) => {
+                return Err(format!(
+                    "failed to read trust anchors from CAPI store(s) {}: {e:?}",
+                    args.capi_ta_stores.join(", ")
+                ))
+            }
+        }
+    }
 
     if let Some(ta_cbor) = &args.ta_cbor {
         let cbor = read_cbor(&args.ta_cbor);

@@ -3,6 +3,12 @@
 pub mod cert_source;
 pub mod ta_source;
 
+// Adapters that read Microsoft CryptoAPI system stores into the two sources above. Gated on the
+// target as well as the feature so that enabling `capi` in a workspace that also builds for other
+// platforms is not an error there -- it simply contributes nothing.
+#[cfg(all(windows, feature = "capi"))]
+pub mod capi_source;
+
 #[cfg(all(feature = "revocation", feature = "std"))]
 pub mod crl_source;
 
@@ -14,6 +20,9 @@ pub mod crl_source;
 pub mod revocation_cache;
 
 pub use crate::{source::cert_source::*, source::ta_source::*};
+
+#[cfg(all(windows, feature = "capi"))]
+pub use crate::source::capi_source::*;
 
 #[cfg(all(feature = "revocation", feature = "std"))]
 pub use crate::source::crl_source::*;

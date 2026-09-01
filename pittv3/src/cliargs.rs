@@ -38,6 +38,40 @@ pub struct Pittv3CliArgs {
     #[clap(long, help_heading = "COMMON OPTIONS")]
     pub webpki_tas: bool,
 
+    /// Microsoft CryptoAPI store to read trust anchors from, named Location\Name, e.g.
+    /// LocalMachine\ROOT, or as a bare store name for a current-user store. May be given more than
+    /// once; the anchors are combined with those from the other trust anchor options. Machine
+    /// stores need an elevated process. Note that CurrentUser\ROOT already includes the machine's
+    /// anchors.
+    #[cfg(feature = "capi")]
+    #[clap(
+        long = "capi-ta",
+        value_name = "CAPI_STORE",
+        help_heading = "COMMON OPTIONS"
+    )]
+    pub capi_ta_stores: Vec<String>,
+
+    /// Microsoft CryptoAPI store to read intermediate CA certificates from, named as for
+    /// --capi-ta. May be given more than once.
+    #[cfg(feature = "capi")]
+    #[clap(
+        long = "capi-ca",
+        value_name = "CAPI_STORE",
+        help_heading = "COMMON OPTIONS"
+    )]
+    pub capi_ca_stores: Vec<String>,
+
+    /// Microsoft CryptoAPI store that dynamic building writes fetched certificates into, named as
+    /// for --capi-ta, so a later run starts from what this one found. Read at the start of the run
+    /// as --capi-ca would be. Requires --dynamic-build to have anything to write.
+    #[cfg(feature = "capi")]
+    #[clap(
+        long = "capi-ca-rw",
+        value_name = "CAPI_STORE",
+        help_heading = "COMMON OPTIONS"
+    )]
+    pub capi_ca_store_rw: Option<String>,
+
     /// Full path and filename of file to provide and/or receive CBOR-formatted representation of
     /// buffers containing binary DER-encoded CA certificates and map containing set of partial
     /// certification paths.
@@ -313,6 +347,12 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             ta_inputs: v.ta_inputs,
             #[cfg(feature = "webpki")]
             webpki_tas: v.webpki_tas,
+            #[cfg(feature = "capi")]
+            capi_ta_stores: v.capi_ta_stores,
+            #[cfg(feature = "capi")]
+            capi_ca_stores: v.capi_ca_stores,
+            #[cfg(feature = "capi")]
+            capi_ca_store_rw: v.capi_ca_store_rw,
             #[cfg(feature = "std")]
             cbor: v.cbor,
             time_of_interest: v.time_of_interest,

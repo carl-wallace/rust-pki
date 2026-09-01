@@ -17,6 +17,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "capi")]
+use std::str::FromStr;
+
+#[cfg(feature = "capi")]
+use certval::CapiStore;
 
 use certval_stores_core::{serialize_environment, TrustStoreProvider};
 use pittv3_gui_lib::settings_store::app_home;
@@ -38,6 +43,17 @@ pub(crate) enum StoreSource {
     /// The webpki-roots anchors, reached through the `webpki_tas` argument rather than through a
     /// written store: `TaSource` has no serializer, so there is no CBOR to put on disk.
     Webpki,
+    /// Windows certificate stores, reached through the `capi_ta_stores` and `capi_ca_stores`
+    /// arguments. Like [`StoreSource::Webpki`] this writes nothing to disk, and for the stronger
+    /// reason: the store is live. Materializing it would freeze a snapshot, so a root the user
+    /// installed after selecting the store would go unseen until they reselected it.
+    #[cfg(feature = "capi")]
+    Capi {
+        /// Store holding the trust anchors, e.g. `CurrentUser\ROOT`.
+        ta: &'static str,
+        /// Store holding the intermediates, or `None` for an anchors-only entry.
+        ca: Option<&'static str>,
+    },
 }
 
 /// A trust anchor and CA certificate store pair offered by the store selector, named by the
@@ -127,6 +143,31 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         pki: "the Purebred development environment",
         note: "Test material: not for judging production certificates.",
     },
+    // The Windows stores. Current user first and machine second, because the user's view of a store
+    // already includes the machine's entries -- so the first is the broader set despite the
+    // narrower-sounding name, and is the one that works without elevation.
+    #[cfg(feature = "capi")]
+    BuiltInStore {
+        label: "Windows certificate store (current user)",
+        env: "CAPI_USER",
+        source: StoreSource::Capi {
+            ta: "CurrentUser\\ROOT",
+            ca: Some("CurrentUser\\CA"),
+        },
+        pki: "this machine's Windows certificate stores, as this user sees them",
+        note: "Includes anchors installed for the machine as well as any this user has added.",
+    },
+    #[cfg(feature = "capi")]
+    BuiltInStore {
+        label: "Windows certificate store (local machine)",
+        env: "CAPI_MACHINE",
+        source: StoreSource::Capi {
+            ta: "LocalMachine\\ROOT",
+            ca: Some("LocalMachine\\CA"),
+        },
+        pki: "this machine's Windows certificate stores, excluding this user's own additions",
+        note: "Requires running as administrator.",
+    },
 ];
 
 /// Label for the selector entry at [`CUSTOM`].
@@ -150,8 +191,9 @@ pub(crate) fn materialize(index: usize) -> Result<(Option<String>, Option<String
         .get(index - 1)
         .ok_or_else(|| format!("no built-in store at index {index}"))?;
 
-    // Nothing to write for webpki: the run builds those anchors itself from the argument, so there
-    // are no paths to hand back. See [`is_webpki`], which is what sets it.
+    // Nothing to write for the sources a run reaches by argument rather than by path -- webpki,
+    // whose anchors the run builds itself, and the Windows stores, which are read live. See
+    // [`is_webpki`] and [`capi_stores`], which are what set those arguments.
     let StoreSource::Provider(provider) = store.source else {
         return Ok((None, None));
     };
@@ -344,7 +386,46 @@ pub(crate) fn has_ca_store(index: usize) -> bool {
                 .any(|e| e.env == store.env && e.cert_store_cbor.is_some()),
             // webpki-roots is anchors and nothing else
             StoreSource::Webpki => false,
+            #[cfg(feature = "capi")]
+            StoreSource::Capi { ca, .. } => ca.is_some(),
         })
+}
+
+/// The CAPI stores the entry at `index` names, as `(trust anchors, intermediates)` arguments.
+/// Empty vectors for every other kind of entry, so a caller can assign them unconditionally.
+#[cfg(feature = "capi")]
+pub(crate) fn capi_stores(index: usize) -> (Vec<String>, Vec<String>) {
+    if index == CUSTOM {
+        return (vec![], vec![]);
+    }
+    match STORES.get(index - 1).map(|s| &s.source) {
+        Some(StoreSource::Capi { ta, ca }) => (
+            vec![ta.to_string()],
+            ca.iter().map(|c| c.to_string()).collect(),
+        ),
+        _ => (vec![], vec![]),
+    }
+}
+
+/// Whether the entry at `index` can be used by this process.
+///
+/// False only for a machine store that this process cannot open, which is the usual case when it
+/// is not elevated. Every other kind of entry is always usable, so this is safe to ask of any
+/// index.
+///
+/// Opening a store is cheap but not free, and this is asked once per entry per render; a caller
+/// rendering often should cache the answer.
+pub(crate) fn is_accessible(index: usize) -> bool {
+    #[cfg(feature = "capi")]
+    {
+        if index != CUSTOM {
+            if let Some(StoreSource::Capi { ta, .. }) = STORES.get(index - 1).map(|s| &s.source) {
+                return CapiStore::from_str(ta).is_ok_and(|s| s.is_accessible());
+            }
+        }
+    }
+    let _ = index;
+    true
 }
 
 /// Whether the store at `index` is the webpki-roots anchor set, which a run reaches through the
@@ -367,7 +448,11 @@ pub(crate) fn is_webpki(index: usize) -> bool {
 ///
 /// This is a path comparison only — it does not read or write the cache — so it answers the same
 /// way whether or not the material has been written out yet.
-pub(crate) fn selection_for(ta_cbor: &Option<String>, webpki_tas: bool) -> usize {
+pub(crate) fn selection_for(
+    ta_cbor: &Option<String>,
+    webpki_tas: bool,
+    capi_ta_stores: &[String],
+) -> usize {
     // The webpki entry writes no path, so the saved argument is the only trace of it.
     if webpki_tas {
         if let Some(i) = STORES
@@ -377,6 +462,18 @@ pub(crate) fn selection_for(ta_cbor: &Option<String>, webpki_tas: bool) -> usize
             return i + 1;
         }
     }
+    // Same for the Windows entries, which are read live rather than written out. Matched on the
+    // anchor store alone: it is what distinguishes the two entries, and a settings file naming a
+    // store no entry offers falls through to Custom rather than selecting the wrong one.
+    #[cfg(feature = "capi")]
+    if let Some(saved) = capi_ta_stores.first() {
+        if let Some(i) = STORES.iter().position(
+            |s| matches!(s.source, StoreSource::Capi { ta, .. } if ta.eq_ignore_ascii_case(saved)),
+        ) {
+            return i + 1;
+        }
+    }
+    let _ = capi_ta_stores;
     let Some(ta_cbor) = ta_cbor else {
         return CUSTOM;
     };
@@ -448,10 +545,19 @@ mod tests {
         for (i, store) in STORES.iter().enumerate() {
             let selection = i + 1;
             let StoreSource::Provider(provider) = store.source else {
-                // The webpki entry is the run's own anchor set: nothing is written, nothing is
-                // claimed, and the argument is the whole of what selecting it does.
-                assert!(is_webpki(selection));
-                assert!(!has_ca_store(selection));
+                // The entries a run reaches by argument: the webpki anchor set it builds itself,
+                // and the Windows stores it reads live. Nothing is written for either, and the
+                // argument is the whole of what selecting one does. They differ in whether a CA
+                // store is claimed — webpki is anchors alone, a Windows entry names both halves —
+                // so that is asked of the source rather than asserted away.
+                #[cfg(feature = "capi")]
+                let names_a_ca_store =
+                    matches!(store.source, StoreSource::Capi { ca: Some(_), .. });
+                #[cfg(not(feature = "capi"))]
+                let names_a_ca_store = false;
+
+                assert!(is_webpki(selection) || names_a_ca_store || !has_ca_store(selection));
+                assert_eq!(has_ca_store(selection), names_a_ca_store);
                 assert_eq!(materialize(selection).unwrap(), (None, None));
                 continue;
             };
@@ -485,9 +591,9 @@ mod tests {
     fn custom_selects_nothing() {
         assert!(!has_ca_store(CUSTOM));
         assert_eq!(materialize(CUSTOM).unwrap(), (None, None));
-        assert_eq!(selection_for(&None, false), CUSTOM);
+        assert_eq!(selection_for(&None, false, &[]), CUSTOM);
         assert_eq!(
-            selection_for(&Some("/some/where/ta.cbor".to_string()), false),
+            selection_for(&Some("/some/where/ta.cbor".to_string()), false, &[]),
             CUSTOM
         );
     }
@@ -578,9 +684,9 @@ mod tests {
     fn webpki_recovers_from_the_saved_argument() {
         let webpki = STORES.iter().position(is_webpki_source).unwrap() + 1;
 
-        assert_eq!(selection_for(&None, true), webpki);
+        assert_eq!(selection_for(&None, true, &[]), webpki);
         assert_eq!(
-            selection_for(&Some("/some/where/ta.cbor".to_string()), true),
+            selection_for(&Some("/some/where/ta.cbor".to_string()), true, &[]),
             webpki
         );
         assert!(is_webpki(webpki));
@@ -599,15 +705,63 @@ mod tests {
             return; // no home directory on this host; nothing to recover a path against
         };
         for (i, store) in STORES.iter().enumerate() {
-            if is_webpki_source(store) {
+            if !is_written_out(store) {
                 continue; // never written, so there is no path to recover it from
             }
             let path = home.join(store.env).join("ta.cbor");
             let saved = Some(path.to_str().unwrap().to_string());
             assert_eq!(
-                selection_for(&saved, false),
+                selection_for(&saved, false, &[]),
                 i + 1,
                 "{} did not round trip",
+                store.label
+            );
+        }
+    }
+
+    /// Whether a selection leaves a path behind for [`selection_for`] to recover it from. False for
+    /// the entries a run reaches by argument instead.
+    fn is_written_out(store: &BuiltInStore) -> bool {
+        matches!(store.source, StoreSource::Provider(_))
+    }
+
+    /// The Windows entries round trip through their own argument rather than through a path, and
+    /// each has to recover itself and not the other — the two differ only in the location.
+    #[cfg(feature = "capi")]
+    #[test]
+    fn a_capi_store_recovers_its_selection() {
+        for (i, store) in STORES.iter().enumerate() {
+            let StoreSource::Capi { ta, .. } = store.source else {
+                continue;
+            };
+            let saved = vec![ta.to_string()];
+            assert_eq!(
+                selection_for(&None, false, &saved),
+                i + 1,
+                "{} did not round trip",
+                store.label
+            );
+        }
+        // A store no entry offers is a custom selection, not the nearest entry.
+        assert_eq!(
+            selection_for(&None, false, &["CurrentUser\\MY".to_string()]),
+            CUSTOM
+        );
+    }
+
+    /// Only the machine entries are ever gated, and whether they are gated depends on how this
+    /// process was launched — so the invariant that can be asserted either way is that everything
+    /// else stays usable.
+    #[test]
+    fn only_machine_stores_can_be_inaccessible() {
+        assert!(is_accessible(CUSTOM));
+        for (i, store) in STORES.iter().enumerate() {
+            if is_accessible(i + 1) {
+                continue;
+            }
+            assert!(
+                store.label.contains("local machine"),
+                "{} was reported inaccessible",
                 store.label
             );
         }

@@ -1537,6 +1537,18 @@ fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::
     Ok(())
 }
 
+/// The parse-failure line `--cleanup` emits for the malformed certificate, with the path spelled
+/// the way the platform spells it.
+#[cfg(feature = "rsa")]
+fn parse_failure_for_malformed() -> String {
+    format!(
+        "Failed to parse certificate from {}",
+        Path::new("tests/examples/cleanup_test")
+            .join("malformed.der")
+            .display()
+    )
+}
+
 #[cfg(feature = "rsa")]
 #[test]
 fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
@@ -1565,9 +1577,10 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
         cmd.assert()
             .stdout(predicate::str::contains("Missing basicConstraints"));
         cmd.assert().stdout(predicate::str::contains("Self-signed"));
-        cmd.assert().stdout(predicate::str::contains(
-            "Failed to parse certificate from tests/examples/cleanup_test/malformed.der",
-        ));
+        // Built with the platform separator rather than written out: the path in the message came
+        // from `Path::join`, so a literal with forward slashes matches on Unix and not on Windows.
+        cmd.assert()
+            .stdout(predicate::str::contains(parse_failure_for_malformed()));
     }
     {
         let mut cmd2 = Command::new(cargo::cargo_bin!());
@@ -1581,9 +1594,8 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
         //     .stdout(predicate::str::contains("Missing basicConstraints"));
         // cmd2.assert()
         //     .stdout(predicate::str::contains("Self-signed"));
-        cmd2.assert().stdout(predicate::str::contains(
-            "Failed to parse certificate from tests/examples/cleanup_test/malformed.der",
-        ));
+        cmd2.assert()
+            .stdout(predicate::str::contains(parse_failure_for_malformed()));
     }
     {
         // Try static building to affirm it succeeds with expired cert factored out of the paths found

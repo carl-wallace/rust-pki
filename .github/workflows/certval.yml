@@ -72,6 +72,41 @@ jobs:
           toolchain: ${{ matrix.rust }}
       - run: cargo test -p certval --features std,rsa,revocation,pqc,eddsa
 
+  # Windows is not a portability afterthought here. The CAPI store support is Windows-only code no
+  # other leg compiles, and the SLH-DSA stack reserve in .cargo/config.toml is a Windows-only link
+  # setting. Both were unreachable from an Ubuntu-only matrix, which is how a stack overflow in the
+  # 256-bit SLH-DSA parameter sets and a path-separator assumption in an integration test both sat
+  # green until someone ran the suite on Windows.
+  #
+  # Stable only, and not part of the MSRV matrix: this is here to cover a platform, not a toolchain
+  # floor, and the Ubuntu legs above already hold the 1.85 line.
+  windows:
+    name: windows (build + test, incl. capi)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # Job-level, restating the workflow-level -Dwarnings, because RUSTFLAGS in the environment
+    # *replaces* the target rustflags in .cargo/config.toml rather than merging with them. Without
+    # this the x86_64-pc-windows-msvc entry there is discarded and the SLH-DSA tests overflow the
+    # 1MB stack MSVC reserves by default. Keep the size in step with .cargo/config.toml.
+    env:
+      RUSTFLAGS: "-Dwarnings -C link-arg=/STACK:8388608"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Same exclusions as the Ubuntu legs, so the two cover the same crates. Note the reasons do
+      # not carry over: pittv3-gui is excluded there for missing Linux system packages, which
+      # Windows does not need, and its MSRV floor is below stable anyway. It stays out here on
+      # build cost alone -- pulling the dioxus tree onto a Windows runner is minutes, not seconds.
+      # Its store selector holds the only CAPI code no job compiles, so re-including it is a real
+      # gain whenever that cost is acceptable; the tests are headless and do not open a window.
+      - run: cargo test --workspace --exclude pittv3-gui --exclude pittv3-gui-lib --exclude pittv3-wasm --exclude pittv3-relay --exclude pittv3-service
+      - run: cargo test -p certval --features capi
+      # pittv3 pulls pittv3-lib/capi and certval/capi in behind it, so this covers the whole chain
+      # in one run. Note the runner is not elevated: the LocalMachine paths return PermissionDenied
+      # here, which the tests treat as the expected unelevated outcome rather than a failure. That
+      # half stays uncovered by CI.
+      - run: cargo test -p pittv3 --features capi
+
   # Lints run on stable only, deliberately not across the MSRV matrix: clippy's diagnostics differ
   # between toolchains, so linting against the 1.85 pin reports on a compiler nobody develops with.
   # The pre-commit hook runs the same commands locally so they fail before a push — an early warning,
