@@ -768,9 +768,11 @@ async fn generate_and_validate(
     // A writable CAPI store is somewhere to put fetched certificates, so it answers this
     // requirement the same way a folder does. `fetch_to_buffer` skips the copy on disk when no
     // folder was named; the certificates still reach the pool the run builds from.
-    #[cfg(all(windows, feature = "capi"))]
+    // Gated on `remote` as well, because `download_folder` above is: without it there is no
+    // fetching, so nothing needs anywhere to be put and the guard below is not compiled either.
+    #[cfg(all(feature = "remote", windows, feature = "capi"))]
     let have_somewhere_to_put_them = !download_folder.is_empty() || args.capi_ca_store_rw.is_some();
-    #[cfg(not(all(windows, feature = "capi")))]
+    #[cfg(all(feature = "remote", not(all(windows, feature = "capi"))))]
     let have_somewhere_to_put_them = !download_folder.is_empty();
 
     #[cfg(feature = "remote")]
