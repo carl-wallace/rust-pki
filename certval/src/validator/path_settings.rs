@@ -328,7 +328,7 @@ pub static PS_CHECK_CRLDP_LDAP: &str = "psCheckCrlDpLdap";
 
 /// `PS_RETAIN_EXPIRED_KEPT_CRLS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is false. It governs only the opt-in in-memory kept-CRL cache (see
-/// [`CrlSourceFolders::with_options`](crate::source::CrlSourceFolders::with_options)). When false,
+/// `CrlSourceFolders::with_options`, which needs `revocation` and `std`). When false,
 /// a kept CRL whose `nextUpdate` has passed the time of interest is evicted on the next insert to
 /// bound memory. When true, expired kept CRLs are retained so a later validation at an earlier time
 /// of interest (retroactive / long-term-validation checks) can still be answered from them.

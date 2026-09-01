@@ -107,21 +107,20 @@ pub(crate) async fn read_capped_body(
 /// A file containing the certificate is written to a location that uses the filename parameter as
 /// a base to which an index is added before saving via [`save_cert`]. Certificates that are not
 /// valid at the indicated time of interest are discarded as well.
+///
+/// `filename` is `None` when the caller named no folder to keep downloads in; see [`save_cert`].
+/// The certificates still reach `buffers`.
 #[cfg(feature = "remote")]
 fn save_certs_from_p7(
     pe: &PkiEnvironment,
-    filename: &Path,
+    filename: Option<&Path>,
     bytes: &[u8],
     target: &str,
     buffers: &mut dyn CertVector,
     time_of_interest: TimeOfInterest,
 ) -> bool {
     let mut at_least_one_saved = false;
-    let filename = if let Some(fname) = filename.to_str() {
-        fname
-    } else {
-        return false;
-    };
+    let filename = filename.and_then(|f| f.to_str());
 
     match ContentInfo::from_der(bytes) {
         Ok(ci) => {
@@ -131,13 +130,17 @@ fn save_certs_from_p7(
                     Ok(sd) => {
                         for (i, c) in sd.certificates.iter().enumerate() {
                             for a in c.0.iter() {
-                                let f = format!("{filename}_{i}.der");
-                                #[allow(irrefutable_let_patterns)]
-                                let Ok(pb) = PathBuf::from_str(&f);
+                                // One name per certificate in the message, or none at all when
+                                // there is nowhere to write them.
+                                let pb = filename.map(|f| {
+                                    #[allow(irrefutable_let_patterns)]
+                                    let Ok(pb) = PathBuf::from_str(&format!("{f}_{i}.der"));
+                                    pb
+                                });
                                 if let Ok(enccert) = a.to_der() {
                                     if save_cert(
                                         pe,
-                                        &pb,
+                                        pb.as_deref(),
                                         enccert.as_slice(),
                                         target,
                                         buffers,
@@ -163,23 +166,25 @@ fn save_certs_from_p7(
 }
 
 /// `save_cert` takes a buffer that notionally contains a certificate. if the certificate can be parsed,
-/// and it is not present in `buffers`, then it is appended to `buffers` and written to `filename`. The
-/// attempt to write a file is "best effort". If it fails, life goes on.
+/// and it is not present in `buffers`, then it is appended to `buffers` and, when `filename` names
+/// somewhere to put it, written there. The attempt to write a file is "best effort". If it fails,
+/// life goes on.
+///
+/// `filename` is `None` when the caller named no folder to keep downloads in. The certificate still
+/// reaches `buffers`, which is what the run builds paths from; only the copy on disk is skipped.
+/// This is a distinct case from a write that fails, and has to be, because the path built from an
+/// empty folder is a bare relative name that would drop files into the process's working directory.
 #[cfg(feature = "remote")]
 fn save_cert(
     pe: &PkiEnvironment,
-    filename: &Path,
+    filename: Option<&Path>,
     bytes: &[u8],
     target: &str,
     buffers: &mut dyn CertVector,
     time_of_interest: TimeOfInterest,
 ) -> bool {
     let mut saved = false;
-    let filename = if let Some(fname) = filename.to_str() {
-        fname
-    } else {
-        return false;
-    };
+    let filename = filename.and_then(|f| f.to_str());
 
     let r = CertificateInner::from_der(bytes);
     match r {
@@ -207,15 +212,17 @@ fn save_cert(
                 buffers.push(cf);
                 saved = true;
 
-                match File::create(filename) {
-                    Ok(mut dest) => {
-                        let r = dest.write_all(bytes);
-                        if let Err(e) = r {
-                            error!("Failed to copy {target} with {e:?}");
+                if let Some(filename) = filename {
+                    match File::create(filename) {
+                        Ok(mut dest) => {
+                            let r = dest.write_all(bytes);
+                            if let Err(e) = r {
+                                error!("Failed to copy {target} with {e:?}");
+                            }
                         }
-                    }
-                    Err(e) => {
-                        error!("Failed to save {filename} with error: {e}");
+                        Err(e) => {
+                            error!("Failed to save {filename} with error: {e}");
+                        }
                     }
                 }
             } else {
@@ -250,8 +257,15 @@ pub async fn fetch_to_buffer(
     time_of_interest: TimeOfInterest,
     max_bytes: u64,
 ) -> Result<()> {
-    // Downloaded artifacts are saved for future use, create a path object for that folder
-    let path = Path::new(folder);
+    // Downloaded artifacts are saved for future use, create a path object for that folder. An empty
+    // folder means the caller has nowhere to keep them -- a run writing fetched certificates to a
+    // CAPI store rather than to disk, for one -- and is not the same as a folder that turns out to
+    // be unwritable: joining a name onto an empty path yields a bare relative name, which would
+    // scatter downloads through the process's working directory.
+    let path = match folder.is_empty() {
+        true => None,
+        false => Some(Path::new(folder)),
+    };
 
     let client = match shared_http_client() {
         Some(client) => client,
@@ -328,7 +342,7 @@ pub async fn fetch_to_buffer(
                     continue;
                 }
 
-                let fname = path.join(fname_from_response);
+                let fname = path.map(|p| p.join(fname_from_response));
 
                 match read_capped_body(response, max_bytes, target).await {
                     Ok(bytes) => {
@@ -338,7 +352,7 @@ pub async fn fetch_to_buffer(
                         if "application/pkcs7-mime" == content_type {
                             save_certs_from_p7(
                                 pe,
-                                &fname,
+                                fname.as_deref(),
                                 bytes.as_ref(),
                                 target,
                                 buffers,
@@ -347,7 +361,7 @@ pub async fn fetch_to_buffer(
                         } else if "application/x-x509-ca-cert" == content_type {
                             save_cert(
                                 pe,
-                                &fname,
+                                fname.as_deref(),
                                 bytes.as_ref(),
                                 target,
                                 buffers,
@@ -359,7 +373,7 @@ pub async fn fetch_to_buffer(
                                 Ok(_) => {
                                     save_cert(
                                         pe,
-                                        &fname,
+                                        fname.as_deref(),
                                         bytes.as_ref(),
                                         target,
                                         buffers,
@@ -369,7 +383,7 @@ pub async fn fetch_to_buffer(
                                 Err(_) => {
                                     save_certs_from_p7(
                                         pe,
-                                        &fname,
+                                        fname.as_deref(),
                                         bytes.as_ref(),
                                         target,
                                         buffers,

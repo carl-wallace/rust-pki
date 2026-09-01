@@ -285,13 +285,13 @@ pub async fn check_revocation(
 
 /// Determines revocation status from data the caller has already supplied, retrieving nothing.
 ///
-/// This is steps 1 through 4 of the ladder documented on [`check_revocation`], with the same
+/// This is steps 1 through 4 of the ladder documented on `check_revocation`, with the same
 /// short-circuit on revocation and the same accumulation of undetermined statuses: the environment's
 /// revocation status cache, the OCSP no-check extension, an OCSP response or CRL stapled into the
 /// path, and any registered [`CrlSource`](crate::CrlSource). Nothing is fetched, so a status that
 /// only a responder or a CRL DP could settle stays undetermined.
 ///
-/// This is available whenever `revocation` is, unlike [`check_revocation`], which exists only under
+/// This is available whenever `revocation` is, unlike `check_revocation`, which exists only under
 /// `std` and is asynchronous. That is a hazard for a caller that cannot see what it got: a crate can
 /// `cfg` on its own features but never on a dependency's, so feature unification decides both
 /// whether the function is there at all and whether it must be awaited, and the mismatch surfaces as
@@ -300,7 +300,7 @@ pub async fn check_revocation(
 /// stop caring which flavor of certval it was linked against.
 ///
 /// Returns `Ok` when the status of every certificate was determined and none was revoked, and
-/// otherwise the same errors [`check_revocation`] returns.
+/// otherwise the same errors `check_revocation` returns.
 pub fn check_revocation_local(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,

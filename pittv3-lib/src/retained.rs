@@ -2,13 +2,13 @@
 //!
 //! A results folder is written *during* a run and has to be asked for before it starts. Retention
 //! answers the other case: a person who has seen the outcome and only then wants the material
-//! behind it. Both produce the same layout — [`crate::pitt_log::log_path`] writes it to a folder
+//! behind it. Both produce the same layout — `pitt_log::log_path` writes it to a folder
 //! and `pittv3_gui_lib::export::path_entries` composes the same files as archive entries — so what
 //! differs is when the decision is made, not what comes out.
 //!
 //! This type lives here rather than beside either producer because there are two: the frontends
 //! that prepare an environment and validate against it, and the entry points in
-//! [`crate::std_utils`] that do the whole run. A consumer written against this type works with
+//! `std_utils` that do the whole run. A consumer written against this type works with
 //! either, which is what lets one set of export buttons outlive a change of producer.
 
 use alloc::string::String;
