@@ -5,7 +5,7 @@
 extern crate alloc;
 
 use alloc::string::String;
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 use core::str::FromStr;
 use log::{debug, error, info};
 use std::{ffi::OsStr, fs, path::Path, time::Instant};
@@ -243,7 +243,7 @@ pub fn push_trust_anchor_input(
 /// Rejects the whole set on the first bad entry rather than skipping it: a mistyped store name
 /// would otherwise read as an empty store, and a run that silently proceeds with fewer anchors
 /// than the user asked for is the failure mode worth avoiding here.
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 pub fn parse_capi_stores(specs: &[String]) -> core::result::Result<Vec<CapiStore>, String> {
     let mut stores = Vec::with_capacity(specs.len());
     for spec in specs {
@@ -266,7 +266,7 @@ pub fn parse_capi_stores(specs: &[String]) -> core::result::Result<Vec<CapiStore
 /// The counterpart of [`load_ca_inputs`] for stores rather than paths. Pushed into the same source
 /// so the certificates take part in one graph, and deduplicated against it by
 /// [`CertVector::push`].
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 pub fn load_capi_ca_stores(
     specs: &[String],
     cert_source: &mut CertSource,
@@ -318,9 +318,9 @@ pub fn load_trust_anchors(
     args: &Pittv3Args,
     time_of_interest: TimeOfInterest,
 ) -> core::result::Result<Option<TaSource>, String> {
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     let no_capi = args.capi_ta_stores.is_empty();
-    #[cfg(not(feature = "capi"))]
+    #[cfg(not(all(windows, feature = "capi")))]
     let no_capi = true;
 
     if args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty() && no_capi {
@@ -333,7 +333,7 @@ pub fn load_trust_anchors(
     // one more input among the others rather than a second anchor set beside them: a machine root
     // the user has also placed in a folder is then carried once and logged once. Read before the
     // file-based inputs below, so a shared anchor keeps the provenance of the store it came from.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     if !args.capi_ta_stores.is_empty() {
         let stores = parse_capi_stores(&args.capi_ta_stores)?;
         match certfiles_from_capi(&stores, &CapiReadOptions::default()) {

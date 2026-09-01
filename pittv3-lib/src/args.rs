@@ -45,14 +45,14 @@ pub struct Pittv3Args {
     /// The two locations overlap: the current user's view of a store includes the machine's
     /// entries, so `CurrentUser\ROOT` already carries the machine's anchors. Naming both is
     /// harmless — the certificates are deduplicated — but rarely necessary.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[serde(default)]
     pub capi_ta_stores: Vec<String>,
 
     /// Microsoft CryptoAPI stores to read intermediate CA certificates from, named the same way as
     /// `capi_ta_stores`. Read-only, and combined with the certificates from the other CA
     /// arguments.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[serde(default)]
     pub capi_ca_stores: Vec<String>,
 
@@ -62,7 +62,7 @@ pub struct Pittv3Args {
     ///
     /// Singular where the read-only forms are plural: certificates are fetched to exactly one
     /// place, which is the same reason `download_folder` is singular.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     pub capi_ca_store_rw: Option<String>,
 
     /// Full path and filename of file to provide and/or receive CBOR-formatted representation of

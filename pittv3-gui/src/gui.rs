@@ -921,9 +921,9 @@ pub(crate) fn App() -> Element {
     // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What
     // is restored from that is the selection; showing the cache paths back as if the user had
     // typed them would invite editing a file the next run overwrites.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     let saved_capi = sa.capi_ta_stores.clone();
-    #[cfg(not(feature = "capi"))]
+    #[cfg(not(all(windows, feature = "capi")))]
     let saved_capi: Vec<String> = vec![];
     let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas, &saved_capi));
     let from_store = saved_store != stores::CUSTOM;
@@ -1113,11 +1113,11 @@ pub(crate) fn App() -> Element {
             // Also set by the store selector alone, and for the same reason. Unlike the material a
             // provider entry writes out, these name live stores that a run reads at the moment it
             // starts, so a certificate installed since the selection was made is seen.
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ta_stores: stores::capi_stores(s_store()).0,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ca_stores: stores::capi_stores(s_store()).1,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ca_store_rw: None,
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()

@@ -17,10 +17,10 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 use std::str::FromStr;
 
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 use certval::CapiStore;
 
 use certval_stores_core::{serialize_environment, TrustStoreProvider};
@@ -47,7 +47,7 @@ pub(crate) enum StoreSource {
     /// arguments. Like [`StoreSource::Webpki`] this writes nothing to disk, and for the stronger
     /// reason: the store is live. Materializing it would freeze a snapshot, so a root the user
     /// installed after selecting the store would go unseen until they reselected it.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     Capi {
         /// Store holding the trust anchors, e.g. `CurrentUser\ROOT`.
         ta: &'static str,
@@ -146,7 +146,7 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // The Windows stores. Current user first and machine second, because the user's view of a store
     // already includes the machine's entries -- so the first is the broader set despite the
     // narrower-sounding name, and is the one that works without elevation.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
         label: "Windows certificate store (current user)",
         env: "CAPI_USER",
@@ -157,7 +157,7 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         pki: "this machine's Windows certificate stores, as this user sees them",
         note: "Includes anchors installed for the machine as well as any this user has added.",
     },
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
         label: "Windows certificate store (local machine)",
         env: "CAPI_MACHINE",
@@ -386,14 +386,14 @@ pub(crate) fn has_ca_store(index: usize) -> bool {
                 .any(|e| e.env == store.env && e.cert_store_cbor.is_some()),
             // webpki-roots is anchors and nothing else
             StoreSource::Webpki => false,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             StoreSource::Capi { ca, .. } => ca.is_some(),
         })
 }
 
 /// The CAPI stores the entry at `index` names, as `(trust anchors, intermediates)` arguments.
 /// Empty vectors for every other kind of entry, so a caller can assign them unconditionally.
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 pub(crate) fn capi_stores(index: usize) -> (Vec<String>, Vec<String>) {
     if index == CUSTOM {
         return (vec![], vec![]);
@@ -416,7 +416,7 @@ pub(crate) fn capi_stores(index: usize) -> (Vec<String>, Vec<String>) {
 /// Opening a store is cheap but not free, and this is asked once per entry per render; a caller
 /// rendering often should cache the answer.
 pub(crate) fn is_accessible(index: usize) -> bool {
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     {
         if index != CUSTOM {
             if let Some(StoreSource::Capi { ta, .. }) = STORES.get(index - 1).map(|s| &s.source) {
@@ -465,7 +465,7 @@ pub(crate) fn selection_for(
     // Same for the Windows entries, which are read live rather than written out. Matched on the
     // anchor store alone: it is what distinguishes the two entries, and a settings file naming a
     // store no entry offers falls through to Custom rather than selecting the wrong one.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     if let Some(saved) = capi_ta_stores.first() {
         if let Some(i) = STORES.iter().position(
             |s| matches!(s.source, StoreSource::Capi { ta, .. } if ta.eq_ignore_ascii_case(saved)),
@@ -550,10 +550,10 @@ mod tests {
                 // argument is the whole of what selecting one does. They differ in whether a CA
                 // store is claimed — webpki is anchors alone, a Windows entry names both halves —
                 // so that is asked of the source rather than asserted away.
-                #[cfg(feature = "capi")]
+                #[cfg(all(windows, feature = "capi"))]
                 let names_a_ca_store =
                     matches!(store.source, StoreSource::Capi { ca: Some(_), .. });
-                #[cfg(not(feature = "capi"))]
+                #[cfg(not(all(windows, feature = "capi")))]
                 let names_a_ca_store = false;
 
                 assert!(is_webpki(selection) || names_a_ca_store || !has_ca_store(selection));
@@ -727,7 +727,7 @@ mod tests {
 
     /// The Windows entries round trip through their own argument rather than through a path, and
     /// each has to recover itself and not the other — the two differ only in the location.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[test]
     fn a_capi_store_recovers_its_selection() {
         for (i, store) in STORES.iter().enumerate() {

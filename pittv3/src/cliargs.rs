@@ -43,7 +43,7 @@ pub struct Pittv3CliArgs {
     /// once; the anchors are combined with those from the other trust anchor options. Machine
     /// stores need an elevated process. Note that CurrentUser\ROOT already includes the machine's
     /// anchors.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ta",
         value_name = "CAPI_STORE",
@@ -53,7 +53,7 @@ pub struct Pittv3CliArgs {
 
     /// Microsoft CryptoAPI store to read intermediate CA certificates from, named as for
     /// --capi-ta. May be given more than once.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ca",
         value_name = "CAPI_STORE",
@@ -64,7 +64,7 @@ pub struct Pittv3CliArgs {
     /// Microsoft CryptoAPI store that dynamic building writes fetched certificates into, named as
     /// for --capi-ta, so a later run starts from what this one found. Read at the start of the run
     /// as --capi-ca would be. Requires --dynamic-build to have anything to write.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ca-rw",
         value_name = "CAPI_STORE",
@@ -347,11 +347,11 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             ta_inputs: v.ta_inputs,
             #[cfg(feature = "webpki")]
             webpki_tas: v.webpki_tas,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ta_stores: v.capi_ta_stores,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ca_stores: v.capi_ca_stores,
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             capi_ca_store_rw: v.capi_ca_store_rw,
             #[cfg(feature = "std")]
             cbor: v.cbor,

@@ -168,7 +168,7 @@ const CA_FOLDER_EMPTY: &str =
 /// a subset of its root program and fetches the rest on demand, so a root can be genuinely absent
 /// at the moment of the run and present later — and a root placed there by hand is only the one
 /// that was placed there, which is not always the one the target needs.
-#[cfg(feature = "capi")]
+#[cfg(all(windows, feature = "capi"))]
 const CAPI_TA_STORE_PARTIAL: &str =
     "Trust anchors were read from a Windows certificate store. Such a store holds only the roots \
      that have been installed on this machine or that Windows has fetched on demand, so it may not \
@@ -967,7 +967,7 @@ async fn generate_and_validate(
     // Opened once rather than per pass: opening snapshots what the store already holds, which is a
     // read of every certificate in it, and that answer does not change under us — this process is
     // the only thing adding to it during the run.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     let mut capi_sink = match &args.capi_ca_store_rw {
         Some(spec) => match parse_capi_stores(std::slice::from_ref(spec)).and_then(|s| {
             CapiCertStore::open_rw(&s[0]).map_err(|e| format!("cannot open {spec}: {e:?}"))
@@ -1066,7 +1066,7 @@ async fn generate_and_validate(
             // source wholesale (see `load_ca_inputs`) and would discard anything pushed before it.
             // The writable store is read here too, so a run that will later write to it starts
             // from what earlier runs left there.
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             {
                 let specs: Vec<String> = args
                     .capi_ca_stores
@@ -1123,7 +1123,7 @@ async fn generate_and_validate(
 
                 // Where the pool stood before this pass, so the certificates it fetched can be told
                 // from the ones already held and only the new ones offered to the CAPI store.
-                #[cfg(feature = "capi")]
+                #[cfg(all(windows, feature = "capi"))]
                 let before_fetch = cert_source.len();
 
                 // this could likely return after fetching one URI, but once we're in the dynamic
@@ -1149,7 +1149,7 @@ async fn generate_and_validate(
                 // because that sink is also what the builder reads from: the certificates have to
                 // land in the pool whether or not the store accepts them, and a failed write should
                 // cost the next run a re-fetch, not this one its path.
-                #[cfg(feature = "capi")]
+                #[cfg(all(windows, feature = "capi"))]
                 if let Some(sink) = capi_sink.as_mut() {
                     for cf in cert_source.get_buffers().into_iter().skip(before_fetch) {
                         sink.push(cf);
@@ -1411,7 +1411,7 @@ async fn generate_and_validate(
     // Not an "empty" predicate like the two above: the store having been used at all is what makes
     // the hint worth saying, because its contents are a moving target rather than a set the user
     // assembled.
-    #[cfg(feature = "capi")]
+    #[cfg(all(windows, feature = "capi"))]
     let capi_tas_used = !args.capi_ta_stores.is_empty();
 
     let mut totals = PathValidationStats::default();
@@ -1436,7 +1436,7 @@ async fn generate_and_validate(
             if !s.no_paths_hints.is_empty() && ca_folder_empty {
                 info!("\t * {CA_FOLDER_EMPTY}");
             }
-            #[cfg(feature = "capi")]
+            #[cfg(all(windows, feature = "capi"))]
             if !s.no_paths_hints.is_empty() && capi_tas_used {
                 info!("\t * {CAPI_TA_STORE_PARTIAL}");
             }
@@ -1504,7 +1504,7 @@ async fn generate_and_validate(
         if !no_paths_hints.is_empty() && ca_folder_empty {
             no_paths_hints.push(CA_FOLDER_EMPTY.to_string());
         }
-        #[cfg(feature = "capi")]
+        #[cfg(all(windows, feature = "capi"))]
         if !no_paths_hints.is_empty() && capi_tas_used {
             no_paths_hints.push(CAPI_TA_STORE_PARTIAL.to_string());
         }
