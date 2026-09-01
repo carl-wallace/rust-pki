@@ -7,6 +7,12 @@
 [resolver]
 incompatible-rust-versions = "fallback"
 
+# Both stack settings below are duplicated in .github/workflows, and have to be: those workflows
+# set RUSTFLAGS in the environment, which *replaces* the rustflags here rather than merging with
+# them, so a job that needs one of these has to restate it alongside its -Dwarnings. Change a size
+# here and change it there. A mismatch is silent -- a missing link argument is not a compile error,
+# it just produces a binary that overflows under the 256-bit SLH-DSA parameter sets.
+
 # The wasm32-unknown-unknown default stack size is 1MB, which slh-dsa signature decoding
 # exceeds for the 256-bit parameter sets (hybrid_array builds the hypertree/XMSS signature
 # through large stack temporaries, and the size-optimized wasm-release profile does little
@@ -15,3 +21,16 @@ incompatible-rust-versions = "fallback"
 # only reserves linear-memory pages.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-arg=-zstack-size=8388608"]
+
+# The same slh-dsa stack demand described above, on a target the note above did not account for.
+# "8MB matches the native main-thread stack" holds for Linux; the MSVC default is 1MB, so Windows
+# has the wasm problem natively. It surfaces as `thread 'main' has overflowed its stack` and exit
+# code 0xC00000FD, which reaches `cargo test` as a killed subprocess -- taking whatever else was
+# running in that process down with it, so the SLH-DSA failure does not appear alone.
+#
+# /STACK sets the reserve in the PE header, so this covers the main thread of every binary built
+# for the target, pittv3.exe included. It does not reach threads spawned at runtime: those take
+# Rust's own 2MB default, which includes the threads `cargo test` runs unit tests on. A unit test
+# verifying a 256-bit parameter set directly would still need RUST_MIN_STACK.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]

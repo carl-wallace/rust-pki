@@ -162,6 +162,20 @@ const CA_FOLDER_EMPTY: &str =
      are read, and objects that do not parse as a certificate, or that are expired at the time of \
      interest, are dropped when the folder is read.";
 
+/// Added to the no-paths diagnosis when the anchors came from a Windows certificate store. Unlike
+/// the two above this does not mean the store was empty: it says that what a store holds is not the
+/// set of roots the platform will ultimately trust, which is the part that surprises. Windows ships
+/// a subset of its root program and fetches the rest on demand, so a root can be genuinely absent
+/// at the moment of the run and present later — and a root placed there by hand is only the one
+/// that was placed there, which is not always the one the target needs.
+#[cfg(all(windows, feature = "capi"))]
+const CAPI_TA_STORE_PARTIAL: &str =
+    "Trust anchors were read from a Windows certificate store. Such a store holds only the roots \
+     that have been installed on this machine or that Windows has fetched on demand, so it may not \
+     yet hold the one this target needs. Check the store for the target's root -- in PowerShell, \
+     Get-ChildItem Cert:\\LocalMachine\\Root -- and note that the current user's view of a store \
+     includes the machine's roots as well as any added for the user.";
+
 /// Normalizes a PEM block so its base64 body is wrapped at the 64 columns that RFC 7468 (and the
 /// strict `pem-rfc7468` decoder) requires. Some CCADB CSV exports wrap the certificate PEM at a
 /// non-standard width (e.g. 65 columns), which the strict decoder rejects; re-wrapping lets those
@@ -949,6 +963,27 @@ async fn generate_and_validate(
         }
         pe.add_revocation_cache(Box::new(RevocationCache::new()));
     }
+
+    // Opened once rather than per pass: opening snapshots what the store already holds, which is a
+    // read of every certificate in it, and that answer does not change under us — this process is
+    // the only thing adding to it during the run.
+    #[cfg(all(windows, feature = "capi"))]
+    let mut capi_sink = match &args.capi_ca_store_rw {
+        Some(spec) => match parse_capi_stores(std::slice::from_ref(spec)).and_then(|s| {
+            CapiCertStore::open_rw(&s[0]).map_err(|e| format!("cannot open {spec}: {e:?}"))
+        }) {
+            Ok(sink) => Some(sink),
+            Err(msg) => {
+                // Refused here rather than at the first write: a dynamic build that fetched for a
+                // minute and then could not keep any of it is a worse way to learn this, and the
+                // usual cause -- a machine store without elevation -- is one the user can act on.
+                println!("Failed to open the CAPI store to write to: {msg}");
+                return ValidationReport::default();
+            }
+        },
+        None => None,
+    };
+
     loop {
         // Create a new CertSource and (re-)deserialize on every iteration due references to
         // buffers in the certs member. On the first pass, cbor will contain data read from file,
@@ -1026,6 +1061,27 @@ async fn generate_and_validate(
             );
             ca_folder_certs = outcome.certs;
             ca_store_paths_adopted = outcome.paths_adopted;
+
+            // After the path-shaped inputs, because adopting a CBOR store's graph replaces the
+            // source wholesale (see `load_ca_inputs`) and would discard anything pushed before it.
+            // The writable store is read here too, so a run that will later write to it starts
+            // from what earlier runs left there.
+            #[cfg(all(windows, feature = "capi"))]
+            {
+                let specs: Vec<String> = args
+                    .capi_ca_stores
+                    .iter()
+                    .chain(args.capi_ca_store_rw.iter())
+                    .cloned()
+                    .collect();
+                match load_capi_ca_stores(&specs, &mut cert_source) {
+                    Ok(added) => ca_folder_certs += added,
+                    Err(msg) => {
+                        println!("Failed to read CA certificates from CAPI: {msg}");
+                        return ValidationReport::default();
+                    }
+                }
+            }
         }
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
@@ -1065,6 +1121,11 @@ async fn generate_and_validate(
                     }
                 }
 
+                // Where the pool stood before this pass, so the certificates it fetched can be told
+                // from the ones already held and only the new ones offered to the CAPI store.
+                #[cfg(all(windows, feature = "capi"))]
+                let before_fetch = cert_source.len();
+
                 // this could likely return after fetching one URI, but once we're in the dynamic
                 // building soup, we might as well fetch all.
                 let r = fetch_to_buffer(
@@ -1083,6 +1144,17 @@ async fn generate_and_validate(
                     cps.get_max_aia_fetch_bytes(),
                 )
                 .await;
+
+                // Mirrored after the pass rather than through the sink handed to `fetch_to_buffer`,
+                // because that sink is also what the builder reads from: the certificates have to
+                // land in the pool whether or not the store accepts them, and a failed write should
+                // cost the next run a re-fetch, not this one its path.
+                #[cfg(all(windows, feature = "capi"))]
+                if let Some(sink) = capi_sink.as_mut() {
+                    for cf in cert_source.get_buffers().into_iter().skip(before_fetch) {
+                        sink.push(cf);
+                    }
+                }
 
                 let json_lmm = serde_json::to_string(&lmm);
                 if !lmm_file.is_empty() {
@@ -1336,6 +1408,11 @@ async fn generate_and_validate(
     // Distinguishes "no folder was given" from "the folder was given and nothing survived reading
     // it", which the shared diagnosis cannot tell apart because both leave the environment empty
     let ta_folder_empty = args.ta_folder.is_some() && pe.get_trust_anchors().is_empty();
+    // Not an "empty" predicate like the two above: the store having been used at all is what makes
+    // the hint worth saying, because its contents are a moving target rather than a set the user
+    // assembled.
+    #[cfg(all(windows, feature = "capi"))]
+    let capi_tas_used = !args.capi_ta_stores.is_empty();
 
     let mut totals = PathValidationStats::default();
     for k in stats.keys() {
@@ -1358,6 +1435,10 @@ async fn generate_and_validate(
             }
             if !s.no_paths_hints.is_empty() && ca_folder_empty {
                 info!("\t * {CA_FOLDER_EMPTY}");
+            }
+            #[cfg(all(windows, feature = "capi"))]
+            if !s.no_paths_hints.is_empty() && capi_tas_used {
+                info!("\t * {CAPI_TA_STORE_PARTIAL}");
             }
         }
         totals.paths_per_target += s.paths_per_target;
@@ -1422,6 +1503,10 @@ async fn generate_and_validate(
         }
         if !no_paths_hints.is_empty() && ca_folder_empty {
             no_paths_hints.push(CA_FOLDER_EMPTY.to_string());
+        }
+        #[cfg(all(windows, feature = "capi"))]
+        if !no_paths_hints.is_empty() && capi_tas_used {
+            no_paths_hints.push(CAPI_TA_STORE_PARTIAL.to_string());
         }
 
         report.totals.targets += 1;

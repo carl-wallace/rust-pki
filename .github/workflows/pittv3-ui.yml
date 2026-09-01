@@ -53,6 +53,13 @@ jobs:
   wasm:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Restates the workflow-level -Dwarnings alongside the stack reserve, because RUSTFLAGS in the
+    # environment *replaces* the target rustflags in .cargo/config.toml rather than merging with
+    # them. Without this the wasm32 entry there is silently discarded and this job builds the very
+    # binary that entry exists to prevent -- silently, since a missing link argument is not a
+    # compile error. Keep the size in step with .cargo/config.toml.
+    env:
+      RUSTFLAGS: "-Dwarnings -C link-arg=-zstack-size=8388608"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

@@ -816,8 +816,18 @@ fn StoreRow(sig: Signal<usize>, status: Signal<String>) -> Element {
                         selected: sig() == stores::CUSTOM,
                         "{stores::CUSTOM_LABEL}"
                     }
+                // Entries this process cannot use are shown disabled rather than omitted. A
+                // machine store is unusable only because the app is not elevated, and that is worth
+                // saying: an entry that simply vanished would be indistinguishable from a build
+                // without the feature. Keeping the list the same length also keeps these option
+                // values stable, which the selection signal indexes by.
                 for (i, s) in stores::STORES.iter().enumerate() {
-                    option { value: "{i + 1}", selected: sig() == i + 1, "{s.label}" }
+                    option {
+                        value: "{i + 1}",
+                        selected: sig() == i + 1,
+                        disabled: !stores::is_accessible(i + 1),
+                        "{s.label}"
+                    }
                 }
             }
             // Offered for a built-in store alone: a custom selection is already files on disk, so
@@ -911,7 +921,11 @@ pub(crate) fn App() -> Element {
     // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What
     // is restored from that is the selection; showing the cache paths back as if the user had
     // typed them would invite editing a file the next run overwrites.
-    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas));
+    #[cfg(all(windows, feature = "capi"))]
+    let saved_capi = sa.capi_ta_stores.clone();
+    #[cfg(not(all(windows, feature = "capi")))]
+    let saved_capi: Vec<String> = vec![];
+    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas, &saved_capi));
     let from_store = saved_store != stores::CUSTOM;
     let saved_or_empty = |v: &Option<String>| {
         if from_store {
@@ -1096,6 +1110,15 @@ pub(crate) fn App() -> Element {
             // anchor set, which is the two-TaSource case load_trust_anchors merges its own inputs
             // to avoid; a single-select control cannot express it.
             webpki_tas: stores::is_webpki(s_store()),
+            // Also set by the store selector alone, and for the same reason. Unlike the material a
+            // provider entry writes out, these name live stores that a run reads at the moment it
+            // starts, so a certificate installed since the selection was made is seen.
+            #[cfg(all(windows, feature = "capi"))]
+            capi_ta_stores: stores::capi_stores(s_store()).0,
+            #[cfg(all(windows, feature = "capi"))]
+            capi_ca_stores: stores::capi_stores(s_store()).1,
+            #[cfg(all(windows, feature = "capi"))]
+            capi_ca_store_rw: None,
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()
                 .parse::<u64>()

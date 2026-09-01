@@ -80,6 +80,9 @@ std = ["std_app", "certval/std", "revocation", "walkdir", "csv", "dep:tokio"]
 remote = ["certval/remote", "revocation", "std", "dep:reqwest"]
 pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]
+# Microsoft CryptoAPI system certificate stores as trust anchor and CA sources. Windows-only in
+# effect; the certval side is cfg(windows) and contributes nothing elsewhere.
+capi = ["certval/capi", "std"]
 sha1_sig = ["rsa"]
 rsa = ["certval/rsa", "dep:rsa"]
 eddsa = ["certval/eddsa"]

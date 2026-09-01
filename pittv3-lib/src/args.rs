@@ -38,6 +38,33 @@ pub struct Pittv3Args {
     #[cfg(feature = "webpki")]
     pub webpki_tas: bool,
 
+    /// Microsoft CryptoAPI stores to read trust anchors from, each named `Location\Name` — e.g.
+    /// `LocalMachine\ROOT` — or as a bare store name, which is taken to be a current-user store.
+    /// Read-only, and combined with the anchors from the other trust anchor arguments.
+    ///
+    /// The two locations overlap: the current user's view of a store includes the machine's
+    /// entries, so `CurrentUser\ROOT` already carries the machine's anchors. Naming both is
+    /// harmless — the certificates are deduplicated — but rarely necessary.
+    #[cfg(all(windows, feature = "capi"))]
+    #[serde(default)]
+    pub capi_ta_stores: Vec<String>,
+
+    /// Microsoft CryptoAPI stores to read intermediate CA certificates from, named the same way as
+    /// `capi_ta_stores`. Read-only, and combined with the certificates from the other CA
+    /// arguments.
+    #[cfg(all(windows, feature = "capi"))]
+    #[serde(default)]
+    pub capi_ca_stores: Vec<String>,
+
+    /// A Microsoft CryptoAPI store that dynamic building writes the certificates it fetches into,
+    /// named the same way as `capi_ta_stores`, so that a later run starts from what this one
+    /// found. The store is also read at the start of the run, as `capi_ca_stores` would.
+    ///
+    /// Singular where the read-only forms are plural: certificates are fetched to exactly one
+    /// place, which is the same reason `download_folder` is singular.
+    #[cfg(all(windows, feature = "capi"))]
+    pub capi_ca_store_rw: Option<String>,
+
     /// Full path and filename of file to provide and/or receive CBOR-formatted representation of
     /// buffers containing binary DER-encoded CA certificates and map containing set of partial
     /// certification paths.

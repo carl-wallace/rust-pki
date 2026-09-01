@@ -74,6 +74,12 @@ webpki-roots = {version = "1.0", optional = true}
 rustls-pki-types = {version = "1.8", default-features = false, optional = true}
 hex-literal = "1.1.0"
 
+# Safe wrapper over the CryptoAPI certificate store functions, used by the `capi` feature. Taken
+# rather than binding CertOpenStore and friends directly because the crate is forbid(unsafe_code)
+# and this keeps it that way. Already in the tree as a transitive dependency of reqwest.
+[target.'cfg(windows)'.dependencies]
+schannel = { version = "0.1.29", optional = true }
+
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio-test = "0.4.5"
@@ -99,6 +105,11 @@ std = ["dep:walkdir", "dep:serde_json", "serde/rc", "dep:bitvec", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "dep:pkcs1"]
 webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
+# Reads Microsoft CryptoAPI system certificate stores into a TaSource or CertSource, and offers a
+# CertVector that writes to one. Windows-only in effect: the dependency is target-gated and the code
+# is cfg(windows), so enabling this elsewhere is inert rather than an error. Implies std, which the
+# store adapters use for io::Error and which every Windows target has anyway.
+capi = ["dep:schannel", "std"]
 rsa = ["dep:rsa", "dep:pkcs1"]
 eddsa = ["dep:ed25519-dalek"]
 

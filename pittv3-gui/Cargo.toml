@@ -51,6 +51,16 @@ rfd = "0.17.2"
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["rt", "time"] }
 
+# Reached directly only for `CapiStore`, which the store selector uses to name the Windows stores
+# and to ask whether this process can open them. Everything else goes through pittv3-lib.
+certval = { path = "../certval", default-features = false, features = ["capi"], optional = true }
+
+# The one gated capability in this crate, against the note above: it is platform-specific rather
+# than a variant of the app, and a non-Windows build has nothing to turn on. Inert if enabled
+# there anyway -- the certval side is cfg(windows).
+[features]
+capi = ["dep:certval", "pittv3-lib/capi"]
+
 # Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
 # read; the app itself reaches certval through pittv3-lib.
 [dev-dependencies]
