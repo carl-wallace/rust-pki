@@ -60,6 +60,8 @@ env_logger = "0.11.9"
 log = { version = "0.4.33" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150" }
+# Entity tags for the trust store artifacts, computed once when the catalog is built.
+sha2 = { version = "0.11.0", default-features = false }
 
 # Trust material for the built-in stores, taken as build-dependencies rather than as dependencies:
 # the build script serializes each provider environment into OUT_DIR and the result is linked in, so

@@ -206,7 +206,8 @@ async fn main() -> std::io::Result<()> {
 /// conditional request answered with 304.
 fn cache_control_for(path: &str) -> &'static str {
     const IMMUTABLE: &str = "public, max-age=31536000, immutable";
-    const REVALIDATE: &str = "no-cache, must-revalidate";
+    // Shared with the store handler, which sets the same header on the artifacts it serves.
+    const REVALIDATE: &str = pittv3_service::CACHE_CONTROL_REVALIDATE;
 
     let file = match path.rsplit('/').next() {
         Some(f) => f,
