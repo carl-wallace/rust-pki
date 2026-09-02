@@ -27,7 +27,9 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
 
-use pittv3_gui_lib::export::{path_entries, paths_text, zip_paths};
+use pittv3_gui_lib::export::{
+    path_entries, paths_text, stamped_export_name, zip_paths, DEFAULT_EXPORT_NAME,
+};
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
 use crate::relay::{
@@ -539,7 +541,11 @@ fn App() -> Element {
     // than generated because a bundle is usually about to be handed to someone else, and "the DoD
     // email cert Armen reported" survives that trip where a timestamp does not. PITTv2 prompts for
     // the same thing.
-    let mut export_name = use_signal(|| "PITTv3Results".to_string());
+    let mut export_name = use_signal(|| DEFAULT_EXPORT_NAME.to_string());
+    // The moment the run began, which its saved artifacts are named after. Held so the archive and
+    // the path log carry the same name rather than one each, stamped however long apart the two
+    // buttons were clicked. `None` until a run starts.
+    let mut run_stamp = use_signal(|| None::<u64>);
 
     // What asking a service for its stores produced, in a sentence, for the Resources view. A
     // statically hosted copy finding no service is the ordinary case and not a failure, but "the
@@ -774,7 +780,10 @@ fn App() -> Element {
             });
             return;
         }
-        let name = export_name();
+        let name = stamped_export_name(
+            &export_name(),
+            run_stamp().unwrap_or_else(now_as_unix_epoch),
+        );
         match zip_paths(&name, &entries) {
             Ok(zipped) => {
                 let js = format!(
@@ -802,7 +811,10 @@ fn App() -> Element {
             });
             return;
         }
-        let name = export_name();
+        let name = stamped_export_name(
+            &export_name(),
+            run_stamp().unwrap_or_else(now_as_unix_epoch),
+        );
         let uri = format!("data:text/plain;charset=utf-8,{}", percent_encode(&text));
         let js = format!(
             "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"{name}.txt\"; a.click();"
@@ -934,6 +946,7 @@ fn App() -> Element {
     // own tab, so it is a separate action from certificate validation
     let validate_zips = move |_| {
         let started = Instant::now();
+        run_stamp.set(Some(now_as_unix_epoch()));
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
@@ -992,6 +1005,7 @@ fn App() -> Element {
 
     let validate_loaded = move || async move {
         let started = Instant::now();
+        run_stamp.set(Some(now_as_unix_epoch()));
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();

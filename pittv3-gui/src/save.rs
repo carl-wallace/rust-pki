@@ -78,53 +78,9 @@ pub(crate) fn path_logs_text(artifacts: &RetainedArtifacts) -> Option<String> {
     }
 }
 
-/// The name an export takes when the user has not chosen one. The field is pre-populated with it,
-/// as the browser's is, so the common case needs no typing and both frontends produce a bundle under
-/// the same name for the same run.
-pub(crate) const DEFAULT_EXPORT_NAME: &str = "PITTv3Results";
-
-/// A filename stem for an export, from what the user typed or [`DEFAULT_EXPORT_NAME`] when the field
-/// has been cleared.
-///
-/// Sanitized because the value names a file and a folder inside the archive: a separator here would
-/// scatter the contents or, worse, land them somewhere other than where the save dialog said.
-pub(crate) fn export_name(typed: &str) -> String {
-    let trimmed = typed.trim();
-    let cleaned: String = trimmed
-        .chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' => '_',
-            c => c,
-        })
-        .collect();
-    match cleaned.is_empty() {
-        true => DEFAULT_EXPORT_NAME.to_string(),
-        false => cleaned,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_cleared_name_falls_back_to_the_one_the_field_starts_with() {
-        assert_eq!(export_name(""), DEFAULT_EXPORT_NAME);
-        assert_eq!(export_name("   "), DEFAULT_EXPORT_NAME);
-    }
-
-    /// The name reaches a filesystem path and an archive entry, so a separator in it is not a name
-    /// but an instruction about where things land.
-    #[test]
-    fn separators_are_not_carried_into_the_name() {
-        assert_eq!(export_name("../etc/passwd"), ".._etc_passwd");
-        assert_eq!(export_name("C:\\runs\\one"), "C__runs_one");
-    }
-
-    #[test]
-    fn a_typed_name_is_kept_and_trimmed() {
-        assert_eq!(export_name("  dod run 3 "), "dod run 3");
-    }
 
     /// Nothing retained is not a failure -- it is the state before the first run, and after a run
     /// that found no paths.
