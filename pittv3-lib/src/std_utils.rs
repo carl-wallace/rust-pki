@@ -1678,3 +1678,182 @@ pub fn ta_cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
         TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
     );
 }
+
+/// Outcome of a folder maintenance action: how many files it removed, and how many it could not.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FolderMaintenance {
+    /// Files removed
+    pub removed: usize,
+    /// Files that could not be removed, or could not be read to decide
+    pub failed: usize,
+}
+
+/// Discards the last-modified map for `folder`, if there is one.
+///
+/// **Every function that removes downloaded artifacts must call this.** The map records, per URI,
+/// the `Last-Modified` a previous fetch saw, and a run sends it back as `If-Modified-Since`; a 304
+/// then means "you already have this" and the artifact is neither transferred nor added to the run
+/// — `fetch_crl` returns `ResourceUnchanged` and the certificate path skips the URI. So the map is
+/// a claim that a copy exists on disk. Remove the copy and leave the claim, and the next run is
+/// told nothing has changed and comes away with nothing, from the network or the folder.
+///
+/// The whole map goes rather than the entries for what was removed: a saved certificate is named
+/// from its URL's last path segment and a saved CRL from a hash of its content, so a file cannot be
+/// mapped back to the URI that fetched it. Discarding all of it costs one conditional request per
+/// URI on the next run, which is the right price for an action the user asked for.
+#[cfg(feature = "std")]
+pub fn forget_last_modified(folder: &str) -> bool {
+    if folder.is_empty() {
+        return false;
+    }
+    let lmm_file = last_modified_map_file(folder);
+    if !Path::new(&lmm_file).exists() {
+        return false;
+    }
+    match fs::remove_file(&lmm_file) {
+        Ok(()) => {
+            info!("Discarded the last-modified map at {lmm_file}");
+            true
+        }
+        Err(e) => {
+            error!("Failed to discard the last-modified map at {lmm_file}: {e}");
+            false
+        }
+    }
+}
+
+/// Removes the CRLs in `folder` that do not cover `toi`, leaving the rest.
+///
+/// This is the predicate indexing used to apply on its own, on every run. It is a maintenance
+/// action now rather than a side effect of reading, because whether a CRL is worth keeping is a
+/// question about the folder and not about the run that happens to be reading it: a run at a past
+/// time of interest would otherwise remove every CRL issued since, and a run at the present time
+/// would remove the superseded ones a historical run needs.
+///
+/// A CRL with no nextUpdate is kept. It has no upper bound to be past, and how much age to tolerate
+/// is the operator's call at validation time, not this function's.
+///
+/// Note what "stale" costs here: a superseded CRL generally cannot be fetched again, since a CA
+/// publishes the current one and nothing else. Removing it forecloses validating anything as of a
+/// time it covered.
+#[cfg(feature = "std")]
+pub fn cleanup_crls(folder: &str, toi_secs: u64) -> FolderMaintenance {
+    use x509_cert::certificate::Raw;
+    use x509_cert::crl::CertificateList;
+
+    let mut outcome = FolderMaintenance::default();
+    if toi_secs == 0 {
+        info!("Not removing any CRL: no time of interest to judge one against");
+        return outcome;
+    }
+    for entry in WalkDir::new(folder) {
+        let Ok(e) = entry else {
+            outcome.failed += 1;
+            continue;
+        };
+        let path = e.path();
+        if e.file_type().is_dir() || path.extension().and_then(OsStr::to_str) != Some("crl") {
+            continue;
+        }
+        let bytes = get_file_as_byte_vec_pem(path).unwrap_or_default();
+        let Ok(crl) = CertificateList::<Raw>::from_der(bytes.as_slice()) else {
+            // Unreadable as a CRL is stale in the only sense that matters for an index of CRLs.
+            match fs::remove_file(path) {
+                Ok(()) => outcome.removed += 1,
+                Err(_) => outcome.failed += 1,
+            }
+            continue;
+        };
+        let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
+        let covers = match crl.tbs_cert_list.next_update {
+            Some(nu) => this_update <= toi_secs && toi_secs < nu.to_unix_duration().as_secs(),
+            None => true,
+        };
+        if !covers {
+            match fs::remove_file(path) {
+                Ok(()) => outcome.removed += 1,
+                Err(e) => {
+                    error!("Failed to remove {}: {e}", path.display());
+                    outcome.failed += 1;
+                }
+            }
+        }
+    }
+    if outcome.removed > 0 {
+        forget_last_modified(folder);
+    }
+    info!(
+        "Removed {} CRL(s) from {folder} that do not cover the time of interest ({} could not be removed)",
+        outcome.removed, outcome.failed
+    );
+    outcome
+}
+
+/// Removes the certificates in `folder` that a run could not use: unparseable, not valid at
+/// `toi_secs`, self-signed, or not a CA. Moved to `error_folder` instead of deleted when one is
+/// given, which is what `--cleanup` does and for the same reason.
+///
+/// Wraps [`cleanup_certs`] so a frontend needs no `PkiEnvironment` of its own, and counts what
+/// changed by comparing the folder before and after — `cleanup_certs` reports through the log
+/// rather than returning, and a button needs something to say.
+#[cfg(feature = "std")]
+pub fn cleanup_certificate_folder(
+    folder: &str,
+    error_folder: &str,
+    toi_secs: u64,
+) -> FolderMaintenance {
+    let count = || {
+        WalkDir::new(folder)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| !e.file_type().is_dir())
+            .count()
+    };
+    let before = count();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    let toi =
+        TimeOfInterest::from_unix_secs(toi_secs).unwrap_or_else(|_| TimeOfInterest::disabled());
+    cleanup_certs(&pe, folder, error_folder, false, toi);
+    let after = count();
+    let removed = before.saturating_sub(after);
+    if removed > 0 {
+        forget_last_modified(folder);
+    }
+    FolderMaintenance { removed, failed: 0 }
+}
+
+/// Removes every file in `folder`, leaving the folder itself. Subfolders are traversed.
+///
+/// The blunt counterpart to the cleanup functions: those decide file by file, this one does not
+/// decide at all. Kept separate for that reason — a caller offering both is offering two different
+/// promises, and only one of them can be undone by fetching the material again.
+#[cfg(feature = "std")]
+pub fn purge_folder(folder: &str) -> FolderMaintenance {
+    let mut outcome = FolderMaintenance::default();
+    for entry in WalkDir::new(folder) {
+        let Ok(e) = entry else {
+            outcome.failed += 1;
+            continue;
+        };
+        if e.file_type().is_dir() {
+            continue;
+        }
+        match fs::remove_file(e.path()) {
+            Ok(()) => outcome.removed += 1,
+            Err(err) => {
+                error!("Failed to remove {}: {err}", e.path().display());
+                outcome.failed += 1;
+            }
+        }
+    }
+    // The map is a file in the folder, so the sweep above already took it. Named anyway so the
+    // invariant is stated where it is relied on rather than left to the reader to notice.
+    forget_last_modified(folder);
+    info!(
+        "Removed {} file(s) from {folder} ({} could not be removed)",
+        outcome.removed, outcome.failed
+    );
+    outcome
+}

@@ -289,48 +289,28 @@ fn cert_or_ta_folder_to_vec(
     Ok(certsvec.len() - initial_count)
 }
 
-/// Returns the file that records URI last-modified values: the [`PS_LAST_MODIFIED_MAP_FILE`] setting
-/// when one names a file, and `last_modified_map.json` in `download_folder` otherwise.
+/// Returns the file that records URI last-modified values: `last_modified_map.json` in
+/// `download_folder`.
 ///
-/// The setting is documented as the way to name this file and the getter has always existed, but the
-/// callers that fetch built the path from the download folder and never consulted it -- so a value
-/// the settings form accepted, stored and redisplayed had no effect on a run. Resolving it in one
-/// place keeps the precedence from being restated per call site.
+/// It lives in the folder it describes, and there is no setting to put it elsewhere. The map is a
+/// claim about what that folder holds, so separating the two is what lets them disagree — a folder
+/// emptied while its map survives leaves every URI answered 304 and nothing on disk to read. Keeping
+/// them together means anything that removes the folder's contents removes the claim with them.
 #[cfg(feature = "std")]
-pub fn last_modified_map_file(cps: &CertificationPathSettings, download_folder: &str) -> String {
-    fetch_state_file(
-        cps.get_last_modified_map_file(),
-        download_folder,
-        "last_modified_map.json",
-    )
+pub fn last_modified_map_file(download_folder: &str) -> String {
+    fetch_state_file(download_folder, "last_modified_map.json")
 }
 
-/// Returns the file listing URIs not worth retrying: the [`PS_URI_BLOCKLIST_FILE`] setting when one
-/// names a file, and `blocklist.json` in `download_folder` otherwise. See
-/// [`last_modified_map_file`] for why the resolution lives here.
+/// Returns the file listing URIs not worth retrying: `blocklist.json` in `download_folder`. Kept
+/// beside the material it describes for the reason on [`last_modified_map_file`].
 #[cfg(feature = "std")]
-pub fn uri_blocklist_file(cps: &CertificationPathSettings, download_folder: &str) -> String {
-    fetch_state_file(
-        cps.get_uri_blocklist_file(),
-        download_folder,
-        "blocklist.json",
-    )
+pub fn uri_blocklist_file(download_folder: &str) -> String {
+    fetch_state_file(download_folder, "blocklist.json")
 }
 
-/// An empty configured value is treated as absent rather than as a request to use "": the settings
-/// form writes an empty string when a field is cleared, and honoring that literally would send the
-/// reader at a path that cannot exist.
+/// A file the fetching machinery keeps beside what it fetched.
 #[cfg(feature = "std")]
-fn fetch_state_file(
-    configured: Option<String>,
-    download_folder: &str,
-    default_name: &str,
-) -> String {
-    if let Some(configured) = configured {
-        if !configured.is_empty() {
-            return configured;
-        }
-    }
+fn fetch_state_file(download_folder: &str, default_name: &str) -> String {
     Path::new(download_folder)
         .join(default_name)
         .to_str()

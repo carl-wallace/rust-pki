@@ -645,9 +645,12 @@ fn index_crls_internal(
 
                             // Store indexing is lenient about an absent nextUpdate (Duration::MAX):
                             // the fail-closed staleness decision belongs to path validation, which
-                            // reads the operator's PS_REVOCATION_MAX_AGE. Deleting a nextUpdate-less
-                            // CRL here would discard one that a validation configured with a tolerance
-                            // could still use. A CRL with an expired nextUpdate is still pruned below.
+                            // reads the operator's PS_REVOCATION_MAX_AGE. A nextUpdate-less CRL is
+                            // therefore indexed, since a validation configured with a tolerance can
+                            // still use it.
+                            //
+                            // A CRL that does not cover the time of interest is skipped, NOT deleted.
+                            // Skipping leaves the file for a run whose time of interest it does cover.
                             if check_crl_validity(toi, core::time::Duration::MAX, &crl).is_ok() {
                                 add_crl_info(
                                     crl_info,
@@ -657,10 +660,10 @@ fn index_crls_internal(
                                     &crl,
                                     cur_crl_info,
                                 );
-                            } else if fs::remove_file(e.path()).is_err() {
-                                if let Some(filename) = e.path().to_str() {
-                                    error!("Failed to delete stale CRL at {filename}");
-                                }
+                            } else if let Some(filename) = e.path().to_str() {
+                                debug!(
+                                    "Not indexing {filename}: it does not cover the time of interest"
+                                );
                             }
                         }
                         Err(_) => {
@@ -841,10 +844,9 @@ mod tests {
             fs::read(&der).unwrap()
         );
 
-        // Indexed from a copy because indexing DELETES any CRL that is not valid at the time of
-        // interest, and this CRL expired in 2022. TimeOfInterest::disabled() skips the validity
-        // check, so nothing is pruned as written; the copy is what keeps the fixtures safe if that
-        // time of interest is ever changed.
+        // Indexed from a copy, which used to be necessary because indexing deleted any CRL not
+        // valid at the time of interest and this CRL expired in 2022. Indexing no longer deletes
+        // anything, so the copy is now only isolation from whatever else a test run does.
         let dir = tempfile::tempdir().unwrap();
         for name in ["AmazonRootCA1.der.crl", "AmazonRootCA1.pem.crl"] {
             fs::copy(fixtures.join(name), dir.path().join(name)).unwrap();
@@ -870,8 +872,8 @@ mod tests {
     fn premature_return_upon_crl_parse_error() {
         let fixtures = Path::new("tests/examples/pem_crl");
 
-        // Copied for the same reason as the test above: indexing deletes CRLs that are not valid at
-        // the time of interest, and TimeOfInterest::disabled() is what keeps this one from pruning.
+        // Copied for the same reason as the test above. Indexing no longer deletes anything, so the
+        // copy is belt and braces rather than a requirement.
         let dir = tempfile::tempdir().unwrap();
         fs::copy(
             fixtures.join("AmazonRootCA1.der.crl"),

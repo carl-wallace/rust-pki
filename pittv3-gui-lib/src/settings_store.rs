@@ -106,6 +106,19 @@ pub fn default_download_folder() -> Option<String> {
     app_home_folder("downloads")
 }
 
+/// Default folder for material a run set aside, `errors` in [`app_home`].
+///
+/// The one default here that changes what an action *does* rather than only where it looks. Cleanup
+/// deletes what it removes when no error folder is set and moves it when one is, so naming a
+/// default makes cleanup non-destructive: an expired intermediate or a superseded CRL ends up in
+/// `errors` instead of gone. That matters because neither is always refetchable, and both are
+/// exactly what a validation at a past time of interest needs. Failing paths' certificates are
+/// written here too.
+#[cfg(feature = "std")]
+pub fn default_error_folder() -> Option<String> {
+    app_home_folder("errors")
+}
+
 /// Default CRL index folder, `crls` in [`app_home`]. See [`default_ca_folder`] for why these are
 /// offered rather than resolved.
 ///

@@ -243,6 +243,12 @@ pub fn CheckboxRow(
     /// argument help for `name`, so a control named after a flag is described in the flag's words.
     #[props(default)]
     title: String,
+    /// Whether the control is settable. A checkbox whose value is dictated by another setting is
+    /// shown disabled rather than hidden, so the state it is being held at stays visible: hiding it
+    /// would leave the run behaving in a way nothing on screen accounts for. The caller is
+    /// responsible for holding the signal at the value it displays.
+    #[props(default)]
+    disabled: bool,
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
@@ -254,6 +260,7 @@ pub fn CheckboxRow(
                 r#type: "checkbox",
                 name,
                 checked: sig(),
+                disabled,
                 onchange: move |ev| sig.set(ev.checked()),
             }
         }

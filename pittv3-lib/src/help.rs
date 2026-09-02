@@ -124,22 +124,29 @@ pub fn arg_help(name: &str) -> &'static str {
             "occurrence may name a single artifact or a folder to traverse, and may hold either a ",
             "CRL or an OCSP response \u{2014} the bytes decide, since an OCSP response has no settled ",
             "file extension. CRLs are matched to path positions by issuer name, OCSP responses by ",
-            "the CertID each answers about. Unlike --crl-folder, which is an index that deletes ",
-            "CRLs not valid at the time of interest, artifacts named here are read and left alone.",
+            "the CertID each answers about. Unlike --crl-folder, which is an index a run adds ",
+            "fetched CRLs to, artifacts named here are read and left alone.",
         ),
         "crl-folder" => concat!(
             "Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed ",
             "before path validation begins. Only files with a .crl extension are processed. The indexed ",
             "CRLs are the local revocation source, consulted before any remote retrieval, and the folder ",
             "also receives CRLs fetched remotely along with the last-modified map that makes those fetches ",
-            "conditional. Note that the folder is written as well as read: indexing deletes any CRL that is ",
-            "not valid at the time of interest, i.e. one whose thisUpdate is in the future or whose ",
-            "nextUpdate has passed.",
+            "conditional. Note that the folder is written as well as read, though only added to: a CRL ",
+            "that does not cover the time of interest is left out of the index and left on disk, so a later ",
+            "run asking about a different time can still use it.",
         ),
         "keep-crl-entries-in-memory" => concat!(
             "When set together with crl_folder, retain the revoked serial numbers of each verified ",
             "full/direct CRL in memory so subsequent certificates under the same scope are answered ",
             "without re-parsing or re-verifying the CRL.",
+        ),
+        "no-revocation-cache" => concat!(
+            "Makes every path derive every certificate's revocation status from revocation data of ",
+            "its own, instead of reusing a determination reached while validating an earlier path. ",
+            "Costs re-fetching. Buys a path that accounts for itself, and artifacts for every ",
+            "position: a cached determination examines nothing, so a position answered from cache ",
+            "reports a status and carries no evidence for it in a results folder or an export.",
         ),
         "cleanup" => concat!(
             "Paired with ca_folder to remove expired, unparseable certificates, self-signed certificates ",
@@ -230,6 +237,17 @@ mod tests {
         let help = arg_help("crl-folder");
         assert!(help.contains("CRLs"));
         assert!(!help.contains("intermediate CA certificates"));
+    }
+
+    /// The GUI row for this one passes no title of its own, so `arg_help` is the tooltip: a key that
+    /// does not match returns "" and the control loses its explanation with nothing failing. The
+    /// name is also the one the CLI flag derives, so this pins the two together.
+    #[test]
+    fn the_revocation_cache_knob_has_help_under_the_name_the_row_uses() {
+        let help = arg_help("no-revocation-cache");
+        assert!(!help.is_empty());
+        assert!(help.contains("revocation data of"));
+        assert!(help.contains("carries no evidence"));
     }
 
     /// `validate_all` is declared twice in `Pittv3Args` behind opposing `std_app` gates. The help

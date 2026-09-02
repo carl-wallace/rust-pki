@@ -222,7 +222,7 @@ fn normalize_pem_wrap(pem: &str) -> Option<String> {
 /// report. The CLI ignores the return value (log/file output is unchanged); GUI and server
 /// frontends consume it.
 pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
-    let (report, _) = options_std_retaining(args, false).await;
+    let (report, _) = options_std_retaining(args, false, None).await;
     report
 }
 
@@ -236,12 +236,27 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 /// `None` comes back whenever nothing was validated — the actions that generate, clean up, or run a
 /// diagnostic have no paths to keep — and whenever `retain` is false, which is the CLI's case and
 /// costs it nothing.
+///
+/// `cache` lets a caller own the revocation status cache instead of the run creating one and
+/// dropping it. A frontend that stays open passes the same one to every run, so a certificate
+/// checked on one run is not checked again on the next, and can offer to discard the contents; a
+/// process that runs once passes `None` and gets a cache for the run, which is what the CLI does.
+/// `--no-revocation-cache` declines either.
 pub async fn options_std_retaining(
     args: &Pittv3Args,
     retain: bool,
+    #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
+        &std::sync::Arc<RevocationCache>,
+    >,
 ) -> (ValidationReport, Option<RetainedRun>) {
     let mut kept = None;
-    let report = options_std_inner(args, retain.then_some(&mut kept)).await;
+    let report = options_std_inner(
+        args,
+        retain.then_some(&mut kept),
+        #[cfg(all(feature = "std", feature = "revocation"))]
+        cache,
+    )
+    .await;
     (report, kept)
 }
 
@@ -252,6 +267,9 @@ pub async fn options_std_retaining(
 async fn options_std_inner(
     args: &Pittv3Args,
     kept: Option<&mut Option<RetainedRun>>,
+    #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
+        &std::sync::Arc<RevocationCache>,
+    >,
 ) -> ValidationReport {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
@@ -467,9 +485,9 @@ async fn options_std_inner(
 
             #[cfg(feature = "remote")]
             {
-                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = last_modified_map_file(&download_folder);
                 let lmm_file = lmm_file.as_str();
-                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = uri_blocklist_file(&download_folder);
                 let blocklist_file = blocklist_file.as_str();
 
                 if let Some(download_folder) = &args.download_folder {
@@ -699,7 +717,13 @@ async fn options_std_inner(
         };
     } else {
         // Generate, validate certificate file, or validate certificates folder per args.
-        return generate_and_validate(args, kept).await;
+        return generate_and_validate(
+            args,
+            kept,
+            #[cfg(all(feature = "std", feature = "revocation"))]
+            cache,
+        )
+        .await;
     }
     ValidationReport::default()
 }
@@ -730,6 +754,9 @@ async fn options_std_inner(
 async fn generate_and_validate(
     args: &Pittv3Args,
     kept: Option<&mut Option<RetainedRun>>,
+    #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
+        &std::sync::Arc<RevocationCache>,
+    >,
 ) -> ValidationReport {
     let retain = kept.is_some();
     let mut retained: Vec<RetainedPath> = vec![];
@@ -963,15 +990,30 @@ async fn generate_and_validate(
     // The CrlSourceFolders serves CRLs (as a CrlSource) and, when keep_crl_entries_in_memory is set,
     // answers revocation status from its retained CRL serials (as a RevocationStatusCache). Register
     // it in both roles via a shared Arc, with its revocation cache FIRST so the kept fast path is
-    // consulted before the per-certificate memo. A RevocationCache is always registered as that memo
-    // for OCSP determinations and anything not covered by a kept CRL.
+    // consulted before the per-certificate memo. A RevocationCache is otherwise registered as that
+    // memo for OCSP determinations and anything not covered by a kept CRL.
+    //
+    // --no-revocation-cache declines BOTH roles while leaving the CRL source itself registered: the
+    // run still reads the folder for CRLs, it just stops answering from what an earlier path
+    // established. Declining only one would not do -- get_status consults every registered cache in
+    // turn and returns the first determination offered, so either one left in place keeps answering.
     #[cfg(all(feature = "std", feature = "revocation"))]
     {
+        let cache_determinations = !args.no_revocation_cache;
         if let Some(crl_source) = crl_source {
             pe.add_crl_source(Box::new(crl_source.clone()));
-            pe.add_revocation_cache(Box::new(crl_source));
+            if cache_determinations {
+                pe.add_revocation_cache(Box::new(crl_source));
+            }
         }
-        pe.add_revocation_cache(Box::new(RevocationCache::new()));
+        if cache_determinations {
+            // The caller's cache when it offered one, so determinations outlive the run and it can
+            // clear them; otherwise one for this run, which is what a process that runs once wants.
+            match cache {
+                Some(cache) => pe.add_revocation_cache(Box::new(cache.clone())),
+                None => pe.add_revocation_cache(Box::new(RevocationCache::new())),
+            }
+        }
     }
 
     // Opened once rather than per pass: opening snapshots what the store already holds, which is a
@@ -1023,6 +1065,11 @@ async fn generate_and_validate(
                 }
             }
         };
+
+        // What the pool held before this pass did anything. Only fetching adds to it after the
+        // first pass -- the CA inputs are loaded under `0 == pass` -- so comparing against this
+        // says whether the pass brought back anything at all.
+        let certs_at_pass_start = cert_source.len();
 
         // The same augmented graph as last time, when nothing it was built from has changed. What
         // is skipped is the folder walk and the partial-path search, which is the expensive half of
@@ -1107,9 +1154,9 @@ async fn generate_and_validate(
         if uri_threshold != fresh_uris.len() {
             #[cfg(feature = "remote")]
             if args.dynamic_build {
-                let lmm_file = last_modified_map_file(&cps, &download_folder);
+                let lmm_file = last_modified_map_file(&download_folder);
                 let lmm_file = lmm_file.as_str();
-                let blocklist_file = uri_blocklist_file(&cps, &download_folder);
+                let blocklist_file = uri_blocklist_file(&download_folder);
                 let blocklist_file = blocklist_file.as_str();
 
                 // read the last modified map and blocklist once
@@ -1117,7 +1164,12 @@ async fn generate_and_validate(
                 let mut blocklist = read_blocklist(blocklist_file);
 
                 //let bap_ref = &mut cert_source.buffers_and_paths.buffers;
-                if 1 == pass {
+                // Skipped when the pass-0 load already took this folder in: `load_ca_inputs` chains
+                // `reuse_downloads`, which is this same folder, whenever --use-downloaded-cas is set.
+                // Reading it twice added the certificates a second time, which changed the pool size
+                // on every pass 1 and so forced a full partial-path search and a multi-megabyte
+                // serialize on every run, whether or not anything had been fetched.
+                if 1 == pass && !args.use_downloaded_cas {
                     // on first dynamic action, pick up certs from downloads folder
                     if cert_folder_to_vec(
                         &pe,
@@ -1236,7 +1288,13 @@ async fn generate_and_validate(
 
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
         // this is the first pass, we expect this to have been present in the deserialized CBOR.
-        if 0 < pass {
+        //
+        // Skipped when the pass fetched nothing. Searching the same buffers again yields the same
+        // partial paths, and re-serializing them rewrites a blob the next pass would deserialize
+        // back into what it already has -- on a revalidation where every fetch comes back 304, that
+        // was a full search and a multi-megabyte round trip per pass to discover there was nothing
+        // to do. `cbor` is deliberately left as it was: it still describes this pool.
+        if 0 < pass && cert_source.len() != certs_at_pass_start {
             cert_source.find_all_partial_paths(&pe, &cps);
 
             // After finding all partial paths, serialize as CBOR and save for next pass

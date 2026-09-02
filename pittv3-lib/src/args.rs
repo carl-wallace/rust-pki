@@ -196,9 +196,9 @@ pub struct Pittv3Args {
     /// before path validation begins. Only files with a .crl extension are processed. The indexed
     /// CRLs are the local revocation source, consulted before any remote retrieval, and the folder
     /// also receives CRLs fetched remotely along with the last-modified map that makes those
-    /// fetches conditional. Note that the folder is written as well as read: indexing deletes any
-    /// CRL that is not valid at the time of interest, i.e. one whose thisUpdate is in the future or
-    /// whose nextUpdate has passed.
+    /// fetches conditional. Note that the folder is written as well as read, though only added to:
+    /// a CRL that does not cover the time of interest is left out of the index and left on disk, so
+    /// a later run asking about a different time can still use it.
     #[cfg(feature = "std")]
     pub crl_folder: Option<String>,
 
@@ -208,8 +208,7 @@ pub struct Pittv3Args {
     /// matched to path positions by issuer name, OCSP responses by the CertID each answers about.
     ///
     /// This is read-only, which is what distinguishes it from `crl_folder`: that argument names an
-    /// *index*, written as well as read, and indexing deletes any CRL not valid at the time of
-    /// interest. An artifact named here is used and left alone. Supply what a run needs when there
+    /// *index*, which a run adds fetched CRLs to. An artifact named here is used and left alone. Supply what a run needs when there
     /// is no network to fetch it from, or when the answer should come from a captured artifact
     /// rather than from whatever a responder says today.
     #[cfg(all(feature = "std", feature = "revocation"))]
@@ -221,6 +220,23 @@ pub struct Pittv3Args {
     /// without re-parsing or re-verifying the CRL.
     #[cfg(feature = "std")]
     pub keep_crl_entries_in_memory: bool,
+
+    /// Makes every path derive every certificate's revocation status from revocation data of its
+    /// own, instead of reusing a determination reached while validating an earlier path.
+    ///
+    /// Both caches are declined, not just the per-certificate one: a CRL folder is registered as a
+    /// revocation status cache as well as a CRL source, and `PkiEnvironment::get_status` returns the
+    /// first determination any registered cache offers, so leaving either in place would keep
+    /// answering.
+    ///
+    /// Costs re-fetching, and buys two things. A path that accounts for itself: every position's
+    /// status is derived from data examined for that path, which is what makes a validation
+    /// independent of what another one established. And artifacts: a cached determination examines
+    /// nothing and so leaves nothing behind, which for a results folder or an exported bundle means
+    /// a position that reports a status and carries no evidence for it.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[serde(default)]
+    pub no_revocation_cache: bool,
 
     /// Paired with ca_folder to remove expired, unparseable certificates, self-signed
     /// certificates and non-CA certificates from consideration. When paired with error_folder,

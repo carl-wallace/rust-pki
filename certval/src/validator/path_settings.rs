@@ -435,10 +435,6 @@ pub static PS_TRUST_ANCHOR_FOLDER: &str = "psTrustAnchorFolder";
 pub static PS_CERTIFICATION_AUTHORITY_FOLDER: &str = "psCertificationAuthorityFolder";
 /// PS_DOWNLOAD_FOLDER is used to retrieve a String value containing the full path of a folder where certificates downloaded via SIA or AIA should be stored
 pub static PS_DOWNLOAD_FOLDER: &str = "psDownloadFolder";
-/// PS_LAST_MODIFIED_MAP_FILE is used to retrieve a String value containing the full path and filename of a file mapping URIs to last modified values
-pub static PS_LAST_MODIFIED_MAP_FILE: &str = "psLastModifiedMapFile";
-/// PS_URI_BLOCKLIST_FILE is used to retrieve a String value containing the full path and filename of a file that lists non-functional URIs that should be avoided
-pub static PS_URI_BLOCKLIST_FILE: &str = "psUriBlocklistFile";
 /// PS_CBOR_TA_STORE is used to indicate a generated graph will include only trust anchors, so no need for partial paths and no need to exclude self-signed certificates.
 pub static PS_CBOR_TA_STORE: &str = "psCborTaStore";
 /// PS_REQUIRE_TA_STORE is used to indicate that the validator should require a TA to affirm given TA is actually a TA.
@@ -840,6 +836,7 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
                 let r: SerdeResult<CertificationPathSettings> = serde_json::from_slice(&json);
                 match r {
                     Ok(cps) => {
+                        warn_retired_keys(&cps);
                         return Ok(cps);
                     }
                     Err(_e) => return Err(Error::ParseError),
@@ -850,11 +847,27 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
     Ok(CertificationPathSettings::new())
 }
 
+/// Names a settings file may still carry that no longer do anything.
+///
+/// Both once pointed the last-modified map and the URI blocklist somewhere other than the folder
+/// whose contents they describe. Those files now live beside that material and cannot be moved: a
+/// map kept apart from the folder it describes can outlive it, and then every URI is answered 304
+/// with nothing on disk to read. A file naming them still parses, so say so rather than ignore it
+/// silently — the value is visibly there and its effect is not.
+#[cfg(feature = "std")]
+fn warn_retired_keys(cps: &CertificationPathSettings) {
+    for key in ["psLastModifiedMapFile", "psUriBlocklistFile"] {
+        if cps.0.contains_key(key) {
+            log::warn!(
+                "Ignoring {key}: the last-modified map and the URI blocklist are kept in the folder they describe and can no longer be relocated"
+            );
+        }
+    }
+}
+
 cps_gets_and_sets!(PS_TRUST_ANCHOR_FOLDER, String);
 cps_gets_and_sets!(PS_CERTIFICATION_AUTHORITY_FOLDER, String);
 cps_gets_and_sets!(PS_DOWNLOAD_FOLDER, String);
-cps_gets_and_sets!(PS_LAST_MODIFIED_MAP_FILE, String);
-cps_gets_and_sets!(PS_URI_BLOCKLIST_FILE, String);
 cps_gets_and_sets_with_default!(PS_CBOR_TA_STORE, bool, false);
 
 #[test]
@@ -948,8 +961,6 @@ fn test_no_default_gets_cps() {
     assert_eq!(None, cps.get_trust_anchor_folder());
     assert_eq!(None, cps.get_certification_authority_folder());
     assert_eq!(None, cps.get_download_folder());
-    assert_eq!(None, cps.get_last_modified_map_file());
-    assert_eq!(None, cps.get_uri_blocklist_file());
 }
 
 #[test]
@@ -1174,10 +1185,4 @@ fn test_no_default_sets_cps() {
     assert_eq!(&f, &cps.get_certification_authority_folder().unwrap());
     cps.set_download_folder(f.clone());
     assert_eq!(&f, &cps.get_download_folder().unwrap());
-
-    let f = "/some/file.txt".to_string();
-    cps.set_last_modified_map_file(f.clone());
-    assert_eq!(&f, &cps.get_last_modified_map_file().unwrap());
-    cps.set_uri_blocklist_file(f.clone());
-    assert_eq!(&f, &cps.get_uri_blocklist_file().unwrap());
 }

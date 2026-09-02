@@ -211,9 +211,9 @@ pub struct Pittv3CliArgs {
     /// before path validation begins. Only files with a .crl extension are processed. The indexed
     /// CRLs are the local revocation source, consulted before any remote retrieval, and the folder
     /// also receives CRLs fetched remotely along with the last-modified map that makes those
-    /// fetches conditional. Note that the folder is written as well as read: indexing deletes any
-    /// CRL that is not valid at the time of interest, i.e. one whose thisUpdate is in the future or
-    /// whose nextUpdate has passed.
+    /// fetches conditional. Note that the folder is written as well as read, though only added to:
+    /// a CRL that does not cover the time of interest is left out of the index and left on disk, so
+    /// a later run asking about a different time can still use it.
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "VALIDATION")]
     pub crl_folder: Option<String>,
@@ -222,8 +222,8 @@ pub struct Pittv3CliArgs {
     /// occurrence may name a single artifact or a folder to traverse, and may hold either a CRL or
     /// an OCSP response — the bytes decide, since an OCSP response has no settled file extension.
     /// CRLs are matched to path positions by issuer name, OCSP responses by the CertID each answers
-    /// about. Unlike --crl-folder, which is an index that deletes CRLs not valid at the time of
-    /// interest, artifacts named here are read and left alone.
+    /// about. Unlike --crl-folder, which is an index a run adds fetched CRLs to, artifacts named
+    /// here are read and left alone.
     #[cfg(all(feature = "std", feature = "revocation"))]
     #[clap(long = "rev", value_name = "REV_INPUT", help_heading = "VALIDATION")]
     pub rev_inputs: Vec<String>,
@@ -234,6 +234,14 @@ pub struct Pittv3CliArgs {
     #[cfg(feature = "std")]
     #[clap(long, help_heading = "VALIDATION")]
     pub keep_crl_entries_in_memory: bool,
+
+    /// Makes every path derive every certificate's revocation status from revocation data of its
+    /// own, instead of reusing a determination reached while validating an earlier path. Costs
+    /// re-fetching; buys a path that accounts for itself, and artifacts for every position, since a
+    /// cached determination examines nothing and leaves nothing behind.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub no_revocation_cache: bool,
 
     /// Paired with ca_folder to remove expired, unparseable certificates, self-signed
     /// certificates and non-CA certificates from consideration. When paired with error_folder,
@@ -395,6 +403,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             rev_inputs: v.rev_inputs,
             #[cfg(feature = "std")]
             keep_crl_entries_in_memory: v.keep_crl_entries_in_memory,
+            #[cfg(all(feature = "std", feature = "revocation"))]
+            no_revocation_cache: v.no_revocation_cache,
             #[cfg(feature = "std")]
             cleanup: v.cleanup,
             #[cfg(feature = "std")]

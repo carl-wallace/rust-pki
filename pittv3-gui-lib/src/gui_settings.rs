@@ -569,6 +569,19 @@ pub fn EditSettings(
     /// default applies, which is the case for the desktop and the CLI.
     #[props(default)]
     revocation_default: Option<bool>,
+    /// Rows the frontend adds to the Folders & files tab, rendered inside that tab's grid so they
+    /// line up with the rows above them.
+    ///
+    /// The desktop uses it for settings that are `Pittv3Args` fields rather than
+    /// `CertificationPathSettings` keys — a results folder, an error folder, a logging
+    /// configuration — and for the actions that maintain those folders. They cannot be *stored*
+    /// with the settings above, since this form's file is the CLI's `-s` JSON and must stay that,
+    /// but to the person using the app they are folders like the rest and belong beside them.
+    /// Nothing here knows what is in them or where the frontend persists them.
+    ///
+    /// `Option` because `Element` is a `Result` and has no `Default` for the props derive.
+    #[props(default)]
+    extra_folder_rows: Option<Element>,
     on_save: EventHandler<SettingsModel>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -886,22 +899,15 @@ pub fn EditSettings(
                             value: m.download_folder.clone(),
                             onchange: move |v| model.write().download_folder = v,
                         }
-                        SettingTextRow {
-                            label: "Last-modified map file",
-                            value: m.last_modified_map_file.clone(),
-                            onchange: move |v| model.write().last_modified_map_file = v,
-                        }
-                        SettingTextRow {
-                            label: "URI blocklist file",
-                            value: m.uri_blocklist_file.clone(),
-                            onchange: move |v| model.write().uri_blocklist_file = v,
-                        }
                         BoolRow {
                             label: "CBOR contains only trust anchors",
                             checked: m.cbor_ta_store.unwrap_or(false),
                             overridden: m.cbor_ta_store.is_some(),
                             onchange: move |v| model.write().cbor_ta_store = Some(v),
                         }
+                        // Inside the grid, not after it: a second `.controls` alongside would
+                        // measure its own label column and none of the labels would line up.
+                        {extra_folder_rows.clone()}
                     }
                 },
             }
@@ -927,7 +933,13 @@ pub fn EditSettings(
 /// and writes the edited settings back on save, preserving settings the form does not cover.
 #[cfg(feature = "std")]
 #[component]
-pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
+pub fn EditSettingsFile(
+    path: String,
+    /// Passed to [`EditSettings`]; see its documentation.
+    #[props(default)]
+    extra_folder_rows: Option<Element>,
+    on_close: EventHandler<()>,
+) -> Element {
     let initial = use_hook({
         let path = path.clone();
         move || SettingsModel::from_cps(&FileSettingsStore::new(path).load())
@@ -960,6 +972,7 @@ pub fn EditSettingsFile(path: String, on_close: EventHandler<()>) -> Element {
         EditSettings {
             initial,
             caps: Capabilities::desktop(),
+            extra_folder_rows,
             on_save,
             on_close: move |_| on_close.call(()),
         }
