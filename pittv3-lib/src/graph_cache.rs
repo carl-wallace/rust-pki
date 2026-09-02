@@ -27,7 +27,10 @@ use log::{debug, info};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
-use certval::{CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings};
+use certval::{
+    CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings,
+    PS_TIME_OF_INTEREST,
+};
 
 use crate::args::Pittv3Args;
 
@@ -47,6 +50,16 @@ fn cache_dir() -> Option<PathBuf> {
             Some(Path::new(&home).join(".pittv3").join("graphs"))
         }
     }
+}
+
+/// The folder cached graphs live in, as a string, or empty when caching is off or there is no home
+/// directory. For a frontend offering to empty it: the cache is written on every run whose key is
+/// new and nothing removes an entry, so it grows until someone clears it.
+#[cfg(feature = "std")]
+pub fn cache_folder() -> String {
+    cache_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// Folds one input path into `hasher`: the path itself, and the size and modification time of every
@@ -78,15 +91,18 @@ fn hash_path(hasher: &mut Sha256, label: &str, path: &str) {
 /// than the handful of values known to reach path building, so a setting that starts mattering
 /// cannot silently reuse a graph built without it. The cost is a missed cache when an unrelated
 /// setting changes, which costs exactly what there was before this existed.
+///
+/// One exclusion: the time of interest. It is normally "now", so keying on it meant the key never
+/// repeated and the cache was written but never read.
 pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option<String> {
     if args.generate || (args.ca_folder.is_none() && args.ca_inputs.is_empty()) {
         return None;
     }
-    #[cfg(feature = "remote")]
-    if args.dynamic_build {
-        // The graph grows as URIs are chased, so what pass 0 built is not what the run ends with.
-        return None;
-    }
+    // Dynamic building is cached like the rest. The graph does grow as URIs are chased, but the only
+    // thing written is pass 0's graph -- `graph_cache::store` is guarded on `0 == pass`, before any
+    // chasing has added anything -- so the artifact matches the key: the graph built from the named
+    // inputs. Later passes rebuild in memory and are never stored. Refusing to key a dynamic run
+    // meant the desktop app, which builds dynamically by default, never cached anything at all.
 
     let mut hasher = Sha256::new();
     hasher.update(b"pittv3 graph v1");
@@ -109,8 +125,17 @@ pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option
     }
     #[cfg(feature = "webpki")]
     hasher.update([u8::from(args.webpki_tas)]);
-    hasher.update(args.time_of_interest.to_le_bytes());
-    if let Ok(settings) = serde_json::to_string(cps) {
+    // The time of interest is deliberately NOT part of the key, and it has to be dropped in two
+    // places to stay out: it is not hashed directly here, and it is removed from the settings before
+    // they are, because the caller sets it into them just before asking for a fingerprint.
+    //
+    // Keying on it made the key unrepeatable -- the time of interest is normally "now", which is new
+    // every run -- so every run wrote an entry that could never be hit again and nothing was ever
+    // reused. What the graph is built from is the trust material, and a change there is caught by
+    // hashing each input's size and modification time.
+    let mut keyed = cps.clone();
+    keyed.0.remove(PS_TIME_OF_INTEREST);
+    if let Ok(settings) = serde_json::to_string(&keyed) {
         hasher.update(settings.as_bytes());
     }
 
@@ -123,12 +148,9 @@ pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option
 /// For callers outside a run — the desktop's graph export asks which graph the form in front of it
 /// keys to, and computing that a second way would answer a different question.
 pub fn fingerprint_for_args(args: &Pittv3Args) -> Option<String> {
-    let mut cps = certval::read_settings(&args.settings).ok()?;
-    if !cps.0.contains_key(certval::PS_TIME_OF_INTEREST) {
-        cps.set_time_of_interest(
-            certval::TimeOfInterest::from_unix_secs(args.time_of_interest).ok()?,
-        );
-    }
+    // No need to settle a time of interest first: the key excludes it either way, so the settings
+    // as read key identically to the settings a run adjusts.
+    let cps = certval::read_settings(&args.settings).ok()?;
     fingerprint(args, &cps)
 }
 

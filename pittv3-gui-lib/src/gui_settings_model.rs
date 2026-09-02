@@ -123,10 +123,6 @@ pub struct SettingsModel {
     pub certification_authority_folder: Option<String>,
     /// Folder to receive downloaded artifacts
     pub download_folder: Option<String>,
-    /// File containing the last-modified map used when fetching
-    pub last_modified_map_file: Option<String>,
-    /// File containing the URI blocklist used when fetching
-    pub uri_blocklist_file: Option<String>,
     /// Generated CBOR contains only trust anchors
     pub cbor_ta_store: Option<bool>,
 }
@@ -207,8 +203,6 @@ impl SettingsModel {
             trust_anchor_folder: cps.get_trust_anchor_folder(),
             certification_authority_folder: cps.get_certification_authority_folder(),
             download_folder: cps.get_download_folder(),
-            last_modified_map_file: cps.get_last_modified_map_file(),
-            uri_blocklist_file: cps.get_uri_blocklist_file(),
             cbor_ta_store: present(cps, PS_CBOR_TA_STORE).then(|| cps.get_cbor_ta_store()),
         }
     }
@@ -425,18 +419,6 @@ impl SettingsModel {
         set_or_remove(cps, PS_DOWNLOAD_FOLDER, &self.download_folder, |c, v| {
             c.set_download_folder(v)
         });
-        set_or_remove(
-            cps,
-            PS_LAST_MODIFIED_MAP_FILE,
-            &self.last_modified_map_file,
-            |c, v| c.set_last_modified_map_file(v),
-        );
-        set_or_remove(
-            cps,
-            PS_URI_BLOCKLIST_FILE,
-            &self.uri_blocklist_file,
-            |c, v| c.set_uri_blocklist_file(v),
-        );
         set_or_remove(cps, PS_CBOR_TA_STORE, &self.cbor_ta_store, |c, v| {
             c.set_cbor_ta_store(v)
         });

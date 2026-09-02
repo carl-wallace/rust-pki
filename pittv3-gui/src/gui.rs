@@ -38,18 +38,20 @@ use pittv3_gui_lib::gui_utils::{
     ChannelAppender, DialogPurpose,
 };
 use pittv3_gui_lib::settings_store::{
-    default_ca_folder, default_crl_folder, default_download_folder, default_settings_path,
-    expand_tilde, saved_or_default,
+    default_ca_folder, default_crl_folder, default_download_folder, default_error_folder,
+    default_settings_path, expand_tilde, saved_or_default,
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std_retaining;
 use pittv3_lib::report::ValidationReport;
+use pittv3_lib::std_utils::{cleanup_certificate_folder, cleanup_crls, purge_folder};
 use pittv3_lib::std_utils::{
     count_ca_inputs, count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
 };
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
+use pittv3_lib::RevocationCache;
 
 use crate::peek;
 use crate::stores;
@@ -198,6 +200,25 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
 /// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
 /// the desktop's other writes -- the peek folder, a materialized store -- go under the application
 /// home precisely because nobody chose where they should live. Here somebody is choosing.
+/// Confirms an action that cannot be undone by fetching the material again.
+///
+/// Cleanup is offered without one: what it removes is unusable or refetchable, and asking every
+/// time is how a confirmation stops being read. Purge takes everything, including artifacts a
+/// repository may no longer publish, so it asks.
+async fn confirm_purge(folder: &str) -> bool {
+    rfd::AsyncMessageDialog::new()
+        .set_title("Purge folder")
+        .set_description(format!(
+            "Remove every file in {folder}?\n\nCertificates can generally be fetched again. A \
+             superseded CRL usually cannot: a CA publishes the current one and nothing else, so \
+             validating as of a time it covered will no longer be possible."
+        ))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        .await
+        == rfd::MessageDialogResult::Yes
+}
+
 /// Where a file dialog should open: the folder that kind of dialog last used, falling back to the
 /// user's home as it always did when nothing has been remembered yet.
 fn dialog_dir(purpose: DialogPurpose) -> std::path::PathBuf {
@@ -1075,7 +1096,8 @@ pub(crate) fn App() -> Element {
         }
     });
     let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
-    let s_error_folder = use_signal(|| sa.error_folder.clone().unwrap_or_default());
+    let s_error_folder =
+        use_signal(|| saved_or_default(sa.error_folder.clone(), default_error_folder));
     // Same shape as the settings file below: a saved value wins, otherwise a default under
     // ~/.pittv3 so a machine that has never been configured is not refused on its first run. The
     // default is put *into the field* rather than resolved behind it, so what the run will use is
@@ -1087,9 +1109,38 @@ pub(crate) fn App() -> Element {
     let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
     let s_cbor_ta_store = use_signal(|| sa.cbor_ta_store);
     let s_validate_all = use_signal(|| sa.validate_all);
+    // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
+    // `no_revocation_cache`, because a clap bool flag names a deviation from the default; a
+    // checkbox names a state, and the browser already settled which state it shows. Inverting here
+    // keeps the two apps' controls reading the same way round -- see the wasm app's
+    // "Reuse revocation determinations".
+    let s_reuse_rev_cache = use_signal(|| !sa.no_revocation_cache);
+    // Owned here rather than made per run, so a certificate checked on one Validate is not checked
+    // again on the next. `Arc<RevocationCache>` implements `RevocationStatusCache` for exactly this
+    // -- the run registers a clone and the handle stays here to be cleared.
+    let rev_cache = use_hook(|| Arc::new(RevocationCache::new()));
+    let rev_cache_for_toggle = rev_cache.clone();
+    let mut s_rev_cache_status = use_signal(String::new);
+    // Turning reuse off and on again must not bring back the determinations the user was trying to
+    // stop reusing, so the toggle clears -- the browser's rule, and its reason. It fires once on
+    // first render against an empty cache, which costs nothing.
+    //
+    // What the desktop cannot do that the browser does is clear on a settings change: settings here
+    // live in a file that can change without the app being told, and a cached answer vetted under
+    // one revocation policy is not vetted under a stricter one, nor valid again if the time of
+    // interest moves backward. That is what the Clear button is for, and why its hint says so.
+    use_effect(move || {
+        let _ = s_reuse_rev_cache();
+        rev_cache_for_toggle.clear();
+    });
     let s_validate_self_signed = use_signal(|| sa.validate_self_signed);
     let s_dynamic_build = use_signal(|| sa.dynamic_build);
-    let s_use_downloaded_cas = use_signal(|| sa.use_downloaded_cas);
+    // No control: the run always builds from what earlier runs downloaded. The toggle that used to
+    // sit here was really "I do not trust what has piled up in that folder", and the Cleanup and
+    // Purge buttons answer that directly -- the folder gets fixed instead of routed around. The CLI
+    // keeps `--use-downloaded-cas` for a genuinely self-contained run.
+    let s_use_downloaded_cas = use_signal(|| true);
+    let mut s_folder_status = use_signal(String::new);
     let s_results_folder = use_signal(|| sa.results_folder.clone().unwrap_or_default());
     // Effective settings file. Saved args win; otherwise the default in ~/.pittv3 so the app always
     // has settings, matching the browser frontend where localStorage always answers. The file need
@@ -1200,6 +1251,7 @@ pub(crate) fn App() -> Element {
             crl_folder: path_or_none(s_crl_folder),
             rev_inputs: pool(s_rev_inputs),
             keep_crl_entries_in_memory: false,
+            no_revocation_cache: !s_reuse_rev_cache(),
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
             report_only: s_report_only(),
@@ -1264,6 +1316,7 @@ pub(crate) fn App() -> Element {
 
     let run_command = {
         let retained = retained.clone();
+        let rev_cache = rev_cache.clone();
         move |_: ()| {
             if s_running() {
                 return;
@@ -1339,6 +1392,7 @@ pub(crate) fn App() -> Element {
             }
             s_can_export.set(false);
             s_run_stamp.set(Some(now_as_unix_epoch()));
+            let run_cache = rev_cache.clone();
             let run_retained = retained.clone();
             let done_retained = retained.clone();
 
@@ -1359,7 +1413,8 @@ pub(crate) fn App() -> Element {
                 };
                 // Retention is asked for here and nowhere else: the desktop offers the artifacts after
                 // a run, so it keeps what the run built. The CLI passes false and pays nothing.
-                let (report, run_artifacts) = rt.block_on(options_std_retaining(&args, true));
+                let (report, run_artifacts) =
+                    rt.block_on(options_std_retaining(&args, true, Some(&run_cache)));
                 if let Ok(mut held) = run_retained.lock() {
                     *held = run_artifacts;
                 }
@@ -1635,26 +1690,57 @@ pub(crate) fn App() -> Element {
                                         sig: s_dynamic_build,
                                         title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view.",
                                     }
+
+                                    // Label and hint are the browser's, verbatim: the same setting
+                                    // reading two ways round in the two apps is the divergence, not
+                                    // the wording. `arg_help` is not used here because it describes
+                                    // the argument, which is the negative of what this box shows.
+                                    // Kept in the main group rather than under Advanced because its
+                                    // absence is silent -- a run that reuses determinations produces
+                                    // a bundle short of evidence and says nothing about it.
                                     CheckboxRow {
-                                        label: "Use downloaded certificates",
-                                        name: "use-downloaded-cas",
-                                        sig: s_use_downloaded_cas,
-                                        title: "Build paths from what earlier runs downloaded as well, so a certificate already fetched is not fetched again.",
+                                        label: "Reuse revocation determinations",
+                                        name: "no-revocation-cache",
+                                        sig: s_reuse_rev_cache,
+                                        title: "On, a certificate checked on one path is not checked again on another, including across runs. Off, every path obtains its own revocation data - slower, but each path then carries the evidence for its own result, which an export needs.",
+                                    }
+                                    // Clearing is its own action rather than a side effect of the
+                                    // checkbox, which is the browser's arrangement and for its
+                                    // reason: turning reuse off to clear also changes how the run
+                                    // behaves, giving up the retrievals reuse would have spared.
+                                    //
+                                    // Emitted as grid children of the surrounding `.controls`, like
+                                    // every other row: a nested div becomes one grid item, blows out
+                                    // the `max-content` label column and pushes the rest off the
+                                    // view. The explanation is the button's tooltip rather than
+                                    // standing text, for the reason CheckboxRow's `title` documents.
+                                    div { class: "visible label-cell",
+                                        label { "Cached determinations: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Discards what has been determined so far without changing whether reuse is on. Use it after changing settings or the time of interest: a determination reached under the old ones is not re-checked against the new.",
+                                            onclick: {
+                                                let rev_cache = rev_cache.clone();
+                                                move |_| {
+                                                    rev_cache.clear();
+                                                    s_rev_cache_status
+                                                        .set(
+                                                            "Revocation determinations cleared."
+                                                                .to_string(),
+                                                        );
+                                                }
+                                            },
+                                            "Clear cached determinations"
+                                        }
+                                    }
+                                    // Transient, not standing text: it appears only after a click.
+                                    if !s_rev_cache_status().is_empty() {
+                                        span { class: "hint", "{s_rev_cache_status}" }
                                     }
                                 }
                                 details { class: "advanced",
                                     summary { "Advanced" }
-                                    div { class: "controls",
-                                        FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
-                                        FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                                        FileRow {
-                                            label: "Logging Configuration",
-                                            name: "logging-config",
-                                            sig: s_logging_config,
-                                            filter_name: "log4rs Configuration",
-                                            extensions: ["yaml"].as_slice(),
-                                        }
-                                    }
                                     div { class: "controls",
                                         div { class: "field check-group",
                                             // "WebPKI TAs" was here. It is an anchor set, so it is
@@ -1896,6 +1982,108 @@ pub(crate) fn App() -> Element {
                             } else {
                                 EditSettingsFile {
                                     path: s_settings(),
+                                    // Folders the run writes to, and the actions that maintain
+                                    // them, beside the folders it reads from. They persist with the
+                                    // rest of the args rather than into the settings file, which
+                                    // stays the CLI's `-s` JSON.
+                                    extra_folder_rows: Some(rsx! {
+                                        FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
+                                        FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                                        FileRow {
+                                            label: "Logging Configuration",
+                                            name: "logging-config",
+                                            sig: s_logging_config,
+                                            filter_name: "log4rs Configuration",
+                                            extensions: ["yaml"].as_slice(),
+                                        }
+                                        div { class: "visible label-cell",
+                                            label { "Downloaded certificates: " }
+                                        }
+                                        div { class: "field",
+                                            button {
+                                                title: "Removes certificates a run could not use: unparseable, expired at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
+                                                onclick: move |_| {
+                                                    let m = cleanup_certificate_folder(
+                                                        &s_download_folder(),
+                                                        &s_error_folder(),
+                                                        s_time_of_interest().parse().unwrap_or(0),
+                                                    );
+                                                    s_folder_status
+                                                        .set(format!("Removed {} downloaded certificate(s).", m.removed));
+                                                },
+                                                "Cleanup Downloads"
+                                            }
+                                            button {
+                                                title: "Removes every file in the download folder.",
+                                                onclick: move |_| {
+                                                    spawn(async move {
+                                                        let folder = s_download_folder();
+                                                        if confirm_purge(&folder).await {
+                                                            let m = purge_folder(&folder);
+                                                            s_folder_status
+                                                                .set(format!("Removed {} file(s) from the download folder.", m.removed));
+                                                        }
+                                                    });
+                                                },
+                                                "Purge Downloads"
+                                            }
+                                        }
+                                        div { class: "visible label-cell",
+                                            label { "CRL index: " }
+                                        }
+                                        div { class: "field",
+                                            button {
+                                                title: "Removes CRLs that do not cover the time of interest, and any file that cannot be read as a CRL. A superseded CRL generally cannot be fetched again, so this forecloses validating as of a time it covered.",
+                                                onclick: move |_| {
+                                                    let m = cleanup_crls(
+                                                        &s_crl_folder(),
+                                                        s_time_of_interest().parse().unwrap_or(0),
+                                                    );
+                                                    s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
+                                                },
+                                                "Cleanup CRLs"
+                                            }
+                                            button {
+                                                title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
+                                                onclick: move |_| {
+                                                    spawn(async move {
+                                                        let folder = s_crl_folder();
+                                                        if confirm_purge(&folder).await {
+                                                            let m = purge_folder(&folder);
+                                                            s_folder_status
+                                                                .set(format!("Removed {} file(s) from the CRL folder.", m.removed));
+                                                        }
+                                                    });
+                                                },
+                                                "Purge CRLs"
+                                            }
+                                        }
+                                        div { class: "visible label-cell",
+                                            label { "Cached graphs: " }
+                                        }
+                                        div { class: "field",
+                                            button {
+                                                title: "Removes every cached graph. Nothing else removes one, and a run whose inputs, settings or time of interest differ from the last writes another, so the folder grows until it is emptied. Rebuilding one costs the partial-path search on the next run that needs it.",
+                                                onclick: move |_| {
+                                                    spawn(async move {
+                                                        let folder = graph_cache::cache_folder();
+                                                        if folder.is_empty() {
+                                                            s_folder_status
+                                                                .set("No graph cache folder to empty.".to_string());
+                                                        } else if confirm_purge(&folder).await {
+                                                            let m = purge_folder(&folder);
+                                                            s_folder_status
+                                                                .set(format!("Removed {} cached graph file(s).", m.removed));
+                                                        }
+                                                    });
+                                                },
+                                                "Purge Graphs"
+                                            }
+                                        }
+                                        if !s_folder_status().is_empty() {
+                                            span { class: "hint", "{s_folder_status}" }
+                                        }
+                                    }),
                                     on_close: move |_| s_view.set(View::Validate),
                                 }
                             }

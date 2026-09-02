@@ -66,8 +66,12 @@ pub const PATH_BEARING_SETTINGS: &[&str] = &[
     PS_TRUST_ANCHOR_FOLDER,
     PS_CERTIFICATION_AUTHORITY_FOLDER,
     PS_DOWNLOAD_FOLDER,
-    PS_LAST_MODIFIED_MAP_FILE,
-    PS_URI_BLOCKLIST_FILE,
+    // Retired settings, kept on the list by name rather than by constant. They no longer steer
+    // anything -- the last-modified map and the URI blocklist live in the folder they describe --
+    // but a client that still sends one gets a note saying it was dropped, which is better than
+    // retaining a key that silently does nothing.
+    "psLastModifiedMapFile",
+    "psUriBlocklistFile",
     PS_CBOR_TA_STORE,
 ];
 

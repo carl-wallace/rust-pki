@@ -85,3 +85,9 @@ pub fn run_blocking(args: &Pittv3Args) -> report::ValidationReport {
 }
 
 pub use crate::args::Pittv3Args;
+
+/// Re-exported because [`options_std_retaining`](crate::options_std::options_std_retaining) takes
+/// one in its signature: a frontend that owns the revocation status cache across runs has to be
+/// able to name the type, and not every frontend depends on certval directly.
+#[cfg(all(feature = "std", feature = "revocation"))]
+pub use certval::RevocationCache;

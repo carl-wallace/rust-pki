@@ -104,8 +104,8 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
         let mut uris_count = 0;
         let max_certs = cps.get_max_aia_sia_certs();
 
-        let lmm_file = last_modified_map_file(cps, &download_folder);
-        let blocklist_file = uri_blocklist_file(cps, &download_folder);
+        let lmm_file = last_modified_map_file(&download_folder);
+        let blocklist_file = uri_blocklist_file(&download_folder);
 
         loop {
             {
