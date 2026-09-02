@@ -5190,6 +5190,7 @@ dependencies = [
  "pittv3-relay",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
 ]
 

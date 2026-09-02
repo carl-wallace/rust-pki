@@ -9,6 +9,7 @@
 //! to say where its certificates came from. [`StoreProvenance`] rides along in the catalog listing
 //! so a client can say which it offered rather than presenting the two as peers.
 
+use core::fmt::Write as _;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -16,6 +17,25 @@ use std::path::Path;
 use bytes::Bytes;
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+/// Entity tag for one artifact: the SHA-256 of its bytes, hex-encoded.
+///
+/// Computed once, when the catalog is built, which is what makes a conditional GET worth having:
+/// revalidating a store then costs a string comparison rather than a re-read and a re-hash. A
+/// digest rather than a cheaper hash because the question it answers is whether a client may keep
+/// using trust material it already holds, and a collision there would be answered wrongly and
+/// silently.
+fn etag_for(bytes: &Bytes) -> String {
+    let digest = Sha256::digest(bytes.as_ref());
+    let mut etag = String::with_capacity(digest.len() * 2);
+    for byte in digest.iter() {
+        // Writing to a String cannot fail; the Result is discarded rather than unwrapped so a
+        // formatting change here can never panic a running service.
+        let _ = write!(etag, "{byte:02x}");
+    }
+    etag
+}
 
 /// Where a store's material came from, which is the whole of what this service can say about how
 /// far it should be trusted.
@@ -48,8 +68,46 @@ pub struct StoreEntry {
     /// Serialized CA certificate store, including the partial paths discovered when it was built.
     /// Empty for an anchors-only store.
     pub ca_cbor: Bytes,
+    /// Entity tag for [`ta_cbor`](Self::ta_cbor).
+    pub ta_etag: String,
+    /// Entity tag for [`ca_cbor`](Self::ca_cbor). Present but never served for an anchors-only
+    /// store, whose CA half is refused rather than answered with an empty body.
+    pub ca_etag: String,
     /// Where the material came from.
     pub provenance: StoreProvenance,
+}
+
+impl StoreEntry {
+    /// Assembles an entry, computing an entity tag for each half.
+    ///
+    /// The only constructor, so an entry cannot exist with a tag that does not match its bytes.
+    fn new(
+        id: String,
+        label: String,
+        ta_cbor: Bytes,
+        ca_cbor: Bytes,
+        provenance: StoreProvenance,
+    ) -> Self {
+        StoreEntry {
+            id,
+            label,
+            ta_etag: etag_for(&ta_cbor),
+            ca_etag: etag_for(&ca_cbor),
+            ta_cbor,
+            ca_cbor,
+            provenance,
+        }
+    }
+
+    /// Returns the bytes and entity tag for an artifact name, or `None` when the name is not one a
+    /// store serves. Keeps the naming in one place rather than in the handler.
+    pub fn artifact(&self, name: &str) -> Option<(&Bytes, &str)> {
+        match name {
+            "ta.cbor" => Some((&self.ta_cbor, &self.ta_etag)),
+            "ca.cbor" => Some((&self.ca_cbor, &self.ca_etag)),
+            _ => None,
+        }
+    }
 }
 
 /// How a store is described to a client.
@@ -117,13 +175,13 @@ impl StoreCatalog {
             .map(|b| {
                 (
                     b.id.to_string(),
-                    StoreEntry {
-                        id: b.id.to_string(),
-                        label: b.label.to_string(),
-                        ta_cbor: Bytes::from_static(b.ta_cbor),
-                        ca_cbor: b.ca_cbor.map_or_else(Bytes::new, Bytes::from_static),
-                        provenance: StoreProvenance::Provider,
-                    },
+                    StoreEntry::new(
+                        b.id.to_string(),
+                        b.label.to_string(),
+                        Bytes::from_static(b.ta_cbor),
+                        b.ca_cbor.map_or_else(Bytes::new, Bytes::from_static),
+                        StoreProvenance::Provider,
+                    ),
                 )
             })
             .collect();
@@ -209,13 +267,7 @@ impl StoreCatalog {
             let label = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
             entries.insert(
                 id.clone(),
-                StoreEntry {
-                    id,
-                    label,
-                    ta_cbor,
-                    ca_cbor,
-                    provenance: StoreProvenance::Configured,
-                },
+                StoreEntry::new(id, label, ta_cbor, ca_cbor, StoreProvenance::Configured),
             );
         }
         Ok(StoreCatalog { entries })
