@@ -21,10 +21,12 @@ use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 
 use std::sync::Mutex;
 
-use crate::save::{self, RetainedArtifacts, DEFAULT_EXPORT_NAME};
+use crate::save::{self, RetainedArtifacts};
+use pittv3_gui_lib::export::{stamped_export_name, DEFAULT_EXPORT_NAME};
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
+use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
 use pittv3_gui_lib::gui_rows::{
     BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TextRow, TimeRow,
 };
@@ -32,9 +34,13 @@ use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::gui_utils::{
-    clear_log_sink, read_saved_args, save_args, set_log_sink, ChannelAppender,
+    clear_log_sink, last_dialog_dir, read_saved_args, remember_dialog_dir, save_args, set_log_sink,
+    ChannelAppender, DialogPurpose,
 };
-use pittv3_gui_lib::settings_store::{default_settings_path, expand_tilde};
+use pittv3_gui_lib::settings_store::{
+    default_ca_folder, default_crl_folder, default_download_folder, default_settings_path,
+    expand_tilde, saved_or_default,
+};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
@@ -48,13 +54,26 @@ use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use crate::peek;
 use crate::stores;
 
+/// Records where a dialog just went, from what it returned: a folder is itself the location, a file
+/// is its parent.
+fn remember_pick(purpose: DialogPurpose, path: &std::path::Path) {
+    let dir = match path.is_dir() {
+        true => Some(path),
+        false => path.parent(),
+    };
+    if let Some(dir) = dir {
+        remember_dialog_dir(purpose, dir);
+    }
+}
+
 /// Presents a folder selection dialog and assigns the selection, if any, to `sig`
 async fn pick_folder_into(mut sig: Signal<String>) {
     let folder = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_folder()
         .await;
     if let Some(folder) = folder {
+        remember_pick(DialogPurpose::Open, folder.path());
         sig.set(folder.path().to_string_lossy().to_string());
     }
 }
@@ -64,12 +83,13 @@ async fn pick_folder_into(mut sig: Signal<String>) {
 /// failure this app has already been bitten by once (see the tilde expansion in `settings_store`).
 async fn export_store_into(index: usize, mut status: Signal<String>) {
     let folder = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Save))
         .pick_folder()
         .await;
     let Some(folder) = folder else {
         return;
     };
+    remember_pick(DialogPurpose::Save, folder.path());
     match stores::export(index, folder.path()) {
         Ok(e) => {
             let cas = if e.ca_store {
@@ -121,13 +141,14 @@ async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
     let anchors = graph_cache::cached_anchors(&fingerprint);
 
     let folder = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Save))
         .pick_folder()
         .await;
     let Some(folder) = folder else {
         return;
     };
 
+    remember_pick(DialogPurpose::Save, folder.path());
     let ca_path = folder.path().join("ca.cbor");
     if let Err(e) = std::fs::write(&ca_path, &graph) {
         error!("Failed to write {}: {e}", ca_path.display());
@@ -163,10 +184,11 @@ async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
 #[cfg(target_os = "macos")]
 async fn pick_file_or_folder_into(mut sig: Signal<String>) {
     let picked = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_file_or_folder()
         .await;
     if let Some(picked) = picked {
+        remember_pick(DialogPurpose::Open, picked.path());
         sig.set(picked.path().to_string_lossy().to_string());
     }
 }
@@ -176,6 +198,12 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
 /// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
 /// the desktop's other writes -- the peek folder, a materialized store -- go under the application
 /// home precisely because nobody chose where they should live. Here somebody is choosing.
+/// Where a file dialog should open: the folder that kind of dialog last used, falling back to the
+/// user's home as it always did when nothing has been remembered yet.
+fn dialog_dir(purpose: DialogPurpose) -> std::path::PathBuf {
+    last_dialog_dir(purpose).unwrap_or_else(|| home_dir().unwrap_or("/".into()))
+}
+
 async fn write_export(
     suggested: String,
     extensions: &[&str],
@@ -183,7 +211,7 @@ async fn write_export(
     mut log: Signal<Vec<String>>,
 ) {
     let Some(handle) = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Save))
         .set_file_name(&suggested)
         .add_filter("export", extensions)
         .save_file()
@@ -194,11 +222,18 @@ async fn write_export(
     };
     let path = handle.path().to_path_buf();
     match std::fs::write(&path, &bytes) {
-        Ok(()) => log.write().push(format!(
-            "Saved {} byte(s) to {}",
-            bytes.len(),
-            path.display()
-        )),
+        Ok(()) => {
+            // Remembered on success only, and only the folder: a failed write says nothing about
+            // where the user meant to put things.
+            if let Some(parent) = path.parent() {
+                remember_dialog_dir(DialogPurpose::Save, parent);
+            }
+            log.write().push(format!(
+                "Saved {} byte(s) to {}",
+                bytes.len(),
+                path.display()
+            ))
+        }
         Err(e) => log
             .write()
             .push(format!("Failed to write {}: {e}", path.display())),
@@ -223,10 +258,13 @@ fn extend_pool(mut sig: Signal<Vec<String>>, picked: Vec<String>) {
 #[cfg(target_os = "macos")]
 async fn pick_files_or_folders_into(sig: Signal<Vec<String>>) {
     let picked = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_files_or_folders()
         .await;
     if let Some(picked) = picked {
+        if let Some(first) = picked.first() {
+            remember_pick(DialogPurpose::Open, first.path());
+        }
         extend_pool(
             sig,
             picked
@@ -241,10 +279,13 @@ async fn pick_files_or_folders_into(sig: Signal<Vec<String>>) {
 #[cfg(not(target_os = "macos"))]
 async fn pick_folders_into(sig: Signal<Vec<String>>) {
     let picked = AsyncFileDialog::new()
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_folders()
         .await;
     if let Some(picked) = picked {
+        if let Some(first) = picked.first() {
+            remember_pick(DialogPurpose::Open, first.path());
+        }
         extend_pool(
             sig,
             picked
@@ -269,10 +310,13 @@ async fn pick_files_into(
     let picked = AsyncFileDialog::new()
         .add_filter(filter_name, extensions)
         .add_filter("All Files", &["*"])
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_files()
         .await;
     if let Some(picked) = picked {
+        if let Some(first) = picked.first() {
+            remember_pick(DialogPurpose::Open, first.path());
+        }
         extend_pool(
             sig,
             picked
@@ -298,10 +342,11 @@ async fn pick_file_into(
         // browser's revocation inputs on 2026-08-20: what a file contains decides whether it is
         // usable, and every one of these readers already says so when handed something it cannot use.
         .add_filter("All Files", &["*"])
-        .set_directory(home_dir().unwrap_or("/".into()))
+        .set_directory(dialog_dir(DialogPurpose::Open))
         .pick_file()
         .await;
     if let Some(file) = file {
+        remember_pick(DialogPurpose::Open, file.path());
         sig.set(file.path().to_string_lossy().to_string());
     }
 }
@@ -309,17 +354,21 @@ async fn pick_file_into(
 /// Serializes the validation report to pretty JSON and writes it to a user-chosen file.
 async fn save_report(report: ValidationReport) {
     let file = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
         .add_filter("JSON", &["json"])
         .set_file_name("pittv3-results.json")
         .save_file()
         .await;
     if let Some(file) = file {
         match serde_json::to_string_pretty(&report) {
-            Ok(json) => {
-                if let Err(e) = std::fs::write(file.path(), json) {
-                    error!("Failed to write results file: {e}");
+            Ok(json) => match std::fs::write(file.path(), json) {
+                Err(e) => error!("Failed to write results file: {e}"),
+                Ok(()) => {
+                    if let Some(parent) = file.path().parent() {
+                        remember_dialog_dir(DialogPurpose::Save, parent);
+                    }
                 }
-            }
+            },
             Err(e) => error!("Failed to serialize results: {e}"),
         }
     }
@@ -1027,8 +1076,13 @@ pub(crate) fn App() -> Element {
     });
     let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
     let s_error_folder = use_signal(|| sa.error_folder.clone().unwrap_or_default());
-    let s_download_folder = use_signal(|| sa.download_folder.clone().unwrap_or_default());
-    let s_ca_folder = use_signal(|| sa.ca_folder.clone().unwrap_or_default());
+    // Same shape as the settings file below: a saved value wins, otherwise a default under
+    // ~/.pittv3 so a machine that has never been configured is not refused on its first run. The
+    // default is put *into the field* rather than resolved behind it, so what the run will use is
+    // visible and can be changed or cleared.
+    let s_download_folder =
+        use_signal(|| saved_or_default(sa.download_folder.clone(), default_download_folder));
+    let s_ca_folder = use_signal(|| saved_or_default(sa.ca_folder.clone(), default_ca_folder));
     let s_generate = use_signal(|| sa.generate);
     let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
     let s_cbor_ta_store = use_signal(|| sa.cbor_ta_store);
@@ -1040,14 +1094,9 @@ pub(crate) fn App() -> Element {
     // Effective settings file. Saved args win; otherwise the default in ~/.pittv3 so the app always
     // has settings, matching the browser frontend where localStorage always answers. The file need
     // not exist — read_settings treats a missing path as "all defaults".
-    let mut s_settings = use_signal(|| {
-        sa.settings
-            .clone()
-            .filter(|p| !p.is_empty())
-            .or_else(default_settings_path)
-            .unwrap_or_default()
-    });
-    let s_crl_folder = use_signal(|| sa.crl_folder.clone().unwrap_or_default());
+    let mut s_settings =
+        use_signal(|| saved_or_default(sa.settings.clone(), default_settings_path));
+    let s_crl_folder = use_signal(|| saved_or_default(sa.crl_folder.clone(), default_crl_folder));
     let s_cleanup = use_signal(|| sa.cleanup);
     let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
     let s_report_only = use_signal(|| sa.report_only);
@@ -1079,6 +1128,11 @@ pub(crate) fn App() -> Element {
     // validating a second time. Held outside the signal system because the run produces it on a
     // worker thread; see `save::RetainedArtifacts`.
     let retained: RetainedArtifacts = use_hook(|| Arc::new(Mutex::new(None)));
+    // The moment the run began, which is what its saved artifacts are named after. Held so the
+    // archive and the path log carry the same name: they are separate buttons, so stamping at each
+    // save gave one run two names differing by however long the user took between clicks. `None`
+    // until a run starts, which the save buttons are disabled for anyway.
+    let mut s_run_stamp = use_signal(|| None::<u64>);
     let mut s_export_name = use_signal(|| DEFAULT_EXPORT_NAME.to_string());
     // Whether the last run left anything to save. The artifacts live behind a mutex the worker
     // thread fills, which the rsx cannot observe, so the buttons key off this instead.
@@ -1284,6 +1338,7 @@ pub(crate) fn App() -> Element {
                 *held = None;
             }
             s_can_export.set(false);
+            s_run_stamp.set(Some(now_as_unix_epoch()));
             let run_retained = retained.clone();
             let done_retained = retained.clone();
 
@@ -1363,7 +1418,10 @@ pub(crate) fn App() -> Element {
         let retained = retained.clone();
         move |_: MouseEvent| {
             let retained = retained.clone();
-            let name = save::export_name(&s_export_name());
+            let name = stamped_export_name(
+                &s_export_name(),
+                s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+            );
             spawn(async move {
                 match save::artifacts_archive(&retained, &name) {
                     Ok(None) => s_log
@@ -1385,7 +1443,10 @@ pub(crate) fn App() -> Element {
         let retained = retained.clone();
         move |_: MouseEvent| {
             let retained = retained.clone();
-            let name = save::export_name(&s_export_name());
+            let name = stamped_export_name(
+                &s_export_name(),
+                s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+            );
             spawn(async move {
                 match save::path_logs_text(&retained) {
                     None => s_log

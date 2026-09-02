@@ -55,6 +55,69 @@ pub fn default_settings_path() -> Option<String> {
     Some(app_home()?.join("settings.json").to_str()?.to_string())
 }
 
+/// A saved value if there is a usable one, otherwise the default.
+///
+/// An empty saved value falls through to the default rather than being taken at face value. That is
+/// what a text field holds when it has never been filled in, so treating it as a deliberate "no
+/// folder" would deny the default to exactly the first-run case it exists for. The consequence
+/// worth knowing: a field the user *clears* is honoured for that run — the run form sends `None` —
+/// but the default returns the next time the application starts.
+#[cfg(feature = "std")]
+pub fn saved_or_default(saved: Option<String>, default: impl FnOnce() -> Option<String>) -> String {
+    saved
+        .filter(|value| !value.is_empty())
+        .or_else(default)
+        .unwrap_or_default()
+}
+
+/// A folder beneath [`app_home`], created if absent. `None` when there is no home directory, or
+/// when the path will not round-trip through a `String` — the argument and settings types the
+/// folder feeds are string-typed, so a path that cannot be one is no use here.
+#[cfg(feature = "std")]
+fn app_home_folder(name: &str) -> Option<String> {
+    let folder = app_home()?.join(name);
+    if !folder.exists() {
+        let _ = std::fs::create_dir_all(&folder);
+    }
+    Some(folder.to_str()?.to_string())
+}
+
+/// Default folder for CA certificates, `cas` in [`app_home`].
+///
+/// Dynamic building needs somewhere to put what it fetches, and with nowhere named the run is
+/// refused outright — so on a machine that has never been configured, the first thing the
+/// application does is decline to work, over a folder no new user could have known to nominate.
+/// These defaults exist to answer that.
+///
+/// **They are offered to the folder fields rather than resolved behind them**, so what the run will
+/// use is on screen and can be changed or cleared. That matters most for the arguments that treat
+/// the CA folder as an output: `--cleanup` moves or deletes certificates from it and
+/// `--mozilla-csv` writes a report into it, and neither should ever act on a location the person
+/// running it cannot see.
+#[cfg(feature = "std")]
+pub fn default_ca_folder() -> Option<String> {
+    app_home_folder("cas")
+}
+
+/// Default folder for downloaded certificates, `downloads` in [`app_home`]. See
+/// [`default_ca_folder`] for why these are offered rather than resolved.
+#[cfg(feature = "std")]
+pub fn default_download_folder() -> Option<String> {
+    app_home_folder("downloads")
+}
+
+/// Default CRL index folder, `crls` in [`app_home`]. See [`default_ca_folder`] for why these are
+/// offered rather than resolved.
+///
+/// Naming one also gives a run somewhere to keep the CRLs it fetches: without a folder no
+/// `CrlSource` is registered at all, so a CRL retrieved from a distribution point is used for its
+/// determination and then dropped, and anything asking the environment for it afterwards — an
+/// artifact export, above all — finds nothing.
+#[cfg(feature = "std")]
+pub fn default_crl_folder() -> Option<String> {
+    app_home_folder("crls")
+}
+
 /// Resolves a leading `~` in `path` against the user's home directory, returning any other path
 /// unchanged.
 ///
@@ -148,6 +211,26 @@ mod tests {
             expand_tilde("backup/~settings.json"),
             "backup/~settings.json"
         );
+    }
+
+    /// Deliberately exercised with a stub default rather than the real ones: calling those would
+    /// make directories in whoever's home is running the suite.
+    #[test]
+    fn an_empty_saved_value_falls_through_to_the_default() {
+        let default = || Some("/default/cas".to_string());
+
+        assert_eq!(saved_or_default(None, default), "/default/cas");
+        assert_eq!(
+            saved_or_default(Some(String::new()), default),
+            "/default/cas"
+        );
+        // a saved value wins, and is not second-guessed
+        assert_eq!(
+            saved_or_default(Some("/chosen".to_string()), default),
+            "/chosen"
+        );
+        // no default to offer is still not an error -- the caller's guard reports it
+        assert_eq!(saved_or_default(None, || None), "");
     }
 
     #[test]

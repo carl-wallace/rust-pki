@@ -27,6 +27,57 @@ pub type ExportEntry = (String, Vec<u8>);
 /// the concatenated log and the archived manifests are necessarily the same text.
 pub const MANIFEST_NAME: &str = "manifest.txt";
 
+/// The name an export takes when the user has not chosen one. The field is pre-populated with it in
+/// both frontends, so the common case needs no typing.
+pub const DEFAULT_EXPORT_NAME: &str = "PITTv3Results";
+
+/// A filename stem for an export: what the user typed, sanitized, with a UTC timestamp appended.
+///
+/// **Sanitized** because the value names a file *and* a folder inside the archive, so a separator in
+/// it is not a name but an instruction about where things land.
+///
+/// **Stamped** because bundles are saved repeatedly -- a second run, the same run after a settings
+/// change -- and a fixed name leaves the operating system to disambiguate, which it does by
+/// appending `(1)`, `(2)`. Those say nothing about which bundle is which, and they order by when the
+/// file was saved rather than when the run happened. The base name is left as the user gave it and
+/// the stamp is appended, so a name still says what the run was as well as when it was.
+///
+/// The stamp is **UTC**, matching the times the manifests inside the archive report, and following
+/// the decision already recorded on `epoch_to_datetime_local`: a browser showing local time while
+/// the desktop showed UTC made one artifact read two ways. Colons are omitted rather than escaped --
+/// they are not legal in a Windows filename.
+///
+/// `secs` is the caller's rather than read here, so one save action stamps its archive and its path
+/// log identically even if it straddles a second, and so the formatting is testable without a clock.
+pub fn stamped_export_name(typed: &str, secs: u64) -> String {
+    let cleaned: String = typed
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' => '_',
+            c => c,
+        })
+        .collect();
+    let base = match cleaned.is_empty() {
+        true => DEFAULT_EXPORT_NAME,
+        false => cleaned.as_str(),
+    };
+    match x509_cert::der::DateTime::from_unix_duration(core::time::Duration::from_secs(secs)) {
+        Ok(dt) => format!(
+            "{base}-{:04}{:02}{:02}T{:02}{:02}{:02}Z",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minutes(),
+            dt.seconds()
+        ),
+        // A clock that yields nothing usable is not a reason to refuse to save. The unstamped name
+        // still works; it just leaves collisions to the operating system, as before.
+        Err(_) => base.to_string(),
+    }
+}
+
 /// The files describing one certification path.
 ///
 /// Certificates are numbered by hop with the trust anchor at zero, matching what a results-folder
@@ -182,6 +233,44 @@ pub fn paths_text(paths: &[Vec<ExportEntry>]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fixed instant, so this pins the format rather than agreeing with whatever the clock said.
+    /// 2026-09-02T13:45:07Z.
+    const WHEN: u64 = 1_788_356_707;
+
+    #[test]
+    fn a_name_carries_the_base_and_a_utc_stamp() {
+        assert_eq!(
+            stamped_export_name("dod run 3", WHEN),
+            "dod run 3-20260902T134507Z"
+        );
+        // cleared field falls back to the name the field starts with, stamped the same way
+        assert_eq!(
+            stamped_export_name("   ", WHEN),
+            "PITTv3Results-20260902T134507Z"
+        );
+    }
+
+    /// The name reaches a filesystem path and an archive entry, so a separator in it is not a name
+    /// but an instruction about where things land. Colons go too: illegal in a Windows filename,
+    /// which is also why the stamp has none.
+    #[test]
+    fn separators_are_not_carried_into_the_name() {
+        assert!(stamped_export_name("../etc/passwd", WHEN).starts_with(".._etc_passwd-"));
+        assert!(stamped_export_name("C:\\runs\\one", WHEN).starts_with("C__runs_one-"));
+        let stamped = stamped_export_name("anything", WHEN);
+        assert!(!stamped.contains(':'), "{stamped}");
+        assert!(!stamped.contains('/'), "{stamped}");
+    }
+
+    /// Two saves of two different runs must not collide -- the whole point of stamping.
+    #[test]
+    fn different_moments_give_different_names() {
+        assert_ne!(
+            stamped_export_name("run", WHEN),
+            stamped_export_name("run", WHEN + 1)
+        );
+    }
 
     /// The archive puts every path under the caller's name, numbered from one, so extracting it
     /// leaves a single directory rather than loose numbered folders.
