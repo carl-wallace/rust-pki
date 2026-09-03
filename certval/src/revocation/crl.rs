@@ -1329,33 +1329,71 @@ pub(crate) async fn check_revocation_crl_remote(
 
 #[cfg(test)]
 mod tests {
+    // fetch_crl's four outcomes: a non-HTTP scheme and a blocklisted URI are both rejected without a
+    // request, a first fetch returns the body and records the server's Last-Modified value, and a
+    // second fetch sends that value back as If-Modified-Since and takes the 304 as ResourceUnchanged.
+    //
+    // The last two are served from loopback rather than from a live CA. That keeps a transient
+    // network error from failing the test, and it also lets the conditional request be inspected
+    // directly instead of inferred from a real server choosing to answer 304.
     #[cfg(feature = "remote")]
     #[tokio::test]
     async fn fetch_crl_test() {
         use crate::util::Error;
         use crate::PkiEnvironment;
-
         use crate::{
-            crl::fetch_crl, CrlSourceFolders, RemoteStatus, RevocationCache, TimeOfInterest,
-            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            crl::fetch_crl, CheckRemoteResource, RemoteStatus, PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         };
-        use std::{path::PathBuf, time::Duration};
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        const LAST_MODIFIED: &str = "Wed, 11 Mar 2026 12:00:00 GMT";
+        // Contents are irrelevant: fetch_crl returns the bytes without parsing them as a CRL.
+        const BODY: &[u8] = b"a body that stands in for a CRL";
+
         let mut pe = PkiEnvironment::default();
         pe.clear_all_callbacks();
         pe.populate_5280_pki_environment();
 
-        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let f = d.join("tests/examples/fetch_crl_test");
-        let crl_source = CrlSourceFolders::new(f.as_path().to_str().unwrap());
-        if crl_source
-            .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
-            .is_err()
-        {
-            panic!("Failed to index CRLs")
-        }
-        pe.add_crl_source(Box::new(crl_source));
-        pe.add_revocation_cache(Box::new(RevocationCache::new()));
-        pe.add_check_remote(Box::new(RemoteStatus::new(f.as_path().to_str().unwrap())));
+        // A folder of its own for the last-modified map, so the test neither reads a value a prior
+        // run left behind nor writes one into the source tree.
+        let lmm_dir = tempfile::tempdir().unwrap();
+        let lmm_folder = lmm_dir.path().to_str().unwrap().to_string();
+        pe.add_check_remote(Box::new(RemoteStatus::new(&lmm_folder)));
+
+        // Answers a conditional request with 304 and any other with the body, and keeps each request
+        // it saw so the If-Modified-Since header can be checked below. Connection: close on both
+        // keeps the two fetches from sharing a socket, so each arrives as its own accept.
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let uri = format!("http://{}/crl", listener.local_addr().unwrap());
+        let seen = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let conditional = request.to_ascii_lowercase().contains("if-modified-since:");
+                if let Ok(mut seen) = seen.lock() {
+                    seen.push(request);
+                }
+                let response = if conditional {
+                    b"HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n".to_vec()
+                } else {
+                    let mut v = format!(
+                        "HTTP/1.1 200 OK\r\nLast-Modified: {LAST_MODIFIED}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        BODY.len()
+                    )
+                    .into_bytes();
+                    v.extend_from_slice(BODY);
+                    v
+                };
+                let _ = sock.write_all(&response).await;
+                let _ = sock.shutdown().await;
+            }
+        });
 
         let r = fetch_crl(
             &pe,
@@ -1364,8 +1402,8 @@ mod tests {
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         )
         .await;
-        assert!(r.is_err());
         assert_eq!(Some(Error::InvalidUriScheme), r.err());
+
         pe.add_to_blocklist("http://blocklist.test");
         let r = fetch_crl(
             &pe,
@@ -1374,58 +1412,122 @@ mod tests {
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         )
         .await;
-        assert!(r.is_err());
         assert_eq!(Some(Error::UriOnBlocklist), r.err());
 
-        let f = d.join("tests/examples/fetch_crl_test/last_modified_map.json");
-        if std::path::Path::exists(&f) {
-            tokio::fs::remove_file(f.to_str().unwrap()).await.unwrap();
-        }
+        let r = fetch_crl(
+            &pe,
+            &uri,
+            Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+        )
+        .await;
+        assert_eq!(BODY, r.unwrap().as_slice());
 
         let r = fetch_crl(
             &pe,
-            "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
+            &uri,
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
         )
         .await;
-        assert!(r.is_ok());
-        let r = fetch_crl(
-            &pe,
-            "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl",
-            Duration::from_secs(60),
-            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
-        )
-        .await;
-        assert!(r.is_err());
         assert_eq!(Some(Error::ResourceUnchanged), r.err());
 
-        let _ = tokio::fs::remove_file(f.to_str().unwrap()).await;
+        // Compared in lower case throughout: hyper writes header names lower case on the wire.
+        let requests = requests.lock().unwrap();
+        assert_eq!(2, requests.len());
+        let first = requests[0].to_ascii_lowercase();
+        let second = requests[1].to_ascii_lowercase();
+        assert!(!first.contains("if-modified-since"));
+        assert!(second.contains(&format!(
+            "if-modified-since: {}",
+            LAST_MODIFIED.to_ascii_lowercase()
+        )));
+
+        // A second RemoteStatus over the same folder reads the map the first one wrote, which is
+        // what persisting it is for: a later run must not re-download what this one already holds.
+        let reloaded = RemoteStatus::new(&lmm_folder);
+        assert_eq!(
+            Some(LAST_MODIFIED.to_string()),
+            reloaded.get_last_modified(&uri)
+        );
     }
 
-    // The ingest cap must reject an oversized CRL body while streaming it, before the whole body is
-    // buffered. A 1-byte cap against a real (multi-KB) CRL trips the guard and yields LengthError.
+    // The ingest cap must reject an oversized CRL body -- from the declared Content-Length where the
+    // server sends one, and while streaming where it does not. Both shapes come from a loopback
+    // server: the cap is a property of the body reader rather than of any particular CRL, and
+    // pointing this at a live CRL host made it the one test here that a transient network error, or
+    // a host that throttled the neighbouring test's fetches, could fail.
     #[cfg(feature = "remote")]
     #[tokio::test]
     async fn fetch_crl_respects_size_cap() {
         use crate::util::Error;
         use crate::PkiEnvironment;
-        use crate::{crl::fetch_crl, RemoteStatus};
+        use crate::{crl::fetch_crl, PS_MAX_CRL_FETCH_BYTES_DEFAULT};
         use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        // Contents are irrelevant: the cap trips before anything is parsed as a CRL.
+        const BODY: &[u8] = b"a body that stands in for a CRL";
+
+        // Serves `response` verbatim to one client, and returns the URI that reaches it.
+        async fn serve_once(response: Vec<u8>) -> String {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let uri = format!("http://{}/crl", listener.local_addr().unwrap());
+            tokio::spawn(async move {
+                if let Ok((mut sock, _)) = listener.accept().await {
+                    // Read the request before answering. Writing and closing on an unread socket
+                    // can reach the client as a reset rather than as the response.
+                    let mut req = [0u8; 1024];
+                    let _ = sock.read(&mut req).await;
+                    let _ = sock.write_all(&response).await;
+                    let _ = sock.shutdown().await;
+                }
+            });
+            uri
+        }
+
+        fn with_content_length(body: &[u8]) -> Vec<u8> {
+            let mut v =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
+            v.extend_from_slice(body);
+            v
+        }
+
+        // Chunked, so the response carries no Content-Length and the cap has to trip mid-stream.
+        fn chunked(body: &[u8]) -> Vec<u8> {
+            let mut v = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+            v.extend_from_slice(format!("{:x}\r\n", body.len()).as_bytes());
+            v.extend_from_slice(body);
+            v.extend_from_slice(b"\r\n0\r\n\r\n");
+            v
+        }
 
         let mut pe = PkiEnvironment::default();
         pe.clear_all_callbacks();
         pe.populate_5280_pki_environment();
-        // Point last-modified tracking at a private temp dir and clear any persisted map up front, so
-        // no cached If-Modified-Since (from a prior run) short-circuits the fetch with a 304.
-        let lmm_dir = std::env::temp_dir().join("certval_fetch_cap_test");
-        let _ = std::fs::create_dir_all(&lmm_dir);
-        let _ = std::fs::remove_file(lmm_dir.join("last_modified_map.json"));
-        pe.add_check_remote(Box::new(RemoteStatus::new(lmm_dir.to_str().unwrap_or("."))));
+        // No check_remote callback is registered, so nothing reads or writes a last-modified value
+        // and no map persisted by an earlier run can turn a fetch here into a 304.
 
-        let uri = "http://crl.sectigo.com/SectigoRSAOrganizationValidationSecureServerCA.crl";
-        let r = fetch_crl(&pe, uri, Duration::from_secs(60), 1).await;
+        let uri = serve_once(with_content_length(BODY)).await;
+        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1).await;
         assert_eq!(Some(Error::LengthError), r.err());
+
+        let uri = serve_once(chunked(BODY)).await;
+        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1).await;
+        assert_eq!(Some(Error::LengthError), r.err());
+
+        // The same body under a cap that accommodates it comes back whole, so the two rejections
+        // above are the cap talking and not the loopback server failing to answer.
+        let uri = serve_once(chunked(BODY)).await;
+        let r = fetch_crl(
+            &pe,
+            &uri,
+            Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+        )
+        .await;
+        assert_eq!(BODY, r.unwrap().as_slice());
     }
 
     // A CRL that omits nextUpdate has no upper time bound. check_crl_validity caps its age
