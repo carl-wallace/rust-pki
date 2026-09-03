@@ -7,8 +7,11 @@
 //! module keeps the result so that only the first of a series of runs pays for it.
 //!
 //! The key is a fingerprint of everything the graph depends on: the paths that contributed
-//! certificates, each one's size and modification time, whether webpki anchors were in play, and the
-//! settings as serialized apart from the time of interest. Anything else changing is not a reason to
+//! certificates — including the download folder when `--use-downloaded-cas` makes what earlier runs
+//! fetched an input too — each one's size and modification time, whether webpki anchors were in
+//! play, and the settings as serialized apart from the time of interest. The two files the fetching
+//! machinery keeps beside what it fetched are skipped, since they are rewritten on every fetch and
+//! describe the folder rather than adding to it. Anything else changing is not a reason to
 //! rebuild, and anything in that list changing means the cached graph describes inputs that no
 //! longer exist. The time of interest is left out because it is normally "now": keying on it meant
 //! the key never repeated, so entries were written and never read.
@@ -30,8 +33,8 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use certval::{
-    CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings,
-    PS_TIME_OF_INTEREST,
+    last_modified_map_file, uri_blocklist_file, CertSource, CertVector,
+    CertificationPathBuilderFormats, CertificationPathSettings, PS_TIME_OF_INTEREST,
 };
 
 use crate::args::Pittv3Args;
@@ -64,6 +67,21 @@ pub fn cache_folder() -> String {
         .unwrap_or_default()
 }
 
+/// Whether `path` names one of the two files the fetching machinery keeps beside what it fetched.
+///
+/// Neither is certificate material, and the folder a run reads is often the folder it writes them
+/// to: `--download-folder` defaults to the CA folder, so a plain `--ca-folder` run that fetches
+/// anything rewrites them inside an input the key describes. Folding them in would move the key on
+/// every fetch, leaving the cache written on every run and read on none -- the same failure keeping
+/// the time of interest out of the key avoids. The names come from certval rather than being
+/// spelled again here, so renaming them there cannot leave this quietly hashing them once more.
+fn is_fetch_state_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    name == last_modified_map_file("") || name == uri_blocklist_file("")
+}
+
 /// Folds one input path into `hasher`: the path itself, and the size and modification time of every
 /// file it names or contains. A path that cannot be read contributes its name alone, which still
 /// distinguishes it from a run that did not name it.
@@ -74,6 +92,9 @@ fn hash_path(hasher: &mut Sha256, label: &str, path: &str) {
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };
         if meta.is_dir() {
+            continue;
+        }
+        if is_fetch_state_file(entry.path()) {
             continue;
         }
         hasher.update(entry.path().to_string_lossy().as_bytes());
@@ -114,9 +135,13 @@ pub fn saved_graph_fingerprint(
     }
     // Dynamic building is cached like the rest. The graph does grow as URIs are chased, but the only
     // thing written is pass 0's graph -- `graph_cache::store` is guarded on `0 == pass`, before any
-    // chasing has added anything -- so the artifact matches the key: the graph built from the named
-    // inputs. Later passes rebuild in memory and are never stored. Refusing to key a dynamic run
-    // meant the desktop app, which builds dynamically by default, never cached anything at all.
+    // chasing has added anything -- so the artifact matches the key: the graph built from the inputs
+    // as they stood when the run started. Later passes rebuild in memory and are never stored.
+    // Refusing to key a dynamic run meant the desktop app, which builds dynamically by default,
+    // never cached anything at all.
+    //
+    // That holds only while what a run fetches stays out of the next run's inputs, which
+    // `--use-downloaded-cas` is precisely the flag for -- hence the download folder below.
 
     let mut hasher = Sha256::new();
     hasher.update(b"pittv3 graph v1");
@@ -136,6 +161,24 @@ pub fn saved_graph_fingerprint(
     }
     if let Some(ta_cbor) = &args.ta_cbor {
         hash_path(&mut hasher, "ta_cbor", ta_cbor);
+    }
+    // The folder dynamic building writes to is an input of its own once `--use-downloaded-cas` is
+    // set: `reuse_downloads` feeds it into the same graph the named inputs build. Keying on the
+    // named inputs alone described a graph the run did not build -- the first run fetched
+    // intermediates and cached the graph from before it had them (`graph_cache::store` runs on pass
+    // 0, deliberately), and every later run matched that key, adopted the pre-fetch graph without
+    // searching it again, and reported the paths those certificates support as no paths at all.
+    // Reached only when the folder is named separately: unnamed, it falls back to the CA folder,
+    // which the loop above has already folded in.
+    #[cfg(feature = "remote")]
+    if args.use_downloaded_cas {
+        if let Some(downloads) = args
+            .download_folder
+            .clone()
+            .or_else(|| cps.get_download_folder())
+        {
+            hash_path(&mut hasher, "downloads", &downloads);
+        }
     }
     #[cfg(feature = "webpki")]
     hasher.update([u8::from(args.webpki_tas)]);

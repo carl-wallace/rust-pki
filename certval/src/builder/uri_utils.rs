@@ -128,10 +128,15 @@ fn save_certs_from_p7(
                 let sd = SignedData::from_der(content.as_slice());
                 match sd {
                     Ok(sd) => {
-                        for (i, c) in sd.certificates.iter().enumerate() {
-                            for a in c.0.iter() {
+                        for c in sd.certificates.iter() {
+                            for (i, a) in c.0.iter().enumerate() {
                                 // One name per certificate in the message, or none at all when
-                                // there is nowhere to write them.
+                                // there is nowhere to write them. The index counts certificates
+                                // within the set, not sets: `certificates` is an `Option`, so
+                                // enumerating it yields at most one item and every certificate in a
+                                // bundle was written to `_0`, each overwriting the last. The run
+                                // that fetched them was unaffected -- they all reach `buffers` --
+                                // so this cost only reuse, and only a later run noticed.
                                 let pb = filename.map(|f| {
                                     #[allow(irrefutable_let_patterns)]
                                     let Ok(pb) = PathBuf::from_str(&format!("{f}_{i}.der"));
