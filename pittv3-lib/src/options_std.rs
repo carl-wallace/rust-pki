@@ -133,6 +133,7 @@ use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
 use crate::graph_cache;
+use crate::prepared_graph::PreparedGraph;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
@@ -222,7 +223,7 @@ fn normalize_pem_wrap(pem: &str) -> Option<String> {
 /// report. The CLI ignores the return value (log/file output is unchanged); GUI and server
 /// frontends consume it.
 pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
-    let (report, _) = options_std_retaining(args, false, None).await;
+    let (report, _) = options_std_retaining(args, false, None, None).await;
     report
 }
 
@@ -242,12 +243,19 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 /// checked on one run is not checked again on the next, and can offer to discard the contents; a
 /// process that runs once passes `None` and gets a cache for the run, which is what the CLI does.
 /// `--no-revocation-cache` declines either.
+///
+/// `prepared` is the same arrangement for the certificates themselves. A run given one takes its
+/// graph from it when the material is the one it holds, and leaves its own there when it is not,
+/// which spares the next run deserializing the store and parsing and indexing every certificate in
+/// it. `None` prepares from the inputs and drops the result, which is what a process that runs once
+/// wants.
 pub async fn options_std_retaining(
     args: &Pittv3Args,
     retain: bool,
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> (ValidationReport, Option<RetainedRun>) {
     let mut kept = None;
     let report = options_std_inner(
@@ -255,6 +263,7 @@ pub async fn options_std_retaining(
         retain.then_some(&mut kept),
         #[cfg(all(feature = "std", feature = "revocation"))]
         cache,
+        prepared,
     )
     .await;
     (report, kept)
@@ -270,6 +279,7 @@ async fn options_std_inner(
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> ValidationReport {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
@@ -722,6 +732,7 @@ async fn options_std_inner(
             kept,
             #[cfg(all(feature = "std", feature = "revocation"))]
             cache,
+            prepared,
         )
         .await;
     }
@@ -750,6 +761,9 @@ async fn options_std_inner(
 /// When `retain` is set, every validated path is kept and returned with the environment it was
 /// validated against, so a frontend can export the artifacts behind a result once the run is over
 /// rather than having to name a results folder before it starts.
+///
+/// When `prepared` is given, the graph is taken from it rather than assembled, whenever it holds one
+/// prepared from the same material; either way the run leaves its own there for the next.
 #[cfg(feature = "std")]
 async fn generate_and_validate(
     args: &Pittv3Args,
@@ -757,6 +771,7 @@ async fn generate_and_validate(
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> ValidationReport {
     let retain = kept.is_some();
     let mut retained: Vec<RetainedPath> = vec![];
@@ -817,7 +832,10 @@ async fn generate_and_validate(
     // off AIA/SIA retrieval, and anchor validity for webpki anchors — and a caller outside a run
     // has no way to reproduce those adjustments. Both are covered by the key anyway: chasing runs
     // are not cached at all, and webpki_tas is hashed in its own right.
-    let graph_fingerprint = graph_cache::fingerprint(args, &cps);
+    //
+    // One key for both copies of the graph, the one on disk and the one the caller keeps: they hold
+    // the same graph, so a run that finds neither files both under the same name.
+    let graph_fingerprint = graph_cache::saved_graph_fingerprint(args, &cps);
 
     #[cfg(feature = "remote")]
     if !args.dynamic_build {
@@ -931,10 +949,6 @@ async fn generate_and_validate(
     // augmenting with AIA/SIA).
     let mut pass: u8 = 0;
 
-    // Read CBOR from a file only once. It will be generated following AIA/SIA fetch while looping
-    // in support of dynamic path building.
-    let mut cbor = read_cbor(&args.cbor);
-
     // define a vector to receive URIs scraped from AIA and SIA extensions.
     let mut fresh_uris: Vec<String> = vec![];
 
@@ -949,10 +963,6 @@ async fn generate_and_validate(
     // Number of certificates the CA folder contributed to the graph, used after the loop to tell a
     // folder that yielded nothing from no folder at all.
     let mut ca_folder_certs = 0;
-
-    // Whether the graph came off the cache rather than being built. Its identity was settled
-    // before the settings were adjusted for the run — see `graph_fingerprint` above.
-    let mut graph_from_cache = false;
 
     // Whether the CA input was a CBOR store adopted with the partial paths it carries, which means
     // the graph is already built and searching again would recompute it.
@@ -1036,110 +1046,131 @@ async fn generate_and_validate(
         None => None,
     };
 
-    loop {
-        // Create a new CertSource and (re-)deserialize on every iteration due references to
-        // buffers in the certs member. On the first pass, cbor will contain data read from file,
-        // on subsequent passes it will contain a fresh CBOR blob that features buffers downloaded
-        // from AIA or SIA locations.
-        let mut cert_source = if cbor.is_empty() {
-            // Empty CBOR is fine when doing dynamic building, when the intermediates come from a
-            // CA folder, or when validating certificates issued by a trust anchor. Only worth
-            // saying when a store was actually named: a run that supplied none is not missing one.
-            if 0 == pass && !cbor_file.is_empty() {
-                info!("Empty CBOR file at {cbor_file}. Proceeding without it.");
-            }
-            CertSource::default()
+    // Whether the graph arrived already parsed and indexed, which only the caller's own does.
+    let mut graph_already_parsed = false;
 
-            // Not harvesting URIs and doing dynamic on first pass on off chance the end entity
-            // was issued by a trust anchor. It may be better to harvest here and save a loop.
-        } else {
-            // we want to use the buffers as augmented by last round but want to start from scratch
-            // on the partial paths.
-            match CertSource::new_from_cbor(cbor.as_slice()) {
-                Ok(cbor_data) => cbor_data,
-                Err(e) => {
-                    error!(
-                        "Failed to parse CBOR file at {cbor_file} with: {e}. Proceeding without it."
-                    );
-                    CertSource::default()
+    // The pool the run builds paths from, prepared once here and carried across every pass.
+    //
+    // Asked for in the order of how much of the work is already done. What the caller holds in
+    // memory is parsed and indexed and needs nothing further. The graph on disk is the result of
+    // searching this same material, so it skips the folder walk and the partial-path search, but
+    // its certificates still have to be parsed. The inputs themselves are the whole job. Asking in
+    // that order is also what keeps a hit from reading and deserializing a store it is about to
+    // throw away.
+    //
+    // Preparing it once rather than per pass matters most after the first. This used to be rebuilt
+    // from CBOR at the top of every pass, and from pass 1 on it was rebuilt from the *store* -- so a
+    // dynamic build went back for an AIA URI and came back holding neither the CA folder's
+    // certificates nor the cached graph, having quietly returned to what the store alone carries,
+    // and paid a multi-megabyte deserialize to do it. What forced the rebuild was that
+    // `CertSource::initialize` could not be called twice; it now parses only the buffers appended
+    // since, so one source serves the whole run and the indices that the partial paths and the pass
+    // threshold are expressed in mean the same thing from one pass to the next.
+    let ready_made = match prepared
+        .zip(graph_fingerprint.as_deref())
+        .and_then(|(prepared, key)| prepared.get(key))
+    {
+        Some(from_memory) => {
+            info!("Reusing the certificates prepared for this PKI");
+            graph_already_parsed = true;
+            Some(from_memory)
+        }
+        None => graph_fingerprint.as_deref().and_then(graph_cache::load),
+    };
+
+    // Whether the graph arrived ready-made rather than being assembled from the inputs, which is
+    // what says the CA inputs must not be folded in again and the partial paths must not be searched
+    // for again. Its identity was settled before the settings were adjusted for the run -- see
+    // `graph_fingerprint` above.
+    let graph_from_cache = ready_made.is_some();
+
+    let mut cert_source = match ready_made {
+        Some(graph) => graph,
+        None => {
+            let cbor = read_cbor(&args.cbor);
+            if cbor.is_empty() {
+                // Empty CBOR is fine when doing dynamic building, when the intermediates come from
+                // a CA folder, or when validating certificates issued by a trust anchor. Only
+                // worth saying when a store was actually named: a run that supplied none is not
+                // missing one.
+                if !cbor_file.is_empty() {
+                    info!("Empty CBOR file at {cbor_file}. Proceeding without it.");
+                }
+                CertSource::default()
+            } else {
+                match CertSource::new_from_cbor(cbor.as_slice()) {
+                    Ok(cbor_data) => cbor_data,
+                    Err(e) => {
+                        error!(
+                            "Failed to parse CBOR file at {cbor_file} with: {e}. Proceeding without it."
+                        );
+                        CertSource::default()
+                    }
                 }
             }
+        }
+    };
+
+    // A CA folder is the intermediates the user already has, and it fed generation only: at
+    // validation time the graph came from the CBOR store alone, so -t tas -c cas -e ee.der
+    // found no paths at all and the folder had to be compiled into a store first. Fold it into
+    // the graph here so it is a validation input in its own right; a store supplied alongside
+    // it is augmented rather than displaced, since both are just certificates to build from. A
+    // generate run is exempt because the CBOR read above was built from this same folder.
+    if !args.generate && !graph_from_cache {
+        // Where downloaded intermediates land, when the run was asked to reuse them. Last in the
+        // order so it augments what was named explicitly rather than being mistaken for the
+        // whole CA input: a store named in the pool still gets its partial paths adopted.
+        #[cfg(feature = "remote")]
+        let reuse_downloads = match args.use_downloaded_cas && !download_folder.is_empty() {
+            true => Some(download_folder.clone()),
+            false => None,
         };
+        #[cfg(not(feature = "remote"))]
+        let reuse_downloads: Option<String> = None;
 
-        // What the pool held before this pass did anything. Only fetching adds to it after the
-        // first pass -- the CA inputs are loaded under `0 == pass` -- so comparing against this
-        // says whether the pass brought back anything at all.
+        // The singular argument first, then the pool, so a log read top to bottom follows the
+        // order the inputs were named in.
+        let outcome = load_ca_inputs(
+            &pe,
+            args.ca_folder
+                .iter()
+                .chain(args.ca_inputs.iter())
+                .chain(reuse_downloads.iter())
+                .map(String::as_str),
+            &mut cert_source,
+            cps.get_time_of_interest(),
+        );
+        ca_folder_certs = outcome.certs;
+        ca_store_paths_adopted = outcome.paths_adopted;
+
+        // After the path-shaped inputs, because adopting a CBOR store's graph replaces the
+        // source wholesale (see `load_ca_inputs`) and would discard anything pushed before it.
+        // The writable store is read here too, so a run that will later write to it starts
+        // from what earlier runs left there.
+        #[cfg(all(windows, feature = "capi"))]
+        {
+            let specs: Vec<String> = args
+                .capi_ca_stores
+                .iter()
+                .chain(args.capi_ca_store_rw.iter())
+                .cloned()
+                .collect();
+            match load_capi_ca_stores(&specs, &mut cert_source) {
+                Ok(added) => ca_folder_certs += added,
+                Err(msg) => {
+                    println!("Failed to read CA certificates from CAPI: {msg}");
+                    return ValidationReport::default();
+                }
+            }
+        }
+    }
+
+    loop {
+        // What the pool held before this pass did anything. Only fetching adds to it now that the
+        // CA inputs are folded in before the loop, so comparing against this says whether the pass
+        // brought back anything at all.
         let certs_at_pass_start = cert_source.len();
-
-        // The same augmented graph as last time, when nothing it was built from has changed. What
-        // is skipped is the folder walk and the partial-path search, which is the expensive half of
-        // preparing a run; the certificates are still parsed, since they have to be.
-        if 0 == pass && !graph_from_cache {
-            if let Some(cached) = graph_fingerprint.as_deref().and_then(graph_cache::load) {
-                match CertSource::new_from_cbor(cached.as_slice()) {
-                    Ok(from_cache) => {
-                        cert_source = from_cache;
-                        graph_from_cache = true;
-                    }
-                    Err(e) => debug!("Ignoring an unusable cached graph: {e:?}"),
-                }
-            }
-        }
-
-        // A CA folder is the intermediates the user already has, and it fed generation only: at
-        // validation time the graph came from the CBOR store alone, so -t tas -c cas -e ee.der
-        // found no paths at all and the folder had to be compiled into a store first. Fold it into
-        // the graph here so it is a validation input in its own right; a store supplied alongside
-        // it is augmented rather than displaced, since both are just certificates to build from. A
-        // generate run is exempt because the CBOR read above was built from this same folder.
-        if 0 == pass && !args.generate && !graph_from_cache {
-            // Where downloaded intermediates land, when the run was asked to reuse them. Last in the
-            // order so it augments what was named explicitly rather than being mistaken for the
-            // whole CA input: a store named in the pool still gets its partial paths adopted.
-            #[cfg(feature = "remote")]
-            let reuse_downloads = match args.use_downloaded_cas && !download_folder.is_empty() {
-                true => Some(download_folder.clone()),
-                false => None,
-            };
-            #[cfg(not(feature = "remote"))]
-            let reuse_downloads: Option<String> = None;
-
-            // The singular argument first, then the pool, so a log read top to bottom follows the
-            // order the inputs were named in.
-            let outcome = load_ca_inputs(
-                &pe,
-                args.ca_folder
-                    .iter()
-                    .chain(args.ca_inputs.iter())
-                    .chain(reuse_downloads.iter())
-                    .map(String::as_str),
-                &mut cert_source,
-                cps.get_time_of_interest(),
-            );
-            ca_folder_certs = outcome.certs;
-            ca_store_paths_adopted = outcome.paths_adopted;
-
-            // After the path-shaped inputs, because adopting a CBOR store's graph replaces the
-            // source wholesale (see `load_ca_inputs`) and would discard anything pushed before it.
-            // The writable store is read here too, so a run that will later write to it starts
-            // from what earlier runs left there.
-            #[cfg(all(windows, feature = "capi"))]
-            {
-                let specs: Vec<String> = args
-                    .capi_ca_stores
-                    .iter()
-                    .chain(args.capi_ca_store_rw.iter())
-                    .cloned()
-                    .collect();
-                match load_capi_ca_stores(&specs, &mut cert_source) {
-                    Ok(added) => ca_folder_certs += added,
-                    Err(msg) => {
-                        println!("Failed to read CA certificates from CAPI: {msg}");
-                        return ValidationReport::default();
-                    }
-                }
-            }
-        }
 
         // We don't want to return previously returned paths on subsequent passes through the loop.
         // Since buffers from AIA/SIA are appended to the cert_source.buffers_and_paths.buffers
@@ -1250,8 +1281,8 @@ async fn generate_and_validate(
         // Nothing arrived this pass, so there is nothing left for the loop to do. `threshold` is the
         // size of the pool this pass started with, and a path is only returned to the caller when
         // `above_threshold` finds an index at or above it, which no path can satisfy once the pool
-        // has stopped growing -- so this pass would find zero paths, rebuild the same graph and
-        // re-serialize it to the same bytes, and the next pass would do it again.
+        // has stopped growing -- so this pass would find zero paths and validate nothing, and the
+        // next pass would do the same.
         //
         // The loop had no other way out of that. The fetch block above stops running once the URI
         // set stops changing, and the `break` for a non-dynamic run lives inside it, so a dynamic
@@ -1265,12 +1296,20 @@ async fn generate_and_validate(
             break;
         }
 
+        // Parses whatever this pass appended and reindexes. On pass 0 that is the whole pool; on
+        // later passes only what came back from AIA and SIA, since the source is the same one.
+        //
+        // Skipped entirely on pass 0 for a graph that came out of memory, which arrives parsed and
+        // indexed. Not merely redundant: `index_certs` rebuilds both maps whether or not anything
+        // was added to parse, so calling it would give back the larger half of what holding the
+        // graph saved.
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
-        let r = cert_source.initialize(&cps);
-        if let Err(e) = r {
-            error!("Failed to populate cert map: {e}");
-            break;
+        if !(graph_already_parsed && 0 == pass) {
+            if let Err(e) = cert_source.initialize(&cps) {
+                error!("Failed to populate cert map: {e}");
+                break;
+            }
         }
 
         // Certificates read from the CA folder arrive with no partial paths, and a path that spans
@@ -1286,24 +1325,27 @@ async fn generate_and_validate(
             }
         }
 
+        // Left for the next run over this material, which then neither deserializes nor parses any
+        // of it. Here rather than at the end of the run, and so on pass 0 and before anything has
+        // been fetched, because what is kept has to be what the key describes: the certificates the
+        // run was given, not the ones it went out and got. `graph_cache::store` above is guarded the
+        // same way and for the same reason.
+        if 0 == pass && !graph_already_parsed {
+            if let Some((prepared, key)) = prepared.zip(graph_fingerprint.as_deref()) {
+                prepared.keep(key.to_string(), &cert_source);
+            }
+        }
+
         // If this is not the first pass, find all partial paths present in buffers_and_paths. If
         // this is the first pass, we expect this to have been present in the deserialized CBOR.
         //
-        // Skipped when the pass fetched nothing. Searching the same buffers again yields the same
-        // partial paths, and re-serializing them rewrites a blob the next pass would deserialize
-        // back into what it already has -- on a revalidation where every fetch comes back 304, that
-        // was a full search and a multi-megabyte round trip per pass to discover there was nothing
-        // to do. `cbor` is deliberately left as it was: it still describes this pool.
+        // Skipped when the pass fetched nothing: searching the same buffers again yields the same
+        // partial paths, which on a revalidation where every fetch comes back 304 was a full search
+        // per pass to discover there was nothing to do. Nothing is serialized here any more -- the
+        // blob only ever existed to be deserialized back into the source at the top of the next
+        // pass, and the source is now the same one.
         if 0 < pass && cert_source.len() != certs_at_pass_start {
             cert_source.find_all_partial_paths(&pe, &cps);
-
-            // After finding all partial paths, serialize as CBOR and save for next pass
-            match cert_source.serialize(CertificationPathBuilderFormats::Cbor) {
-                Ok(new_cbor) => {
-                    cbor = new_cbor;
-                }
-                Err(e) => error!("Failed to serialize CBOR after dynamic building with {e:?}"),
-            }
 
             #[cfg(feature = "remote")]
             if args.dynamic_build {

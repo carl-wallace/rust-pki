@@ -12,12 +12,11 @@
 //! let mut pe = PkiEnvironment::default();
 //!
 //! let mut cert_source = CertSource::default();
-//! // populate the cert_source.buffers_and_paths and cert_source.certs fields.
-//! // See `populate_parsed_cert_vector` in `Pittv3` for file-system based sample. When initializing
-//! // a set of partial paths, the cert_source.buffers_and_paths.partial_paths field can be empty,
-//! // with population accurring via a call to find_all_partial_paths then index the certs,
-//! // i.e., populate the name and spki maps. See `populate_parsed_cert_vector` usage in PITTv3 for
-//! // a file system-based example.
+//! // Add certificates with `CertVector::push`, or, in a build with the `std` feature, read a
+//! // folder of them with `cert_folder_to_vec`. Then call
+//! // [`initialize`](crate::CertSource::initialize) to parse them and build the key identifier and
+//! // subject name indexes. Partial paths need not be supplied: leave them empty and call
+//! // [`find_all_partial_paths`](crate::CertSource::find_all_partial_paths) to discover them.
 //!
 //! // add cert_source to provide access to intermediate CA certificates
 //!  pe.add_certificate_source(Box::new(cert_source.clone()));
@@ -428,8 +427,9 @@ impl BuffersAndPaths {
 ///
 /// Dynamic building support can return a list of AIAs and SIAs encountered during path discovery for
 /// consideration, i.e., enabling additional certs to be downloaded before repeating the steps above to
-/// gather new paths. Dynamic building consists of augmenting the buffers deserialized
-/// from CBOR, re-parsing and re-indexing, then re-discovering all partial paths.
+/// gather new paths. Dynamic building consists of appending the downloaded certificates to the
+/// instance, calling [`initialize`](CertSource::initialize) again -- which parses what was appended
+/// and rebuilds the indexes -- then re-discovering all partial paths.
 /// [PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3) demonstrates an approach to performing these steps.
 #[derive(Clone)]
 pub struct CertSource {
@@ -454,9 +454,9 @@ pub struct CertSource {
 }
 
 impl Default for CertSource {
-    /// CertSource::default instantiates a new empty CertSource. The caller is responsible for populating
-    /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
-    /// member then preparing skid and name maps prior to using instance.
+    /// CertSource::default instantiates a new empty CertSource. The caller adds certificates with
+    /// `CertVector::push`, then calls [`initialize`](CertSource::initialize) to parse them and build
+    /// the key identifier and subject name indexes, before using the instance.
     fn default() -> Self {
         Self::new()
     }
@@ -481,9 +481,9 @@ impl CertVector for CertSource {
 }
 
 impl CertSource {
-    /// CertSource::new instantiates a new empty CertSource. The caller is responsible for populating
-    /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
-    /// member then preparing skid and name maps prior to using instance.
+    /// CertSource::new instantiates a new empty CertSource. The caller adds certificates with
+    /// `CertVector::push`, then calls [`initialize`](CertSource::initialize) to parse them and build
+    /// the key identifier and subject name indexes, before using the instance.
     pub fn new() -> Self {
         Self {
             certs: Vec::new(),
@@ -518,6 +518,11 @@ impl CertSource {
     }
 
     /// Processes any buffers passed to the instance, i.e., via new_from_cbor
+    ///
+    /// Can be called again after more buffers have been added with only the ones not already parsed
+    /// beung parsed, and the key identifier and name maps are rebuilt over the result. That allows a
+    /// caller to have one instance while appending certificates fetched from AIA and SIA instead of
+    /// discarding it and deserializing a fresh one to get a vector that lines up with its buffers.
     pub fn initialize(&mut self, cps: &CertificationPathSettings) -> Result<()> {
         self.populate_parsed_cert_vector(cps)?;
         self.index_certs();
@@ -977,9 +982,19 @@ impl CertSource {
     /// The two vectors stay index-aligned: a buffer that fails to parse, or that is not valid at the
     /// time of interest carried in `cps`, leaves a `None` in `certs` rather than being skipped,
     /// because the partial paths in [`BuffersAndPaths`] address certificates by index.
+    ///
+    /// Only the buffers that have not been parsed yet are parsed, with the index alignment determining
+    /// which.
     fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
         let time_of_interest = cps.get_time_of_interest();
-        for (i, cert_file) in self.buffers_and_paths.buffers.iter().enumerate() {
+        let already_parsed = self.certs.len();
+        for (i, cert_file) in self
+            .buffers_and_paths
+            .buffers
+            .iter()
+            .enumerate()
+            .skip(already_parsed)
+        {
             if let Ok(cert) =
                 CertificateInner::from_der(self.buffers_and_paths.buffers[i].bytes.as_slice())
             {
@@ -1029,7 +1044,13 @@ impl CertSource {
 
     /// index_certs prepares internally used key identifier and name maps after the caller has modified
     /// the buffers_and_paths and certs fields.
+    ///
+    /// Both maps are rebuilt rather than added to, so calling this again after more certificates have
+    /// been parsed does not enter the ones already indexed a second time. The values are positions in
+    /// `certs`, which only grows, so a rebuild yields what was there plus the new positions.
     pub fn index_certs(&mut self) {
+        self.skid_map.clear();
+        self.name_map.clear();
         for (i, cert) in self.certs.iter().enumerate() {
             if let Some(cert) = cert {
                 let hex_skid = hex_skid_from_cert(cert);
@@ -1798,6 +1819,62 @@ fn get_certificates_test() {
 
     let v = cert_store.get_encoded_certificates().unwrap();
     assert_eq!(399, v.len());
+}
+
+// A dynamic build appends what it fetched to the source it already has and initializes it again,
+// rather than starting over from a serialized copy. That only works if the second call parses just
+// the buffers that were added and rebuilds the two maps instead of adding to them -- otherwise the
+// parsed vector ends up twice as long as the buffers it is positionally paired with, and every
+// certificate is indexed at two positions.
+#[cfg(feature = "std")]
+#[test]
+fn initialize_again_after_appending_test() {
+    use crate::file_utils::cert_folder_to_vec;
+    use hex_literal::hex;
+
+    let pe = PkiEnvironment::default();
+    let toi = TimeOfInterest::from_unix_secs(1647258133).unwrap();
+    let cps = CertificationPathSettings::default();
+
+    let mut cert_store = CertSource::new();
+    assert!(cert_folder_to_vec(
+        &pe,
+        "tests/examples/PKITS_data_2048/certs",
+        &mut cert_store,
+        toi,
+    )
+    .is_ok());
+    assert!(cert_store.initialize(&cps).is_ok());
+
+    let buffers_before = cert_store.num_buffers();
+    let certs_before = cert_store.num_certs();
+    assert_eq!(buffers_before, certs_before);
+    let skid = hex!("A83C099D67F6D847BAA2D0FC18725688406D9595");
+    assert_eq!(
+        cert_store.get_certificates_for_skid(&skid).unwrap().len(),
+        1
+    );
+
+    // A certificate the folder does not hold, pushed the way a fetch pushes what it retrieved.
+    let extra = std::fs::read("tests/examples/DigiCertGlobalCAG2.der").unwrap();
+    cert_store.push(CertFile {
+        filename: "DigiCertGlobalCAG2.der".to_string(),
+        bytes: extra,
+    });
+    assert_eq!(cert_store.num_buffers(), buffers_before + 1);
+
+    assert!(cert_store.initialize(&cps).is_ok());
+
+    // Grew by exactly the buffer that was added, so the two vectors still address the same
+    // certificate at the same index.
+    assert_eq!(cert_store.num_certs(), certs_before + 1);
+    assert_eq!(cert_store.num_buffers(), cert_store.num_certs());
+    assert_eq!(399 + 1, cert_store.get_certificates().unwrap().len());
+    // And a certificate that was already indexed is still held at one position rather than two.
+    assert_eq!(
+        cert_store.get_certificates_for_skid(&skid).unwrap().len(),
+        1
+    );
 }
 
 // Building the partial-path graph records the trust-anchor-to-CA signature it verifies into a
