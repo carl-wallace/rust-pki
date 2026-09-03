@@ -1,22 +1,24 @@
-//! Caches the graph a run builds when it augments a CBOR store with other material.
+//! Caches the graph a run builds when it augments a CBOR store with other certificates.
 //!
 //! A validation run that is given intermediates as well as a store folds them together and searches
-//! the combined material for partial paths. That search is the expensive part of preparing a run —
+//! the combined PKI for partial paths. That search is the expensive part of preparing a run —
 //! milliseconds against a small community PKI, but the better part of half a second against the
 //! Web PKI's CCADB set — and it produces the same graph every time the inputs are the same. This
 //! module keeps the result so that only the first of a series of runs pays for it.
 //!
-//! **What makes a hit.** The key is a fingerprint of everything the graph depends on: the paths
-//! that contributed material, each one's size and modification time, the time of interest, whether
-//! webpki anchors were in play, and the settings as serialized. Anything else changing is not a
-//! reason to rebuild, and anything in that list changing means the cached graph describes inputs
-//! that no longer exist. Size and modification time rather than content: reading every input to
-//! decide whether to avoid reading every input would spend most of what the cache saves. The
-//! failure mode that leaves is a file replaced within the filesystem's timestamp granularity and at
-//! exactly its old length, which is worth the trade here — this is a path-building index, and a run
-//! that wants no part of it can delete the folder or set `PITTV3_GRAPH_CACHE` to `off`.
+//! The key is a fingerprint of everything the graph depends on: the paths that contributed
+//! certificates, each one's size and modification time, whether webpki anchors were in play, and the
+//! settings as serialized apart from the time of interest. Anything else changing is not a reason to
+//! rebuild, and anything in that list changing means the cached graph describes inputs that no
+//! longer exist. The time of interest is left out because it is normally "now": keying on it meant
+//! the key never repeated, so entries were written and never read.
+//! Size and modification time rather than content: reading every input to decide whether to avoid
+//! reading every input would spend most of what the cache saves. The failure mode that leaves is a
+//! file replaced within the filesystem's timestamp granularity and at exactly its old length, which
+//! is worth the trade here — this is a path-building index, and a run that wants no part of it can
+//! delete the folder or set `PITTV3_GRAPH_CACHE` to `off`.
 //!
-//! **Only augmented graphs are cached.** A run that uses a store alone already has the store's own
+//! Only augmented graphs are cached. A run that uses a store alone already has the store's own
 //! partial paths and searches nothing, so there is nothing to save; a generate run writes its graph
 //! where it was asked to. Both are left alone.
 
@@ -84,17 +86,29 @@ fn hash_path(hasher: &mut Sha256, label: &str, path: &str) {
     }
 }
 
-/// The identity of the graph a run would build, or `None` when the run builds no augmented graph
-/// and so has nothing worth caching.
+/// The identity of the graph a run would build, or `None` when the run builds no augmented graph.
+///
+/// `None` for a generate run, which rewrites its own CA input while it runs, so nothing that can be
+/// named before it starts describes what it ends up with. `None` too for a run given a store and
+/// nothing else, which already has that store's partial paths and searches nothing, so there is no
+/// result to identify.
+///
+/// Names the graph for both the copy on disk and the one a caller keeps in memory — see
+/// [`PreparedGraph`](crate::prepared_graph::PreparedGraph). Deliberately one key: the two hold the
+/// same graph at different stages of preparation, and a second key would differ only by the time of
+/// interest, which cannot be in this one and has nothing to add to the other. Excluded because it is
+/// normally "now", so keying on it meant the key never repeated and the cache was written but never
+/// read; and nothing needs it, because the run that has no file to fall back on is the store-only
+/// run, which is the run this refuses to key at all.
 ///
 /// Deliberately conservative about the settings: the whole serialized blob goes into the key rather
 /// than the handful of values known to reach path building, so a setting that starts mattering
 /// cannot silently reuse a graph built without it. The cost is a missed cache when an unrelated
 /// setting changes, which costs exactly what there was before this existed.
-///
-/// One exclusion: the time of interest. It is normally "now", so keying on it meant the key never
-/// repeated and the cache was written but never read.
-pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option<String> {
+pub fn saved_graph_fingerprint(
+    args: &Pittv3Args,
+    cps: &CertificationPathSettings,
+) -> Option<String> {
     if args.generate || (args.ca_folder.is_none() && args.ca_inputs.is_empty()) {
         return None;
     }
@@ -127,12 +141,9 @@ pub fn fingerprint(args: &Pittv3Args, cps: &CertificationPathSettings) -> Option
     hasher.update([u8::from(args.webpki_tas)]);
     // The time of interest is deliberately NOT part of the key, and it has to be dropped in two
     // places to stay out: it is not hashed directly here, and it is removed from the settings before
-    // they are, because the caller sets it into them just before asking for a fingerprint.
-    //
-    // Keying on it made the key unrepeatable -- the time of interest is normally "now", which is new
-    // every run -- so every run wrote an entry that could never be hit again and nothing was ever
-    // reused. What the graph is built from is the trust material, and a change there is caught by
-    // hashing each input's size and modification time.
+    // they are, because the caller sets it into them just before asking for a fingerprint. What the
+    // graph is built from is the PKI, and a change there is caught by hashing each input's size and
+    // modification time.
     let mut keyed = cps.clone();
     keyed.0.remove(PS_TIME_OF_INTEREST);
     if let Ok(settings) = serde_json::to_string(&keyed) {
@@ -151,7 +162,7 @@ pub fn fingerprint_for_args(args: &Pittv3Args) -> Option<String> {
     // No need to settle a time of interest first: the key excludes it either way, so the settings
     // as read key identically to the settings a run adjusts.
     let cps = certval::read_settings(&args.settings).ok()?;
-    fingerprint(args, &cps)
+    saved_graph_fingerprint(args, &cps)
 }
 
 /// Reads the cached graph for `fingerprint` and deserializes it once, returning both forms.
@@ -188,7 +199,7 @@ pub fn cached(fingerprint: &str) -> Option<Vec<u8>> {
 /// run reused it.
 pub fn load(fingerprint: &str) -> Option<CertSource> {
     let (_, source) = read_cached(fingerprint)?;
-    info!("Reusing the cached graph for this trust material");
+    info!("Reusing the cached graph for this PKI");
     Some(source)
 }
 
@@ -206,7 +217,7 @@ pub fn cached_anchors(fingerprint: &str) -> Option<Vec<u8>> {
 /// live in a [`TaSource`](certval::TaSource) that never enters the [`CertSource`] — so a graph
 /// exported on its own describes paths to certificates it does not carry. Caching both means what
 /// is handed out is the whole of what the run validated against, and the two are written under one
-/// key, so they cannot be paired with each other's material.
+/// key, so they cannot be paired with each other's PKI.
 pub fn store_anchors(fingerprint: &str, anchors: Vec<certval::CertFile>) {
     let Some(dir) = cache_dir() else { return };
     if fs::create_dir_all(&dir).is_err() {

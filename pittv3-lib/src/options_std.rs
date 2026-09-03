@@ -133,6 +133,7 @@ use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
 use crate::graph_cache;
+use crate::prepared_graph::PreparedGraph;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
@@ -222,7 +223,7 @@ fn normalize_pem_wrap(pem: &str) -> Option<String> {
 /// report. The CLI ignores the return value (log/file output is unchanged); GUI and server
 /// frontends consume it.
 pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
-    let (report, _) = options_std_retaining(args, false, None).await;
+    let (report, _) = options_std_retaining(args, false, None, None).await;
     report
 }
 
@@ -242,12 +243,19 @@ pub async fn options_std(args: &Pittv3Args) -> ValidationReport {
 /// checked on one run is not checked again on the next, and can offer to discard the contents; a
 /// process that runs once passes `None` and gets a cache for the run, which is what the CLI does.
 /// `--no-revocation-cache` declines either.
+///
+/// `prepared` is the same arrangement for the certificates themselves. A run given one takes its
+/// graph from it when the material is the one it holds, and leaves its own there when it is not,
+/// which spares the next run deserializing the store and parsing and indexing every certificate in
+/// it. `None` prepares from the inputs and drops the result, which is what a process that runs once
+/// wants.
 pub async fn options_std_retaining(
     args: &Pittv3Args,
     retain: bool,
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> (ValidationReport, Option<RetainedRun>) {
     let mut kept = None;
     let report = options_std_inner(
@@ -255,6 +263,7 @@ pub async fn options_std_retaining(
         retain.then_some(&mut kept),
         #[cfg(all(feature = "std", feature = "revocation"))]
         cache,
+        prepared,
     )
     .await;
     (report, kept)
@@ -270,6 +279,7 @@ async fn options_std_inner(
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> ValidationReport {
     if args.cleanup {
         // Cleanup runs in isolation before other actions
@@ -722,6 +732,7 @@ async fn options_std_inner(
             kept,
             #[cfg(all(feature = "std", feature = "revocation"))]
             cache,
+            prepared,
         )
         .await;
     }
@@ -750,6 +761,9 @@ async fn options_std_inner(
 /// When `retain` is set, every validated path is kept and returned with the environment it was
 /// validated against, so a frontend can export the artifacts behind a result once the run is over
 /// rather than having to name a results folder before it starts.
+///
+/// When `prepared` is given, the graph is taken from it rather than assembled, whenever it holds one
+/// prepared from the same material; either way the run leaves its own there for the next.
 #[cfg(feature = "std")]
 async fn generate_and_validate(
     args: &Pittv3Args,
@@ -757,6 +771,7 @@ async fn generate_and_validate(
     #[cfg(all(feature = "std", feature = "revocation"))] cache: Option<
         &std::sync::Arc<RevocationCache>,
     >,
+    prepared: Option<&PreparedGraph>,
 ) -> ValidationReport {
     let retain = kept.is_some();
     let mut retained: Vec<RetainedPath> = vec![];
@@ -817,7 +832,10 @@ async fn generate_and_validate(
     // off AIA/SIA retrieval, and anchor validity for webpki anchors — and a caller outside a run
     // has no way to reproduce those adjustments. Both are covered by the key anyway: chasing runs
     // are not cached at all, and webpki_tas is hashed in its own right.
-    let graph_fingerprint = graph_cache::fingerprint(args, &cps);
+    //
+    // One key for both copies of the graph, the one on disk and the one the caller keeps: they hold
+    // the same graph, so a run that finds neither files both under the same name.
+    let graph_fingerprint = graph_cache::saved_graph_fingerprint(args, &cps);
 
     #[cfg(feature = "remote")]
     if !args.dynamic_build {
@@ -946,10 +964,6 @@ async fn generate_and_validate(
     // folder that yielded nothing from no folder at all.
     let mut ca_folder_certs = 0;
 
-    // Whether the graph came off the cache rather than being built. Its identity was settled
-    // before the settings were adjusted for the run — see `graph_fingerprint` above.
-    let mut graph_from_cache = false;
-
     // Whether the CA input was a CBOR store adopted with the partial paths it carries, which means
     // the graph is already built and searching again would recompute it.
     let mut ca_store_paths_adopted = false;
@@ -1032,26 +1046,46 @@ async fn generate_and_validate(
         None => None,
     };
 
+    // Whether the graph arrived already parsed and indexed, which only the caller's own does.
+    let mut graph_already_parsed = false;
+
     // The pool the run builds paths from, prepared once here and carried across every pass.
     //
-    // The cache is asked first so that a hit does not also read and deserialize the store it is
-    // about to replace. A hit is the same augmented graph as last time, when nothing it was built
-    // from has changed: what it skips is the folder walk and the partial-path search, which is the
-    // expensive half of preparing a run. The certificates are still parsed, since they have to be.
+    // Asked for in the order of how much of the work is already done. What the caller holds in
+    // memory is parsed and indexed and needs nothing further. The graph on disk is the result of
+    // searching this same material, so it skips the folder walk and the partial-path search, but
+    // its certificates still have to be parsed. The inputs themselves are the whole job. Asking in
+    // that order is also what keeps a hit from reading and deserializing a store it is about to
+    // throw away.
     //
-    // Preparing it once matters most to the passes after the first. This used to be rebuilt from
-    // CBOR at the top of every pass, and from pass 1 on it was rebuilt from the *store* -- so a
+    // Preparing it once rather than per pass matters most after the first. This used to be rebuilt
+    // from CBOR at the top of every pass, and from pass 1 on it was rebuilt from the *store* -- so a
     // dynamic build went back for an AIA URI and came back holding neither the CA folder's
     // certificates nor the cached graph, having quietly returned to what the store alone carries,
-    // having paid a multi-megabyte deserialize to do it. What forced the rebuild was that
+    // and paid a multi-megabyte deserialize to do it. What forced the rebuild was that
     // `CertSource::initialize` could not be called twice; it now parses only the buffers appended
     // since, so one source serves the whole run and the indices that the partial paths and the pass
     // threshold are expressed in mean the same thing from one pass to the next.
-    let mut cert_source = match graph_fingerprint.as_deref().and_then(graph_cache::load) {
-        Some(from_cache) => {
-            graph_from_cache = true;
-            from_cache
+    let ready_made = match prepared
+        .zip(graph_fingerprint.as_deref())
+        .and_then(|(prepared, key)| prepared.get(key))
+    {
+        Some(from_memory) => {
+            info!("Reusing the certificates prepared for this PKI");
+            graph_already_parsed = true;
+            Some(from_memory)
         }
+        None => graph_fingerprint.as_deref().and_then(graph_cache::load),
+    };
+
+    // Whether the graph arrived ready-made rather than being assembled from the inputs, which is
+    // what says the CA inputs must not be folded in again and the partial paths must not be searched
+    // for again. Its identity was settled before the settings were adjusted for the run -- see
+    // `graph_fingerprint` above.
+    let graph_from_cache = ready_made.is_some();
+
+    let mut cert_source = match ready_made {
+        Some(graph) => graph,
         None => {
             let cbor = read_cbor(&args.cbor);
             if cbor.is_empty() {
@@ -1247,8 +1281,8 @@ async fn generate_and_validate(
         // Nothing arrived this pass, so there is nothing left for the loop to do. `threshold` is the
         // size of the pool this pass started with, and a path is only returned to the caller when
         // `above_threshold` finds an index at or above it, which no path can satisfy once the pool
-        // has stopped growing -- so this pass would find zero paths, rebuild the same graph and
-        // re-serialize it to the same bytes, and the next pass would do it again.
+        // has stopped growing -- so this pass would find zero paths and validate nothing, and the
+        // next pass would do the same.
         //
         // The loop had no other way out of that. The fetch block above stops running once the URI
         // set stops changing, and the `break` for a non-dynamic run lives inside it, so a dynamic
@@ -1264,12 +1298,18 @@ async fn generate_and_validate(
 
         // Parses whatever this pass appended and reindexes. On pass 0 that is the whole pool; on
         // later passes only what came back from AIA and SIA, since the source is the same one.
+        //
+        // Skipped entirely on pass 0 for a graph that came out of memory, which arrives parsed and
+        // indexed. Not merely redundant: `index_certs` rebuilds both maps whether or not anything
+        // was added to parse, so calling it would give back the larger half of what holding the
+        // graph saved.
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
-        let r = cert_source.initialize(&cps);
-        if let Err(e) = r {
-            error!("Failed to populate cert map: {e}");
-            break;
+        if !(graph_already_parsed && 0 == pass) {
+            if let Err(e) = cert_source.initialize(&cps) {
+                error!("Failed to populate cert map: {e}");
+                break;
+            }
         }
 
         // Certificates read from the CA folder arrive with no partial paths, and a path that spans
@@ -1282,6 +1322,17 @@ async fn generate_and_validate(
             cert_source.find_all_partial_paths(&pe, &cps);
             if let Some(fingerprint) = &graph_fingerprint {
                 graph_cache::store(fingerprint, &cert_source);
+            }
+        }
+
+        // Left for the next run over this material, which then neither deserializes nor parses any
+        // of it. Here rather than at the end of the run, and so on pass 0 and before anything has
+        // been fetched, because what is kept has to be what the key describes: the certificates the
+        // run was given, not the ones it went out and got. `graph_cache::store` above is guarded the
+        // same way and for the same reason.
+        if 0 == pass && !graph_already_parsed {
+            if let Some((prepared, key)) = prepared.zip(graph_fingerprint.as_deref()) {
+                prepared.keep(key.to_string(), &cert_source);
             }
         }
 

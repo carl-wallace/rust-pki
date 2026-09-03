@@ -45,6 +45,7 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
 use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std_retaining;
+use pittv3_lib::prepared_graph::PreparedGraph;
 use pittv3_lib::report::ValidationReport;
 use pittv3_lib::std_utils::{cleanup_certificate_folder, cleanup_crls, purge_folder};
 use pittv3_lib::std_utils::{
@@ -1119,6 +1120,12 @@ pub(crate) fn App() -> Element {
     // again on the next. `Arc<RevocationCache>` implements `RevocationStatusCache` for exactly this
     // -- the run registers a clone and the handle stays here to be cleared.
     let rev_cache = use_hook(|| Arc::new(RevocationCache::new()));
+    // Owned here for the same reason and on the same terms: a run leaves the certificates it
+    // prepared here, and the next run over the same material takes them rather than deserializing
+    // the store and parsing and indexing every certificate again. Nothing has to invalidate it --
+    // the key covers the inputs, the settings and the time of interest -- so the button that empties
+    // it is about releasing the memory, not about being right.
+    let prepared_graph = use_hook(|| Arc::new(PreparedGraph::new()));
     let rev_cache_for_toggle = rev_cache.clone();
     let mut s_rev_cache_status = use_signal(String::new);
     // Turning reuse off and on again must not bring back the determinations the user was trying to
@@ -1317,6 +1324,7 @@ pub(crate) fn App() -> Element {
     let run_command = {
         let retained = retained.clone();
         let rev_cache = rev_cache.clone();
+        let prepared_graph = prepared_graph.clone();
         move |_: ()| {
             if s_running() {
                 return;
@@ -1393,6 +1401,7 @@ pub(crate) fn App() -> Element {
             s_can_export.set(false);
             s_run_stamp.set(Some(now_as_unix_epoch()));
             let run_cache = rev_cache.clone();
+            let run_prepared = prepared_graph.clone();
             let run_retained = retained.clone();
             let done_retained = retained.clone();
 
@@ -1413,8 +1422,12 @@ pub(crate) fn App() -> Element {
                 };
                 // Retention is asked for here and nowhere else: the desktop offers the artifacts after
                 // a run, so it keeps what the run built. The CLI passes false and pays nothing.
-                let (report, run_artifacts) =
-                    rt.block_on(options_std_retaining(&args, true, Some(&run_cache)));
+                let (report, run_artifacts) = rt.block_on(options_std_retaining(
+                    &args,
+                    true,
+                    Some(&run_cache),
+                    Some(&run_prepared),
+                ));
                 if let Ok(mut held) = run_retained.lock() {
                     *held = run_artifacts;
                 }
@@ -2078,6 +2091,26 @@ pub(crate) fn App() -> Element {
                                                     });
                                                 },
                                                 "Purge Graphs"
+                                            }
+                                            // The in-memory counterpart, and the only one of these
+                                            // buttons that frees memory rather than disk. Discarding
+                                            // costs the next run a parse and nothing else: the graph
+                                            // on disk is untouched.
+                                            button {
+                                                title: "Discards the parsed certificates this session is holding, which is tens of megabytes for a large store. The next run over the same material parses them again; no result changes either way.",
+                                                onclick: {
+                                                    let prepared_graph = prepared_graph.clone();
+                                                    move |_| {
+                                                        s_folder_status
+                                                            .set(match prepared_graph.clear() {
+                                                                Some(certs) => {
+                                                                    format!("Discarded {certs} prepared certificate(s).")
+                                                                }
+                                                                None => "Nothing has been prepared this session.".to_string(),
+                                                            });
+                                                    }
+                                                },
+                                                "Discard Prepared Graph"
                                             }
                                         }
                                         if !s_folder_status().is_empty() {

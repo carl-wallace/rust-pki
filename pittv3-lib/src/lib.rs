@@ -18,6 +18,8 @@ pub mod options_no_std;
 pub mod options_std;
 pub mod options_std_app;
 pub mod pitt_log;
+#[cfg(feature = "std")]
+pub mod prepared_graph;
 pub mod report;
 pub mod retained;
 pub mod stats;
