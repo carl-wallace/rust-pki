@@ -12,12 +12,11 @@
 //! let mut pe = PkiEnvironment::default();
 //!
 //! let mut cert_source = CertSource::default();
-//! // populate the cert_source.buffers_and_paths and cert_source.certs fields.
-//! // See `populate_parsed_cert_vector` in `Pittv3` for file-system based sample. When initializing
-//! // a set of partial paths, the cert_source.buffers_and_paths.partial_paths field can be empty,
-//! // with population accurring via a call to find_all_partial_paths then index the certs,
-//! // i.e., populate the name and spki maps. See `populate_parsed_cert_vector` usage in PITTv3 for
-//! // a file system-based example.
+//! // Add certificates with `CertVector::push`, or, in a build with the `std` feature, read a
+//! // folder of them with `cert_folder_to_vec`. Then call
+//! // [`initialize`](crate::CertSource::initialize) to parse them and build the key identifier and
+//! // subject name indexes. Partial paths need not be supplied: leave them empty and call
+//! // [`find_all_partial_paths`](crate::CertSource::find_all_partial_paths) to discover them.
 //!
 //! // add cert_source to provide access to intermediate CA certificates
 //!  pe.add_certificate_source(Box::new(cert_source.clone()));
@@ -428,8 +427,9 @@ impl BuffersAndPaths {
 ///
 /// Dynamic building support can return a list of AIAs and SIAs encountered during path discovery for
 /// consideration, i.e., enabling additional certs to be downloaded before repeating the steps above to
-/// gather new paths. Dynamic building consists of augmenting the buffers deserialized
-/// from CBOR, re-parsing and re-indexing, then re-discovering all partial paths.
+/// gather new paths. Dynamic building consists of appending the downloaded certificates to the
+/// instance, calling [`initialize`](CertSource::initialize) again -- which parses what was appended
+/// and rebuilds the indexes -- then re-discovering all partial paths.
 /// [PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3) demonstrates an approach to performing these steps.
 #[derive(Clone)]
 pub struct CertSource {
@@ -454,9 +454,9 @@ pub struct CertSource {
 }
 
 impl Default for CertSource {
-    /// CertSource::default instantiates a new empty CertSource. The caller is responsible for populating
-    /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
-    /// member then preparing skid and name maps prior to using instance.
+    /// CertSource::default instantiates a new empty CertSource. The caller adds certificates with
+    /// `CertVector::push`, then calls [`initialize`](CertSource::initialize) to parse them and build
+    /// the key identifier and subject name indexes, before using the instance.
     fn default() -> Self {
         Self::new()
     }
@@ -481,9 +481,9 @@ impl CertVector for CertSource {
 }
 
 impl CertSource {
-    /// CertSource::new instantiates a new empty CertSource. The caller is responsible for populating
-    /// the buffers_and_paths member then calling populate_parsed_cert_vector to populate the certs
-    /// member then preparing skid and name maps prior to using instance.
+    /// CertSource::new instantiates a new empty CertSource. The caller adds certificates with
+    /// `CertVector::push`, then calls [`initialize`](CertSource::initialize) to parse them and build
+    /// the key identifier and subject name indexes, before using the instance.
     pub fn new() -> Self {
         Self {
             certs: Vec::new(),
