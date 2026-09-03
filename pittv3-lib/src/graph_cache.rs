@@ -154,26 +154,42 @@ pub fn fingerprint_for_args(args: &Pittv3Args) -> Option<String> {
     fingerprint(args, &cps)
 }
 
-/// The cached graph for `fingerprint`, or `None` when there is not one. Says nothing: a caller that
-/// wants the fact recorded should say what it is doing with it.
-pub fn cached(fingerprint: &str) -> Option<Vec<u8>> {
+/// Reads the cached graph for `fingerprint` and deserializes it once, returning both forms.
+///
+/// Once, because the two are the same work: proving the file is not truncated or corrupt means
+/// parsing it, and parsing it is what a run does with it anyway. Returning the bytes alongside the
+/// source is what lets the caller that wants to hand the file on -- an export -- have them without
+/// a second pass over several megabytes.
+fn read_cached(fingerprint: &str) -> Option<(Vec<u8>, CertSource)> {
     let path = cache_dir()?.join(format!("{fingerprint}.cbor"));
     let bytes = fs::read(&path).ok()?;
     // A truncated or corrupt cache file must not take the run down with it: fall through to
     // building the graph, which is what a miss does anyway.
-    if CertSource::new_from_cbor(&bytes).is_err() {
-        debug!("Discarding unreadable cached graph at {}", path.display());
-        let _ = fs::remove_file(&path);
-        return None;
+    match CertSource::new_from_cbor(&bytes) {
+        Ok(source) => Some((bytes, source)),
+        Err(_) => {
+            debug!("Discarding unreadable cached graph at {}", path.display());
+            let _ = fs::remove_file(&path);
+            None
+        }
     }
-    Some(bytes)
 }
 
-/// The cached graph for `fingerprint`, noting in the log that a run reused it.
-pub fn load(fingerprint: &str) -> Option<Vec<u8>> {
-    let bytes = cached(fingerprint)?;
+/// The cached graph for `fingerprint` as the bytes it is stored as, or `None` when there is not one.
+/// Says nothing: a caller that wants the fact recorded should say what it is doing with it.
+///
+/// For handing the artifact on rather than running against it — the desktop's graph export. A run
+/// wants [`load`], which does not make it deserialize what this already deserialized.
+pub fn cached(fingerprint: &str) -> Option<Vec<u8>> {
+    read_cached(fingerprint).map(|(bytes, _)| bytes)
+}
+
+/// The cached graph for `fingerprint` as a source ready to be initialized, noting in the log that a
+/// run reused it.
+pub fn load(fingerprint: &str) -> Option<CertSource> {
+    let (_, source) = read_cached(fingerprint)?;
     info!("Reusing the cached graph for this trust material");
-    Some(bytes)
+    Some(source)
 }
 
 /// The cached trust anchors that go with the graph for `fingerprint`, or `None` when there are not
