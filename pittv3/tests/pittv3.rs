@@ -910,10 +910,10 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
             "Serializing 3 buffers and 4 partial paths",
         ));
         cmd.assert().stdout(predicate::str::contains(
-            "Ignored tests/examples/cert_store_with_expired/subfolder/3.der as not valid at indicated time of interest",
+            "Ignored an object in tests/examples/cert_store_with_expired/subfolder/3.der as not valid at indicated time of interest",
         ));
         cmd.assert().stdout(predicate::str::contains(
-            "Ignored tests/examples/cert_store_with_expired/178.der as not valid at indicated time of interest",
+            "Ignored an object in tests/examples/cert_store_with_expired/178.der as not valid at indicated time of interest",
         ));
         assert!(p.exists());
     }
