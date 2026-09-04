@@ -518,7 +518,7 @@ fn spawn_pool_count(
         let toi = inputs.time_of_interest;
         let (crls, ocsp_responses) = count_revocation_inputs(inputs.rev.iter().map(String::as_str));
         let counts = PoolCounts {
-            trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str), toi),
+            trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str)),
             ca_certificates: count_ca_inputs(inputs.ca.iter().map(String::as_str), toi),
             crls,
             ocsp_responses,

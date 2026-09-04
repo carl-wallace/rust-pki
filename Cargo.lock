@@ -5129,6 +5129,7 @@ name = "pittv3-lib"
 version = "0.2.0-pre"
 dependencies = [
  "async-recursion",
+ "base64ct",
  "bytes",
  "certval 0.2.0-pre",
  "ciborium",
