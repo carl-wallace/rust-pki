@@ -61,7 +61,7 @@ fn args_with_inputs(ta_inputs: &[String]) -> Pittv3Args {
 }
 
 fn load(args: &Pittv3Args) -> Option<TaSource> {
-    load_trust_anchors(&PkiEnvironment::default(), args, toi()).unwrap()
+    load_trust_anchors(&PkiEnvironment::default(), args).unwrap()
 }
 
 /// The DER of each anchor, sorted. Labels are deliberately excluded: a store carries the label its
@@ -111,7 +111,7 @@ fn combining_a_store_and_a_folder_does_not_duplicate_anchors() {
 #[test]
 fn an_unreadable_store_is_an_error_rather_than_an_empty_set() {
     let args = args_with(Some("does/not/exist.cbor".to_string()), None);
-    assert!(load_trust_anchors(&PkiEnvironment::default(), &args, toi()).is_err());
+    assert!(load_trust_anchors(&PkiEnvironment::default(), &args).is_err());
 
     // A file that exists but is not a store is the likelier mistake, and the one that would
     // otherwise leave a run validating against no anchors at all.
@@ -119,7 +119,7 @@ fn an_unreadable_store_is_an_error_rather_than_an_empty_set() {
     let junk = dir.path().join("junk.cbor");
     fs::write(&junk, b"not a cbor store").unwrap();
     let args = args_with(Some(junk.to_str().unwrap().to_string()), None);
-    assert!(load_trust_anchors(&PkiEnvironment::default(), &args, toi()).is_err());
+    assert!(load_trust_anchors(&PkiEnvironment::default(), &args).is_err());
 }
 
 /// A pool entry naming a folder anchors what `ta_folder` naming the same folder anchors. The pool
@@ -179,7 +179,7 @@ fn the_pool_and_the_singular_arguments_are_combined_without_duplication() {
 fn an_unreadable_pool_entry_fails_the_load() {
     let args = args_with_inputs(&["does/not/exist".to_string(), ta_folder()]);
     // `TaSource` is not Debug, so the Ok side cannot be unwrapped into an assertion message.
-    match load_trust_anchors(&PkiEnvironment::default(), &args, toi()) {
+    match load_trust_anchors(&PkiEnvironment::default(), &args) {
         Err(e) => assert!(
             e.contains("does/not/exist"),
             "the message names the input: {e}"

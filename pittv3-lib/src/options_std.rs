@@ -143,15 +143,17 @@ use crate::std_utils::*;
 use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
 
 /// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
-/// was supplied and yielded nothing. The filtering happens quietly in `ta_folder_to_vec`, which
-/// returns `Ok(0)` for a folder it emptied — indistinguishable from no folder at all by the time the
-/// environment is queried. Note the validity filter there is not governed by
-/// `PS_ENFORCE_TRUST_ANCHOR_VALIDITY`: that setting applies during path validation, where it also
-/// (correctly) passes an anchor that asserts no validity to enforce.
+/// was supplied and yielded nothing. `ta_folder_to_vec` returns `Ok(0)` for a folder it emptied —
+/// indistinguishable from no folder at all by the time the environment is queried.
+///
+/// Expiry is no longer among the reasons: anchors load whatever their validity period says, and
+/// `PS_ENFORCE_TRUST_ANCHOR_VALIDITY` decides during validation whether one may anchor a path (see
+/// [`load_trust_anchors`]). What empties a folder now is material that does not parse as a trust
+/// anchor, or file names the walk does not recognize.
 const TA_FOLDER_EMPTY: &str =
     "A trust anchor folder was supplied but no anchor was read from it: objects that do not parse \
-     as a trust anchor, or that are expired at the time of interest, are dropped when the folder \
-     is read.";
+     as a trust anchor are dropped when the folder is read, as are files whose extension is not \
+     one the walk recognizes.";
 
 /// Added to the no-paths diagnosis when a CA folder was supplied and nothing was read from it. The
 /// folder is folded into the graph at validation time, so an empty read is the one case where the
@@ -337,11 +339,7 @@ async fn options_std_inner(
         let pe = PkiEnvironment::default();
 
         // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-        match load_trust_anchors(
-            &pe,
-            args,
-            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-        ) {
+        match load_trust_anchors(&pe, args) {
             Ok(Some(ta_store)) => ta_store.log_tas(),
             Ok(None) => {}
             Err(msg) => {
@@ -438,11 +436,7 @@ async fn options_std_inner(
             };
         }
 
-        let ta_store = match load_trust_anchors(
-            &pe,
-            args,
-            TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-        ) {
+        let ta_store = match load_trust_anchors(&pe, args) {
             Ok(ta_store) => ta_store,
             Err(msg) => {
                 println!("Failed to load trust anchors: {msg}");
@@ -867,11 +861,7 @@ async fn generate_and_validate(
     }
 
     // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-    match load_trust_anchors(
-        &pe,
-        args,
-        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-    ) {
+    match load_trust_anchors(&pe, args) {
         Ok(Some(ta_store)) => {
             // A folder whose objects were all filtered contributes nothing, which is otherwise
             // indistinguishable from having supplied no folder at all — and this is the loudest

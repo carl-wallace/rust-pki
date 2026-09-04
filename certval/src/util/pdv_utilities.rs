@@ -1003,8 +1003,9 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 /// input begins with `-----`, it is PEM-decoded: the strict RFC 7468 decoder is tried first, then a
 /// lenient fallback for real-world PEM that OpenSSL accepts but strict RFC 7468 rejects (a trailing
 /// blank line, or base64 wrapped at a width other than 64, as some DoD/FPKI tools emit) — drop the
-/// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. Any bytes past the
-/// outer DER SEQUENCE are then trimmed (see `trim_to_outer_der_sequence`). Available in no_std.
+/// encapsulation-boundary lines, strip all whitespace, and base64-decode the body. An input with no
+/// boundaries at all is offered to [`decode_bare_base64`] before being taken for DER. Any bytes past
+/// the outer DER SEQUENCE are then trimmed (see `trim_to_outer_der_sequence`). Available in no_std.
 ///
 /// This decodes a *single* object. A multi-object PEM (a concatenated bundle) is not supported here:
 /// depending on byte alignment it yields only the first object or fails outright, so treat a bundle as
@@ -1029,11 +1030,48 @@ pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
                 }
             }
         }
+    } else if let Some(der) = decode_bare_base64(bytes) {
+        der
     } else {
+        // Unchanged for everything that is not recognizable base64, so bare DER still passes
+        // through untouched and genuinely unreadable bytes still reach the caller's parse and fail
+        // with the message they always did.
         bytes.to_vec()
     };
 
     Ok(trim_to_outer_der_sequence(der))
+}
+
+/// Decodes base64 that arrived with no encapsulation boundaries around it, or `None` when the bytes
+/// are not that.
+///
+/// The boundaries are what tell a decoder where a body starts, so a file without them is refused by
+/// the strict decoder and never reaches the lenient fallback above, which only engages once it has
+/// seen a leading `-----`. Such files are published: the FPKI PIV and PIV-I test certificates are
+/// `.crt` files holding one unwrapped line of base64. The failure was quiet in the way that matters
+/// — the file reached `Certificate::from_der` as ASCII and the target was reported unparseable, so
+/// it contributed no paths and a run's totals simply came out lower, with nothing to distinguish
+/// that from material that genuinely has no path.
+///
+/// What keeps this from turning any old text into an object is the tag check on the *result*: prose
+/// is often accidentally valid base64, but it does not decode to something whose first byte opens a
+/// DER `SEQUENCE` (a certificate, a CRL) or one of the `TrustAnchorChoice` context tags. Whitespace
+/// is stripped first, since the wrapping is the encoder's choice and no width is more correct than
+/// another. Available in no_std.
+pub fn decode_bare_base64(bytes: &[u8]) -> Option<Vec<u8>> {
+    use base64ct::{Base64, Encoding};
+
+    // The ordinary input here is bare DER, which is neither UTF-8 nor worth scanning.
+    if matches!(bytes.first(), Some(0x30 | 0xA1 | 0xA2)) {
+        return None;
+    }
+    let text = core::str::from_utf8(bytes).ok()?;
+    let body: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if body.is_empty() {
+        return None;
+    }
+    let der = Base64::decode_vec(&body).ok()?;
+    matches!(der.first(), Some(0x30 | 0xA1 | 0xA2)).then_some(der)
 }
 
 /// Extensions for an input whose caller fans a file out into every certificate it holds.
@@ -1294,6 +1332,49 @@ fn certs_only_pkcs7_fans_out_into_its_certificates() {
             "certificate DER appears verbatim in the container"
         );
     }
+}
+
+#[test]
+fn unarmored_base64_decodes_like_the_armored_spelling() {
+    use base64ct::{Base64, Encoding};
+    use x509_cert::Certificate;
+
+    // A real certificate, re-spelled the way the FPKI PIV/PIV-I test files arrive: one unwrapped
+    // line of base64 with no encapsulation boundaries. Before this it reached the caller as ASCII
+    // and the file was reported unparseable.
+    let armored = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let der = decode_pem_to_der(armored).unwrap();
+    Certificate::from_der(&der).expect("the fixture is a certificate");
+    let b64 = Base64::encode_string(&der);
+
+    assert_eq!(
+        decode_pem_to_der(b64.as_bytes()).unwrap(),
+        der,
+        "one unwrapped line, as the FPKI files arrive"
+    );
+
+    // The wrapping is the encoder's choice, so no width is more correct than another.
+    for width in [4, 64, 76] {
+        let wrapped = b64
+            .as_bytes()
+            .chunks(width)
+            .map(|c| core::str::from_utf8(c).unwrap())
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        assert_eq!(decode_pem_to_der(wrapped.as_bytes()).unwrap(), der);
+    }
+
+    // Bare DER still passes through untouched rather than being scanned as text.
+    assert_eq!(decode_pem_to_der(&der).unwrap(), der);
+    assert!(decode_bare_base64(&der).is_none());
+
+    // What keeps prose from becoming an object is the tag check on the decoded bytes, not the
+    // base64 decoder: this text decodes cleanly and is still not a certificate.
+    assert!(Base64::decode_vec("dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_ok());
+    assert!(decode_bare_base64(b"dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_none());
+    assert!(decode_bare_base64(b"not a certificate in any encoding").is_none());
+    assert!(decode_bare_base64(b"").is_none());
+    assert!(decode_bare_base64(b"  \r\n\t ").is_none());
 }
 
 #[test]

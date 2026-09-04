@@ -312,11 +312,20 @@ pub fn load_capi_ca_stores(
 /// [`PkiEnvironment::add_trust_anchor_source`]. `Err` carries a message naming the input that
 /// failed, for a caller to surface; an input that yields no anchor is not an error here (see
 /// `TA_FOLDER_EMPTY` in `options_std`), only an empty result.
+///
+/// **Anchors are loaded whatever their validity period says.** A trust anchor is trust in a *key*,
+/// and RFC 5280 path validation does not check the anchor's own validity; whether an expired one
+/// may anchor a path is what `PS_ENFORCE_TRUST_ANCHOR_VALIDITY` decides, during validation, where
+/// the user can turn it off. Filtering here instead would decide it for them and leave that setting
+/// with nothing to act on — and it did, until 2026-09-03: a folder of eleven anchors loaded ten,
+/// while the same folder uploaded to the browser app loaded eleven, because that side never had the
+/// filter. The anchor a run declines to use is a validation result and reads as one; an anchor
+/// dropped as the folder is read is indistinguishable from a path that was never there. Use
+/// `--ta-cleanup`, which exists to remove expired anchors and says so, when that is what is wanted.
 #[cfg(feature = "std")]
 pub fn load_trust_anchors(
     pe: &PkiEnvironment,
     args: &Pittv3Args,
-    time_of_interest: TimeOfInterest,
 ) -> core::result::Result<Option<TaSource>, String> {
     #[cfg(all(windows, feature = "capi"))]
     let no_capi = args.capi_ta_stores.is_empty();
@@ -378,7 +387,7 @@ pub fn load_trust_anchors(
     // inputs were named in. Nothing depends on the order otherwise: `push` deduplicates, so an
     // anchor appearing in two inputs is carried once whichever was read first.
     for path in args.ta_folder.iter().chain(args.ta_inputs.iter()) {
-        push_trust_anchor_input(pe, path, &mut ta_store, time_of_interest)?;
+        push_trust_anchor_input(pe, path, &mut ta_store, TimeOfInterest::disabled())?;
     }
 
     if let Err(e) = ta_store.initialize() {
@@ -404,20 +413,18 @@ pub fn load_trust_anchors(
 /// inputs while it is still being assembled; the run is where a trust anchor that will not load is
 /// an error, and it says so there.
 ///
-/// `time_of_interest` is epoch seconds rather than a [`TimeOfInterest`] so that a frontend reaching
-/// certval only through this crate can ask -- the desktop GUI is one. It matters to the answer:
-/// loading drops an anchor not valid at that time, so a count is a count *as of* a moment. A value
-/// that is not a time leaves validity unchecked, which counts the material rather than nothing.
+/// There is no time of interest here, and taking one would be the bug: [`load_trust_anchors`] loads
+/// anchors without regard to their validity period, so a count taken *as of* a moment would differ
+/// from the number the run goes on to use, and the pool would be telling the user something the run
+/// then contradicts. The CA-side counterparts still take one because their loading still filters.
 #[cfg(feature = "std")]
-pub fn count_trust_anchor_inputs<'a>(
-    paths: impl IntoIterator<Item = &'a str>,
-    time_of_interest: u64,
-) -> usize {
-    let toi = counting_time_of_interest(time_of_interest);
+pub fn count_trust_anchor_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> usize {
     let pe = PkiEnvironment::default();
     let mut ta_store = TaSource::new();
     for path in paths {
-        if let Err(e) = push_trust_anchor_input(&pe, path, &mut ta_store, toi) {
+        if let Err(e) =
+            push_trust_anchor_input(&pe, path, &mut ta_store, TimeOfInterest::disabled())
+        {
             debug!("Counting no trust anchors from {path}: {e}");
         }
     }

@@ -15,7 +15,7 @@
 //! So the rule is: decode here, once, at every boundary where caller bytes arrive — and never let a
 //! DER-only parse be the first thing a file meets, the expansion of a container included.
 
-use certval::{certs_from_signed_data, decode_pem_to_ders, Error, Result};
+use certval::{certs_from_signed_data, decode_bare_base64, decode_pem_to_ders, Error, Result};
 
 // Re-exported so a caller has one place for both halves of "what is a certificate file": which
 // extensions to offer, and how to decode what arrives. pittv3-gui does not depend on certval.
@@ -26,15 +26,16 @@ pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTE
 /// DER is detected by its leading tag rather than by attempting a parse: `SEQUENCE` covers
 /// certificates and the certificate variant of `TrustAnchorChoice`, and the two context tags cover
 /// the `tbsCert` and `taInfo` variants of a DER-encoded RFC 5914 `TrustAnchorChoice`. Anything else
-/// is offered to the PEM decoder, and a failure there means the bytes are neither.
+/// is offered to the PEM decoder, then to [`decode_bare_base64`] for a file that is base64 with
+/// no boundaries at all; a failure there means the bytes are none of the three.
 pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
     if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA1 | 0xA2) {
         return Ok(bytes.to_vec());
     }
-    match pem_rfc7468::decode_vec(bytes) {
-        Ok((_label, der)) => Ok(der),
-        Err(_) => Err(Error::Unrecognized),
+    if let Ok((_label, der)) = pem_rfc7468::decode_vec(bytes) {
+        return Ok(der);
     }
+    decode_bare_base64(bytes).ok_or(Error::Unrecognized)
 }
 
 /// Returns every certificate a caller's buffer carries, in DER, whatever container it arrived in.
@@ -63,6 +64,15 @@ pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     if matches!(bytes.first(), Some(0x30 | 0xA1 | 0xA2)) {
         return Ok(vec![bytes.to_vec()]);
     }
+    // One object with no boundaries around it. Tried before the armor check below because that
+    // check is what would otherwise refuse it: an unarmored file is not a bundle, so there is
+    // nothing here for the multi-object decoder to do that the single-object one has not.
+    if let Some(der) = decode_bare_base64(bytes) {
+        return match certs_from_signed_data(&der) {
+            Some(certs) => Ok(certs),
+            None => Ok(vec![der]),
+        };
+    }
     // Guarded on the armor rather than left to decode_pem_to_ders, which passes unarmored bytes
     // through as a single object: bytes that are neither DER nor PEM have to stay an error here, or
     // an unreadable upload becomes a certificate-shaped nothing that fails quietly later instead.
@@ -79,6 +89,7 @@ const ARMOR: &[u8] = b"-----BEGIN";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64ct::Encoding as _;
 
     /// The two encodings of one certificate must reduce to the same bytes — the property every
     /// caller of this depends on, and the one whose absence caused both bugs above.
@@ -202,11 +213,65 @@ mod tests {
                 .is_err(),
             "armor alone does not make a file readable"
         );
+        assert!(
+            certs_in(b"dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_err(),
+            "and accepting unarmored base64 does not admit text that merely decodes"
+        );
+    }
+
+    /// The FPKI PIV/PIV-I test certificates ship as `.crt` files holding one unwrapped line of
+    /// base64 with no encapsulation boundaries. Both decoders `maybe_pem` used to reach for want
+    /// the armor, so twenty such targets were refused as unparseable and a run over them reported
+    /// fewer paths with nothing to say why. Every spelling of one certificate must reduce to the
+    /// same DER, and the wrapping width is not part of the question. Both entry points, since an
+    /// unarmored file reaches whichever one the caller happens to be.
+    #[test]
+    fn unarmored_base64_decodes_like_the_armored_spelling() {
+        use base64ct::{Base64, Encoding};
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let b64 = Base64::encode_string(&der);
+
+        assert_eq!(
+            maybe_pem(b64.as_bytes()).unwrap(),
+            der,
+            "one unwrapped line, as the FPKI files arrive"
+        );
+
+        assert_eq!(
+            certs_in(b64.as_bytes()).unwrap(),
+            vec![der.clone()],
+            "and the bundle entry point agrees with the single-object one"
+        );
+
+        for width in [64, 76] {
+            let wrapped: String = b64
+                .as_bytes()
+                .chunks(width)
+                .map(|c| String::from_utf8_lossy(c).into_owned())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert_eq!(
+                maybe_pem(wrapped.as_bytes()).unwrap(),
+                der,
+                "wrapped at {width}, still the same certificate"
+            );
+        }
     }
 
     #[test]
     fn neither_encoding_is_refused_rather_than_guessed() {
         assert!(maybe_pem(b"").is_err());
         assert!(maybe_pem(b"not a certificate in any encoding").is_err());
+        assert!(
+            maybe_pem(b"   \n\t  ").is_err(),
+            "whitespace is not an empty certificate"
+        );
+        // Prose is often accidentally valid base64; what it is not is DER. Without the tag check on
+        // the decoded bytes this becomes a certificate-shaped nothing that fails somewhere later.
+        assert!(
+            base64ct::Base64::decode_vec("dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_ok(),
+            "the guard has to be doing the work, not the base64 decoder"
+        );
+        assert!(maybe_pem(b"dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_err());
     }
 }

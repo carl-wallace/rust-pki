@@ -72,24 +72,35 @@ fn folder_with(dir: &Path, label: &str, names: &[&str]) -> String {
 #[test]
 fn a_bundle_counts_as_the_certificates_in_it() {
     assert_eq!(6, count_ca_inputs([BUNDLE], BUNDLE_TOI));
-    assert_eq!(6, count_trust_anchor_inputs([BUNDLE], BUNDLE_TOI));
+    assert_eq!(6, count_trust_anchor_inputs([BUNDLE]));
 }
 
-/// A count is an answer as of a moment, because loading drops material not valid at the time of
+/// A CA count is an answer as of a moment, because loading drops material not valid at the time of
 /// interest. Same file, same pool, five of the six expired: one.
 #[test]
-fn a_count_is_as_of_the_time_of_interest() {
+fn a_ca_count_is_as_of_the_time_of_interest() {
     assert_eq!(1, count_ca_inputs([BUNDLE], BUNDLE_LATER));
-    assert_eq!(1, count_trust_anchor_inputs([BUNDLE], BUNDLE_LATER));
+}
+
+/// A trust anchor count is *not*, and the asymmetry is the point: an anchor is trust in a key, and
+/// whether an expired one may anchor a path is `PS_ENFORCE_TRUST_ANCHOR_VALIDITY`'s decision at
+/// validation time. Loading anchors used to filter them here, so a folder of eleven anchors loaded
+/// ten while the same folder uploaded to the browser app loaded eleven; the count has to follow the
+/// loader, or the pool tells the user a number the run then contradicts. Five of these six are
+/// expired at `BUNDLE_LATER` and all six still count.
+#[test]
+fn a_trust_anchor_count_is_not() {
+    assert_eq!(1, count_ca_inputs([BUNDLE], BUNDLE_LATER));
+    assert_eq!(6, count_trust_anchor_inputs([BUNDLE]));
 }
 
 /// A time certval will not take disables the check rather than standing in for it, so the material
 /// is counted rather than nothing. Without this the fallback would be a silent zero, which reads as
-/// "these inputs are empty" — the opposite of what happened.
+/// "these inputs are empty" — the opposite of what happened. Only the CA side has a time to get
+/// wrong now.
 #[test]
 fn an_impossible_time_leaves_validity_unchecked() {
     assert_eq!(6, count_ca_inputs([BUNDLE], u64::MAX));
-    assert_eq!(6, count_trust_anchor_inputs([BUNDLE], u64::MAX));
 }
 
 /// A folder counts as what is in it, and entries of different shapes add up: the whole point of a
@@ -118,7 +129,7 @@ fn material_named_twice_counts_once() {
     assert_eq!(4, count_ca_inputs([folder.as_str(), also.as_str()], TOI));
     assert_eq!(
         4,
-        count_trust_anchor_inputs([folder.as_str(), also.as_str()], TOI)
+        count_trust_anchor_inputs([folder.as_str(), also.as_str()])
     );
 }
 
@@ -158,7 +169,7 @@ fn an_unreadable_entry_counts_as_nothing() {
     assert_eq!(1, count_ca_inputs(["does/not/exist", good.as_str()], TOI));
     assert_eq!(
         1,
-        count_trust_anchor_inputs(["does/not/exist", good.as_str()], TOI)
+        count_trust_anchor_inputs(["does/not/exist", good.as_str()])
     );
 }
 
