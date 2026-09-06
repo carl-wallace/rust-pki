@@ -432,7 +432,7 @@ fn validate_target(
     let der = match maybe_pem(ee) {
         Ok(der) => der,
         Err(_) => {
-            let reason = format!("Failed to parse {ee_name} as PEM or DER");
+            let reason = format!("Failed to parse {ee_name}: the file is not DER, PEM or base64");
             out.push(err(reason.clone()));
             return (
                 Some(no_path_reason_report(

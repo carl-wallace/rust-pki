@@ -21,8 +21,8 @@ use std::sync::{Arc, RwLock};
 
 use certval::{
     collect_crl_dp_uris, collect_ocsp_uris, collect_uris_from_aia_and_sia, compare_names,
-    parse_cert, CertificationPath, CertificationPathSettings, CrlSource, Error, PDVCertificate,
-    PathValidationStatus, Result, SubjectNameAndKey,
+    decode_pem_to_der, parse_cert, CertificationPath, CertificationPathSettings, CrlSource, Error,
+    PDVCertificate, PathValidationStatus, Result, SubjectNameAndKey,
 };
 // Building an OCSP request needs certval's `ocsp_client`, which exists only under its `revocation`
 // feature. Everything else here -- the URI collectors, the CRL source, the response map -- is
@@ -438,10 +438,9 @@ pub fn add_uploaded_crl(prepared: &PreparedValidation, bytes: &[u8]) -> bool {
     if prepared.crl_source().add(bytes) {
         return true;
     }
-    // PEM is worth a second try rather than a separate button: a CRL saved out of another tool is
-    // as likely to be armored as not, and the user should not have to know which they have.
-    match pem_rfc7468::decode_vec(bytes) {
-        Ok((_label, der)) => prepared.crl_source().add(&der),
+    // parse the CRL with both DER and PEM supported
+    match decode_pem_to_der(bytes) {
+        Ok(der) => prepared.crl_source().add(&der),
         Err(_) => false,
     }
 }
@@ -650,6 +649,54 @@ mod tests {
         assert!(!source.add(b"neither DER nor PEM"));
         assert!(!source.add(b"-----BEGIN X509 CRL-----\nbm90IGEgY3Js\n-----END X509 CRL-----\n"));
         assert!(source.is_empty());
+    }
+
+    /// The upload button and `--crl-folder` have to accept the same file, and they now do by
+    /// sharing certval's decoder: the folder reaches it through `get_file_as_byte_vec_pem`, this
+    /// through `decode_pem_to_der`.
+    #[test]
+    fn crl_encoding_flavors_test() {
+        use crate::validate::prepare_validation;
+        use base64ct::{Base64, Encoding as _};
+        use certval::TimeOfInterest;
+
+        let der = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.der.crl");
+        let pem = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.pem.crl");
+        let body = Base64::encode_string(der);
+        // Armored, but wrapped at a width strict RFC 7468 rejects, as some DoD and FPKI tools emit.
+        let wrapped = body
+            .as_bytes()
+            .chunks(65)
+            .map(|c| core::str::from_utf8(c).expect("base64 is ascii"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let odd_width = format!("-----BEGIN X509 CRL-----\n{wrapped}\n-----END X509 CRL-----\n");
+
+        // The anchor is unrelated to the CRL: an uploaded CRL is stored on the strength of decoding
+        // as one, and what issued it is the checker's question rather than this function's.
+        let mut cps = CertificationPathSettings::default();
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1640995200).unwrap());
+        let ta = include_bytes!("../../certval/tests/examples/amazon.com/0-ta.der").to_vec();
+        let (prepared, _notes) =
+            prepare_validation(None, &[("0-ta.der".to_string(), ta)], &[], &cps, None)
+                .expect("the amazon.com trust anchor should prepare an environment");
+
+        for (what, bytes) in [
+            ("DER", der.to_vec()),
+            ("strict PEM", pem.to_vec()),
+            ("base64 with no boundaries", body.into_bytes()),
+            ("PEM wrapped at 65", odd_width.into_bytes()),
+        ] {
+            assert!(
+                add_uploaded_crl(&prepared, &bytes),
+                "an uploaded CRL as {what} was refused"
+            );
+        }
+        assert_eq!(
+            4,
+            prepared.crl_source().len(),
+            "every encoding decoded but not all of them were stored"
+        );
     }
 
     #[cfg(feature = "revocation")]
