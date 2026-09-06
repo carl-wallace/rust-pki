@@ -75,14 +75,23 @@ pub enum StoreOrigin {
 
 impl StoreOrigin {
     /// A phrase for the selector, completing "This store is ___."
+    ///
+    /// Each phrase leads with where the material came from, because that is the half bearing on
+    /// trust: a store generated from a trust store provider has a citable origin for every
+    /// certificate it holds, while one assembled from a configured directory may hold certificates
+    /// whose provenance is no more than "some repository served it". Where the bytes are fetched
+    /// from -- this application or the service serving the page -- follows, since it says nothing
+    /// about what the store holds.
     pub fn hint(&self) -> &'static str {
         match self {
-            StoreOrigin::Shipped => "published with this application, from a trust store provider",
+            StoreOrigin::Shipped => "from a trust store provider, published with this application",
             StoreOrigin::ServiceProvider => {
-                "held by the service, from a trust store provider built into it"
+                "from a trust store provider, held by the service serving this page"
             }
             StoreOrigin::ServiceConfigured => {
-                "held by the service, from the store directory it was configured with"
+                "from the store directory the service was configured with, so a certificate in it \
+                 may have been collected by chasing authority information access URIs rather than \
+                 published by a provider"
             }
         }
     }
@@ -477,5 +486,27 @@ mod tests {
         let served: Vec<StoreDescriptor> = serde_json::from_str(json).unwrap();
         assert_eq!(served[0].provenance, Provenance::Configured);
         assert_eq!(served[0].ca_url, None);
+    }
+
+    /// The hints are read as "This store is ___.", and what a reader has to take from them is
+    /// provider material versus a configured directory -- not which build baked the store or
+    /// where the bytes are fetched from. Both provider origins therefore open the same way, and
+    /// only the configured one names how its certificates may have been collected.
+    #[test]
+    fn provider_hint_test() {
+        let provider = "from a trust store provider";
+        assert!(StoreOrigin::Shipped.hint().starts_with(provider));
+        assert!(StoreOrigin::ServiceProvider.hint().starts_with(provider));
+
+        let configured = StoreOrigin::ServiceConfigured.hint();
+        assert!(!configured.starts_with(provider));
+        assert!(configured.contains("authority information access"));
+
+        // The two provider stores differ only in where they are fetched from, which is the axis
+        // that must stay quiet -- but they are still distinguishable.
+        assert_ne!(
+            StoreOrigin::Shipped.hint(),
+            StoreOrigin::ServiceProvider.hint()
+        );
     }
 }
