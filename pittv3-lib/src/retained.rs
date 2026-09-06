@@ -46,6 +46,10 @@ pub struct RetainedPath {
     pub cps: CertificationPathSettings,
     /// The results recorded while validating it
     pub cpr: CertificationPathResults,
+    /// What building and validating this path took, in milliseconds -- the same measurement
+    /// `PathReport::duration_ms` carries, kept here so an export can state it. A bundle that cannot
+    /// say how long its run took cannot be compared against another bundle on its own.
+    pub duration_ms: u64,
 }
 
 /// Everything a run keeps so its artifacts can be exported once it is over: the paths, and the

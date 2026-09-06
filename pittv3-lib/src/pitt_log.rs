@@ -974,6 +974,7 @@ pub fn log_path(
     index: usize,
     cpr: Option<&CertificationPathResults>,
     cps: Option<&CertificationPathSettings>,
+    duration_ms: Option<u64>,
 ) {
     let target_folder = if let Some(rf) = f { rf } else { "" };
     if target_folder.is_empty() {
@@ -1028,7 +1029,7 @@ pub fn log_path(
             error!("Failed to create manifest file");
             return;
         };
-        render_path_manifest(pe, &mut f, path, cpr, cps);
+        render_path_manifest(pe, &mut f, path, cpr, cps, duration_ms);
         write_cpr_artifacts(&np, cpr);
     }
 }
@@ -1046,6 +1047,7 @@ pub fn render_path_manifest(
     path: &CertificationPath,
     cpr: &CertificationPathResults,
     cps: Option<&CertificationPathSettings>,
+    duration_ms: Option<u64>,
 ) {
     {
         let s = get_filename_from_metadata(&path.target);
@@ -1107,6 +1109,15 @@ pub fn render_path_manifest(
                 .as_bytes(),
         )
         .expect("Unable to write manifest file");
+        // What the path cost, from the same measurement `PathReport::duration_ms` carries. A
+        // manifest that cannot say this can only be compared against another manifest by going back
+        // to a console that may be gone, which is the whole difficulty a bundle exists to remove.
+        // `None` from a caller that has no run to time rather than a zero, which would read as a
+        // path that took no time at all.
+        if let Some(ms) = duration_ms {
+            f.write_all(format!("Time to build and validate: {ms} ms\n\n").as_bytes())
+                .expect("Unable to write manifest file");
+        }
         render_cpr(f, cpr);
         render_revocation_details(f, path, cpr);
     }

@@ -88,11 +88,12 @@ pub fn path_entries(
     path: &CertificationPath,
     cps: Option<&CertificationPathSettings>,
     cpr: &CertificationPathResults,
+    duration_ms: Option<u64>,
 ) -> Vec<ExportEntry> {
     let mut out = vec![];
 
     let mut manifest = Vec::new();
-    render_path_manifest(pe, &mut manifest, path, cpr, cps);
+    render_path_manifest(pe, &mut manifest, path, cpr, cps, duration_ms);
     out.push((MANIFEST_NAME.to_string(), manifest));
 
     out.push(("0-ta.der".to_string(), path.trust_anchor.encoded_ta.clone()));

@@ -549,11 +549,12 @@ fn validate_target(
             r = check_revocation_local(pe, &path_cps, path, &mut cpr);
         }
 
+        let duration_ms = path_start.elapsed().as_millis() as u64;
         path_reports.push(PathReport::from_path_results(
             path,
             &cpr,
             r.as_ref().err(),
-            path_start.elapsed().as_millis() as u64,
+            duration_ms,
         ));
         // Kept for a later export, with the settings this path was actually judged under rather than
         // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
@@ -566,6 +567,7 @@ fn validate_target(
                 path: path.clone(),
                 cps: path_cps.clone(),
                 cpr: cpr.clone(),
+                duration_ms,
             });
         }
         let cert_count = path.intermediates.len() + 2;
