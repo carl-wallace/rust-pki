@@ -811,7 +811,9 @@ fn App() -> Element {
     // material behind them
     let save_path_logs = move |_| {
         let entries = build_entries();
-        let text = paths_text(&entries);
+        // `run_ms` is the wall clock of the run that retained these paths -- both are replaced
+        // together when a run finishes -- so the log closes with the run its manifests came from.
+        let text = paths_text(&entries, Some(run_ms()));
         if text.is_empty() {
             notes.write().push(ResultLine {
                 class: "err",
