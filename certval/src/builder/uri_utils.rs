@@ -284,8 +284,6 @@ pub async fn fetch_to_buffer(
         if blocklist.contains(target) {
             error!("Skipping due to blocklist: {target}");
             continue;
-        } else {
-            info!("Downloading {target}");
         }
 
         // Read saved last modified time, if any, for use in avoiding unnecessary download below
@@ -294,6 +292,18 @@ pub async fn fetch_to_buffer(
         } else {
             ""
         };
+
+        // Announced after the last-modified map is consulted rather than before it, and as a check
+        // rather than a download, because a URI the map knows is usually answered 304 with no bytes
+        // moving. Saying "Downloading" ahead of the request made a run that transferred nothing read
+        // as one re-fetching everything, and made the empty download folder that a 304 leaves behind
+        // look like a second fault. Every URI reaching here now says what became of it: checked,
+        // then fetched, unchanged, or skipped.
+        if h.is_empty() {
+            info!("Fetching {target}");
+        } else {
+            info!("Checking {target} (If-Modified-Since: {h})");
+        }
 
         let response = if h.is_empty() {
             client
@@ -325,6 +335,7 @@ pub async fn fetch_to_buffer(
                 // seen it before, skip it now
                 if 304 == response.status() {
                     //TODO read buffer from folder
+                    info!("Unchanged, nothing transferred: {target}");
                     continue;
                 }
 
@@ -344,6 +355,7 @@ pub async fn fetch_to_buffer(
 
                 // some things "succeed" when handing us an HTML page with an error. skip those.
                 if "text/html" == content_type {
+                    info!("Skipping an HTML response rather than an artifact: {target}");
                     continue;
                 }
 
@@ -351,7 +363,7 @@ pub async fn fetch_to_buffer(
 
                 match read_capped_body(response, max_bytes, target).await {
                     Ok(bytes) => {
-                        debug!("Downloaded buffer {target}");
+                        info!("Fetched {} bytes from {target}", bytes.len());
 
                         // save_certs_from_p7
                         if "application/pkcs7-mime" == content_type {

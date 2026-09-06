@@ -100,6 +100,8 @@ pub(crate) fn validate_cert(
             stats.paths_per_target + _i,
             Some(&cpr),
             Some(&path_cps),
+            // No clock in a no-std build, so nothing here times a path.
+            None,
         );
 
         stats.results.push(cpr.clone());

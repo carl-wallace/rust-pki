@@ -980,15 +980,19 @@ pub async fn validate_cert_bytes_retaining(
     // counted twenty paths twice that way, which is what made it report more paths found than the
     // same material yielded in the browser, whose totals come from the reports themselves.
     //
-    // Logged at debug on every suppression on purpose. Deduplicating here is a backstop over
-    // whatever the builder's own `threshold` did, so silence would hide the builder handing back
-    // paths it was asked to withhold; a run that suppresses nothing says the threshold held.
+    // Logged on every suppression on purpose. Deduplicating here is a backstop over whatever the
+    // builder's own `threshold` did, so silence would hide the builder handing back paths it was
+    // asked to withhold; a run that suppresses nothing says the threshold held. At `info` rather
+    // than `debug` because the level has to be one people run at for that reasoning to reach
+    // anyone: a pass whose paths are all repeats validates nothing, so at `debug` it prints its
+    // opening line and a timing line and says nothing about why a target that reported a full
+    // validation block earlier in the run reported none this time.
     let mut to_validate = Vec::with_capacity(paths.len());
     for (i, path) in paths.iter().enumerate() {
         if stats.reported_chains.insert(chain_fingerprint(path)) {
             to_validate.push(i);
         } else {
-            debug!(
+            info!(
                 "Suppressing a certification path already reported for {cert_filename} (offered again with threshold {threshold})"
             );
             suppressed += 1;
@@ -1042,6 +1046,9 @@ pub async fn validate_cert_bytes_retaining(
             r = check_revocation(pe, &path_cps, path, &mut cpr).await;
         }
 
+        // Taken before the results folder is written so it measures building and validating the
+        // path, which is what the field says it is, rather than that plus a directory of files.
+        let duration_ms = (Instant::now() - path_start).as_millis() as u64;
         log_path(
             pe,
             &opts.results_folder,
@@ -1049,13 +1056,14 @@ pub async fn validate_cert_bytes_retaining(
             stats.paths_per_target + reported,
             Some(&cpr),
             Some(&path_cps),
+            Some(duration_ms),
         );
         reported += 1;
         stats.path_reports.push(PathReport::from_path_results(
             path,
             &cpr,
             r.as_ref().err(),
-            (Instant::now() - path_start).as_millis() as u64,
+            duration_ms,
         ));
         // Kept for a later export, with the settings this path was actually judged under rather than
         // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
@@ -1069,6 +1077,7 @@ pub async fn validate_cert_bytes_retaining(
                 path: path.clone(),
                 cps: path_cps.clone(),
                 cpr: cpr.clone(),
+                duration_ms,
             });
         }
         stats.results.push(cpr);
@@ -1084,7 +1093,7 @@ pub async fn validate_cert_bytes_retaining(
             Err(e) => {
                 stats.invalid_paths_per_target += 1;
 
-                log_path(pe, &opts.error_folder, path, i, None, None);
+                log_path(pe, &opts.error_folder, path, i, None, None, None);
                 info!("Failed to validate {cert_filename} with {e:?}");
                 // A revoked end entity is the same certificate on every candidate path, so the
                 // first path to report it has settled the target and the rest cost a signature
@@ -1117,12 +1126,27 @@ pub async fn validate_cert_bytes_retaining(
 
     let finish = Instant::now();
     let duration2 = finish - start2;
-    info!(
-        "{:?} to build and validate {} path(s) for {}",
-        duration2,
-        paths.len(),
-        cert_filename
-    );
+    // `paths.len()` is what the builder offered, not what was validated, and the two differ on
+    // every pass after the first. Saying which is which here is what keeps a pass that offered
+    // only repeats -- two lines and a microsecond timing -- from reading as a target whose paths
+    // went away, and it is where a total that did not grow between passes explains itself.
+    if 0 == suppressed {
+        info!(
+            "{:?} to build and validate {} path(s) for {}",
+            duration2,
+            paths.len(),
+            cert_filename
+        );
+    } else {
+        info!(
+            "{:?} to build and validate {} path(s) for {}; {} of the {} offered had been reported already and were not validated again",
+            duration2,
+            paths.len() - suppressed,
+            cert_filename,
+            suppressed,
+            paths.len()
+        );
+    }
     Ok(())
 }
 

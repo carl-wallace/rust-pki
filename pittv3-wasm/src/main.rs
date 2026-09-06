@@ -762,7 +762,15 @@ fn App() -> Element {
         retained_paths
             .read()
             .iter()
-            .map(|r| path_entries(prepared.environment(), &r.path, Some(&r.cps), &r.cpr))
+            .map(|r| {
+                path_entries(
+                    prepared.environment(),
+                    &r.path,
+                    Some(&r.cps),
+                    &r.cpr,
+                    Some(r.duration_ms),
+                )
+            })
             .collect()
     };
 

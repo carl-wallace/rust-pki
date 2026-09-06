@@ -44,7 +44,15 @@ fn build_entries(artifacts: &RetainedArtifacts) -> Vec<Vec<(String, Vec<u8>)>> {
     };
     run.paths
         .iter()
-        .map(|r| path_entries(&run.environment, &r.path, Some(&r.cps), &r.cpr))
+        .map(|r| {
+            path_entries(
+                &run.environment,
+                &r.path,
+                Some(&r.cps),
+                &r.cpr,
+                Some(r.duration_ms),
+            )
+        })
         .collect()
 }
 
