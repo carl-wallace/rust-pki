@@ -1,0 +1,55 @@
+# Advisory scan over Cargo.lock, kept apart from certval.yml and pittv3-ui.yml because it
+# compiles nothing: cargo-audit reads the lockfile and the RustSec database and is done in
+# about a minute. It therefore carries none of their cost and none of their crate
+# exclusions -- the whole tree is scanned, UI crates included.
+#
+# There is deliberately no `schedule:` leg. A weekly cron over a dependency tree that
+# changes rarely reports the same thing most weeks, and the run it would replace is one
+# `workflow_dispatch` click. Worth knowing before adding one: a `schedule:` trigger fires
+# only from the default branch's copy of a workflow file, so a cron added on a topic branch
+# silently never runs.
+#
+# Advisories with no fix available to this workspace are listed in .cargo/audit.toml with
+# the reasoning and with what would make each removable, so a red run here means something
+# new or something now actionable rather than a standing condition nobody can clear. An
+# ignored advisory is dropped from the report rather than downgraded, so the second step
+# below lists them anyway without gating on them.
+name: audit
+
+on:
+  # A dependency change is the one event that introduces an advisory without the database
+  # moving, so it earns an automatic run; nothing else in a push can affect the result.
+  push:
+    branches: [main, pre-release]
+    paths:
+      - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/audit.yml
+  pull_request:
+    paths:
+      - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/audit.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # A prebuilt binary rather than `cargo install cargo-audit`, which spends longer
+      # building the tool than the scan itself takes.
+      - uses: taiki-e/install-action@cargo-audit
+      # Fetching the RustSec database is the only network this job does. A failure to reach
+      # it is reported as an error rather than as a finding, and the first line of output
+      # says which happened.
+      - run: cargo audit
+      # The same scan without the ignore list, so what is being allowed is visible in the log
+      # rather than only in the config file. cargo-audit reads .cargo/audit.toml relative to
+      # the working directory, so running from elsewhere bypasses it; this step reports the
+      # standing conditions and must not gate on them, which is the first step's job.
+      - name: standing advisories (not gating)
+        working-directory: /tmp
+        continue-on-error: true
+        run: cargo audit --no-yanked -f "$GITHUB_WORKSPACE/Cargo.lock"

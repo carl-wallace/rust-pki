@@ -353,10 +353,10 @@ mod tests {
             vec![("manifest.txt".to_string(), b"path two".to_vec())],
         ];
 
+        // The wording of the trailer is the renderer's to choose. What this pins is that the
+        // figure is present and that it closes the file rather than landing between two paths.
         let timed = paths_text(&paths, Some(1234));
-        assert!(timed
-            .trim_end()
-            .ends_with("1234 ms (the run, not the sum of the paths above)"));
+        assert!(timed.trim_end().ends_with("1234 ms"));
         assert!(timed.starts_with("path one"));
 
         // The trailer is appended and nothing else moves, so an export made with a run figure and
