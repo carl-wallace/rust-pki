@@ -219,7 +219,20 @@ pub fn zip_paths(name: &str, paths: &[Vec<ExportEntry>]) -> Result<Vec<u8>, Stri
 ///
 /// Taken back out of the same entries the archive carries rather than rendered a second time, so the
 /// two exports cannot disagree about what the run found.
-pub fn paths_text(paths: &[Vec<ExportEntry>]) -> String {
+///
+/// `run_ms` closes the log with what the run took. Every manifest already states what its own path
+/// took, but the run is not the paths added up -- retrieval, and whatever the run did between one
+/// path and the next, are in the run figure and in none of theirs -- so it is the one number a
+/// reader cannot recover from the file, and without it comparing this export against another means
+/// going back to a terminal that may be gone. It is an `Option` because a caller with no run to time
+/// has nothing honest to put there, and a zero would read as a run that took no time.
+///
+/// **This trailer is the one line the archive does not carry.** Every entry there lives under a
+/// path's folder, so there is nowhere run-level to put it; giving the archive a run-level file is a
+/// decision about its layout rather than a renderer that is merely missing. The per-path manifests
+/// remain identical in both, which is the property that matters: the concatenated log and the
+/// archived manifests are still one document, plus a line about the run that produced them.
+pub fn paths_text(paths: &[Vec<ExportEntry>], run_ms: Option<u64>) -> String {
     let mut out = String::new();
     for entries in paths {
         let Some((_, bytes)) = entries.iter().find(|(name, _)| name == MANIFEST_NAME) else {
@@ -227,6 +240,15 @@ pub fn paths_text(paths: &[Vec<ExportEntry>]) -> String {
         };
         out.push_str(&String::from_utf8_lossy(bytes));
         out.push('\n');
+    }
+
+    // Nothing rendered means there was nothing to save, and callers key on that. A trailer alone
+    // would turn "no paths" into a file reporting how long it took to find none.
+    if out.is_empty() {
+        return out;
+    }
+    if let Some(ms) = run_ms {
+        out.push_str(&format!("Time for the entire operation: {ms} ms\n"));
     }
     out
 }
@@ -306,7 +328,7 @@ mod tests {
             ],
             vec![("manifest.txt".to_string(), b"path two".to_vec())],
         ];
-        let text = paths_text(&paths);
+        let text = paths_text(&paths, None);
         assert!(text.contains("path one"));
         assert!(text.contains("path two"));
         // the DER rode along in the archive and must not appear in the log
@@ -317,6 +339,40 @@ mod tests {
     #[test]
     fn a_path_without_a_manifest_contributes_nothing_to_the_text() {
         let paths = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
-        assert!(paths_text(&paths).is_empty());
+        assert!(paths_text(&paths, None).is_empty());
+    }
+
+    /// The run figure closes the log because it is the one number the manifests cannot supply --
+    /// each states its own path, none states the run. It goes after every manifest so the file
+    /// still opens on the first path, and a caller that has no run to time gets the file it got
+    /// before.
+    #[test]
+    fn the_run_figure_closes_the_log_and_is_omitted_when_absent() {
+        let paths = vec![
+            vec![("manifest.txt".to_string(), b"path one".to_vec())],
+            vec![("manifest.txt".to_string(), b"path two".to_vec())],
+        ];
+
+        // The wording of the trailer is the renderer's to choose. What this pins is that the
+        // figure is present and that it closes the file rather than landing between two paths.
+        let timed = paths_text(&paths, Some(1234));
+        assert!(timed.trim_end().ends_with("1234 ms"));
+        assert!(timed.starts_with("path one"));
+
+        // The trailer is appended and nothing else moves, so an export made with a run figure and
+        // one made without describe the paths identically.
+        let untimed = paths_text(&paths, None);
+        assert!(!untimed.contains("1234"));
+        assert!(timed.starts_with(&untimed));
+    }
+
+    /// Nothing to save stays nothing to save: both frontends read an empty string as "no paths are
+    /// held" and say so instead of writing a file, so a trailer must not make one out of a run that
+    /// produced no paths.
+    #[test]
+    fn a_run_figure_alone_does_not_make_a_file() {
+        assert!(paths_text(&[], Some(1234)).is_empty());
+        let no_manifests = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
+        assert!(paths_text(&no_manifests, Some(1234)).is_empty());
     }
 }

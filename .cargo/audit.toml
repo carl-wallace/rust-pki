@@ -1,6 +1,14 @@
 # cargo-audit configuration for the certval workspace.
 #
-# RUSTSEC-2023-0071 — `rsa` "Marvin Attack" (potential key recovery via timing
+# Everything ignored here has no fix available to this workspace. The reasoning is written
+# out so a reader can judge it rather than trust it, and each entry says what would make it
+# removable. An ignored advisory is silent: cargo-audit drops it from the report entirely
+# rather than downgrading it to a warning, and the "allowed warnings" a run counts are the
+# unmaintained/unsound/yanked notices, which are a different mechanism. These comments are
+# therefore the only standing record of what is being allowed. The CI job re-runs the scan
+# from a directory that cannot see this file, so the list still appears in every run's log.
+#
+# RUSTSEC-2023-0071 -- `rsa` "Marvin Attack" (potential key recovery via timing
 # side-channels). No fixed release exists. certval's `rsa` usage is signature
 # VERIFICATION ONLY: `RsaPublicKey::verify` and `rsa::pss::VerifyingKey` in
 # certval/src/util/crypto.rs (the `Pkcs1v15Sign` there is the verify padding
@@ -8,5 +16,27 @@
 # signing operations in certval. The Marvin timing oracle requires private-key
 # (decrypt/sign) operations, so it is not applicable to certval's public-key-
 # only threat model. Revisit if a fixed `rsa` release ships.
+#
+# RUSTSEC-2026-0258 -- `h2` unbounded empty DATA frames. Two versions of `h2` are in the
+# tree and this covers only 0.3.27, which `actix-http` pins and nothing else in the lock
+# names. The 0.3 line was never patched: the advisory's patched range is `>= 0.4.16` and
+# there is no 0.3.x fix to move to. The instance `reqwest` and `hyper` use -- the one
+# certval and every pittv3 network path exercise -- was updated to 0.4.19 and is not
+# ignored. What remains is the HTTP/2 front of pittv3-service, where a remote party does
+# frame the input, so this is a real exposure held open by a dependency rather than a
+# judgement that it does not matter. Remove when actix-web moves to `h2` 0.4.
+#
+# RUSTSEC-2026-0195, RUSTSEC-2026-0194 -- `quick-xml` unbounded namespace-declaration
+# allocation and quadratic duplicate-attribute checking, both denial of service against a
+# parser fed hostile XML. Reached only through `wayland-scanner`, a build-time proc macro
+# compiled on Linux, whose input is the wayland protocol definitions shipped inside the
+# crate. No run reads XML through this path, so neither has an input to arrive on. The fix
+# is `quick-xml` 0.41, a semver-major bump owned by `wayland-client` and `rfd`. Remove when
+# that lands.
 [advisories]
-ignore = ["RUSTSEC-2023-0071"]
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0258",
+    "RUSTSEC-2026-0195",
+    "RUSTSEC-2026-0194",
+]

@@ -77,9 +77,14 @@ pub(crate) fn artifacts_archive(
 ///
 /// Taken from the same entries the archive is built from rather than rendered separately, so the two
 /// cannot disagree about what the run found.
-pub(crate) fn path_logs_text(artifacts: &RetainedArtifacts) -> Option<String> {
+///
+/// `run_ms` is the run-level figure from the report the results view is showing, which is the run
+/// these artifacts came from. It closes the log because no manifest can state it: each says what its
+/// own path took, and the difference between their sum and the run is the retrieval and the work
+/// between them.
+pub(crate) fn path_logs_text(artifacts: &RetainedArtifacts, run_ms: Option<u64>) -> Option<String> {
     let entries = build_entries(artifacts);
-    let text = paths_text(&entries);
+    let text = paths_text(&entries, run_ms);
     match text.is_empty() {
         true => None,
         false => Some(text),
@@ -96,6 +101,8 @@ mod tests {
     fn nothing_retained_yields_nothing_to_save() {
         let artifacts: RetainedArtifacts = Arc::new(Mutex::new(None));
         assert!(artifacts_archive(&artifacts, "run").unwrap().is_none());
-        assert!(path_logs_text(&artifacts).is_none());
+        assert!(path_logs_text(&artifacts, None).is_none());
+        // and a run figure does not conjure a log out of paths that are not held
+        assert!(path_logs_text(&artifacts, Some(1234)).is_none());
     }
 }

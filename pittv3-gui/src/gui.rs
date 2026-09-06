@@ -1516,7 +1516,9 @@ pub(crate) fn App() -> Element {
                 s_run_stamp().unwrap_or_else(now_as_unix_epoch),
             );
             spawn(async move {
-                match save::path_logs_text(&retained) {
+                // The run figure comes from the report on screen, which is the run these paths
+                // were retained from.
+                match save::path_logs_text(&retained, s_report().map(|r| r.duration_ms)) {
                     None => s_log
                         .write()
                         .push("No validated paths are held from this run to save".to_string()),
