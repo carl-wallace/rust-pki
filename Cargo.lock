@@ -5106,6 +5106,7 @@ name = "pittv3-gui-lib"
 version = "0.2.0-pre"
 dependencies = [
  "anyhow",
+ "base64ct",
  "certval 0.2.0-pre",
  "cms",
  "der",
@@ -5114,7 +5115,6 @@ dependencies = [
  "home",
  "log",
  "log4rs",
- "pem-rfc7468",
  "pittv3-lib",
  "serde",
  "serde_json",

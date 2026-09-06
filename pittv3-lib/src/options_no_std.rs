@@ -39,6 +39,7 @@ use certval::*;
 use log::{error, info};
 
 use crate::args::Pittv3Args;
+use crate::der_or_pem::maybe_pem;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
@@ -98,16 +99,20 @@ pub fn options_no_std(args: &Pittv3Args) {
     for ee in ee_bap.into_parts().0 {
         stats.init_for_target(ee.filename.as_str());
         if let Some(stats_for_file) = stats.get_mut(ee.filename.as_str()) {
-            let b = if ee.bytes[0] != 0x30 {
-                match pem_rfc7468::decode_vec(&ee.bytes) {
-                    Ok(b) => b.1,
-                    Err(e) => {
-                        error!("Failed to parse certificate from {}: {}", ee.filename, e);
-                        return;
-                    }
+            // maybe_pem rather than a strict decoder, so a baked-in target may be DER, PEM or
+            // base64 that arrived with no encapsulation boundaries. It also answers for an empty
+            // buffer, which indexing the first byte here did not.
+            let b = match maybe_pem(&ee.bytes) {
+                Ok(b) => b,
+                Err(_e) => {
+                    // Continue rather than return: one unreadable target used to end the run, so
+                    // every target after it went unvalidated and unreported.
+                    error!(
+                        "Failed to parse certificate from {}: the file is not DER, PEM or base64",
+                        ee.filename
+                    );
+                    continue;
                 }
-            } else {
-                ee.bytes
             };
 
             let _ = validate_cert(&pe, &cps, ee.filename.as_str(), &b, stats_for_file, args);

@@ -39,9 +39,6 @@ der = { version = "0.8.1", default-features = false, features = ["alloc", "oid"]
 dioxus = { version = "0.7.9", default-features = false, features = ["launch", "logger", "lib"] }
 
 log = {version = "0.4.33"}
-# PEM decoding for uploaded trust material, and the PQC-hackathon zip reader; both are inputs
-# to the shared validation path in validate.rs rather than anything frontend-specific.
-pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
@@ -70,6 +67,9 @@ remote = ["certval/remote", "pittv3-lib/remote", "revocation", "std"]
 pqc = ["certval/pqc", "pittv3-lib/pqc"]
 webpki = ["certval/webpki", "pittv3-lib/webpki"]
 gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
+
+[dev-dependencies]
+base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }
 
 [package.metadata.docs.rs]
 all-features = true

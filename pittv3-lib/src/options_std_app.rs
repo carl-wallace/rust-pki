@@ -51,6 +51,7 @@ use std::path::Path;
 use certval::*;
 
 use crate::args::Pittv3Args;
+use crate::der_or_pem::maybe_pem;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
@@ -125,22 +126,22 @@ pub fn options_std_app(args: &Pittv3Args) {
         stats.init_for_target(filename);
         if let Some(stats_for_file) = stats.get_mut(filename) {
             match get_file_as_byte_vec(Path::new(filename)) {
-                Ok(target) => {
-                    let b = if target[0] != 0x30 {
-                        match pem_rfc7468::decode_vec(&target) {
-                            Ok(b) => b.1,
-                            Err(e) => {
-                                error!("Failed to parse certificate from {}: {}", filename, e);
-                                return;
-                            }
-                        }
-                    } else {
-                        target
-                    };
-
+                // maybe_pem rather than a strict decoder, as file may be DER, PEM or raw base64.
+                // It also handles for an empty file, which indexing the first byte here did not.
+                Ok(target) => match maybe_pem(&target) {
                     // validate when validating all or we don't have a definitive answer yet
-                    let _ = validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
-                }
+                    Ok(b) => {
+                        let _ =
+                            validate_cert(&pe, &cps, filename.as_str(), &b, stats_for_file, args);
+                    }
+                    // Report rather than return: the stats below are the run's only output, and
+                    // ending here left a target named on the command line with no result at all.
+                    Err(_e) => {
+                        error!(
+                            "Failed to parse certificate from {filename}: the file is not DER, PEM or base64"
+                        );
+                    }
+                },
                 Err(e) => {
                     println!("Failed to read file at {} with {}", filename, e);
                 }
@@ -195,7 +196,7 @@ pub fn options_std_app(args: &Pittv3Args) {
             for ekey in ec {
                 info!(
                     "\t\t - {:?}: {} - Result folder indices: {:?}",
-                    ekey.0, ekey.1, &error_indices[k][ekey.0]
+                    ekey.0, ekey.1, error_indices[k][ekey.0]
                 );
             }
         }
