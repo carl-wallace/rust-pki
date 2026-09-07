@@ -59,9 +59,6 @@ pub struct Pittv3Args {
     /// A Microsoft CryptoAPI store that dynamic building writes the certificates it fetches into,
     /// named the same way as `capi_ta_stores`, so that a later run starts from what this one
     /// found. The store is also read at the start of the run, as `capi_ca_stores` would.
-    ///
-    /// Singular where the read-only forms are plural: certificates are fetched to exactly one
-    /// place, which is the same reason `download_folder` is singular.
     #[cfg(all(windows, feature = "capi"))]
     pub capi_ca_store_rw: Option<String>,
 

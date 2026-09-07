@@ -38,11 +38,11 @@ pub struct Pittv3CliArgs {
     #[clap(long, help_heading = "COMMON OPTIONS")]
     pub webpki_tas: bool,
 
-    /// Microsoft CryptoAPI store to read trust anchors from, named Location\Name, e.g.
-    /// LocalMachine\ROOT, or as a bare store name for a current-user store. May be given more than
-    /// once; the anchors are combined with those from the other trust anchor options. Machine
-    /// stores need an elevated process. Note that CurrentUser\ROOT already includes the machine's
-    /// anchors.
+    /// Microsoft CryptoAPI store to read trust anchors from, named Location\Name -- usually
+    /// CurrentUser\ROOT or LocalMachine\ROOT -- or as a bare store name for a current-user store.
+    /// May be given more than once; the anchors are combined with those from the other trust anchor
+    /// options. Machine stores need an elevated process. Note that CurrentUser\ROOT already
+    /// includes the machine's anchors.
     #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ta",
@@ -52,7 +52,8 @@ pub struct Pittv3CliArgs {
     pub capi_ta_stores: Vec<String>,
 
     /// Microsoft CryptoAPI store to read intermediate CA certificates from, named as for
-    /// --capi-ta. May be given more than once.
+    /// --capi-ta and usually CurrentUser\CA or LocalMachine\CA. May be given more than once to
+    /// target different CAPI stores.
     #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ca",
@@ -62,8 +63,9 @@ pub struct Pittv3CliArgs {
     pub capi_ca_stores: Vec<String>,
 
     /// Microsoft CryptoAPI store that dynamic building writes fetched certificates into, named as
-    /// for --capi-ta, so a later run starts from what this one found. Read at the start of the run
-    /// as --capi-ca would be. Requires --dynamic-build to have anything to write.
+    /// for --capi-ta and usually CurrentUser\CA, so a later run starts from what this one found.
+    /// Read at the start of the run as --capi-ca would be. Requires --dynamic-build to have
+    /// anything to write, and a machine store needs an elevated process to write to.
     #[cfg(all(windows, feature = "capi"))]
     #[clap(
         long = "capi-ca-rw",
