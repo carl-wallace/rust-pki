@@ -5,6 +5,14 @@
 //! being written once per frontend. The text is taken from the `Pittv3Args` field documentation,
 //! which is the canonical description of what each argument does.
 //!
+//! **Where the two frontends do not offer the same thing, the wording here follows the GUI.** The
+//! CAPI arguments are the case today: the CLI takes any store name and so has to explain the
+//! `Location\Name` syntax, while the GUI offers two Windows stores as selector entries and accepts
+//! no name at all. Text covering both would carry a syntax one of them cannot use, so those entries
+//! read as the control does and the CLI keeps its own fuller wording in `cliargs.rs`. Copying a
+//! field's documentation verbatim is how the opposite happens -- maintainer rationale and
+//! command-line conventions arriving in a tooltip that has neither.
+//!
 //! Names are the kebab-case form the frontends already use for their form controls, which is also
 //! the CLI's long-flag spelling. Where a field exists as cfg-gated variants with different wording
 //! (`validate_all` is the one today), this uses the `std_app` spelling, since that is what the CLI
@@ -33,6 +41,18 @@ pub fn arg_help(name: &str) -> &'static str {
             "still work and are used alongside it.",
         ),
         "webpki-tas" => "Use trust anchors from webpki-roots crate (which are from Mozilla)",
+        // Keyed by the CLI long flag -- `--capi-ta`, not the `capi_ta_stores` field it fills. The
+        // two diverge for these three alone, so a key derived from the field name would return ""
+        // and the control would lose its explanation with nothing failing.
+        // The GUI offers two Windows stores as selector entries and takes no store name, so these
+        // deliberately differ from the CLI wording: the Location\Name syntax is a command-line
+        // concern and has no place on a control that cannot accept one.
+        "capi-ta" => "Windows certificate store containing trust anchors to use.",
+        "capi-ca" => "Windows certificate store containing intermediate CA certificates to use.",
+        "capi-ca-rw" => concat!(
+            "Windows certificate store that dynamic building writes fetched certificates into, so a ",
+            "later run starts from what this one found. Also read at the start of the run.",
+        ),
         "cbor" => concat!(
             "Full path and filename of file to provide and/or receive CBOR-formatted representation of ",
             "buffers containing binary DER-encoded CA certificates and map containing set of partial ",
@@ -248,6 +268,18 @@ mod tests {
         assert!(!help.is_empty());
         assert!(help.contains("revocation data of"));
         assert!(help.contains("carries no evidence"));
+    }
+
+    /// The three CAPI arguments are keyed by their CLI long flags, which are shorter than the
+    /// fields they fill (`--capi-ta` sets `capi_ta_stores`). Deriving a key from the field name is
+    /// the mistake this guards: `arg_help` answers "" for an unknown name rather than failing, so a
+    /// row asking under the wrong spelling shows an empty tooltip and nothing reports it.
+    #[test]
+    fn the_capi_arguments_are_keyed_by_flag_not_by_field() {
+        assert!(arg_help("capi-ta").contains("trust anchors"));
+        assert!(arg_help("capi-ca").contains("intermediate CA certificates"));
+        assert!(arg_help("capi-ca-rw").contains("dynamic building"));
+        assert_eq!(arg_help("capi-ta-stores"), "");
     }
 
     /// `validate_all` is declared twice in `Pittv3Args` behind opposing `std_app` gates. The help
