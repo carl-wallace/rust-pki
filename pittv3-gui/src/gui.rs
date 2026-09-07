@@ -22,7 +22,9 @@ use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 use std::sync::Mutex;
 
 use crate::save::{self, RetainedArtifacts};
-use pittv3_gui_lib::export::{stamped_export_name, DEFAULT_EXPORT_NAME};
+use pittv3_gui_lib::export::{
+    ca_store_among, stamped_export_name, ta_store_among, RunInputs, DEFAULT_EXPORT_NAME,
+};
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
@@ -113,6 +115,32 @@ async fn export_store_into(index: usize, mut status: Signal<String>) {
             status.set(format!("Export failed: {msg}"));
         }
     }
+}
+
+/// Reads one of the CBOR files a run was pointed at, for the bundle's inputs half.
+///
+/// A missing or unreadable file is not an error worth failing a save over: the bundle is still
+/// worth having without it, and the command line it carries names only the files that are actually
+/// there. Silence here is the same silence as a run whose anchors certval builds rather than reads.
+fn read_input_file(path: &Option<String>) -> Option<Vec<u8>> {
+    std::fs::read(path.as_ref()?).ok()
+}
+
+/// Reads the run's pooled inputs so a store dropped into a pool can be found among them.
+///
+/// The singular CBOR arguments are not the only way a store reaches a run: the Validate view's
+/// pools take one too, and both apps accept a `.cbor` store wherever they accept a certificate. A
+/// bundle that looked only at the singular arguments therefore lost `ca.cbor` whenever the store
+/// had been dropped on the pool -- which is exactly what loading one bundle into the desktop looks
+/// like, so a bundle made from a bundle came out without the store it had just been given.
+///
+/// Entries that are folders or unreadable are skipped; the caller decides which of the readable
+/// ones is a store, using the same test the validator uses.
+fn read_pool(paths: &[String]) -> Vec<(String, Vec<u8>)> {
+    paths
+        .iter()
+        .filter_map(|p| std::fs::read(p).ok().map(|b| (p.clone(), b)))
+        .collect()
 }
 
 /// Writes the environment a run over the current inputs validates against, as the two files that
@@ -1191,6 +1219,11 @@ pub(crate) fn App() -> Element {
     // save gave one run two names differing by however long the user took between clicks. `None`
     // until a run starts, which the save buttons are disabled for anyway.
     let mut s_run_stamp = use_signal(|| None::<u64>);
+    // What the last run was launched with, kept for the bundle's inputs half. Held rather than
+    // re-read at save time for the same reason the stamp is: the form goes on being editable after
+    // a run, and a bundle that reports the form describes inputs its evidence was not produced
+    // under. Set beside the stamp so the two cannot disagree about which run they describe.
+    let mut s_run_inputs = use_signal(|| None::<(Pittv3Args, Option<String>)>);
     let mut s_export_name = use_signal(|| DEFAULT_EXPORT_NAME.to_string());
     // Whether the last run left anything to save. The artifacts live behind a mutex the worker
     // thread fills, which the rsx cannot observe, so the buttons key off this instead.
@@ -1400,6 +1433,7 @@ pub(crate) fn App() -> Element {
             }
             s_can_export.set(false);
             s_run_stamp.set(Some(now_as_unix_epoch()));
+            s_run_inputs.set(Some((args.clone(), stores::env_for(s_store()))));
             let run_cache = rev_cache.clone();
             let run_prepared = prepared_graph.clone();
             let run_retained = retained.clone();
@@ -1490,8 +1524,44 @@ pub(crate) fn App() -> Element {
                 &s_export_name(),
                 s_run_stamp().unwrap_or_else(now_as_unix_epoch),
             );
+            // The environment halves, from the run's cache where there is one and from the files
+            // the run read where there is not.
+            //
+            // **The cache is not enough on its own, which is what the first bundles showed.**
+            // `fingerprint_for_args` answers `None` for a store used by itself, because such a
+            // store already carries its partial paths and nothing needs building -- so the most
+            // ordinary run there is produced a bundle with no environment in it at all, and a
+            // command line that would have found no trust anchors. The cache is preferred because
+            // it holds what a built graph actually became; the files are the fallback and are the
+            // same bytes for a store that was only read.
+            let inputs = match s_run_inputs() {
+                None => RunInputs::default(),
+                Some((args, store)) => {
+                    let fingerprint = graph_cache::fingerprint_for_args(&args);
+                    RunInputs {
+                        anchors: fingerprint
+                            .as_deref()
+                            .and_then(graph_cache::cached_anchors)
+                            .or_else(|| read_input_file(&args.ta_cbor))
+                            .or_else(|| ta_store_among(&read_pool(&args.ta_inputs))),
+                        // The store as the run read it, always, so it stays comparable -- from
+                        // the singular argument, or from whichever pooled input is itself a store.
+                        graph: read_input_file(&args.cbor)
+                            .or_else(|| ca_store_among(&read_pool(&args.ca_inputs))),
+                        // And what the run made of it, when it built anything. Kept alongside
+                        // rather than written over `ca.cbor`, which is what this did at first --
+                        // a built graph saved under that name looks like a store snapshot and is
+                        // not one, and nothing in the file says so.
+                        built_graph: fingerprint.as_deref().and_then(graph_cache::cached),
+                        validate_all: args.validate_all,
+                        store,
+                        ..Default::default()
+                    }
+                }
+            };
+            let run_ms = s_report().map(|r| r.duration_ms);
             spawn(async move {
-                match save::artifacts_archive(&retained, &name) {
+                match save::artifacts_archive(&retained, &name, inputs, run_ms) {
                     Ok(None) => s_log
                         .write()
                         .push("No validated paths are held from this run to save".to_string()),

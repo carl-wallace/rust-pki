@@ -64,6 +64,15 @@ pub struct RetainedRun {
     /// The environment the run was carried out against, kept alive so revocation artifacts can be
     /// recovered from the sources registered on it
     pub environment: PkiEnvironment,
+    /// The settings the run was carried out under, after the run's own setup has been folded in --
+    /// the time of interest it settled on, and whatever generation adjusted -- and before any
+    /// path's RFC 5937 anchor constraints are folded in.
+    ///
+    /// **This is the run's, and `RetainedPath::cps` is the path's.** A bundle meant to be replayed
+    /// wants this one: the per-path settings describe a judgment already made under constraints a
+    /// replay would derive again for itself. Reading the settings file back at export time would be
+    /// the wrong answer too, since the file may have changed and the run's setup is not in it.
+    pub cps: CertificationPathSettings,
     /// Every path validated during the run, in the order they were reported
     pub paths: Vec<RetainedPath>,
 }

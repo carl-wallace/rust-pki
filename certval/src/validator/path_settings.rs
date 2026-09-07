@@ -847,6 +847,17 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
     Ok(CertificationPathSettings::new())
 }
 
+/// Setting names a file may still carry that no longer do anything.
+///
+/// Public because more than one place has to agree about them: this module warns when a file
+/// carries one, and a caller writing settings out for someone else to reuse has reason to leave
+/// them behind rather than pass on a name that will only be warned about again. A list kept in two
+/// places would drift, and the drift would be silent in both.
+///
+/// Not gated on `std`: the names are facts about the format, and a no-std caller writing settings
+/// for someone else to read has the same reason to know them.
+pub const RETIRED_SETTINGS_KEYS: [&str; 2] = ["psLastModifiedMapFile", "psUriBlocklistFile"];
+
 /// Names a settings file may still carry that no longer do anything.
 ///
 /// Both once pointed the last-modified map and the URI blocklist somewhere other than the folder
@@ -856,7 +867,7 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
 /// silently — the value is visibly there and its effect is not.
 #[cfg(feature = "std")]
 fn warn_retired_keys(cps: &CertificationPathSettings) {
-    for key in ["psLastModifiedMapFile", "psUriBlocklistFile"] {
+    for key in RETIRED_SETTINGS_KEYS {
         if cps.0.contains_key(key) {
             log::warn!(
                 "Ignoring {key}: the last-modified map and the URI blocklist are kept in the folder they describe and can no longer be relocated"
