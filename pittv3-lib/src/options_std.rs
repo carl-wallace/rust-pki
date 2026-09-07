@@ -1283,9 +1283,10 @@ async fn generate_and_validate(
         // later passes only what came back from AIA and SIA, since the source is the same one.
         //
         // Skipped entirely on pass 0 for a graph that came out of memory, which arrives parsed and
-        // indexed. Not merely redundant: `index_certs` rebuilds both maps whether or not anything
-        // was added to parse, so calling it would give back the larger half of what holding the
-        // graph saved.
+        // indexed. `initialize` would find nothing to parse and skip the reindex on its own, so
+        // this is belt and braces rather than the only thing standing between the memory tier and a
+        // full rebuild of both maps -- kept because the guard states the condition here, where the
+        // graph is held, instead of leaving it to a return value in another crate.
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
         if !(graph_already_parsed && 0 == pass) {

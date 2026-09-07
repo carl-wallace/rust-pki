@@ -520,12 +520,16 @@ impl CertSource {
     /// Processes any buffers passed to the instance, i.e., via new_from_cbor
     ///
     /// Can be called again after more buffers have been added with only the ones not already parsed
-    /// beung parsed, and the key identifier and name maps are rebuilt over the result. That allows a
+    /// being parsed, and the key identifier and name maps are rebuilt over the result. That allows a
     /// caller to have one instance while appending certificates fetched from AIA and SIA instead of
     /// discarding it and deserializing a fresh one to get a vector that lines up with its buffers.
     pub fn initialize(&mut self, cps: &CertificationPathSettings) -> Result<()> {
-        self.populate_parsed_cert_vector(cps)?;
-        self.index_certs();
+        // Both maps are rebuilt from `certs`, so running them over an unchanged vector produces
+        // exactly what is already there. Parsing reports whether it appended anything, which is
+        // the same question.
+        if self.populate_parsed_cert_vector(cps)? {
+            self.index_certs();
+        }
         Ok(())
     }
 
@@ -985,7 +989,7 @@ impl CertSource {
     ///
     /// Only the buffers that have not been parsed yet are parsed, with the index alignment determining
     /// which.
-    fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<()> {
+    fn populate_parsed_cert_vector(&mut self, cps: &CertificationPathSettings) -> Result<bool> {
         let time_of_interest = cps.get_time_of_interest();
         let already_parsed = self.certs.len();
         for (i, cert_file) in self
@@ -1039,7 +1043,12 @@ impl CertSource {
                 self.certs.push(None);
             }
         }
-        Ok(())
+        // Whether anything was appended, so a caller knows whether the maps built over `certs` are
+        // still current. One entry is pushed per buffer processed -- a certificate that fails to
+        // parse or is invalid at the time of interest pushes `None` rather than being skipped,
+        // since the positions are what the maps and the partial paths address -- so the length
+        // answers it exactly.
+        Ok(already_parsed != self.certs.len())
     }
 
     /// index_certs prepares internally used key identifier and name maps after the caller has modified
