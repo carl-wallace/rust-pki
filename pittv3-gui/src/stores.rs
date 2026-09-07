@@ -173,6 +173,19 @@ pub(crate) const STORES: &[BuiltInStore] = &[
 /// Label for the selector entry at [`CUSTOM`].
 pub(crate) const CUSTOM_LABEL: &str = "Custom (use the paths below)";
 
+/// How a bundle records which store a run's environment came from.
+///
+/// The provider environment rather than the display label, because it is the name that also names
+/// the cache folder and is stable across wording changes to the selector. It identifies the store,
+/// not the snapshot -- `NIPR` is not a store, a particular snapshot of NIPR is -- which is why the
+/// bundle carries the material alongside the name rather than relying on it.
+pub(crate) fn env_for(index: usize) -> Option<String> {
+    if index == CUSTOM {
+        return None;
+    }
+    STORES.get(index - 1).map(|s| s.env.to_string())
+}
+
 /// The folder built-in stores are written to, `stores` beneath the application home.
 fn store_home() -> Option<PathBuf> {
     Some(app_home()?.join("stores"))

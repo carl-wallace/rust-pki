@@ -1624,6 +1624,10 @@ async fn generate_and_validate(
     if let Some(slot) = kept {
         *slot = Some(RetainedRun {
             environment: pe,
+            // The run's settings as the run ended up using them. Taken here rather than where they
+            // were read, so the time of interest and whatever generation adjusted are included; the
+            // per-target loop only reads them, so this is still the run's and not the last target's.
+            cps: cps.clone(),
             paths: retained,
         });
     }

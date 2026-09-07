@@ -40,6 +40,9 @@ dioxus = { version = "0.7.9", default-features = false, features = ["launch", "l
 
 log = {version = "0.4.33"}
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# Names every exported artifact by the digest of its own bytes, so a bundle entry can be verified
+# by recomputing it. Same version pittv3-lib already resolves, so no crate is added to any build.
+sha2 = { version = "0.11.0", default-features = false }
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 # Instant that works on wasm as well as the host, for the validation timing in validate.rs.

@@ -5118,6 +5118,7 @@ dependencies = [
  "pittv3-lib",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "web-time",
  "x509-cert",
  "x509-ocsp",

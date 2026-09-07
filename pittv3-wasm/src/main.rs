@@ -28,7 +28,8 @@ use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
 
 use pittv3_gui_lib::export::{
-    path_entries, paths_text, stamped_export_name, zip_paths, DEFAULT_EXPORT_NAME,
+    ca_store_among, path_entries, paths_text, stamped_export_name, ta_store_among, zip_bundle,
+    RunInputs, DEFAULT_EXPORT_NAME,
 };
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
@@ -546,6 +547,13 @@ fn App() -> Element {
     // the path log carry the same name rather than one each, stamped however long apart the two
     // buttons were clicked. `None` until a run starts.
     let mut run_stamp = use_signal(|| None::<u64>);
+    // The store halves the prepared environment was built from, kept so a bundle carries the
+    // material rather than a store name. Asking the service for them again at save time would be
+    // asking for whatever it holds then, which is the thing a bundle exists to pin down.
+    let mut store_material = use_signal(|| None::<(Vec<u8>, Vec<u8>)>);
+    // What the last run was carried out with. Set where the paths are retained, so the inputs half
+    // of a bundle and its paths half necessarily describe the same run.
+    let mut run_inputs = use_signal(|| None::<RunInputs>);
 
     // What asking a service for its stores produced, in a sentence, for the Resources view. A
     // statically hosted copy finding no service is the ordinary case and not a failure, but "the
@@ -792,7 +800,8 @@ fn App() -> Element {
             &export_name(),
             run_stamp().unwrap_or_else(now_as_unix_epoch),
         );
-        match zip_paths(&name, &entries) {
+        let inputs = run_inputs().unwrap_or_default();
+        match zip_bundle(&name, &entries, &inputs, Some(run_ms())) {
             Ok(zipped) => {
                 let js = format!(
                     "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{name}.zip\"; a.click();",
@@ -989,6 +998,7 @@ fn App() -> Element {
         let store = store_bytes
             .as_ref()
             .map(|(ta, ca)| (label.as_str(), ta.as_slice(), ca.as_slice()));
+        store_material.set(store_bytes.clone());
         // Uploaded and retrieved intermediates go into one pool: certval builds paths through
         // whatever it holds, and where a certificate came from is a matter for the notes rather
         // than for path building.
@@ -1225,6 +1235,36 @@ fn App() -> Element {
         let (reports, lines, retained) =
             validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);
         retained_paths.set(retained);
+        run_inputs.set(Some(RunInputs {
+            // The selected store's halves, or -- when the material was uploaded rather than
+            // selected, which is what a bundle fed back in looks like -- whichever upload is
+            // itself a store. Without the second half a bundle made from a bundle lost `ta.cbor`
+            // and `ca.cbor` entirely.
+            anchors: store_material()
+                .map(|(ta, _)| ta)
+                .or_else(|| ta_store_among(&uploaded_tas())),
+            graph: store_material()
+                .map(|(_, ca)| ca)
+                .or_else(|| ca_store_among(&uploaded_cas())),
+            // The browser fetches a store and validates against it; there is no separate built
+            // graph here to keep alongside, so this half is the desktop's alone.
+            built_graph: None,
+            settings: Some(cps.clone()),
+            end_entities: loaded_ees(),
+            anchors_used: retained_paths
+                .read()
+                .iter()
+                .map(|r| r.path.trust_anchor.encoded_ta.clone())
+                .collect(),
+            intermediates: retained_paths
+                .read()
+                .iter()
+                .flat_map(|r| r.path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()))
+                .collect(),
+            time_of_interest: cps.get_time_of_interest().as_unix_secs(),
+            validate_all: validate_all(),
+            store: catalog().get(mode()).map(|s| s.id.clone()),
+        }));
         drop(guard);
         notes.write().extend(lines);
         targets.write().extend(reports);
