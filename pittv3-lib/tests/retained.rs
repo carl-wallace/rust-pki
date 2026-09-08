@@ -81,17 +81,31 @@ fn retained_paths_are_kept_only_when_asked() {
     let targets = targets(flavor);
 
     // Declining to retain costs the caller nothing and yields nothing to export from.
-    let (report, retained): (_, Vec<RetainedPath>) = tokio_test::block_on(
-        validate_targets_retaining(&pe, &cps, &targets, &ValidateOpts::default(), None, false),
-    );
+    let (report, retained): (_, Vec<RetainedPath>) =
+        tokio_test::block_on(validate_targets_retaining(
+            &pe,
+            &cps,
+            &targets,
+            &ValidateOpts::default(),
+            None,
+            false,
+            None,
+        ));
     assert!(retained.is_empty());
     let paths_reported = report.totals.paths_found;
     assert!(paths_reported > 0, "the run found no paths to retain");
 
     // Retaining yields exactly the paths the report accounts for, failures included.
-    let (report, retained): (_, Vec<RetainedPath>) = tokio_test::block_on(
-        validate_targets_retaining(&pe, &cps, &targets, &ValidateOpts::default(), None, true),
-    );
+    let (report, retained): (_, Vec<RetainedPath>) =
+        tokio_test::block_on(validate_targets_retaining(
+            &pe,
+            &cps,
+            &targets,
+            &ValidateOpts::default(),
+            None,
+            true,
+            None,
+        ));
     assert_eq!(retained.len(), report.totals.paths_found);
     assert_eq!(retained.len(), paths_reported);
     assert!(retained.iter().any(|r| r.target_name == "valid"));
@@ -120,6 +134,7 @@ fn a_retained_path_carries_what_an_export_needs() {
             &ValidateOpts::default(),
             None,
             true,
+            None,
         ));
 
     let valid: &RetainedPath = retained

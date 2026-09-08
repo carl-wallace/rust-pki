@@ -17,6 +17,7 @@ use certval::{
     CertificationPath, CertificationPathResults, CertificationPathSettings, PkiEnvironment,
 };
 use pittv3_lib::pitt_log::{cpr_artifact_entries, render_path_manifest};
+use pittv3_lib::uri_check::UriCheckReports;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
@@ -141,6 +142,7 @@ pub fn path_entries(
     cps: Option<&CertificationPathSettings>,
     cpr: &CertificationPathResults,
     duration_ms: Option<u64>,
+    uri_reports: Option<&UriCheckReports>,
 ) -> Vec<ExportEntry> {
     let mut artifacts = vec![];
 
@@ -163,7 +165,7 @@ pub fn path_entries(
     let mut out = vec![];
 
     let mut log = Vec::new();
-    render_path_manifest(pe, &mut log, path, cpr, cps, duration_ms);
+    render_path_manifest(pe, &mut log, path, cpr, cps, duration_ms, uri_reports);
     out.push((PATH_LOG_NAME.to_string(), log));
     out.push((
         PATH_MANIFEST_NAME.to_string(),

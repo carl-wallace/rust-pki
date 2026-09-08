@@ -158,6 +158,14 @@ pub struct Pittv3CliArgs {
     #[clap(short, long, help_heading = "VALIDATION")]
     pub validate_all: bool,
 
+    /// Run the URI checker over every certificate on each validated path, appending the results to
+    /// that path's log. Each distinct certificate is checked once per run and reported in every
+    /// path it appears on. Trust anchors are scanned for their SIA only, having no issuer to name
+    /// and no revocation a run consults. Requires network access.
+    #[cfg(all(feature = "std_app", feature = "remote"))]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub check_uris_when_validating: bool,
+
     /// Check if certificate passed as end_entity_file is self-signed.
     #[cfg(feature = "std_app")]
     #[clap(long, help_heading = "VALIDATION")]
@@ -383,6 +391,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             #[cfg(feature = "std")]
             cbor_ta_store: v.cbor_ta_store,
             validate_all: v.validate_all,
+            #[cfg(all(feature = "std_app", feature = "remote"))]
+            check_uris_when_validating: v.check_uris_when_validating,
             #[cfg(feature = "std_app")]
             validate_self_signed: v.validate_self_signed,
             #[cfg(feature = "remote")]

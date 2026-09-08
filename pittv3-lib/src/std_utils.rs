@@ -19,6 +19,9 @@ use certval::util::pdv_utilities::*;
 use certval::*;
 
 use crate::pitt_log::*;
+use crate::uri_check::UriCheckReports;
+#[cfg(feature = "remote")]
+use crate::uri_check::{check_uris_in_cert, ReqwestFetcher, UriCheckOptions};
 use crate::{
     args::Pittv3Args,
     report::{
@@ -541,6 +544,12 @@ pub struct ValidateOpts {
     /// matched to path positions by the `CertID` each response answers about rather than by issuer
     /// name: a response names one certificate, where a CRL covers all of an issuer's
     pub ocsp_responses: Vec<Vec<u8>>,
+    /// Run the URI checker over each path's certificates and append the results to that path's log.
+    ///
+    /// The results accumulate across every target in the run, so a certificate common to many paths
+    /// is fetched for once. See `check_uris_when_validating` on [`Pittv3Args`].
+    #[cfg(feature = "remote")]
+    pub check_uris: bool,
 }
 
 impl ValidateOpts {
@@ -558,6 +567,8 @@ impl ValidateOpts {
             // called once per target: `options_std` reads the pool once and assigns it.
             crls: vec![],
             ocsp_responses: vec![],
+            #[cfg(feature = "remote")]
+            check_uris: args.check_uris_when_validating,
         }
     }
 }
@@ -781,6 +792,7 @@ pub(crate) async fn validate_cert_file(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
     retain: Option<&mut Vec<RetainedPath>>,
+    uri_reports: Option<&mut UriCheckReports>,
 ) -> Result<()> {
     // A file the walk admitted and the reader cannot deliver never becomes a target, so record why
     // here: nothing downstream sees this file again, and without it the entry reaches the report as
@@ -802,6 +814,7 @@ pub(crate) async fn validate_cert_file(
         fresh_uris,
         threshold,
         retain,
+        uri_reports,
     )
     .await
 }
@@ -862,8 +875,56 @@ pub async fn validate_cert_bytes(
         fresh_uris,
         threshold,
         None,
+        None,
     )
     .await
+}
+
+/// Checks the URIs of every certificate on `path` that has not been checked already this run, and
+/// records the results in `reports`.
+///
+/// **Checked here, as each path is validated, rather than in a pass afterwards.** The manifests are
+/// written as the run goes, so a later pass would have to rewrite files it had already produced; and
+/// the fetches belong to the run whose log records them either way. `reports` carries across every
+/// target, so an intermediate common to forty paths is fetched for once and rendered forty times.
+///
+/// Each certificate's issuer is the one before it on the path, which is what lets the checker verify
+/// a CRL signature and ask an OCSP responder rather than only reporting reachability. The anchor has
+/// none, and is scanned for its SIA alone -- see `uri_check::check_uris_in_cert`.
+#[cfg(feature = "remote")]
+async fn check_path_uris(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    path: &CertificationPath,
+    reports: &mut UriCheckReports,
+) {
+    let mut ordered: Vec<Vec<u8>> = vec![path.trust_anchor.encoded_ta.clone()];
+    ordered.extend(path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()));
+    ordered.push(path.target.as_bytes().to_vec());
+
+    let fetcher = ReqwestFetcher::new();
+    for (i, der) in ordered.iter().enumerate() {
+        if reports.contains(der) {
+            continue;
+        }
+        let issuer = match i {
+            0 => None,
+            _ => ordered.get(i - 1).map(|b| b.as_slice()),
+        };
+        // `auto_discover` off: the issuer is known from the path, so following an AIA pointer to
+        // find one would be answering a question this run has already answered -- and adopting
+        // whatever that pointer returned instead of the certificate actually used.
+        //
+        // The anchor is position 0 of this path, which is the only sense of "anchor" that decides
+        // what to scan -- see `UriCheckOptions::is_trust_anchor`.
+        let opts = UriCheckOptions {
+            auto_discover: false,
+            is_trust_anchor: i == 0,
+            blocklist: &[],
+        };
+        let report = check_uris_in_cert(pe, cps, &fetcher, der, issuer, opts).await;
+        reports.insert(der.clone(), report);
+    }
 }
 
 /// As [`validate_cert_bytes`], additionally pushing each validated path onto `retain` when one is
@@ -888,6 +949,7 @@ pub async fn validate_cert_bytes_retaining(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
     mut retain: Option<&mut Vec<RetainedPath>>,
+    mut uri_reports: Option<&mut UriCheckReports>,
 ) -> Result<()> {
     let time_of_interest = cps.get_time_of_interest();
     let cert_filename = name;
@@ -1049,14 +1111,27 @@ pub async fn validate_cert_bytes_retaining(
         // Taken before the results folder is written so it measures building and validating the
         // path, which is what the field says it is, rather than that plus a directory of files.
         let duration_ms = (Instant::now() - path_start).as_millis() as u64;
+
+        // Before the manifest is written, because the manifest is where the results go. Certificates
+        // already checked under an earlier path cost nothing here.
+        #[cfg(feature = "remote")]
+        if opts.check_uris {
+            if let Some(reports) = uri_reports.as_deref_mut() {
+                check_path_uris(pe, &path_cps, path, reports).await;
+            }
+        }
+
         log_path(
             pe,
             &opts.results_folder,
             path,
             stats.paths_per_target + reported,
-            Some(&cpr),
-            Some(&path_cps),
-            Some(duration_ms),
+            &PathLogDetails {
+                cpr: Some(&cpr),
+                cps: Some(&path_cps),
+                duration_ms: Some(duration_ms),
+                uri_reports: uri_reports.as_deref(),
+            },
         );
         reported += 1;
         stats.path_reports.push(PathReport::from_path_results(
@@ -1093,7 +1168,7 @@ pub async fn validate_cert_bytes_retaining(
             Err(e) => {
                 stats.invalid_paths_per_target += 1;
 
-                log_path(pe, &opts.error_folder, path, i, None, None, None);
+                log_path(pe, &opts.error_folder, path, i, &PathLogDetails::default());
                 info!("Failed to validate {cert_filename} with {e:?}");
                 // A revoked end entity is the same certificate on every candidate path, so the
                 // first path to report it has settled the target and the rest cost a signature
@@ -1170,7 +1245,8 @@ pub async fn validate_targets(
     opts: &ValidateOpts,
     progress: Option<&(dyn Fn(ProgressEvent) + Send + Sync + '_)>,
 ) -> ValidationReport {
-    let (report, _) = validate_targets_retaining(pe, cps, targets, opts, progress, false).await;
+    let (report, _) =
+        validate_targets_retaining(pe, cps, targets, opts, progress, false, None).await;
     report
 }
 
@@ -1192,6 +1268,7 @@ pub async fn validate_targets_retaining(
     opts: &ValidateOpts,
     progress: Option<&(dyn Fn(ProgressEvent) + Send + Sync + '_)>,
     retain: bool,
+    mut uri_reports: Option<&mut UriCheckReports>,
 ) -> (ValidationReport, Vec<RetainedPath>) {
     let mut retained: Vec<RetainedPath> = vec![];
     let start = Instant::now();
@@ -1229,6 +1306,7 @@ pub async fn validate_targets_retaining(
             &mut fresh_uris,
             0,
             retain.then_some(&mut retained),
+            uri_reports.as_deref_mut(),
         )
         .await;
 
@@ -1315,6 +1393,7 @@ pub async fn validate_cert_folder(
         fresh_uris,
         threshold,
         None,
+        None,
     )
     .await
 }
@@ -1336,6 +1415,7 @@ pub async fn validate_cert_folder_retaining(
     fresh_uris: &mut Vec<String>,
     threshold: usize,
     mut retain: Option<&mut Vec<RetainedPath>>,
+    mut uri_reports: Option<&mut UriCheckReports>,
 ) {
     for entry in WalkDir::new(certs_folder) {
         match entry {
@@ -1353,6 +1433,7 @@ pub async fn validate_cert_folder_retaining(
                                 fresh_uris,
                                 threshold,
                                 retain.as_deref_mut(),
+                                uri_reports.as_deref_mut(),
                             )
                             .await;
                         }
@@ -1385,6 +1466,7 @@ pub async fn validate_cert_folder_retaining(
                                         fresh_uris,
                                         threshold,
                                         retain.as_deref_mut(),
+                                        uri_reports.as_deref_mut(),
                                     )
                                     .await;
                                 }

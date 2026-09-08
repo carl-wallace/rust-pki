@@ -25,7 +25,7 @@ use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::certs_in;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
-use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
+use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports};
 
 use pittv3_gui_lib::export::{
     path_entries, paths_text, pool_includes_ca_store, pool_includes_ta_store, stamped_export_name,
@@ -567,6 +567,11 @@ fn App() -> Element {
     // the validation regardless -- and re-validating to produce an export would describe a
     // different run, since revocation data moves between one click and the next.
     let mut retained_paths = use_signal(Vec::<RetainedPath>::new);
+    // Whether to run the URI checker over each path's certificates as part of a run, and what it
+    // found. The reports are per run and keyed by certificate, so one shared intermediate is
+    // fetched for once however many paths carry it.
+    let mut check_uris = use_signal(|| false);
+    let mut uri_reports = use_signal(UriCheckReports::default);
     // Name the export takes: the archive's file name and the single folder inside it. Offered rather
     // than generated because a bundle is usually about to be handed to someone else, and "the DoD
     // email cert Armen reported" survives that trip where a timestamp does not. PITTv2 prompts for
@@ -826,6 +831,7 @@ fn App() -> Element {
                     Some(&r.cps),
                     &r.cpr,
                     Some(r.duration_ms),
+                    Some(&uri_reports.read()),
                 )
             })
             .collect()
@@ -1290,6 +1296,56 @@ fn App() -> Element {
         let (reports, lines, retained) =
             validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);
         retained_paths.set(retained);
+
+        // After the paths are known and before the results are shown, so the log the user can save
+        // already carries them. Gated on the tier because the fetches go out through the service --
+        // the same reason the Check URIs tab needs it.
+        if check_uris() && tier().retrieves() {
+            // The distinct certificates first, each with the issuer and position it has on the
+            // path it was found on. Collected before any fetching so the budget can be sized for
+            // the work, and so "checked once" is a property of this list rather than of the order
+            // the loop happens to visit things in.
+            let mut work: Vec<(Vec<u8>, Option<Vec<u8>>, bool)> = vec![];
+            for r in retained_paths.read().iter() {
+                let mut ordered = vec![r.path.trust_anchor.encoded_ta.clone()];
+                ordered.extend(r.path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()));
+                ordered.push(r.path.target.as_bytes().to_vec());
+                for (i, der) in ordered.iter().enumerate() {
+                    if work.iter().any(|(seen, _, _)| seen == der) {
+                        continue;
+                    }
+                    let issuer = match i {
+                        0 => None,
+                        _ => ordered.get(i - 1).cloned(),
+                    };
+                    work.push((der.clone(), issuer, i == 0));
+                }
+            }
+
+            // Sized for the whole pass: one fetcher carrying a single-check budget across every
+            // certificate is what made a clean certificate report URI_NOT_AVAILABLE once the
+            // allowance ran out. See `RelayFetcher::for_certificates`.
+            let fetcher = RelayFetcher::for_certificates(work.len());
+            let mut reports = UriCheckReports::default();
+            for (der, issuer, is_ta) in &work {
+                let report = check_uris_in_cert(
+                    prepared.environment(),
+                    &cps,
+                    &fetcher,
+                    der,
+                    issuer.as_deref(),
+                    UriCheckOptions {
+                        auto_discover: false,
+                        is_trust_anchor: *is_ta,
+                        blocklist: &[],
+                    },
+                )
+                .await;
+                reports.insert(der.clone(), report);
+            }
+            uri_reports.set(reports);
+        }
+
         run_inputs.set(Some(RunInputs {
             // The selected store's halves, or -- when the material was uploaded rather than
             // selected, which is what a bundle fed back in looks like -- whichever upload is
@@ -1605,6 +1661,26 @@ fn App() -> Element {
                             }
                             span { class: "hint",
                                 "Off stops at the first valid path; on reports every path found."
+                            }
+                        }
+
+                        // Disabled without the service for the same reason the Check URIs tab is:
+                        // the fetches go out through it. Left visible rather than hidden so the
+                        // capability is discoverable from the tier that cannot use it.
+                        div { class: "controls center-row",
+                            label { r#for: "check-uris", "Check URIs when validating: " }
+                            input {
+                                id: "check-uris",
+                                r#type: "checkbox",
+                                checked: check_uris(),
+                                disabled: !tier().retrieves(),
+                                onchange: move |ev| check_uris.set(ev.checked()),
+                            }
+                            span { class: "hint",
+                                match tier().retrieves() {
+                                    true => "Runs the URI checker over every certificate on each path and appends the results to that path's log. Each certificate is checked once per run.",
+                                    false => "This check retrieves from the repositories a certificate names, so it needs the service.",
+                                }
                             }
                         }
 
@@ -1996,8 +2072,11 @@ fn App() -> Element {
                                         &RelayFetcher::new(),
                                         &target,
                                         issuer.as_ref().map(|(_, b)| b.as_slice()),
-                                        uri_auto(),
-                                        &[],
+                                        UriCheckOptions {
+                                            auto_discover: uri_auto(),
+                                            is_trust_anchor: false,
+                                            blocklist: &[],
+                                        },
                                     )
                                     .await;
                                     uri_report.set(Some(report));

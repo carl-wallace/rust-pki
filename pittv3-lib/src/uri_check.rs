@@ -58,6 +58,66 @@ impl UriExtension {
     }
 }
 
+/// What a URI check should do beyond the certificate it is handed.
+///
+/// Grouped because `check_uris_in_cert` was at seven arguments and the trust-anchor question had to
+/// be one of them: see [`is_trust_anchor`](Self::is_trust_anchor).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UriCheckOptions<'a> {
+    /// Adopt the first AIA caIssuers pointer that yields the issuer, when no issuer was supplied.
+    pub auto_discover: bool,
+    /// Treat this certificate as the trust anchor of the path being checked: scan its SIA and
+    /// nothing else. It has no issuer above it, so AIA names nothing worth following, and its own
+    /// revocation is not a question path validation asks.
+    ///
+    /// **Stated by the caller rather than derived from the environment, and that distinction is not
+    /// academic.** Asking `get_trust_anchor_for_target` answers "is this certificate an anchor
+    /// *somewhere*", which is a different question from "is it the anchor *here*". A cross-certified
+    /// root is both: an anchor in its own right and an intermediate when some other root issued it.
+    /// Deriving the answer suppressed the AIA and CRL DP checks on `Microsoft TLS RSA Root G2`
+    /// appearing mid-path under a DigiCert root -- the position where those extensions matter most,
+    /// because there the certificate is being validated rather than trusted.
+    pub is_trust_anchor: bool,
+    /// Hosts or URIs to skip, reported as blocklisted rather than fetched.
+    pub blocklist: &'a [String],
+}
+
+/// The URI check results for one run, keyed by the certificate they describe.
+///
+/// **One entry per distinct certificate, not per position on a path.** A URI's reachability during a
+/// run is a single fact, and an intermediate common to forty paths would otherwise be fetched forty
+/// times to learn it forty times over. The result is then rendered into every path the certificate
+/// appears on, so each path's log still reads on its own without the reader holding another page.
+///
+/// Keyed by the certificate's own DER because that is what every caller has in hand -- a path holds
+/// encoded anchors and `PDVCertificate` buffers, not identifiers -- and because two certificates
+/// that differ at all are different certificates for this purpose.
+#[derive(Clone, Debug, Default)]
+pub struct UriCheckReports(alloc::collections::BTreeMap<Vec<u8>, UriCheckReport>);
+
+impl UriCheckReports {
+    /// Whether this certificate has already been checked, so a caller can skip fetching for it.
+    pub fn contains(&self, der: &[u8]) -> bool {
+        self.0.contains_key(der)
+    }
+
+    /// Records the report for a certificate.
+    pub fn insert(&mut self, der: Vec<u8>, report: UriCheckReport) {
+        self.0.insert(der, report);
+    }
+
+    /// The report for a certificate, if it was checked.
+    pub fn get(&self, der: &[u8]) -> Option<&UriCheckReport> {
+        self.0.get(der)
+    }
+
+    /// Whether anything was checked at all, so a renderer can leave the section out entirely rather
+    /// than emit an empty heading.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// Per-URI outcome, mirroring PITTv2's `URIResult` enum. The stringified names match PITTv2's result
 /// column so existing muscle memory (and logs) carry over.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -275,9 +335,13 @@ mod check_impl {
         fetcher: &F,
         target_der: &[u8],
         issuer_der: Option<&[u8]>,
-        auto_discover: bool,
-        blocklist: &[String],
+        opts: UriCheckOptions<'_>,
     ) -> UriCheckReport {
+        let UriCheckOptions {
+            auto_discover,
+            is_trust_anchor: is_ta,
+            blocklist,
+        } = opts;
         // Whichever encoding the caller's file held. See `crate::der_or_pem`: a DER-only parse
         // here is what stopped this check before it began on a PEM certificate.
         let target_der = &match maybe_pem(target_der) {
@@ -325,11 +389,21 @@ mod check_impl {
         // was supplied (mirrors PITTv2's running certList).
         let mut cert_list: Vec<PDVCertificate> = vec![];
 
-        let is_ta = pe.get_trust_anchor_for_target(&target).is_ok();
-
+        // A trust anchor is scanned for its SIA and nothing else. It has no issuer above it, so
+        // AIA names nothing worth following; and its own revocation is not a question path
+        // validation asks, so the CRL and freshest-CRL pointers lead somewhere no run will look.
+        // Skipped rather than reported as skipped: a row saying a check was not made is noise in a
+        // log meant to be scanned for problems.
+        //
+        // Decided from the environment rather than from a caller's argument because it is a fact
+        // about the certificate's role, and two callers passing different answers for the same
+        // certificate would be a defect rather than a choice.
         // ---- AIA ----------------------------------------------------------------------------
-        let (ca_issuers, ocsp) = collect_aia(&target);
-        if ca_issuers.is_empty() && ocsp.is_empty() && !is_ta {
+        let (ca_issuers, ocsp) = match is_ta {
+            true => (vec![], vec![]),
+            false => collect_aia(&target),
+        };
+        if !is_ta && ca_issuers.is_empty() && ocsp.is_empty() {
             report.results.push(UriCheckResult {
                 uri: "<AIA URI not found>".to_string(),
                 extension: UriExtension::Aia,
@@ -362,6 +436,7 @@ mod check_impl {
         }
 
         // ---- SIA ----------------------------------------------------------------------------
+        // Not gated: an anchor's caRepository is exactly what this scan is for on a trust anchor.
         for uri in collect_sia(&target) {
             let r = check_uri_certificate(
                 pe,
@@ -381,7 +456,10 @@ mod check_impl {
         }
 
         // ---- CRL DP -------------------------------------------------------------------------
-        let crl_dps = collect_crl_dps(&target, ID_CE_CRL_DISTRIBUTION_POINTS);
+        let crl_dps = match is_ta {
+            true => vec![],
+            false => collect_crl_dps(&target, ID_CE_CRL_DISTRIBUTION_POINTS),
+        };
         if crl_dps.is_empty() && !is_ta {
             report.results.push(UriCheckResult {
                 uri: "<CRL DP URI not found>".to_string(),
@@ -408,7 +486,11 @@ mod check_impl {
         }
 
         // ---- freshest CRL -------------------------------------------------------------------
-        for uri in collect_crl_dps(&target, ID_CE_FRESHEST_CRL) {
+        let freshest = match is_ta {
+            true => vec![],
+            false => collect_crl_dps(&target, ID_CE_FRESHEST_CRL),
+        };
+        for uri in freshest {
             let r = check_uri_crl(
                 pe,
                 fetcher,
@@ -622,6 +704,23 @@ mod check_impl {
         certs.iter().any(|c| is_self_signed(pe, c))
     }
 
+    /// What the fetched collection turned out to be, relative to the certificate that named it.
+    ///
+    /// Three outcomes rather than a bool because the middle one is a real answer and not a failure:
+    /// a repository serving a self-signed root at `caIssuers` is publishing something true about
+    /// the PKI that is of no use for building a path.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum CertsVerdict {
+        /// A fetched certificate stands in the expected relationship to the target.
+        Correct,
+        /// The only match was self-signed. It verifies the target's signature and carries the right
+        /// key, so it is adopted as the issuer for the CRL and OCSP checks that follow -- but it
+        /// cannot advance path building for anyone who does not already trust it.
+        SelfSignedOnly,
+        /// Nothing fetched bears the expected relationship to the target.
+        Unrelated,
+    }
+
     /// PITTv2 `CheckCerts`: does the fetched collection have the right relationship to the target?
     /// For SIA the target is the issuing CA (one fetched cert must be signed by it); for AIA the
     /// target is the subject (one fetched non-self-signed cert must sign it, which is then adopted as
@@ -633,11 +732,12 @@ mod check_impl {
         from_sia: bool,
         issuer: &mut Option<PDVCertificate>,
         auto_discover: bool,
-    ) -> bool {
+    ) -> CertsVerdict {
+        let mut self_signed_only = false;
         for (i, c) in certs.iter().enumerate() {
             if from_sia {
                 if verifies(pe, c, target) {
-                    return true;
+                    return CertsVerdict::Correct;
                 }
             } else {
                 let self_signed = is_self_signed(pe, c);
@@ -645,17 +745,21 @@ mod check_impl {
                     if issuer.is_none() && auto_discover {
                         *issuer = Some(c.clone());
                     }
-                    return true;
+                    return CertsVerdict::Correct;
                 } else if i + 1 == certs.len() && self_signed && verifies(pe, target, c) {
-                    // A lone self-signed match is adopted as the issuer for later CRL/OCSP checks but
-                    // does not by itself count as correct data (it becomes URI_WARNING).
+                    // Adopted as the issuer for later CRL/OCSP checks, and reported as a warning
+                    // rather than as correct data -- see `CertsVerdict::SelfSignedOnly`.
                     if issuer.is_none() && auto_discover {
                         *issuer = Some(c.clone());
                     }
+                    self_signed_only = true;
                 }
             }
         }
-        false
+        match self_signed_only {
+            true => CertsVerdict::SelfSignedOnly,
+            false => CertsVerdict::Unrelated,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -683,19 +787,23 @@ mod check_impl {
         } = fetcher.get(uri).await;
         let certs = parse_certs(&bytes);
 
-        let all_good = check_certs(pe, &certs, target, from_sia, issuer, auto_discover);
-        let status = if all_good {
-            if any_self_signed(pe, &certs) {
-                UriStatus::Warning
-            } else {
-                UriStatus::CorrectData
-            }
-        } else if !certs.is_empty() {
-            UriStatus::IncorrectData
-        } else if !ok {
-            UriStatus::NotAvailable
-        } else {
-            UriStatus::IncorrectData
+        // **`SelfSignedOnly` used to land in the `IncorrectData` arm**, which made the case
+        // `check_certs` documents as a warning unreachable: the `Warning` below fires only when a
+        // self-signed certificate arrives *alongside* a valid issuer, never when it arrives on its
+        // own. Found on `http://cacerts.digicert.com/DigiCertGlobalRootG2.crt`, which serves the
+        // self-signed DigiCert Global Root G2 -- same subject and same key as the cross-certificates
+        // that name it, so it verifies the target's signature and is not incorrect data. It is
+        // useless data, which is what a warning is for.
+        let status = match check_certs(pe, &certs, target, from_sia, issuer, auto_discover) {
+            CertsVerdict::Correct => match any_self_signed(pe, &certs) {
+                true => UriStatus::Warning,
+                false => UriStatus::CorrectData,
+            },
+            CertsVerdict::SelfSignedOnly => UriStatus::Warning,
+            CertsVerdict::Unrelated => match certs.is_empty() && !ok {
+                true => UriStatus::NotAvailable,
+                false => UriStatus::IncorrectData,
+            },
         };
 
         let detail = Some(format!("{} certificate(s) retrieved", certs.len()));
@@ -1028,8 +1136,14 @@ mod remote_impl {
             &fetcher,
             target_der,
             issuer_der,
-            auto_discover,
-            blocklist,
+            // A single certificate checked on its own is checked whole: nothing here says it is
+            // anybody's trust anchor, and a caller asking about one certificate wants every URI it
+            // carries.
+            UriCheckOptions {
+                auto_discover,
+                is_trust_anchor: false,
+                blocklist,
+            },
         )
         .await
     }
