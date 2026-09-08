@@ -53,6 +53,16 @@ pub(crate) enum StoreSource {
         ta: &'static str,
         /// Store holding the intermediates, or `None` for an anchors-only entry.
         ca: Option<&'static str>,
+        /// Store that certificates fetched during a run are written back to, or `None` to write
+        /// nothing.
+        ///
+        /// Always the same store as `ca` where it is set: what a run would write is an
+        /// intermediate it chased, and the place to keep it is the intermediate store it was
+        /// already reading. A separate entry rather than a property of the read entries, because
+        /// adding certificates to a Windows store changes system state and choosing the entry is
+        /// how that is consented to -- inheriting it from having dynamic build switched on would
+        /// mutate the machine as a side effect of a read choice.
+        ca_rw: Option<&'static str>,
     },
 }
 
@@ -148,22 +158,39 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // narrower-sounding name, and is the one that works without elevation.
     #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
-        label: "Windows certificate store (current user)",
+        label: "Windows certificate store (current user, read-only)",
         env: "CAPI_USER",
         source: StoreSource::Capi {
             ta: "CurrentUser\\ROOT",
             ca: Some("CurrentUser\\CA"),
+            ca_rw: None,
         },
         pki: "this machine's Windows certificate stores, as this user sees them",
         note: "Includes anchors installed for the machine as well as any this user has added.",
     },
+    // The same stores as the entry above, offered a second time because writing to them is a
+    // separate decision. Current user only: the machine stores need elevation even to read.
     #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
-        label: "Windows certificate store (local machine)",
+        label: "Windows certificate store (current user, writable)",
+        env: "CAPI_USER_RW",
+        source: StoreSource::Capi {
+            ta: "CurrentUser\\ROOT",
+            ca: Some("CurrentUser\\CA"),
+            ca_rw: Some("CurrentUser\\CA"),
+        },
+        pki: "this machine's Windows certificate stores, as this user sees them",
+        note: "Same stores as above, and certificates fetched during a run are added to the \
+               intermediate store so the next run already has them.",
+    },
+    #[cfg(all(windows, feature = "capi"))]
+    BuiltInStore {
+        label: "Windows certificate store (local machine, read-only)",
         env: "CAPI_MACHINE",
         source: StoreSource::Capi {
             ta: "LocalMachine\\ROOT",
             ca: Some("LocalMachine\\CA"),
+            ca_rw: None,
         },
         pki: "this machine's Windows certificate stores, excluding this user's own additions",
         note: "Requires running as administrator.",
@@ -407,16 +434,17 @@ pub(crate) fn has_ca_store(index: usize) -> bool {
 /// The CAPI stores the entry at `index` names, as `(trust anchors, intermediates)` arguments.
 /// Empty vectors for every other kind of entry, so a caller can assign them unconditionally.
 #[cfg(all(windows, feature = "capi"))]
-pub(crate) fn capi_stores(index: usize) -> (Vec<String>, Vec<String>) {
+pub(crate) fn capi_stores(index: usize) -> (Vec<String>, Vec<String>, Option<String>) {
     if index == CUSTOM {
-        return (vec![], vec![]);
+        return (vec![], vec![], None);
     }
     match STORES.get(index - 1).map(|s| &s.source) {
-        Some(StoreSource::Capi { ta, ca }) => (
+        Some(StoreSource::Capi { ta, ca, ca_rw }) => (
             vec![ta.to_string()],
             ca.iter().map(|c| c.to_string()).collect(),
+            ca_rw.map(|c| c.to_string()),
         ),
-        _ => (vec![], vec![]),
+        _ => (vec![], vec![], None),
     }
 }
 
@@ -465,6 +493,7 @@ pub(crate) fn selection_for(
     ta_cbor: &Option<String>,
     webpki_tas: bool,
     capi_ta_stores: &[String],
+    capi_ca_store_rw: &Option<String>,
 ) -> usize {
     // The webpki entry writes no path, so the saved argument is the only trace of it.
     if webpki_tas {
@@ -476,17 +505,25 @@ pub(crate) fn selection_for(
         }
     }
     // Same for the Windows entries, which are read live rather than written out. Matched on the
-    // anchor store alone: it is what distinguishes the two entries, and a settings file naming a
-    // store no entry offers falls through to Custom rather than selecting the wrong one.
+    // anchor store **and** on whether a writable store was named: two entries share
+    // `CurrentUser\ROOT` and differ only in that, so the anchor store alone would restore the
+    // read-only entry for a run saved under the writable one and silently drop the write. A
+    // settings file naming a store no entry offers still falls through to Custom rather than
+    // selecting the wrong one.
     #[cfg(all(windows, feature = "capi"))]
     if let Some(saved) = capi_ta_stores.first() {
-        if let Some(i) = STORES.iter().position(
-            |s| matches!(s.source, StoreSource::Capi { ta, .. } if ta.eq_ignore_ascii_case(saved)),
-        ) {
+        let wanted_rw = capi_ca_store_rw.is_some();
+        if let Some(i) = STORES.iter().position(|s| {
+            let StoreSource::Capi { ta, ca_rw, .. } = s.source else {
+                return false;
+            };
+            ta.eq_ignore_ascii_case(saved) && ca_rw.is_some() == wanted_rw
+        }) {
             return i + 1;
         }
     }
     let _ = capi_ta_stores;
+    let _ = capi_ca_store_rw;
     let Some(ta_cbor) = ta_cbor else {
         return CUSTOM;
     };
@@ -604,9 +641,9 @@ mod tests {
     fn custom_selects_nothing() {
         assert!(!has_ca_store(CUSTOM));
         assert_eq!(materialize(CUSTOM).unwrap(), (None, None));
-        assert_eq!(selection_for(&None, false, &[]), CUSTOM);
+        assert_eq!(selection_for(&None, false, &[], &None), CUSTOM);
         assert_eq!(
-            selection_for(&Some("/some/where/ta.cbor".to_string()), false, &[]),
+            selection_for(&Some("/some/where/ta.cbor".to_string()), false, &[], &None),
             CUSTOM
         );
     }
@@ -697,9 +734,9 @@ mod tests {
     fn webpki_recovers_from_the_saved_argument() {
         let webpki = STORES.iter().position(is_webpki_source).unwrap() + 1;
 
-        assert_eq!(selection_for(&None, true, &[]), webpki);
+        assert_eq!(selection_for(&None, true, &[], &None), webpki);
         assert_eq!(
-            selection_for(&Some("/some/where/ta.cbor".to_string()), true, &[]),
+            selection_for(&Some("/some/where/ta.cbor".to_string()), true, &[], &None),
             webpki
         );
         assert!(is_webpki(webpki));
@@ -724,7 +761,7 @@ mod tests {
             let path = home.join(store.env).join("ta.cbor");
             let saved = Some(path.to_str().unwrap().to_string());
             assert_eq!(
-                selection_for(&saved, false, &[]),
+                selection_for(&saved, false, &[], &None),
                 i + 1,
                 "{} did not round trip",
                 store.label
@@ -744,12 +781,13 @@ mod tests {
     #[test]
     fn a_capi_store_recovers_its_selection() {
         for (i, store) in STORES.iter().enumerate() {
-            let StoreSource::Capi { ta, .. } = store.source else {
+            let StoreSource::Capi { ta, ca_rw, .. } = store.source else {
                 continue;
             };
             let saved = vec![ta.to_string()];
+            let saved_rw = ca_rw.map(|c| c.to_string());
             assert_eq!(
-                selection_for(&None, false, &saved),
+                selection_for(&None, false, &saved, &saved_rw),
                 i + 1,
                 "{} did not round trip",
                 store.label
@@ -757,7 +795,7 @@ mod tests {
         }
         // A store no entry offers is a custom selection, not the nearest entry.
         assert_eq!(
-            selection_for(&None, false, &["CurrentUser\\MY".to_string()]),
+            selection_for(&None, false, &["CurrentUser\\MY".to_string()], &None),
             CUSTOM
         );
     }
