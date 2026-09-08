@@ -7,7 +7,7 @@ use certval::*;
 use log::{error, info};
 
 #[cfg(feature = "std_app")]
-use crate::pitt_log::log_path;
+use crate::pitt_log::{log_path, PathLogDetails};
 
 /// `validate_cert_file` attempts to validate the certificate notionally read from the file indicated by
 /// `cert_filename` using the resources available via the
@@ -98,10 +98,13 @@ pub(crate) fn validate_cert(
             &args.results_folder,
             path,
             stats.paths_per_target + _i,
-            Some(&cpr),
-            Some(&path_cps),
-            // No clock in a no-std build, so nothing here times a path.
-            None,
+            &PathLogDetails {
+                cpr: Some(&cpr),
+                cps: Some(&path_cps),
+                // No clock in a no-std build, so nothing here times a path, and no URI checks
+                // either: they retrieve, and this is the build that cannot.
+                ..Default::default()
+            },
         );
 
         stats.results.push(cpr.clone());
