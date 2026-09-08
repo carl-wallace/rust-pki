@@ -475,11 +475,31 @@ fn render_readme(paths: &[Vec<ExportEntry>], inputs: &RunInputs, run_ms: Option<
     if let Some(ms) = run_ms {
         out.push_str(&format!("Time for the entire operation: {ms} ms\n"));
     }
-    out.push_str(&format!(
-        "\n  {INPUTS_DIR}/   inputs to a validation operation, i.e., trust anchors, settings, end entity certificates, etc.\n\
-           \x20 {PATHS_DIR}/    the certification paths that were discovered and validated, one numbered folder per path\n\
-           \x20 {REVOCATION_DIR}/ the same CRLs and OCSP responses the paths hold, gathered by kind\n"
-    ));
+    // Said outright, because the folders a reader expects are absent rather than empty and a zip
+    // missing half its contents reads as a damaged one. Finding nothing is a result, and this is
+    // the bundle for it: what the run was given, which is what the question is about.
+    match paths.is_empty() {
+        true => {
+            out.push_str(&format!(
+                "\nThis run found no certification paths, so there is no {PATHS_DIR}/ folder, and no \n\
+                 anchors or intermediates, which are taken off validated paths.\n\
+                 \n  {INPUTS_DIR}/   what the run was given: trust anchors, settings, end entity certificates, etc.\n"
+            ));
+            // The one derived artifact that does not come off a path: it is what the builder made
+            // of the inputs, so it exists whether or not anything validated -- and it is the direct
+            // answer to why nothing did, since it holds the partial paths that were found.
+            if inputs.built_graph.is_some() {
+                out.push_str(&format!(
+                    "\x20 {DERIVED_DIR}/{BUILT_GRAPH_NAME}   what the builder made of those inputs, including the partial paths it did find\n"
+                ));
+            }
+        }
+        false => out.push_str(&format!(
+            "\n  {INPUTS_DIR}/   inputs to a validation operation, i.e., trust anchors, settings, end entity certificates, etc.\n\
+               \x20 {PATHS_DIR}/    the certification paths that were discovered and validated, one numbered folder per path\n\
+               \x20 {REVOCATION_DIR}/ the same CRLs and OCSP responses the paths hold, gathered by kind\n"
+        )),
+    }
 
     out.push_str("\n\nReproducing this run\n====================\n");
     out.push_str(&format!(
@@ -614,19 +634,34 @@ pub const COMMAND_NAME: &str = "command.txt";
 /// hop. Both apps already accept a `.cbor` store wherever they accept a certificate; this is the
 /// same test they use to tell the two apart, so what the run treated as a store is what the bundle
 /// records as one.
-pub fn ta_store_among(supplied: &[ExportEntry]) -> Option<Vec<u8>> {
+pub fn pool_includes_ta_store(supplied: &[ExportEntry]) -> Option<Vec<u8>> {
     supplied
         .iter()
-        .find(|(_, bytes)| certval::TaSource::new_from_cbor(bytes).is_ok())
+        .find(|(_, bytes)| is_ta_store(bytes))
         .map(|(_, bytes)| bytes.clone())
 }
 
-/// Picks a CBOR CA store out of material a user supplied, if one is there. See [`ta_store_among`].
-pub fn ca_store_among(supplied: &[ExportEntry]) -> Option<Vec<u8>> {
+/// Picks a CBOR CA store out of material a user supplied, if one is there. See [`pool_includes_ta_store`].
+pub fn pool_includes_ca_store(supplied: &[ExportEntry]) -> Option<Vec<u8>> {
     supplied
         .iter()
-        .find(|(_, bytes)| certval::CertSource::new_from_cbor(bytes).is_ok())
+        .find(|(_, bytes)| is_ca_store(bytes))
         .map(|(_, bytes)| bytes.clone())
+}
+
+/// Whether these bytes are a CBOR trust anchor store, which is how both apps tell a store from a
+/// certificate wherever they accept either.
+fn is_ta_store(bytes: &[u8]) -> bool {
+    certval::TaSource::new_from_cbor(bytes).is_ok()
+}
+
+/// Whether these bytes are a CBOR CA store. See [`is_ta_store`].
+///
+/// The stricter of the two: both decode the same `BuffersAndPaths`, and this one also validates the
+/// partial path indices, so a store with bad indices reads as a certificate here and as a store
+/// there.
+fn is_ca_store(bytes: &[u8]) -> bool {
+    certval::CertSource::new_from_cbor(bytes).is_ok()
 }
 
 /// What a run needs to be reproduced by someone else.
@@ -880,6 +915,8 @@ fn render_replay_command(inputs: &RunInputs) -> String {
     if inputs.anchors.is_some() {
         cmd.push_str(&format!(" --ta-cbor {INPUTS_DIR}/{TA_NAME}"));
     }
+    // The anchors the paths used, never the supplied ones: a replay is judged against what this run
+    // was judged against, and supplied anchors no path used would widen it.
     if !inputs.anchors_used.is_empty() {
         cmd.push_str(&format!(" --ta {DERIVED_DIR}/{TA_DIR}"));
     }
@@ -977,10 +1014,11 @@ pub fn paths_text(paths: &[Vec<ExportEntry>], run_ms: Option<u64>) -> String {
         out.push('\n');
     }
 
-    // Nothing rendered means there was nothing to save, and callers key on that. A trailer alone
-    // would turn "no paths" into a file reporting how long it took to find none.
+    // No manifests is a result, not an absence: "nothing was found, and here is how long that took"
+    // is the log a no-paths investigation wants. Callers no longer key on emptiness to decide
+    // whether a run is reportable -- whether a run happened is what decides that.
     if out.is_empty() {
-        return out;
+        out.push_str("No certification paths were found.\n");
     }
     if let Some(ms) = run_ms {
         out.push_str(&format!("Time for the entire operation: {ms} ms\n"));
@@ -1028,6 +1066,104 @@ mod tests {
             stamped_export_name("run", WHEN),
             stamped_export_name("run", WHEN + 1)
         );
+    }
+
+    /// A run that found nothing still produces a bundle, and it is the given side of one: the
+    /// inputs and the run-level files, with no `paths/` folder and nothing taken off a path. The
+    /// README says so rather than leaving a reader to read a missing folder as a damaged archive.
+    #[test]
+    fn a_run_with_no_paths_bundles_what_it_was_given() {
+        let inputs = RunInputs {
+            anchors: Some(b"the-store".to_vec()),
+            settings: Some(CertificationPathSettings::new()),
+            end_entities: vec![("target.der".to_string(), b"a-target".to_vec())],
+            time_of_interest: 1,
+            ..Default::default()
+        };
+        let names = names_in(zip_bundle("run", &[], &inputs, Some(12)).expect("a bundle"));
+
+        assert!(
+            names.contains(&format!("run/{INPUTS_DIR}/{TA_NAME}")),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&format!("run/{INPUTS_DIR}/{EE_DIR}/target.der")),
+            "{names:?}"
+        );
+        assert!(names.contains(&format!("run/{COMMAND_NAME}")), "{names:?}");
+        assert!(
+            !names.iter().any(|n| n.contains(&format!("/{PATHS_DIR}/"))),
+            "{names:?}"
+        );
+        // nothing taken off a path, since there were none
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.starts_with(&format!("run/{DERIVED_DIR}/{TA_DIR}/"))),
+            "{names:?}"
+        );
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.starts_with(&format!("run/{DERIVED_DIR}/{CA_DIR}/"))),
+            "{names:?}"
+        );
+
+        // the command replays the failure, which is the point of having it -- and it must not name
+        // the derived folders, which are not there
+        let command = command_text(&inputs);
+        assert!(
+            command.contains(&format!(" --ta-cbor {INPUTS_DIR}/{TA_NAME}")),
+            "{command}"
+        );
+        assert!(
+            !command.contains(&format!("{DERIVED_DIR}/{TA_DIR}")),
+            "{command}"
+        );
+        assert!(
+            !command.contains(&format!("{DERIVED_DIR}/{CA_DIR}")),
+            "{command}"
+        );
+
+        let readme = render_readme(&[], &inputs, Some(12));
+        assert!(readme.contains("found no certification paths"), "{readme}");
+
+        // The built graph is what the builder made of the inputs rather than something taken off a
+        // path, so it travels even when nothing validated -- it is what says where the chain
+        // stopped. The command reads it with `-b`, so such a bundle still replays the failure.
+        let with_graph = RunInputs {
+            built_graph: Some(b"the-graph".to_vec()),
+            ..inputs
+        };
+        let names = names_in(zip_bundle("run", &[], &with_graph, Some(12)).expect("a bundle"));
+        assert!(
+            names.contains(&format!("run/{DERIVED_DIR}/{BUILT_GRAPH_NAME}")),
+            "{names:?}"
+        );
+        let command = command_text(&with_graph);
+        assert!(
+            command.contains(&format!(" -b {DERIVED_DIR}/{BUILT_GRAPH_NAME}")),
+            "{command}"
+        );
+        let readme = render_readme(&[], &with_graph, Some(12));
+        assert!(readme.contains(BUILT_GRAPH_NAME), "{readme}");
+    }
+
+    /// The store is found among material that is not one, and certificate bytes are not mistaken
+    /// for a store.
+    #[test]
+    fn a_pool_yields_the_store_it_holds() {
+        // A real serialized store rather than bytes chosen to pass the test: both stores are the
+        // same `BuffersAndPaths` CBOR, which is what `new_from_cbor` on either source reads.
+        let store = certval::CertSource::new()
+            .serialize(certval::CertificationPathBuilderFormats::Cbor)
+            .expect("serialize an empty store");
+        let pool = vec![
+            ("anchor.der".to_string(), b"not-a-store".to_vec()),
+            ("store.cbor".to_string(), store.clone()),
+        ];
+        assert_eq!(pool_includes_ta_store(&pool), Some(store));
+        assert_eq!(pool_includes_ta_store(&pool[..1]), None);
     }
 
     /// Helper: everything the two subtrees hold, for a test that only cares what is present.
@@ -1669,11 +1805,14 @@ mod tests {
         assert!(!text.contains('\u{30}'.to_string().as_str()) || !text.contains("0-ta"));
     }
 
-    /// A path contributing no manifest is skipped rather than emitting a blank section.
+    /// A path contributing no manifest is skipped rather than emitting a blank section. With no
+    /// manifest anywhere the log says the run found nothing, which is a result and not an absence.
     #[test]
     fn a_path_without_a_manifest_contributes_nothing_to_the_text() {
         let paths = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
-        assert!(paths_text(&paths, None).is_empty());
+        let text = paths_text(&paths, None);
+        assert!(!text.contains("0-ta"), "{text}");
+        assert!(text.contains("No certification paths were found"), "{text}");
     }
 
     /// The run figure closes the log because it is the one number the manifests cannot supply --
@@ -1700,13 +1839,17 @@ mod tests {
         assert!(timed.starts_with(&untimed));
     }
 
-    /// Nothing to save stays nothing to save: both frontends read an empty string as "no paths are
-    /// held" and say so instead of writing a file, so a trailer must not make one out of a run that
-    /// produced no paths.
+    /// A run that found nothing gets a log stating that, closed by the run figure -- how long it
+    /// took to find nothing is what an investigation into finding nothing is asking. Whether there
+    /// is a run to report is the frontends' question, and they answer it from the retained run
+    /// rather than from this text.
     #[test]
-    fn a_run_figure_alone_does_not_make_a_file() {
-        assert!(paths_text(&[], Some(1234)).is_empty());
+    fn a_run_that_found_nothing_still_has_a_log() {
+        let text = paths_text(&[], Some(1234));
+        assert!(text.contains("No certification paths were found"), "{text}");
+        assert!(text.trim_end().ends_with("1234 ms"), "{text}");
+
         let no_manifests = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
-        assert!(paths_text(&no_manifests, Some(1234)).is_empty());
+        assert!(paths_text(&no_manifests, Some(1234)).contains("No certification paths were found"));
     }
 }
