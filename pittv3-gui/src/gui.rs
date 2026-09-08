@@ -248,6 +248,48 @@ async fn confirm_purge(folder: &str) -> bool {
         == rfd::MessageDialogResult::Yes
 }
 
+/// Confirms deleting the settings file, which the same rule as [`confirm_purge`] says must ask:
+/// certificates and CRLs can generally be fetched again, and a set of hand-tuned settings cannot.
+///
+/// Names the path rather than saying "the settings file" because the box beside this button may be
+/// pointing at somebody else's -- a bundle carries `inputs/settings.json`, and reproducing a run
+/// from one is exactly when this button is within reach.
+async fn confirm_delete_settings(path: &str) -> bool {
+    rfd::AsyncMessageDialog::new()
+        .set_title("Delete settings file")
+        .set_description(format!(
+            "Delete {path}?\n\nThe form goes back to certval's defaults, and the next run uses them \
+             too. Settings this form does not show are removed with the file. This cannot be undone."
+        ))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        .await
+        == rfd::MessageDialogResult::Yes
+}
+
+/// Whether it is all right to do something that discards the settings form's edits: either there
+/// are none, or the user said so.
+///
+/// Naming the two ways out together keeps every caller the same shape. Repointing the settings path
+/// discards edits exactly as navigating away does — the form re-reads the file it is now aimed at —
+/// so the buttons that repoint it ask the same question the sidebar does.
+async fn leave_settings_ok(dirty: bool) -> bool {
+    !dirty || confirm_discard_settings().await
+}
+
+/// Confirms leaving the settings form with edits that have not been saved.
+async fn confirm_discard_settings() -> bool {
+    rfd::AsyncMessageDialog::new()
+        .set_title("Unsaved settings")
+        .set_description(
+            "The settings form has changes that have not been saved.\n\nLeaving discards them.",
+        )
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        .await
+        == rfd::MessageDialogResult::Yes
+}
+
 /// Where a file dialog should open: the folder that kind of dialog last used, falling back to the
 /// user's home as it always did when nothing has been remembered yet.
 fn dialog_dir(purpose: DialogPurpose) -> std::path::PathBuf {
@@ -1182,6 +1224,13 @@ pub(crate) fn App() -> Element {
     // not exist — read_settings treats a missing path as "all defaults".
     let mut s_settings =
         use_signal(|| saved_or_default(sa.settings.clone(), default_settings_path));
+    // Bumped to ask the settings form to read its file again when the path has not changed --
+    // Revert to Saved, and Delete, which leaves nothing to read. The form seeds once per mount, so
+    // it is keyed on this alongside the path.
+    let mut s_settings_gen = use_signal(|| 0usize);
+    // Whether the settings form holds edits the file has not seen. The form reports it because only
+    // the form knows; it is held here because the sidebar that navigates away from the form is here.
+    let mut s_settings_dirty = use_signal(|| false);
     let s_crl_folder = use_signal(|| saved_or_default(sa.crl_folder.clone(), default_crl_folder));
     let s_cleanup = use_signal(|| sa.cleanup);
     let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
@@ -1613,7 +1662,24 @@ pub(crate) fn App() -> Element {
             items: VIEWS.iter().map(|(_, label)| *label).collect::<Vec<_>>(),
             selected,
             busy_item: if s_running() { Some(results_index) } else { None },
-            on_select: move |i: usize| s_view.set(VIEWS[i].0),
+            // Leaving the settings form is the only way to discard its edits now that saving no
+            // longer navigates away, so it is the one transition that asks. Selecting Settings
+            // again while already there is not a departure and must not prompt.
+            on_select: move |i: usize| {
+                let to = VIEWS[i].0;
+                let leaving_dirty =
+                    s_view() == View::Settings && to != View::Settings && s_settings_dirty();
+                match leaving_dirty {
+                    true => {
+                        spawn(async move {
+                            if leave_settings_ok(true).await {
+                                s_view.set(to);
+                            }
+                        });
+                    }
+                    false => s_view.set(to),
+                }
+            },
             {
                 match s_view() {
                     View::Validate => {
@@ -2047,12 +2113,76 @@ pub(crate) fn App() -> Element {
                                                                                 r#type: "text",
                                                                                 name: "settings",
                                                                                 value: "{s_settings}",
-                                                                                oninput: move |ev| s_settings.set(ev.value()),
+                                                                                // Committed on exit, not per keystroke: this path drives a
+                                                                                // file read and reseeds the form below, so a half-typed
+                                                                                // path would read as "missing" and blank the form on the
+                                                                                // way to a name that does exist. Same reason the datetime
+                                                                                // row uses onchange. Committing once also makes the
+                                                                                // unsaved-edits question askable, which it is not per
+                                                                                // character.
+                                                                                onchange: move |ev| {
+                                                                                    let typed = ev.value();
+                                                                                    spawn(async move {
+                                                                                        if leave_settings_ok(s_settings_dirty()).await {
+                                                                                            s_settings.set(typed);
+                                                                                            return;
+                                                                                        }
+                                                                                        // Declined, so the path does not move -- but the box
+                                                                                        // is still showing what was typed. Rewriting the
+                                                                                        // signal it is bound to is what puts it back.
+                                                                                        let unchanged = s_settings();
+                                                                                        s_settings.set(unchanged);
+                                                                                    });
+                                                                                },
                                                                             }
                                     button {
                                                                                 r#type: "button",
-                                                                                onclick: move |_| pick_file_into(s_settings, "PITTv3 Settings", &["json"]),
+                                                                                onclick: move |_| {
+                                                                                    spawn(async move {
+                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
+                                                                                            return;
+                                                                                        }
+                                                                                        pick_file_into(s_settings, "PITTv3 Settings", &["json"]).await;
+                                                                                    });
+                                                                                },
                                                                                 "..."
+                                                                            }
+                                    // Actions on the file itself, beside the box that names it and
+                                    // not among the form's actions below: these change *which*
+                                    // settings are being edited, or whether they exist at all,
+                                    // where Save and Revert act on whichever file is named here.
+                                    button {
+                                                                                r#type: "button",
+                                                                                onclick: move |_| {
+                                                                                    spawn(async move {
+                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
+                                                                                            return;
+                                                                                        }
+                                                                                        if let Some(p) = default_settings_path() {
+                                                                                            s_settings.set(p);
+                                                                                        }
+                                                                                    });
+                                                                                },
+                                                                                "Default"
+                                                                            }
+                                    button {
+                                                                                r#type: "button",
+                                                                                onclick: move |_| {
+                                                                                    spawn(async move {
+                                                                                        let path = s_settings();
+                                                                                        if !confirm_delete_settings(&path).await {
+                                                                                            return;
+                                                                                        }
+                                                                                        match std::fs::remove_file(&path) {
+                                                                                            // The form re-reads on remount and a missing
+                                                                                            // file loads as an empty settings map, which
+                                                                                            // is the same thing as all defaults.
+                                                                                            Ok(()) => s_settings_gen += 1,
+                                                                                            Err(e) => error!("Failed to delete {path}: {e}"),
+                                                                                        }
+                                                                                    });
+                                                                                },
+                                                                                "Delete"
                                                                             }
                                 }
                             }
@@ -2067,6 +2197,10 @@ pub(crate) fn App() -> Element {
                             } else {
                                 EditSettingsFile {
                                     path: s_settings(),
+                                    // The other reason to read the file again: the same one, on
+                                    // request (Revert to Saved) or because it is no longer there
+                                    // (Delete).
+                                    reload_token: s_settings_gen(),
                                     // Folders the run writes to, and the actions that maintain
                                     // them, beside the folders it reads from. They persist with the
                                     // rest of the args rather than into the settings file, which
@@ -2189,7 +2323,8 @@ pub(crate) fn App() -> Element {
                                             span { class: "hint", "{s_folder_status}" }
                                         }
                                     }),
-                                    on_close: move |_| s_view.set(View::Validate),
+                                    on_reload: move |_| s_settings_gen += 1,
+                                    on_dirty_change: move |d| s_settings_dirty.set(d),
                                 }
                             }
                         }

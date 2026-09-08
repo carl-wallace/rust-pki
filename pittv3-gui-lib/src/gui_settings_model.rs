@@ -531,6 +531,11 @@ mod tests {
         let mut cps = CertificationPathSettings::new();
         cps.set_check_revocation_status(false);
         cps.set_ignore_expired(true);
+        // A setting the model has no field for, so nothing here can express an opinion about it.
+        cps.0.insert(
+            PS_MAX_CRL_FETCH_BYTES.to_string(),
+            CertificationPathProcessingTypes::U64(1024),
+        );
 
         let model = SettingsModel {
             ignore_expired: Some(false),
@@ -542,6 +547,36 @@ mod tests {
         assert!(!cps.0.contains_key(PS_CHECK_REVOCATION_STATUS));
         assert!(cps.get_check_revocation_status());
         assert!(!cps.get_ignore_expired());
+        // The uncovered half of this test's name. It is also why the desktop offers a Delete
+        // button beside its settings path: Reset to defaults followed by Save clears every key the
+        // form can express and leaves the rest of the file standing, so it is not a full reset.
+        assert_eq!(
+            cps.0.get(PS_MAX_CRL_FETCH_BYTES),
+            Some(&CertificationPathProcessingTypes::U64(1024))
+        );
+    }
+
+    /// Reset to defaults is `SettingsModel::default()`, and Save applies it over the stored file.
+    /// What that clears, and what it leaves, is the whole argument for a separate Delete, so it is
+    /// pinned here rather than left to be re-derived from `apply`.
+    #[test]
+    fn resetting_to_defaults_clears_every_covered_key() {
+        let mut cps = CertificationPathSettings::new();
+        cps.set_check_revocation_status(false);
+        cps.set_ignore_expired(true);
+        cps.set_require_country_code_indicator(true);
+        cps.0.insert(
+            PS_MAX_CRL_FETCH_BYTES.to_string(),
+            CertificationPathProcessingTypes::U64(1024),
+        );
+
+        SettingsModel::default().apply(&mut cps);
+
+        assert_eq!(
+            cps.0.keys().collect::<Vec<_>>(),
+            vec![PS_MAX_CRL_FETCH_BYTES],
+            "only settings the form cannot express should survive a reset"
+        );
     }
 
     #[test]

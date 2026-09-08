@@ -96,6 +96,9 @@ const VIEW_LABELS: &[&str] = &[
     "Help",
 ];
 
+/// Index of the Settings view within [`VIEW_LABELS`]
+const SETTINGS_VIEW: usize = 1;
+
 /// Index of the Results view within [`VIEW_LABELS`]
 const RESULTS_VIEW: usize = 2;
 
@@ -290,6 +293,29 @@ fn is_touch_device() -> bool {
     false
 }
 
+/// Confirms leaving the settings form with edits that have not been saved.
+///
+/// The browser's own dialog rather than a rendered control: this has to block the navigation, and
+/// the navigation is the sidebar's, outside the form. The desktop asks the same question through
+/// `rfd`, which is why neither is in the shared component.
+#[cfg(target_family = "wasm")]
+fn confirm_discard_settings() -> bool {
+    web_sys::window()
+        .and_then(|w| {
+            w.confirm_with_message(
+                "The settings form has changes that have not been saved.\n\nLeaving discards them.",
+            )
+            .ok()
+        })
+        // No window is not a reason to trap someone in the form.
+        .unwrap_or(true)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn confirm_discard_settings() -> bool {
+    true
+}
+
 /// Reads all files carried by a form event into (name, bytes) pairs
 async fn read_files(ev: &FormEvent) -> Vec<(String, Vec<u8>)> {
     let mut out = vec![];
@@ -334,6 +360,9 @@ fn App() -> Element {
     let mut use_rev_cache = use_signal(load_use_rev_cache);
     // Transient status line for the settings-file load/save controls (cleared on next action)
     let mut settings_status = use_signal(String::new);
+    // Whether the settings form holds edits local storage has not seen. The form reports it because
+    // only the form knows; it is held here because the sidebar that navigates away from it is here.
+    let mut settings_dirty = use_signal(|| false);
     let mut targets = use_signal(Vec::<TargetReport>::new);
     // Wall clock for the run that produced `targets`. `from_targets` sums what the paths report,
     // which is the validating alone -- with retrieval through the service that is a small fraction
@@ -625,15 +654,17 @@ fn App() -> Element {
         store_service_status.set(m);
     });
 
-    // Persist the settings whenever the model changes, and mark the prepared environment stale
-    // (settings can affect partial-path discovery). Reading the model here subscribes this effect
-    // to every field at once — the single-signal equivalent of the per-field reads this replaced.
+    // Mark the prepared environment stale whenever the model changes (settings can affect
+    // partial-path discovery). Reading the model here subscribes this effect to every field at once
+    // — the single-signal equivalent of the per-field reads this replaced.
+    //
+    // Persistence is deliberately NOT here. It used to be, which made *loading a settings file* a
+    // save: the load replaces the model, the effect wrote it to localStorage, and the settings the
+    // user had saved were gone with no way to ask for them back. localStorage is this frontend's
+    // equivalent of the desktop's `~/.pittv3/settings.json`, and on the desktop pointing the box at
+    // somebody else's file does not overwrite yours. Saving is what writes; see `persist_settings`.
     use_effect(move || {
-        let mut cps = LocalStorageSettingsStore.load();
-        settings().apply(&mut cps);
-        if let Err(e) = LocalStorageSettingsStore.save(&cps) {
-            settings_status.set(e);
-        }
+        settings();
         env_dirty.set(true);
         // Settings are what genuinely invalidates a cached determination, so this is where the cache
         // is dropped rather than in the effect watching uploads and chased certificates. A cached
@@ -680,10 +711,28 @@ fn App() -> Element {
     });
 
     // Replaces the whole model, remounting the form so it reseeds from the new values. Used by
-    // Reset to defaults and by loading a settings file.
+    // loading a settings file and by Revert to Saved.
+    //
+    // Deliberately does not persist: a load is not a save. What the run uses and what localStorage
+    // holds are two different things here, exactly as the desktop's settings path and its file are.
     let mut replace_settings = move |model: SettingsModel| {
         settings.set(model);
         form_gen += 1;
+    };
+
+    // Writes the model to localStorage, which is this frontend's saved settings -- what a fresh page
+    // starts from and what Revert to Saved returns to. Called only by Save, so that "saved" means
+    // what somebody chose to save. Merges over the stored map rather than replacing it, keeping
+    // settings the form does not surface, which is what the desktop's file-backed save also does.
+    //
+    // Reports the outcome rather than setting the status itself, so a failed write cannot be
+    // overwritten by the caller's success message -- localStorage refuses in private browsing and
+    // when the origin's quota is full, and a save that says it worked when it did not is the one
+    // failure the user cannot see.
+    let persist_settings = move |model: &SettingsModel| -> Result<(), String> {
+        let mut cps = LocalStorageSettingsStore.load();
+        model.apply(&mut cps);
+        LocalStorageSettingsStore.save(&cps)
     };
 
     // The time a run validates against, for stamping reports: the chosen time of interest, or the
@@ -886,7 +935,12 @@ fn App() -> Element {
             }
         };
         replace_settings(SettingsModel::from_cps(&cps));
-        settings_status.set(format!("Loaded settings from {name}"));
+        // Says it is not saved because nothing on screen would otherwise show it. The desktop has a
+        // path box naming the file it is editing; here the only difference between a loaded file and
+        // the saved settings is invisible, and Revert to Saved is how it is undone.
+        settings_status.set(format!(
+            "Loaded settings from {name}. Runs use them now; Save keeps them, Revert to Saved discards them."
+        ));
     };
 
     // loads a certificate into the aggregated list; validation happens when the Validate button
@@ -1317,7 +1371,18 @@ fn App() -> Element {
             AppShell {
                 items: VIEW_LABELS.to_vec(),
                 selected: view(),
-                on_select: move |i: usize| view.set(i),
+                // Leaving the settings form is the only way to discard its edits now that saving no
+                // longer navigates away, so it is the one transition that asks. `window.confirm`
+                // rather than a rendered control: the sidebar is outside the form, and blocking the
+                // navigation is the whole point.
+                on_select: move |i: usize| {
+                    let leaving_dirty =
+                        view() == SETTINGS_VIEW && i != SETTINGS_VIEW && settings_dirty();
+                    if leaving_dirty && !confirm_discard_settings() {
+                        return;
+                    }
+                    view.set(i);
+                },
                 match view() {
                     0 => rsx! {
                         // The tier governs the whole run, so it is stated before the trust material
@@ -1609,11 +1674,28 @@ fn App() -> Element {
                                 revocation_default: Some(
                                     tier().retrieves() || have_revocation_uploads(),
                                 ),
-                                on_save: move |edited| {
+                                on_save: move |edited: SettingsModel| {
+                                    let outcome = persist_settings(&edited);
+                                    // The run uses the edits either way: failing to persist them is
+                                    // not a reason to discard them.
                                     settings.set(edited);
-                                    settings_status.set("Settings saved".to_string());
+                                    settings_status
+                                        .set(match outcome {
+                                            Ok(()) => "Settings saved".to_string(),
+                                            Err(e) => e,
+                                        });
                                 },
-                                on_close: move |_| view.set(0),
+                                // Back to what local storage holds -- what Save, or a loaded
+                                // settings file, last put there. `replace_settings` is the existing
+                                // wholesale-replacement path and remounts the form, which is how
+                                // the new values reach it.
+                                on_reload: move |_| {
+                                    replace_settings(
+                                        SettingsModel::from_cps(&LocalStorageSettingsStore.load()),
+                                    );
+                                    settings_status.set("Settings reloaded".to_string());
+                                },
+                                on_dirty_change: move |d| settings_dirty.set(d),
                             }
                         }
                         fieldset {

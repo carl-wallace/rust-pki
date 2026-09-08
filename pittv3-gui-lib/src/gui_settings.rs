@@ -4,16 +4,22 @@
 //! [`EditSettings`] is renderer-agnostic and persistence-free: it receives an initial model and
 //! reports the edited model through `on_save`, so desktop (file-backed) and web (server- or
 //! localStorage-backed) frontends share the form. `EditSettingsFile` (feature `std`) is the
-//! keeps today's read/write-a-JSON-file behavior.
+//! desktop wrapper that reads and writes the JSON file the CLI's `-s` argument names.
 //!
 //! Presentation is defaults-first: each field shows its effective value (the model value or the
 //! certval default), editing a field records an override, and Reset to defaults discards all
 //! overrides. The revocation tab presents a composed mode selection with the individual settings
 //! under an advanced disclosure.
 //!
-//! Every frontend presents every tab, including settings it cannot act on: a browser has no
-//! filesystem and, until a fetch relay exists, no way to retrieve CRLs or OCSP responses. Those
-//! groups carry a notice saying so rather than being hidden, for two reasons. A user
+//! The form edits a *store* and does not choose which one: Save writes to it, Revert to Saved
+//! re-reads it, and Reset to defaults touches only the form. Which store that is, and any action on
+//! the store as a whole -- pointing at another one, deleting it -- belongs to the frontend, whose
+//! chrome names it. What the form does own is knowing when it holds edits the store has not seen,
+//! which it reports through `on_dirty_change` so the frontend can guard the navigation it owns.
+//!
+//! Every frontend presents every tab it can act on at all: a browser has no
+//! filesystem and, until a fetch relay exists, no way to retrieve CRLs or OCSP responses. Groups it
+//! can still author carry a notice saying so rather than being hidden, for two reasons. A user
 //! who learned the form in one frontend finds the same tabs in the next, and the settings file is
 //! shared across all of them (`pittv3 -s`, the desktop editor, the browser's import/export), so
 //! authoring a value that only takes effect elsewhere is a legitimate thing to do. What each
@@ -538,6 +544,37 @@ const TABS: &[(SettingsTab, &str)] = &[
     (SettingsTab::Folders, "Folders & files"),
 ];
 
+/// An action that would throw away unsaved edits, held while the confirmation is on screen.
+///
+/// Confirmed inside the form rather than through a dialog toolkit: `rfd` is a desktop dependency and
+/// the browser has `window.confirm`, so a shared control is the only way both frontends ask the same
+/// question. Navigating away is not here — the sidebar is outside this component, which is what
+/// `on_dirty_change` exists for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingDiscard {
+    Reset,
+    Revert,
+}
+
+impl PendingDiscard {
+    /// What the confirmation asks.
+    fn prompt(self) -> &'static str {
+        match self {
+            Self::Reset => "Reset every field to its certval default?",
+            Self::Revert => "Reload the saved settings?",
+        }
+    }
+
+    /// The label on the button that goes through with it, naming the action rather than agreeing —
+    /// "OK" beside a warning tells the reader nothing about what they are about to do.
+    fn confirm_label(self) -> &'static str {
+        match self {
+            Self::Reset => "Reset",
+            Self::Revert => "Revert",
+        }
+    }
+}
+
 /// Whether a tab has anything to offer the frontend showing it.
 ///
 /// Folders and files name paths on a machine the browser has no way to reach, so it is left out
@@ -583,13 +620,53 @@ pub fn EditSettings(
     #[props(default)]
     extra_folder_rows: Option<Element>,
     on_save: EventHandler<SettingsModel>,
-    on_close: EventHandler<()>,
+    /// Asked to re-read the store this frontend is backed by -- the file at the settings path on
+    /// the desktop, localStorage in the browser -- and hand it back as a fresh `initial`.
+    ///
+    /// The handler replaces the model *outside* this component, which is why it is a request rather
+    /// than something done here: seeding happens once per mount (see `model` below), so the caller
+    /// remounts the form to make the new values take. What it must not do is change *which* store is
+    /// being edited: on the desktop that is the settings-file path, and a Revert that silently
+    /// repointed it would mean "reload my store" in the browser and "abandon the file I am editing"
+    /// on the desktop, from one button with one label.
+    on_reload: EventHandler<()>,
+    /// Reports whether the form holds edits that are not in the store yet.
+    ///
+    /// The frontend owns navigation -- a sidebar here, a view signal there -- and neither is
+    /// reachable from inside this component, so it cannot guard the one way out of the form that
+    /// matters. It reports the state instead and lets each frontend warn in its own idiom.
+    on_dirty_change: EventHandler<bool>,
 ) -> Element {
+    // `baseline` is what "unsaved" is measured against; it moves on save, and both start from the
+    // same place.
     let mut model = use_signal(|| initial.clone());
+    let mut baseline = use_signal(|| initial.clone());
     let mut tab = use_signal(|| SettingsTab::Policy);
+    // Set when a discarding action is asked for while there are unsaved edits, so the confirmation
+    // is rendered here rather than through a dialog toolkit neither frontend shares.
+    let mut pending = use_signal(|| None::<PendingDiscard>);
 
     let m = model();
     let mode = m.revocation_mode();
+    let dirty = m != baseline();
+
+    // Follow `initial` rather than only its first value. A frontend can repoint this form at a
+    // different store without unmounting it -- the desktop's settings-path box does exactly that,
+    // per keystroke -- and a form still showing the previous store's values would save them into
+    // the new one. `initial` is a prop and so not reactive on its own, hence `use_reactive`.
+    //
+    // Relying on the caller to force a remount instead was tried and is not enough: it works when
+    // the caller replaces the value wholesale, and silently does not when the path is edited in
+    // place.
+    use_effect(use_reactive!(|initial| {
+        model.set(initial.clone());
+        baseline.set(initial);
+    }));
+
+    // Report on every change rather than only on the edges: the frontend holds a plain bool, and
+    // reseeding above replaces `model` without the frontend touching anything, which an
+    // edge-triggered report would never mention.
+    use_effect(move || on_dirty_change.call(model() != baseline()));
 
     rsx! {
         div { class: "settings-editor",
@@ -912,18 +989,66 @@ pub fn EditSettings(
                 },
             }
 
+            if let Some(p) = pending() {
+                div { class: "capability-notice",
+                    "{p.prompt()} Unsaved changes will be lost."
+                    div { class: "settings-actions",
+                        button {
+                            r#type: "button",
+                            onclick: move |_| {
+                                match p {
+                                    PendingDiscard::Reset => model.set(SettingsModel::default()),
+                                    PendingDiscard::Revert => on_reload.call(()),
+                                }
+                                pending.set(None);
+                            },
+                            "{p.confirm_label()}"
+                        }
+                        button {
+                            r#type: "button",
+                            onclick: move |_| pending.set(None),
+                            "Cancel"
+                        }
+                    }
+                }
+            }
+
             div { class: "settings-actions",
                 button {
                     r#type: "button",
-                    onclick: move |_| on_save.call(model()),
+                    onclick: move |_| {
+                        on_save.call(model());
+                        // Optimistic: the frontend owns the write and reports a failure in its own
+                        // status line, which stays on screen with the edits still in the form. The
+                        // alternative -- plumbing the outcome back -- buys a correct flag for the
+                        // case where the user can already see what happened.
+                        baseline.set(model());
+                    },
                     "Save"
                 }
                 button {
                     r#type: "button",
-                    onclick: move |_| model.set(SettingsModel::default()),
+                    onclick: move |_| {
+                        match dirty {
+                            true => pending.set(Some(PendingDiscard::Revert)),
+                            false => on_reload.call(()),
+                        }
+                    },
+                    "Revert to Saved"
+                }
+                button {
+                    r#type: "button",
+                    onclick: move |_| {
+                        match dirty {
+                            true => pending.set(Some(PendingDiscard::Reset)),
+                            false => model.set(SettingsModel::default()),
+                        }
+                    },
                     "Reset to defaults"
                 }
-                button { r#type: "button", onclick: move |_| on_close.call(()), "Close" }
+                if dirty {
+                    span { class: "hint", "Unsaved changes" }
+                }
             }
         }
     }
@@ -931,23 +1056,38 @@ pub fn EditSettings(
 
 /// Desktop wrapper for [`EditSettings`] that reads the JSON settings file at `path` into the form
 /// and writes the edited settings back on save, preserving settings the form does not cover.
+///
+/// The file is re-read whenever `path` or `reload_token` changes, and the form follows, so the box
+/// naming the file and the values on screen cannot drift apart.
 #[cfg(feature = "std")]
 #[component]
 pub fn EditSettingsFile(
     path: String,
+    /// Changed by the caller to ask for the file to be read again when `path` has not moved --
+    /// Revert to Saved, or a delete that leaves nothing to read. Any new value will do; the value
+    /// itself carries no meaning.
+    #[props(default)]
+    reload_token: usize,
     /// Passed to [`EditSettings`]; see its documentation.
     #[props(default)]
     extra_folder_rows: Option<Element>,
-    on_close: EventHandler<()>,
+    /// Passed to [`EditSettings`]; the caller satisfies it by changing `reload_token`.
+    on_reload: EventHandler<()>,
+    /// Passed to [`EditSettings`]; see its documentation.
+    on_dirty_change: EventHandler<bool>,
 ) -> Element {
-    let initial = use_hook({
-        let path = path.clone();
-        move || SettingsModel::from_cps(&FileSettingsStore::new(path).load())
-    });
+    // Both are props, so neither is reactive on its own; `use_reactive` is what makes a change in
+    // either re-read the file. A missing path reads as an empty settings map -- all defaults --
+    // which is what makes a half-typed path harmless and a deleted file resolve to defaults.
+    let initial = use_memo(use_reactive!(|path, reload_token| {
+        let _ = reload_token;
+        SettingsModel::from_cps(&FileSettingsStore::new(path).load())
+    }));
 
-    // A failed write is reported here rather than only logged. Saving closes the form, so a silent
-    // failure looks exactly like a successful save until the settings are next read back.
-    let mut save_error = use_signal(String::new);
+    // Both outcomes of a save are reported in the same place. Saving used to close the form, which
+    // is why only the failure needed saying; now that the form stays put, a save that says nothing
+    // is indistinguishable from a click that missed.
+    let mut status = use_signal(String::new);
 
     let save_path = path.clone();
     let on_save = move |edited: SettingsModel| {
@@ -957,24 +1097,24 @@ pub fn EditSettingsFile(
         edited.apply(&mut cps);
         if let Err(e) = store.save(&cps) {
             error!("{e}");
-            // leave the form open so the edits are not lost with the file they could not reach
-            save_error.set(e);
+            // the edits stay in the form rather than being lost with the file they could not reach
+            status.set(e);
             return;
         }
-        save_error.set(String::new());
-        on_close.call(());
+        status.set("Settings saved".to_string());
     };
 
     rsx! {
-        if !save_error().is_empty() {
-            p { class: "capability-notice", "{save_error}" }
+        if !status().is_empty() {
+            p { class: "capability-notice", "{status}" }
         }
         EditSettings {
-            initial,
+            initial: initial(),
             caps: Capabilities::desktop(),
             extra_folder_rows,
             on_save,
-            on_close: move |_| on_close.call(()),
+            on_reload,
+            on_dirty_change,
         }
     }
 }
