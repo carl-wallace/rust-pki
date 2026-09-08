@@ -1329,9 +1329,11 @@ pub(crate) async fn check_revocation_crl_remote(
 
 #[cfg(test)]
 mod tests {
-    // fetch_crl's four outcomes: a non-HTTP scheme and a blocklisted URI are both rejected without a
-    // request, a first fetch returns the body and records the server's Last-Modified value, and a
-    // second fetch sends that value back as If-Modified-Since and takes the 304 as ResourceUnchanged.
+    // fetch_crl's outcomes: a non-HTTP scheme and a blocklisted URI are both rejected without a
+    // request, a first fetch returns the body and records the server's Last-Modified value, a
+    // second fetch sends that value back as If-Modified-Since and takes the 304 as ResourceUnchanged,
+    // and a third -- made after the CRL that value describes is deleted -- goes out unconditional and
+    // returns the body, because a 304 answering it could not be honoured from the folder.
     //
     // The last two are served from loopback rather than from a live CA. That keeps a transient
     // network error from failing the test, and it also lets the conditional request be inspected
@@ -1364,8 +1366,8 @@ mod tests {
         pe.add_check_remote(Box::new(RemoteStatus::new(&lmm_folder)));
 
         // Answers a conditional request with 304 and any other with the body, and keeps each request
-        // it saw so the If-Modified-Since header can be checked below. Connection: close on both
-        // keeps the two fetches from sharing a socket, so each arrives as its own accept.
+        // it saw so the If-Modified-Since header can be checked below. Connection: close keeps the
+        // fetches from sharing a socket, so each arrives as its own accept.
         let requests = Arc::new(Mutex::new(Vec::<String>::new()));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let uri = format!("http://{}/crl", listener.local_addr().unwrap());
@@ -1423,6 +1425,18 @@ mod tests {
         .await;
         assert_eq!(BODY, r.unwrap().as_slice());
 
+        // What `add_crl` would have written for this URI. `fetch_crl` records the Last-Modified
+        // value but does not write the CRL -- the caller does, on the way through `process_crl` --
+        // and a stored value is only offered while the file it describes is there, so the
+        // conditional request below depends on this existing.
+        let crl_file = {
+            use crate::buffer_to_hex;
+            use sha2::{Digest, Sha256};
+            let hex = buffer_to_hex(Sha256::digest(&uri).to_vec().as_slice());
+            std::path::Path::new(&lmm_folder).join(format!("{hex}.crl"))
+        };
+        std::fs::write(&crl_file, BODY).unwrap();
+
         let r = fetch_crl(
             &pe,
             &uri,
@@ -1432,16 +1446,37 @@ mod tests {
         .await;
         assert_eq!(Some(Error::ResourceUnchanged), r.err());
 
+        // With the CRL gone the stored value is not offered, so the request goes out unconditional
+        // and the body comes back rather than a 304 that would leave the run with no CRL at all.
+        std::fs::remove_file(&crl_file).unwrap();
+        let r = fetch_crl(
+            &pe,
+            &uri,
+            Duration::from_secs(60),
+            PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+        )
+        .await;
+        assert_eq!(BODY, r.unwrap().as_slice());
+
         // Compared in lower case throughout: hyper writes header names lower case on the wire.
         let requests = requests.lock().unwrap();
-        assert_eq!(2, requests.len());
+        assert_eq!(3, requests.len());
         let first = requests[0].to_ascii_lowercase();
         let second = requests[1].to_ascii_lowercase();
+        let third = requests[2].to_ascii_lowercase();
         assert!(!first.contains("if-modified-since"));
         assert!(second.contains(&format!(
             "if-modified-since: {}",
             LAST_MODIFIED.to_ascii_lowercase()
         )));
+        // The point of the third: a stored value whose CRL is gone must not produce a conditional
+        // request, because a 304 answering it cannot be honoured from the folder.
+        assert!(!third.contains("if-modified-since"));
+
+        // The third fetch returned a body, so the caller would have written the CRL again on its
+        // way through `process_crl`. Restored here to stand in for that, because the value below is
+        // only offered while the file it describes is present.
+        std::fs::write(&crl_file, BODY).unwrap();
 
         // A second RemoteStatus over the same folder reads the map the first one wrote, which is
         // what persisting it is for: a later run must not re-download what this one already holds.
@@ -1450,6 +1485,11 @@ mod tests {
             Some(LAST_MODIFIED.to_string()),
             reloaded.get_last_modified(&uri)
         );
+
+        // And it stops being offered the moment that file goes, which is the whole of the rule this
+        // test's third fetch exercises.
+        std::fs::remove_file(&crl_file).unwrap();
+        assert_eq!(None, reloaded.get_last_modified(&uri));
     }
 
     // The ingest cap must reject an oversized CRL body -- from the declared Content-Length where the
