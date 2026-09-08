@@ -1103,7 +1103,14 @@ pub(crate) fn App() -> Element {
     let saved_capi = sa.capi_ta_stores.clone();
     #[cfg(not(all(windows, feature = "capi")))]
     let saved_capi: Vec<String> = vec![];
-    let saved_store = use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas, &saved_capi));
+    // Restored alongside the anchor store because two entries name the same one and differ only in
+    // whether they write.
+    #[cfg(all(windows, feature = "capi"))]
+    let saved_capi_rw = sa.capi_ca_store_rw.clone();
+    #[cfg(not(all(windows, feature = "capi")))]
+    let saved_capi_rw: Option<String> = None;
+    let saved_store =
+        use_hook(|| stores::selection_for(&sa.ta_cbor, sa.webpki_tas, &saved_capi, &saved_capi_rw));
     let from_store = saved_store != stores::CUSTOM;
     let saved_or_empty = |v: &Option<String>| {
         if from_store {
@@ -1348,8 +1355,10 @@ pub(crate) fn App() -> Element {
             capi_ta_stores: stores::capi_stores(s_store()).0,
             #[cfg(all(windows, feature = "capi"))]
             capi_ca_stores: stores::capi_stores(s_store()).1,
+            // Set only by the writable entry in the selector, so a run writes to a Windows store
+            // because that entry was chosen and not because dynamic build happened to be on.
             #[cfg(all(windows, feature = "capi"))]
-            capi_ca_store_rw: None,
+            capi_ca_store_rw: stores::capi_stores(s_store()).2,
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest: s_time_of_interest()
                 .parse::<u64>()
