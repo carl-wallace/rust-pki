@@ -641,7 +641,15 @@ pub fn EditSettings(
     // same place.
     let mut model = use_signal(|| initial.clone());
     let mut baseline = use_signal(|| initial.clone());
-    let mut tab = use_signal(|| SettingsTab::Policy);
+    // Folders and files first: it is what a person opening Settings most often came to change, and
+    // the two folder defaults landing there made it the tab that answers "where will this run put
+    // things". Falls back to the first tab a frontend actually shows -- the browser has no
+    // filesystem, so `tab_applies` hides Folders there and defaulting to it would open the form on a
+    // tab that is not in the bar.
+    let mut tab = use_signal(|| match tab_applies(SettingsTab::Folders, &caps) {
+        true => SettingsTab::Folders,
+        false => SettingsTab::Policy,
+    });
     // Set when a discarding action is asked for while there are unsaved edits, so the confirmation
     // is rendered here rather than through a dialog toolkit neither frontend shares.
     let mut pending = use_signal(|| None::<PendingDiscard>);

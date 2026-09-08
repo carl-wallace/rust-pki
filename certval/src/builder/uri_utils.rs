@@ -100,6 +100,43 @@ pub(crate) async fn read_capped_body(
     Ok(buf)
 }
 
+/// Name of the map recording what each URI last wrote into a download folder.
+///
+/// Beside the artifacts rather than beside the last-modified map, because its entries are relative
+/// to this folder and so travel with it.
+#[cfg(feature = "remote")]
+pub const FETCHED_ARTIFACTS_NAME: &str = "fetched_artifacts.json";
+
+/// Reads the URI-to-artifact map from `path`, or an empty map when there is none to read.
+///
+/// **An absent or unreadable map degrades to today's behaviour and not to a wrong answer.** With no
+/// entry for a URI the conditional request is simply not made, so the artifact is fetched again --
+/// a redundant transfer at worst. That is also the migration path: every existing download folder
+/// starts without one.
+#[cfg(feature = "remote")]
+fn read_fetched_artifacts(path: &Path) -> BTreeMap<String, Vec<String>> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return BTreeMap::new();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+/// Writes the URI-to-artifact map, best effort.
+///
+/// A write that fails costs the next run a re-fetch, which is the same cost as never having written
+/// it, so it is logged rather than surfaced.
+#[cfg(feature = "remote")]
+fn write_fetched_artifacts(path: &Path, artifacts: &BTreeMap<String, Vec<String>>) {
+    match serde_json::to_vec_pretty(artifacts) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(path, json) {
+                debug!("Failed to write {} with {e}", path.display());
+            }
+        }
+        Err(e) => debug!("Failed to serialize the fetched-artifact map with {e:?}"),
+    }
+}
+
 /// `save_certs_from_p7` takes a buffer that notionally contains a degenerate certs-only SignedData
 /// message and returns buffers containing the resulting certificates via the `buffers` parameter,
 /// discarding any duplicates.
@@ -118,6 +155,7 @@ fn save_certs_from_p7(
     target: &str,
     buffers: &mut dyn CertVector,
     time_of_interest: TimeOfInterest,
+    written: &mut Vec<String>,
 ) -> bool {
     let mut at_least_one_saved = false;
     let filename = filename.and_then(|f| f.to_str());
@@ -150,6 +188,7 @@ fn save_certs_from_p7(
                                         target,
                                         buffers,
                                         time_of_interest,
+                                        written,
                                     ) {
                                         at_least_one_saved = true;
                                     }
@@ -187,6 +226,7 @@ fn save_cert(
     target: &str,
     buffers: &mut dyn CertVector,
     time_of_interest: TimeOfInterest,
+    written: &mut Vec<String>,
 ) -> bool {
     let mut saved = false;
     let filename = filename.and_then(|f| f.to_str());
@@ -221,8 +261,12 @@ fn save_cert(
                     match File::create(filename) {
                         Ok(mut dest) => {
                             let r = dest.write_all(bytes);
-                            if let Err(e) = r {
-                                error!("Failed to copy {target} with {e:?}");
+                            match r {
+                                // Recorded only on a write that succeeded: the map is a claim that
+                                // the file is there, and a claim made about a failed write is the
+                                // very thing this exists to stop.
+                                Ok(()) => written.push(filename.to_string()),
+                                Err(e) => error!("Failed to copy {target} with {e:?}"),
                             }
                         }
                         Err(e) => {
@@ -272,6 +316,16 @@ pub async fn fetch_to_buffer(
         false => Some(Path::new(folder)),
     };
 
+    // What each URI last produced in this folder, so a 304 can be answered from disk instead of
+    // losing the artifact. Kept beside the artifacts rather than beside the last-modified map: the
+    // names are relative to this folder, so moving or copying a download folder carries the record
+    // with it instead of invalidating it.
+    let artifacts_path = path.map(|p| p.join(FETCHED_ARTIFACTS_NAME));
+    let mut artifacts: BTreeMap<String, Vec<String>> = artifacts_path
+        .as_deref()
+        .map(read_fetched_artifacts)
+        .unwrap_or_default();
+
     let client = match shared_http_client() {
         Some(client) => client,
         None => return Err(Error::Unrecognized),
@@ -286,11 +340,28 @@ pub async fn fetch_to_buffer(
             continue;
         }
 
+        // The files this URI produced last time, if they are all still there. A 304 is only worth
+        // asking for when the answer can be honoured: the last-modified map on its own asserts that
+        // a copy exists somewhere and nothing checks, so a folder that has been tidied or moved
+        // leaves the next run told "unchanged" and coming away with nothing.
+        //
+        // Rather than re-requesting after an unhonourable 304, the conditional request is simply not
+        // made -- the same outcome without a wasted round trip, and it cannot strand material.
+        let readable: Vec<String> = match (path, artifacts.get(target)) {
+            (Some(folder), Some(names)) => {
+                let all_present = names.iter().all(|n| folder.join(n).is_file());
+                match all_present {
+                    true => names.clone(),
+                    false => vec![],
+                }
+            }
+            _ => vec![],
+        };
+
         // Read saved last modified time, if any, for use in avoiding unnecessary download below
-        let h = if last_mod_map.contains_key(target) {
-            &last_mod_map[target]
-        } else {
-            ""
+        let h = match readable.is_empty() {
+            true => "",
+            false => last_mod_map.get(target).map(|s| s.as_str()).unwrap_or(""),
         };
 
         // Announced after the last-modified map is consulted rather than before it, and as a check
@@ -332,10 +403,33 @@ pub async fn fetch_to_buffer(
                     .filter(|&name| !name.is_empty())
                     .unwrap_or("tmp.bin");
 
-                // seen it before, skip it now
+                // Seen it before. Nothing was transferred, so the copies already on disk are what
+                // this URI contributes to the run -- read back rather than skipped, which is what
+                // made a warm cache quietly narrow the pool it was supposed to widen.
                 if 304 == response.status() {
-                    //TODO read buffer from folder
-                    info!("Unchanged, nothing transferred: {target}");
+                    let mut back = 0;
+                    for name in &readable {
+                        let Some(folder) = path else { continue };
+                        let Ok(bytes) = std::fs::read(folder.join(name)) else {
+                            continue;
+                        };
+                        // Through the same gate a fresh download goes through, so a certificate that
+                        // has since expired or that this run would refuse is refused here too. The
+                        // file is already on disk, so nothing is written again.
+                        let mut ignored = vec![];
+                        if save_cert(
+                            pe,
+                            None,
+                            bytes.as_slice(),
+                            target,
+                            buffers,
+                            time_of_interest,
+                            &mut ignored,
+                        ) {
+                            back += 1;
+                        }
+                    }
+                    info!("Unchanged, {back} artifact(s) read from {folder}: {target}");
                     continue;
                 }
 
@@ -364,6 +458,9 @@ pub async fn fetch_to_buffer(
                 match read_capped_body(response, max_bytes, target).await {
                     Ok(bytes) => {
                         info!("Fetched {} bytes from {target}", bytes.len());
+                        // What this URI writes on this pass, recorded so a later 304 can be answered
+                        // from the folder rather than losing the artifact.
+                        let mut written: Vec<String> = vec![];
 
                         // save_certs_from_p7
                         if "application/pkcs7-mime" == content_type {
@@ -374,6 +471,7 @@ pub async fn fetch_to_buffer(
                                 target,
                                 buffers,
                                 time_of_interest,
+                                &mut written,
                             );
                         } else if "application/x-x509-ca-cert" == content_type {
                             save_cert(
@@ -383,6 +481,7 @@ pub async fn fetch_to_buffer(
                                 target,
                                 buffers,
                                 time_of_interest,
+                                &mut written,
                             );
                         } else {
                             let r = CertificateInner::<Raw>::from_der(bytes.as_ref());
@@ -395,6 +494,7 @@ pub async fn fetch_to_buffer(
                                         target,
                                         buffers,
                                         time_of_interest,
+                                        &mut written,
                                     );
                                 }
                                 Err(_) => {
@@ -405,9 +505,31 @@ pub async fn fetch_to_buffer(
                                         target,
                                         buffers,
                                         time_of_interest,
+                                        &mut written,
                                     );
                                 }
                             }
+                        }
+
+                        // Recorded relative to the folder, so the record survives the folder being
+                        // moved or copied. A URI that wrote nothing this pass keeps whatever it
+                        // claimed before rather than being cleared: the earlier files may still be
+                        // there, and the presence check above is what decides whether they count.
+                        let relative: Vec<String> = match path {
+                            Some(folder) => written
+                                .iter()
+                                .filter_map(|w| {
+                                    Path::new(w)
+                                        .strip_prefix(folder)
+                                        .ok()
+                                        .and_then(|r| r.to_str())
+                                        .map(|r| r.to_string())
+                                })
+                                .collect(),
+                            None => vec![],
+                        };
+                        if !relative.is_empty() {
+                            artifacts.insert(target.to_string(), relative);
                         }
                     }
                     Err(e) => {
@@ -422,6 +544,10 @@ pub async fn fetch_to_buffer(
                 }
             }
         }
+    }
+
+    if let Some(p) = artifacts_path.as_deref() {
+        write_fetched_artifacts(p, &artifacts);
     }
     Ok(())
 }

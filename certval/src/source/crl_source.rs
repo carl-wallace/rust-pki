@@ -232,9 +232,43 @@ impl RemoteStatus {
     // }
 }
 
+impl RemoteStatus {
+    /// Whether the CRL this URI last produced is still on disk.
+    ///
+    /// **The map records a time and nothing else, so on its own it asserts that a copy exists and
+    /// nothing checks.** Remove the file -- a tidy, a purge, a folder moved -- and the next run
+    /// sends `If-Modified-Since`, is told 304, and comes away with no CRL at all: the folder has
+    /// nothing to offer and the fetch declined to transfer anything. That costs a *verdict* rather
+    /// than a pool position, since a certificate whose CRL cannot be obtained is undetermined
+    /// rather than not-revoked.
+    ///
+    /// No map of its own is needed here, unlike the certificate side: `add_crl` names a CRL
+    /// `sha256(uri)` in hex, so the file a URI produced is derivable from the URI.
+    ///
+    /// Checked against `lmm_folder`, which is where the caller is expected to keep both -- pittv3
+    /// builds this and its `CrlSourceFolders` from one `crl_folder` argument. A caller that splits
+    /// them gets a conservative answer rather than a wrong one: the file looks absent, so no
+    /// conditional request is made and the CRL is fetched in full.
+    fn crl_present(&self, uri: &str) -> bool {
+        let hex = buffer_to_hex(Sha256::digest(uri).to_vec().as_slice());
+        if hex.is_empty() {
+            return false;
+        }
+        Path::new(self.lmm_folder.as_str())
+            .join(format!("{hex}.crl"))
+            .is_file()
+    }
+}
+
 impl CheckRemoteResource for RemoteStatus {
     /// get_last_modified takes a URI and returns stored last modified value or None.
+    ///
+    /// `None` when the CRL that value describes is no longer on disk, so a conditional request is
+    /// only made when a 304 can be honoured -- see `crl_present`.
     fn get_last_modified(&self, uri: &str) -> Option<String> {
+        if !self.crl_present(uri) {
+            return None;
+        }
         // Fast path: once the map has been loaded a shared read lock suffices.
         {
             let last_modified_map = self.last_modified_map.read().ok()?;
@@ -805,6 +839,13 @@ mod tests {
     use super::*;
     use crate::CheckRemoteResource;
 
+    /// The file `add_crl` would have written for `uri`, which is what a stored last-modified value
+    /// describes.
+    fn crl_path(folder: &str, uri: &str) -> std::path::PathBuf {
+        let hex = buffer_to_hex(Sha256::digest(uri).to_vec().as_slice());
+        Path::new(folder).join(format!("{hex}.crl"))
+    }
+
     // A stored last-modified value must be readable both in memory and, after the write released the
     // lock and persisted the map, from a fresh instance over the same folder.
     #[test]
@@ -814,6 +855,11 @@ mod tests {
         let uri = "http://example.test/crl";
         let value = "Mon, 01 Jan 2035 00:00:00 GMT";
 
+        // The CRL the value describes. A stored time with no file behind it is deliberately not
+        // reported -- see the test below -- so the round trip needs the file that a fetch would
+        // have written.
+        std::fs::write(crl_path(folder, uri), b"not a real CRL").unwrap();
+
         let rs = RemoteStatus::new(folder);
         rs.set_last_modified(uri, value);
         assert_eq!(rs.get_last_modified(uri), Some(value.to_string()));
@@ -822,6 +868,29 @@ mod tests {
         let rs2 = RemoteStatus::new(folder);
         assert_eq!(rs2.get_last_modified(uri), Some(value.to_string()));
         assert_eq!(rs2.get_last_modified("http://example.test/other"), None);
+    }
+
+    // A last-modified value is a claim that a CRL is on disk, and the claim is checked. Without
+    // this, removing the file leaves the next run sending If-Modified-Since, being told 304, and
+    // holding no CRL at all -- the folder has nothing and the fetch transferred nothing, which
+    // turns a revocation determination undetermined rather than merely costing a re-fetch.
+    #[test]
+    fn a_last_modified_value_is_not_offered_once_its_crl_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let uri = "http://example.test/crl";
+        let value = "Mon, 01 Jan 2035 00:00:00 GMT";
+
+        let path = crl_path(folder, uri);
+        std::fs::write(&path, b"not a real CRL").unwrap();
+        let rs = RemoteStatus::new(folder);
+        rs.set_last_modified(uri, value);
+        assert_eq!(rs.get_last_modified(uri), Some(value.to_string()));
+
+        // Tidied, purged, or the folder replaced: the value stays in the map and stops being
+        // offered, so the next request is unconditional and the CRL comes back in full.
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(rs.get_last_modified(uri), None);
     }
 
     // One CRL, written twice: AmazonRootCA1.der.crl and AmazonRootCA1.pem.crl differ only in

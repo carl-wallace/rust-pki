@@ -481,11 +481,14 @@ async fn pick_file_into(
 }
 
 /// Serializes the validation report to pretty JSON and writes it to a user-chosen file.
-async fn save_report(report: ValidationReport) {
+async fn save_report(report: ValidationReport, name: String) {
     let file = AsyncFileDialog::new()
         .set_directory(dialog_dir(DialogPurpose::Save))
         .add_filter("JSON", &["json"])
-        .set_file_name("pittv3-results.json")
+        // The export name and the run's stamp, as the path logs and the archive already use. A
+        // fixed name offered the same file for every run, so saving a second one overwrote the
+        // first -- and a sequence of runs is exactly when reports are worth keeping side by side.
+        .set_file_name(format!("{name}.json"))
         .save_file()
         .await;
     if let Some(file) = file {
@@ -2396,7 +2399,11 @@ pub(crate) fn App() -> Element {
                                     disabled: s_report().is_none(),
                                     onclick: move |_| {
                                         if let Some(r) = s_report() {
-                                            spawn(save_report(r));
+                                            let name = stamped_export_name(
+                                                &s_export_name(),
+                                                s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+                                            );
+                                            spawn(save_report(r, name));
                                         }
                                     },
                                     title: "Save the structured report as JSON",
