@@ -33,27 +33,12 @@ use pittv3_lib::retained::RetainedRun;
 /// when the run finishes and the buttons read it afterwards.
 pub(crate) type RetainedArtifacts = Arc<Mutex<Option<RetainedRun>>>;
 
-/// Builds the per-path export entries once, so an archive and a log describe the same paths in the
-/// same order.
+/// The per-path export entries of a run already held.
 ///
-/// Returns an empty vector when nothing is held, which is the case before the first run and after a
-/// run that found no paths at all.
-fn build_entries(artifacts: &RetainedArtifacts) -> Vec<Vec<(String, Vec<u8>)>> {
-    let guard = match artifacts.lock() {
-        Ok(guard) => guard,
-        // A poisoned mutex means the worker panicked mid-run; the run is not reportable either way,
-        // and refusing to export is better than exporting whatever was written before the panic.
-        Err(_) => return vec![],
-    };
-    let Some(run) = guard.as_ref() else {
-        return vec![];
-    };
-    entries_for(run)
-}
-
-/// The per-path entries of a run already held. Split from [`build_entries`] so the archive can take
-/// the lock once and build both halves of the bundle from the same view of the run, rather than
-/// locking twice and risking two halves that describe different states.
+/// Takes the run rather than the mutex so a caller locks once and builds everything it needs from
+/// one view of it, rather than locking twice and risking two halves that describe different states.
+/// A poisoned mutex is a worker that panicked mid-run: the callers treat it as nothing to report,
+/// which is better than reporting whatever was written before the panic.
 fn entries_for(run: &RetainedRun) -> Vec<Vec<(String, Vec<u8>)>> {
     run.paths
         .iter()
@@ -86,7 +71,16 @@ fn complete_inputs(run: &RetainedRun, mut inputs: RunInputs) -> RunInputs {
 
     // One entry per target, not per path: several paths to one end entity are several paths to one
     // certificate, and a replay is handed the certificate.
-    let mut seen = vec![];
+    //
+    // Seeded with whatever the caller already recorded, because the paths cannot be the only source
+    // of targets: a run that found none has none to read, and that is the run whose target a reader
+    // most wants. The caller supplies the targets it was asked about; this adds any the paths reached
+    // that are not already there.
+    let mut seen: Vec<String> = inputs
+        .end_entities
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect();
     for path in &run.paths {
         if seen.contains(&path.target_name) {
             continue;
@@ -117,8 +111,14 @@ fn complete_inputs(run: &RetainedRun, mut inputs: RunInputs) -> RunInputs {
 /// `inputs` carries what only the frontend knows -- the environment halves, whether every path was
 /// pursued, which store it came from -- and the rest is completed from the run.
 ///
-/// `Ok(None)` means there was nothing to save, which the caller reports as such rather than writing
+/// `Ok(None)` means no run is held to report, which the caller reports as such rather than writing
 /// an empty archive.
+///
+/// **A run that found no paths is not that case.** It has an inputs half and a run-level file like
+/// any other run, and it is the run whose evidence is most often wanted: the question is why nothing
+/// was found, and answering it needs what the run was given. Such a bundle has no `paths/` folder,
+/// and its `derived/` half holds only what does not come off a path, since the anchors and
+/// intermediates there are taken from validated paths and there were none.
 pub(crate) fn artifacts_archive(
     artifacts: &RetainedArtifacts,
     name: &str,
@@ -132,12 +132,8 @@ pub(crate) fn artifacts_archive(
     let Some(run) = guard.as_ref() else {
         return Ok(None);
     };
-    let entries = entries_for(run);
-    if entries.is_empty() {
-        return Ok(None);
-    }
     let inputs = complete_inputs(run, inputs);
-    zip_bundle(name, &entries, &inputs, run_ms).map(Some)
+    zip_bundle(name, &entries_for(run), &inputs, run_ms).map(Some)
 }
 
 /// The manifests alone -- every path's account of itself, one after another, without the material
@@ -150,21 +146,20 @@ pub(crate) fn artifacts_archive(
 /// these artifacts came from. It closes the log because no manifest can state it: each says what its
 /// own path took, and the difference between their sum and the run is the retrieval and the work
 /// between them.
+///
+/// `None` only when no run is held. A run that found no paths has a log saying so, which is the
+/// point of asking for one after such a run.
 pub(crate) fn path_logs_text(artifacts: &RetainedArtifacts, run_ms: Option<u64>) -> Option<String> {
-    let entries = build_entries(artifacts);
-    let text = paths_text(&entries, run_ms);
-    match text.is_empty() {
-        true => None,
-        false => Some(text),
-    }
+    let guard = artifacts.lock().ok()?;
+    let run = guard.as_ref()?;
+    Some(paths_text(&entries_for(run), run_ms))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Nothing retained is not a failure -- it is the state before the first run, and after a run
-    /// that found no paths.
+    /// Nothing retained is the state before the first run, and the only state with nothing to save.
     #[test]
     fn nothing_retained_yields_nothing_to_save() {
         let artifacts: RetainedArtifacts = Arc::new(Mutex::new(None));
@@ -176,8 +171,8 @@ mod tests {
         assert!(path_logs_text(&artifacts, None).is_none());
         // and a run figure does not conjure a log out of paths that are not held
         assert!(path_logs_text(&artifacts, Some(1234)).is_none());
-        // nor does a set of inputs: a bundle with no paths in it is not a bundle, so an archive
-        // is not written for inputs alone however complete they are
+        // inputs alone do not make one either: they say what a run would have been given, and no
+        // run has been made
         let inputs = RunInputs {
             anchors: Some(b"anchors".to_vec()),
             graph: Some(b"graph".to_vec()),
@@ -186,5 +181,48 @@ mod tests {
         assert!(artifacts_archive(&artifacts, "run", inputs, Some(1234))
             .unwrap()
             .is_none());
+    }
+
+    /// The targets a run was asked about survive a run that found no paths. They cannot come off the
+    /// paths in that case, and they are the certificates such a bundle exists to explain.
+    #[test]
+    fn targets_supplied_by_the_caller_survive_a_run_with_no_paths() {
+        let run = RetainedRun {
+            environment: Default::default(),
+            cps: Default::default(),
+            paths: vec![],
+        };
+        let inputs = RunInputs {
+            end_entities: vec![("target.der".to_string(), b"a-target".to_vec())],
+            ..Default::default()
+        };
+        let completed = complete_inputs(&run, inputs);
+        assert_eq!(completed.end_entities.len(), 1);
+        assert_eq!(completed.end_entities[0].0, "target.der");
+    }
+
+    /// A run that found nothing is a run, and the bundle it produces is the one an investigation
+    /// into why it found nothing needs.
+    #[test]
+    fn a_run_that_found_no_paths_still_exports() {
+        let artifacts: RetainedArtifacts = Arc::new(Mutex::new(Some(RetainedRun {
+            environment: Default::default(),
+            cps: Default::default(),
+            paths: vec![],
+        })));
+        let inputs = RunInputs {
+            anchors: Some(b"anchors".to_vec()),
+            end_entities: vec![("target.der".to_string(), b"a-target".to_vec())],
+            time_of_interest: 1,
+            ..Default::default()
+        };
+        let zipped = artifacts_archive(&artifacts, "run", inputs, Some(1234))
+            .unwrap()
+            .expect("a run with no paths still has an inputs half");
+        assert!(!zipped.is_empty());
+        // and the log says what happened rather than not being written
+        let log = path_logs_text(&artifacts, Some(1234)).expect("a run has a log");
+        assert!(log.contains("No certification paths were found"), "{log}");
+        assert!(log.contains("1234 ms"), "{log}");
     }
 }

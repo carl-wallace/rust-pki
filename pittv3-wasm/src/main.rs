@@ -28,8 +28,8 @@ use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckReport};
 
 use pittv3_gui_lib::export::{
-    ca_store_among, path_entries, paths_text, stamped_export_name, ta_store_among, zip_bundle,
-    RunInputs, DEFAULT_EXPORT_NAME,
+    path_entries, paths_text, pool_includes_ca_store, pool_includes_ta_store, stamped_export_name,
+    zip_bundle, RunInputs, DEFAULT_EXPORT_NAME,
 };
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
@@ -837,19 +837,20 @@ fn App() -> Element {
     let save_artifacts = move |_| {
         use base64::engine::general_purpose::STANDARD;
         use base64::Engine as _;
-        let entries = build_entries();
-        if entries.is_empty() {
+        // Gated on a run having happened, not on its having found anything: a run that found no
+        // paths still has an inputs half, and it is the run whose evidence is most often wanted.
+        let Some(inputs) = run_inputs() else {
             notes.write().push(ResultLine {
                 class: "err",
-                text: "No validated paths are held from this run to export".to_string(),
+                text: "No run is held to export. Validate something first.".to_string(),
             });
             return;
-        }
+        };
+        let entries = build_entries();
         let name = stamped_export_name(
             &export_name(),
             run_stamp().unwrap_or_else(now_as_unix_epoch),
         );
-        let inputs = run_inputs().unwrap_or_default();
         match zip_bundle(&name, &entries, &inputs, Some(run_ms())) {
             Ok(zipped) => {
                 let js = format!(
@@ -868,17 +869,17 @@ fn App() -> Element {
     // downloads the manifests alone -- every path's account of itself, one after another, without the
     // material behind them
     let save_path_logs = move |_| {
+        if run_inputs.read().is_none() {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: "No run is held to export. Validate something first.".to_string(),
+            });
+            return;
+        }
         let entries = build_entries();
         // `run_ms` is the wall clock of the run that retained these paths -- both are replaced
         // together when a run finishes -- so the log closes with the run its manifests came from.
         let text = paths_text(&entries, Some(run_ms()));
-        if text.is_empty() {
-            notes.write().push(ResultLine {
-                class: "err",
-                text: "No validated paths are held from this run to export".to_string(),
-            });
-            return;
-        }
         let name = stamped_export_name(
             &export_name(),
             run_stamp().unwrap_or_else(now_as_unix_epoch),
@@ -1296,10 +1297,10 @@ fn App() -> Element {
             // and `ca.cbor` entirely.
             anchors: store_material()
                 .map(|(ta, _)| ta)
-                .or_else(|| ta_store_among(&uploaded_tas())),
+                .or_else(|| pool_includes_ta_store(&uploaded_tas())),
             graph: store_material()
                 .map(|(_, ca)| ca)
-                .or_else(|| ca_store_among(&uploaded_cas())),
+                .or_else(|| pool_includes_ca_store(&uploaded_cas())),
             // The browser fetches a store and validates against it; there is no separate built
             // graph here to keep alongside, so this half is the desktop's alone.
             built_graph: None,
@@ -1770,13 +1771,16 @@ fn App() -> Element {
                                         "Save log"
                                     }
                                     button {
-                                        disabled: retained_paths.read().is_empty(),
+                                        // Enabled once a run has happened, not once it has found
+                                        // something: a run that found no paths has a log saying so
+                                        // and a bundle of what it was given.
+                                        disabled: run_inputs.read().is_none(),
                                         onclick: save_path_logs,
                                         title: "Download every path's manifest as one text file",
                                         "Save path logs"
                                     }
                                     button {
-                                        disabled: retained_paths.read().is_empty(),
+                                        disabled: run_inputs.read().is_none(),
                                         onclick: save_artifacts,
                                         title: "Download the certificates and revocation data behind every path, as a zip",
                                         "Save artifacts"

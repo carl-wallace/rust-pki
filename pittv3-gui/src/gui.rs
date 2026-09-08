@@ -23,7 +23,8 @@ use std::sync::Mutex;
 
 use crate::save::{self, RetainedArtifacts};
 use pittv3_gui_lib::export::{
-    ca_store_among, stamped_export_name, ta_store_among, RunInputs, DEFAULT_EXPORT_NAME,
+    pool_includes_ca_store, pool_includes_ta_store, stamped_export_name, RunInputs,
+    DEFAULT_EXPORT_NAME,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
@@ -141,6 +142,42 @@ fn read_pool(paths: &[String]) -> Vec<(String, Vec<u8>)> {
         .iter()
         .filter_map(|p| std::fs::read(p).ok().map(|b| (p.clone(), b)))
         .collect()
+}
+
+/// The targets a run was asked about, read from the arguments it was launched with.
+///
+/// Taken from the arguments rather than from the paths the run found, because a run that found none
+/// still had targets and they are the certificates its bundle is about. Folders are expanded the way
+/// the run expands them, so a bundle records the certificates rather than a directory name that
+/// means nothing on another machine.
+fn read_targets(args: &Pittv3Args) -> Vec<(String, Vec<u8>)> {
+    use std::path::Path;
+    let mut out = vec![];
+    let push_file = |path: &Path, out: &mut Vec<(String, Vec<u8>)>| {
+        if let Ok(bytes) = std::fs::read(path) {
+            out.push((path.to_string_lossy().to_string(), bytes));
+        }
+    };
+    let named = args
+        .end_entity_file
+        .iter()
+        .chain(args.end_entity_folder.iter())
+        .chain(args.ee_inputs.iter());
+    for entry in named {
+        let path = Path::new(entry);
+        match path.is_dir() {
+            true => {
+                let Ok(dir) = std::fs::read_dir(path) else {
+                    continue;
+                };
+                for file in dir.flatten().filter(|f| f.path().is_file()) {
+                    push_file(&file.path(), &mut out);
+                }
+            }
+            false => push_file(path, &mut out),
+        }
+    }
+    out
 }
 
 /// Writes the environment a run over the current inputs validates against, as the two files that
@@ -1538,15 +1575,14 @@ pub(crate) fn App() -> Element {
                         RunEvent::Done(report) => {
                             clear_log_sink();
                             s_report.set(Some(*report));
-                            // A run that validated nothing leaves nothing to export, which is a
-                            // different state from a run that has not happened yet -- both
-                            // disable the buttons, and neither is an error.
+                            // A run happened, so there is something to export -- a run that found
+                            // no paths still has the inputs it was given and a run-level account of
+                            // itself, which is the evidence that answers why it found nothing. The
+                            // state that leaves nothing is no run at all.
                             s_can_export.set(
                                 done_retained
                                     .lock()
-                                    .map(|held| {
-                                        held.as_ref().is_some_and(|run| !run.paths.is_empty())
-                                    })
+                                    .map(|held| held.is_some())
                                     .unwrap_or(false),
                             );
                             s_running.set(false);
@@ -1592,16 +1628,21 @@ pub(crate) fn App() -> Element {
                             .as_deref()
                             .and_then(graph_cache::cached_anchors)
                             .or_else(|| read_input_file(&args.ta_cbor))
-                            .or_else(|| ta_store_among(&read_pool(&args.ta_inputs))),
+                            .or_else(|| pool_includes_ta_store(&read_pool(&args.ta_inputs))),
                         // The store as the run read it, always, so it stays comparable -- from
                         // the singular argument, or from whichever pooled input is itself a store.
                         graph: read_input_file(&args.cbor)
-                            .or_else(|| ca_store_among(&read_pool(&args.ca_inputs))),
+                            .or_else(|| pool_includes_ca_store(&read_pool(&args.ca_inputs))),
                         // And what the run made of it, when it built anything. Kept alongside
                         // rather than written over `ca.cbor`, which is what this did at first --
                         // a built graph saved under that name looks like a store snapshot and is
                         // not one, and nothing in the file says so.
                         built_graph: fingerprint.as_deref().and_then(graph_cache::cached),
+                        // The targets the run was asked about. Supplied here because the run's own
+                        // retained state records them per validated path, and a run that found no
+                        // paths would otherwise carry no target at all -- which is the certificate
+                        // such a bundle exists to explain.
+                        end_entities: read_targets(&args),
                         validate_all: args.validate_all,
                         store,
                         ..Default::default()
@@ -1613,7 +1654,7 @@ pub(crate) fn App() -> Element {
                 match save::artifacts_archive(&retained, &name, inputs, run_ms) {
                     Ok(None) => s_log
                         .write()
-                        .push("No validated paths are held from this run to save".to_string()),
+                        .push("No run is held to save. Validate something first.".to_string()),
                     Err(e) => s_log
                         .write()
                         .push(format!("Failed to build the archive: {e}")),
@@ -1640,7 +1681,7 @@ pub(crate) fn App() -> Element {
                 match save::path_logs_text(&retained, s_report().map(|r| r.duration_ms)) {
                     None => s_log
                         .write()
-                        .push("No validated paths are held from this run to save".to_string()),
+                        .push("No run is held to save. Validate something first.".to_string()),
                     Some(text) => {
                         write_export(format!("{name}.txt"), &["txt"], text.into_bytes(), s_log)
                             .await
