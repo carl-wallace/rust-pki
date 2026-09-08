@@ -796,9 +796,15 @@ fn App() -> Element {
             "data:application/json;charset=utf-8,{}",
             percent_encode(&json)
         );
+        // The export name and the run's stamp, as this app's other two downloads already use.
+        // Stamping the moment of saving instead named two saves of one run differently and two runs
+        // saved in the same second the same, which is backwards on both counts.
+        let name = stamped_export_name(
+            &export_name(),
+            run_stamp().unwrap_or_else(now_as_unix_epoch),
+        );
         let js = format!(
-            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"pittv3-results-{}.json\"; a.click();",
-            now_as_unix_epoch()
+            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"{name}.json\"; a.click();"
         );
         let _ = dioxus::document::eval(&js);
     };
