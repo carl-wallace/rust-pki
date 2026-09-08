@@ -144,6 +144,17 @@ pub struct Pittv3Args {
     #[cfg(feature = "std_app")]
     pub validate_all: bool,
 
+    /// Run the URI checker over every certificate on each validated path and append the results to
+    /// that path's log.
+    ///
+    /// Each distinct certificate is checked once per run and its result rendered into every path it
+    /// appears on: a URI's reachability during one run is one fact, and an intermediate common to
+    /// forty paths should not be fetched forty times. Trust anchors are scanned for their SIA only
+    /// -- see `uri_check::check_uris_in_cert`.
+    #[cfg(all(feature = "std_app", feature = "remote"))]
+    #[serde(default)]
+    pub check_uris_when_validating: bool,
+
     /// Check if certificate passed as end_entity_file is self-signed.
     #[cfg(feature = "std_app")]
     pub validate_self_signed: bool,

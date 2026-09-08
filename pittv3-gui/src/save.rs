@@ -49,6 +49,9 @@ fn entries_for(run: &RetainedRun) -> Vec<Vec<(String, Vec<u8>)>> {
                 Some(&r.cps),
                 &r.cpr,
                 Some(r.duration_ms),
+                // The run's own results, so a bundle's path logs carry what its results folder
+                // would have. Empty when the option was off, which renders no section.
+                Some(&run.uri_reports),
             )
         })
         .collect()
@@ -191,6 +194,7 @@ mod tests {
             environment: Default::default(),
             cps: Default::default(),
             paths: vec![],
+            uri_reports: Default::default(),
         };
         let inputs = RunInputs {
             end_entities: vec![("target.der".to_string(), b"a-target".to_vec())],
@@ -209,6 +213,7 @@ mod tests {
             environment: Default::default(),
             cps: Default::default(),
             paths: vec![],
+            uri_reports: Default::default(),
         })));
         let inputs = RunInputs {
             anchors: Some(b"anchors".to_vec()),

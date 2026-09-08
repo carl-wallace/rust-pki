@@ -1224,6 +1224,7 @@ pub(crate) fn App() -> Element {
     let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
     let s_cbor_ta_store = use_signal(|| sa.cbor_ta_store);
     let s_validate_all = use_signal(|| sa.validate_all);
+    let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
     // `no_revocation_cache`, because a clap bool flag names a deviation from the default; a
     // checkbox names a state, and the browser already settled which state it shows. Inverting here
@@ -1372,6 +1373,7 @@ pub(crate) fn App() -> Element {
             chase_aia_and_sia: s_chase_aia_and_sia(),
             cbor_ta_store: s_cbor_ta_store(),
             validate_all: s_validate_all(),
+            check_uris_when_validating: s_check_uris(),
             validate_self_signed: s_validate_self_signed(),
             dynamic_build: s_dynamic_build(),
             use_downloaded_cas: s_use_downloaded_cas(),
@@ -1884,6 +1886,12 @@ pub(crate) fn App() -> Element {
                                         name: "validate-all",
                                         sig: s_validate_all,
                                         title: "Off stops at the first valid path; on reports every path found.",
+                                    }
+                                    CheckboxRow {
+                                        label: "Check URIs when validating",
+                                        name: "check-uris-when-validating",
+                                        sig: s_check_uris,
+                                        title: "Runs the URI checker over every certificate on each path and appends the results to that path's log. Each certificate is checked once per run. Retrieves from the repositories the certificates name, so it needs network access.",
                                     }
                                     CheckboxRow {
                                         label: "Dynamic Build",

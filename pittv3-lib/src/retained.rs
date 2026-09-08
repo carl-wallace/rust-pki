@@ -75,4 +75,9 @@ pub struct RetainedRun {
     pub cps: CertificationPathSettings,
     /// Every path validated during the run, in the order they were reported
     pub paths: Vec<RetainedPath>,
+    /// The URI check results the run gathered, when `--check-uris-when-validating` was given.
+    ///
+    /// Held for the run rather than per path because that is how they were gathered: one entry per
+    /// distinct certificate, rendered into every path it appears on. Empty when the option was off.
+    pub uri_reports: crate::uri_check::UriCheckReports,
 }

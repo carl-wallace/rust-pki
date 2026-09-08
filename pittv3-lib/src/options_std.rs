@@ -138,6 +138,7 @@ use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
+use crate::uri_check::UriCheckReports;
 
 #[cfg(feature = "sha1_sig")]
 use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
@@ -762,6 +763,16 @@ async fn generate_and_validate(
 ) -> ValidationReport {
     let retain = kept.is_some();
     let mut retained: Vec<RetainedPath> = vec![];
+    // One per run, not one per target: a certificate checked under one target's path is not checked
+    // again under another's. `None` when the option is off, so nothing is carried and no fetch is
+    // made. See `check_uris_when_validating`.
+    #[cfg(feature = "remote")]
+    let mut uri_reports = match args.check_uris_when_validating {
+        true => Some(UriCheckReports::default()),
+        false => None,
+    };
+    #[cfg(not(feature = "remote"))]
+    let mut uri_reports: Option<UriCheckReports> = None;
     // The CBOR file is required (but can be an empty file if doing dynamic building only)
     let cbor_file = if let Some(cbor) = &args.cbor {
         cbor
@@ -1365,6 +1376,7 @@ async fn generate_and_validate(
                         &mut fresh_uris,
                         threshold,
                         retain.then_some(&mut retained),
+                        uri_reports.as_mut(),
                     )
                     .await;
                 }
@@ -1381,6 +1393,7 @@ async fn generate_and_validate(
                 &mut fresh_uris,
                 threshold,
                 retain.then_some(&mut retained),
+                uri_reports.as_mut(),
             )
             .await;
         }
@@ -1400,6 +1413,7 @@ async fn generate_and_validate(
                     &mut fresh_uris,
                     threshold,
                     retain.then_some(&mut retained),
+                    uri_reports.as_mut(),
                 )
                 .await;
                 continue;
@@ -1421,6 +1435,7 @@ async fn generate_and_validate(
                     &mut fresh_uris,
                     threshold,
                     retain.then_some(&mut retained),
+                    uri_reports.as_mut(),
                 )
                 .await;
             }
@@ -1629,6 +1644,7 @@ async fn generate_and_validate(
             // per-target loop only reads them, so this is still the run's and not the last target's.
             cps: cps.clone(),
             paths: retained,
+            uri_reports: uri_reports.unwrap_or_default(),
         });
     }
     report

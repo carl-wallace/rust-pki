@@ -582,6 +582,28 @@ impl RelayFetcher {
         }
     }
 
+    /// A fetcher for checking `certificates` of them, carrying that many single-check budgets.
+    ///
+    /// **One fetcher reused across a bulk check spends a single certificate's allowance on all of
+    /// them.** That is what happened when the URI checks were first run over a whole validation:
+    /// the first paths' certificates checked cleanly, the budget ran out partway, and every later
+    /// retrieval returned an empty body -- reported as `URI_NOT_AVAILABLE`, or as
+    /// `URI_INCORRECT_DATA` where an unusable OCSP response read as one that did not correspond to
+    /// its certificate. Two certificates were flagged that check perfectly when given a budget of
+    /// their own.
+    ///
+    /// Scaling linearly rather than lifting the cap: each certificate gets exactly the allowance a
+    /// single check promises it, and a run still has a ceiling known before it starts.
+    pub fn for_certificates(certificates: usize) -> Self {
+        let n = certificates.max(1);
+        RelayFetcher {
+            budget: core::cell::RefCell::new(FetchBudget {
+                fetches: MAX_FETCHES.saturating_mul(n),
+                bytes: MAX_BYTES.saturating_mul(n),
+            }),
+        }
+    }
+
     /// Records a retrieval and reports whether it was permitted to happen at all.
     fn afford(&self, bytes: usize) -> bool {
         let mut budget = self.budget.borrow_mut();
