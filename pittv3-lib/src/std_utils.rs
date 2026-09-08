@@ -939,6 +939,11 @@ async fn check_path_uris(
 /// A caller that means to export keeps the [`PkiEnvironment`] alive too — see
 /// [`crate::retained::RetainedPath`] for why the CRLs are not held here.
 #[allow(clippy::too_many_arguments)]
+// `uri_reports` is only mutated where the URI checks run, which is behind `remote`; without that
+// feature it is read and passed on but never written, and `unused_mut` is right to say so. The
+// parameter cannot lose its `mut` outright, so the lint is silenced for the shape that does not
+// need it -- the shape CI builds and `--all-features` never sees.
+#[cfg_attr(not(feature = "remote"), allow(unused_mut))]
 pub async fn validate_cert_bytes_retaining(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -1261,6 +1266,8 @@ pub async fn validate_targets(
 ///
 /// A caller that means to export keeps the [`PkiEnvironment`] alive alongside the returned paths:
 /// the CRLs behind a status are recovered from the sources registered on it, not held here.
+// See `validate_cert_bytes_retaining`: `uri_reports` is mutated only under `remote`.
+#[cfg_attr(not(feature = "remote"), allow(unused_mut))]
 pub async fn validate_targets_retaining(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
@@ -1406,6 +1413,8 @@ pub async fn validate_cert_folder(
 #[async_recursion::async_recursion]
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_arguments)]
+// See `validate_cert_bytes_retaining`: `uri_reports` is mutated only under `remote`.
+#[cfg_attr(not(feature = "remote"), allow(unused_mut))]
 pub async fn validate_cert_folder_retaining(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
