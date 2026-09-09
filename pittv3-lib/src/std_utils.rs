@@ -1811,40 +1811,6 @@ pub struct FolderMaintenance {
     pub failed: usize,
 }
 
-/// Discards the last-modified map for `folder`, if there is one.
-///
-/// **Every function that removes downloaded artifacts must call this.** The map records, per URI,
-/// the `Last-Modified` a previous fetch saw, and a run sends it back as `If-Modified-Since`; a 304
-/// then means "you already have this" and the artifact is neither transferred nor added to the run
-/// — `fetch_crl` returns `ResourceUnchanged` and the certificate path skips the URI. So the map is
-/// a claim that a copy exists on disk. Remove the copy and leave the claim, and the next run is
-/// told nothing has changed and comes away with nothing, from the network or the folder.
-///
-/// The whole map goes rather than the entries for what was removed: a saved certificate is named
-/// from its URL's last path segment and a saved CRL from a hash of its content, so a file cannot be
-/// mapped back to the URI that fetched it. Discarding all of it costs one conditional request per
-/// URI on the next run, which is the right price for an action the user asked for.
-#[cfg(feature = "std")]
-pub fn forget_last_modified(folder: &str) -> bool {
-    if folder.is_empty() {
-        return false;
-    }
-    let lmm_file = last_modified_map_file(folder);
-    if !Path::new(&lmm_file).exists() {
-        return false;
-    }
-    match fs::remove_file(&lmm_file) {
-        Ok(()) => {
-            info!("Discarded the last-modified map at {lmm_file}");
-            true
-        }
-        Err(e) => {
-            error!("Failed to discard the last-modified map at {lmm_file}: {e}");
-            false
-        }
-    }
-}
-
 /// Removes the CRLs in `folder` that do not cover `toi`, leaving the rest.
 ///
 /// This is the predicate indexing used to apply on its own, on every run. It is a maintenance
@@ -1902,9 +1868,6 @@ pub fn cleanup_crls(folder: &str, toi_secs: u64) -> FolderMaintenance {
             }
         }
     }
-    if outcome.removed > 0 {
-        forget_last_modified(folder);
-    }
     info!(
         "Removed {} CRL(s) from {folder} that do not cover the time of interest ({} could not be removed)",
         outcome.removed, outcome.failed
@@ -1940,9 +1903,6 @@ pub fn cleanup_certificate_folder(
     cleanup_certs(&pe, folder, error_folder, false, toi);
     let after = count();
     let removed = before.saturating_sub(after);
-    if removed > 0 {
-        forget_last_modified(folder);
-    }
     FolderMaintenance { removed, failed: 0 }
 }
 
@@ -1970,9 +1930,6 @@ pub fn purge_folder(folder: &str) -> FolderMaintenance {
             }
         }
     }
-    // The map is a file in the folder, so the sweep above already took it. Named anyway so the
-    // invariant is stated where it is relied on rather than left to the reader to notice.
-    forget_last_modified(folder);
     info!(
         "Removed {} file(s) from {folder} ({} could not be removed)",
         outcome.removed, outcome.failed
