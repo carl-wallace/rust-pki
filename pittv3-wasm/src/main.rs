@@ -113,8 +113,8 @@ const VIEWS: &[(View, &str)] = &[
     (View::Validate, "Validate"),
     (View::Results, "Results"),
     (View::Settings, "Settings"),
-    (View::StoreArtifacts, "Store artifacts"),
     (View::CheckUris, "Check URIs"),
+    (View::StoreArtifacts, "Store artifacts"),
     (View::Hackathon, "Hackathon"),
     (View::Help, "Help"),
 ];

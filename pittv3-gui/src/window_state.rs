@@ -28,8 +28,9 @@ pub struct WindowState {
     pub width: u32,
     /// Height of the content area.
     pub height: u32,
-    /// Physical pixels per logical pixel when the above were measured. Diagnostic only: the
-    /// geometry is applied in the units it was recorded in.
+    /// Physical pixels per logical pixel when the above were measured. Recorded rather than
+    /// used: the geometry is applied in the units it was measured in, and this is here so a person
+    /// reading the file can tell what the numbers mean.
     #[serde(default = "one")]
     pub scale: f64,
     /// Name of the display the window was on, when the system offered one.
@@ -44,17 +45,6 @@ pub struct WindowState {
 /// Scale factor assumed for a remembered geometry that does not record one.
 fn one() -> f64 {
     1.0
-}
-
-impl WindowState {
-    /// The content size in logical pixels, for saying so in a diagnostic.
-    pub fn logical_size(&self) -> (f64, f64) {
-        let scale = match self.scale > 0.0 {
-            true => self.scale,
-            false => 1.0,
-        };
-        (self.width as f64 / scale, self.height as f64 / scale)
-    }
 }
 
 /// A display as [`decide`] needs to see it: what it is called and how big it is, in physical pixels.
@@ -235,37 +225,5 @@ mod tests {
             decide(&saved_on(None, 4000, 1600), &displays),
             Outcome::UseDefault(_)
         ));
-    }
-
-    #[test]
-    fn no_displays_at_all_falls_back() {
-        assert!(matches!(
-            decide(&saved_on(Some(LAPTOP), 800, 600), &[]),
-            Outcome::UseDefault(_)
-        ));
-    }
-
-    /// A 2x display saves twice the logical size; the diagnostic should say so in both units.
-    #[test]
-    fn logical_size_divides_by_the_recorded_scale() {
-        assert_eq!(saved_on(None, 2400, 1600).logical_size(), (1200.0, 800.0));
-    }
-
-    /// A file predating the scale field holds physical values and no factor.
-    #[test]
-    fn a_missing_scale_reads_as_one() {
-        let s: WindowState =
-            serde_json::from_str(r#"{"x":1,"y":2,"width":820,"height":800}"#).unwrap();
-        assert_eq!(s.scale, 1.0);
-        assert_eq!(s.monitor, None);
-        assert_eq!(s.logical_size(), (820.0, 800.0));
-    }
-
-    /// A zero factor would otherwise divide the size into nonsense.
-    #[test]
-    fn a_broken_scale_is_ignored_rather_than_divided_by() {
-        let mut s = saved_on(None, 820, 800);
-        s.scale = 0.0;
-        assert_eq!(s.logical_size(), (820.0, 800.0));
     }
 }

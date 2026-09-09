@@ -283,7 +283,7 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
 /// repository may no longer publish, so it asks.
 async fn confirm_purge(folder: &str) -> bool {
     rfd::AsyncMessageDialog::new()
-        .set_title("Purge folder")
+        .set_title("Empty folder")
         .set_description(format!(
             "Remove every file in {folder}?\n\nCertificates can generally be fetched again. A \
              superseded CRL usually cannot: a CA publishes the current one and nothing else, so \
@@ -867,17 +867,12 @@ fn FileRow(
 /// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
 /// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
 #[component]
-fn UriCheckModal(open: Signal<bool>) -> Element {
-    let mut open = open;
+fn UriCheckView() -> Element {
     let s_target = use_signal(String::new);
     let s_issuer = use_signal(String::new);
     let s_auto = use_signal(|| true);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<UriCheckReport>);
-
-    if !open() {
-        return rsx! {};
-    }
 
     let run_check = move |_| async move {
         let target = s_target();
@@ -920,60 +915,57 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
     };
 
     rsx! {
-        div { class: "modal-overlay",
-            div { class: "modal",
-                div { class: "modal-header",
-                    h2 { "Check URIs in certificate" }
-                    button {
-                        r#type: "button",
-                        class: "modal-close",
-                        onclick: move |_| open.set(false),
-                        "\u{00d7}"
-                    }
-                }
-                p { class: "hint",
-                    "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. An issuer, supplied or auto-discovered, adds CRL signature verification and OCSP checks."
-                }
-                div { class: "controls",
-                    FileRow {
-                        label: "Target certificate",
-                        name: "uri-target",
-                        sig: s_target,
-                        filter_name: "Certificate File",
-                        extensions: SINGLE_CERT_EXTENSIONS,
-                    }
-                    FileRow {
-                        label: "Issuer certificate (optional)",
-                        name: "uri-issuer",
-                        sig: s_issuer,
-                        filter_name: "Certificate File",
-                        extensions: SINGLE_CERT_EXTENSIONS,
-                    }
-                    div { class: "field check-group",
-                        CheckboxCell {
-                                                    label: "Attempt auto-discovery if issuer not specified",
-                                                    name: "uri-auto",
-                                                    sig: s_auto,
-                                                }
-                    }
-                }
-                div { class: "modal-actions",
-                    button {
-                        r#type: "button",
-                        disabled: s_running(),
-                        onclick: run_check,
-                        if s_running() { "Checking\u{2026}" } else { "Check URIs" }
-                    }
-                    button {
-                        r#type: "button",
-                        onclick: move |_| s_report.set(None),
-                        "Clear Results"
-                    }
-                }
-                if let Some(report) = s_report() {
-                    UriCheckResults { report }
+        p { class: "hint",
+            "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. This is a check of the repositories, not of the certificate: it builds no path and reaches no verdict about trust. An issuer, supplied or auto-discovered, is what makes CRL signature verification and OCSP possible; without one those rows report that they could not be checked rather than failing."
+        }
+        div { class: "controls",
+            FileRow {
+                label: "Target certificate",
+                name: "uri-target",
+                sig: s_target,
+                filter_name: "Certificate File",
+                extensions: SINGLE_CERT_EXTENSIONS,
+            }
+            FileRow {
+                label: "Issuer certificate (optional)",
+                name: "uri-issuer",
+                sig: s_issuer,
+                filter_name: "Certificate File",
+                extensions: SINGLE_CERT_EXTENSIONS,
+            }
+            div { class: "visible label-cell",
+                label { "Issuer discovery: " }
+            }
+            div { class: "field check-group",
+                CheckboxCell {
+                    label: "Attempt auto-discovery if issuer not specified",
+                    name: "uri-auto",
+                    sig: s_auto,
                 }
             }
+        }
+        div { class: "tool-actions",
+            button {
+                r#type: "button",
+                disabled: s_running() || s_target().is_empty(),
+                onclick: run_check,
+                if s_running() {
+                    "Checking\u{2026}"
+                } else if s_target().is_empty() {
+                    "Choose a certificate to check"
+                } else {
+                    "Check URIs"
+                }
+            }
+            button {
+                r#type: "button",
+                disabled: s_report().is_none(),
+                onclick: move |_| s_report.set(None),
+                "Clear Results"
+            }
+        }
+        if let Some(report) = s_report() {
+            UriCheckResults { report }
         }
     }
 }
@@ -984,8 +976,8 @@ enum View {
     Validate,
     Generate,
     Cleanup,
-    Diagnostics,
-    Tools,
+    Inspect,
+    CheckUris,
     Settings,
     Results,
     Help,
@@ -1004,10 +996,10 @@ const VIEWS: &[(View, &str)] = &[
     (View::Validate, "Validate"),
     (View::Results, "Results"),
     (View::Settings, "Settings"),
+    (View::CheckUris, "Check URIs"),
     (View::Generate, "Generate"),
     (View::Cleanup, "Cleanup"),
-    (View::Diagnostics, "Diagnostics"),
-    (View::Tools, "Tools"),
+    (View::Inspect, "Inspect"),
     (View::Help, "Help"),
 ];
 
@@ -1122,7 +1114,7 @@ fn StoreHint(selection: usize) -> Element {
 /// Each caller now supplies the sentence, as the browser frontend does.
 ///
 /// `idle` is for a view whose action is switched off: pressing "Generate the store" with Generate
-/// unchecked, or "Run diagnostics" with nothing selected, assembles a run that does nothing and
+/// unchecked, or the Inspect button with nothing selected, assembles a run that does nothing and
 /// reports nothing, which reads as the app failing rather than as the form being incomplete. The
 /// button says what is missing instead. `nothing_to_do` names the sentence; an empty one leaves the
 /// button enabled, which is what every view that always has something to do passes.
@@ -1185,14 +1177,7 @@ fn remember_window_geometry() {
             })
             .collect();
 
-        // Silent when it works -- the window itself says so. A refusal is the case worth
-        // reporting, since the alternative is a default-sized window with no account of why.
-        if let Outcome::UseDefault(why) = window_state::decide(&saved, &displays) {
-            let (lw, lh) = saved.logical_size();
-            println!(
-                "Not restoring the remembered window geometry ({}x{} physical, {lw}x{lh} logical, on {:?}): {why}",
-                saved.width, saved.height, saved.monitor
-            );
+        if let Outcome::UseDefault(_) = window_state::decide(&saved, &displays) {
             return;
         }
 
@@ -1203,9 +1188,6 @@ fn remember_window_geometry() {
         // exactly when the window is on no screen at all -- the one condition worth undoing for,
         // and a measurement of what happened rather than a prediction of what would.
         if window.current_monitor().is_none() {
-            println!(
-                "The restored position put the window on no display; returning to the default"
-            );
             if let Some(primary) = window.primary_monitor() {
                 let p = primary.position();
                 window.set_outer_position(PhysicalPosition::new(p.x + 40, p.y + 40));
@@ -1523,7 +1505,6 @@ pub(crate) fn App() -> Element {
     // Whether the last run left anything to save. The artifacts live behind a mutex the worker
     // thread fills, which the rsx cannot observe, so the buttons key off this instead.
     let mut s_can_export = use_signal(|| false);
-    let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
     // The arguments the form currently describes. Shared by the run and by anything else that has
@@ -1542,7 +1523,7 @@ pub(crate) fn App() -> Element {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
             // The Validate view's pools. Passed alongside the singular arguments rather than
-            // instead of them, because those still have rows on Generate, Cleanup and Diagnostics
+            // instead of them, because those still have rows on Generate, Cleanup and Inspect
             // and are the same arguments; an input named twice is carried once, since `push`
             // deduplicates on both the anchor and the certificate side.
             ta_inputs: pool(s_ta_inputs),
@@ -2270,89 +2251,94 @@ pub(crate) fn App() -> Element {
                         }
                     }
                     View::Generate => rsx! {
-                        fieldset {
-                            legend { "Generation" }
-                            div { class: "controls",
-                                PathRow {
-                                    label: "TA Folder or File",
-                                    name: "ta-folder",
-                                    sig: s_ta_folder,
-                                }
-                                PathRow {
-                                    label: "CA Folder or File",
-                                    name: "ca-folder",
-                                    sig: s_ca_folder,
-                                }
-                                // The file the run writes — labelled as such, since it sits
-                                // among inputs and is otherwise indistinguishable from one.
-                                // Which store it holds follows the CBOR TA store checkbox
-                                // below, so it is named for the row it will be loaded into on
-                                // the Validate view. (Same "(output)" convention as the
-                                // Mozilla CSV view's CA Folder.)
-                                if s_cbor_ta_store() {
-                                    FileRow {
-                                        label: "TA CBOR (output)",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                        extensions: ["cbor", "pki", "ta"].as_slice(),
-                                    }
-                                } else {
-                                    FileRow {
-                                        label: "CA CBOR (output)",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
-                                    }
-                                }
-                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                        div { class: "controls",
+                            PathRow {
+                                label: "TA Folder or File",
+                                name: "ta-folder",
+                                sig: s_ta_folder,
                             }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            FileRow {
+                                label: "Mozilla CSV",
+                                name: "mozilla-csv",
+                                sig: s_mozilla_csv,
+                                filter_name: "CSV file",
+                                extensions: ["csv"].as_slice(),
                             }
-                            div { class: "controls",
-                                // Both of these are consulted only while generating -- see
-                                // `chase_aia_and_sia` and `cbor_ta_store` in `args.rs` -- so with
-                                // Generate off they are settable controls that change nothing.
-                                // Disabled rather than hidden, and the signals are left alone: the
-                                // choice comes back with the control.
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
-                                    CheckboxCell {
-                                        label: "Chase SIA and AIA",
-                                        name: "chase-aia-and-sia",
-                                        sig: s_chase_aia_and_sia,
-                                        disabled: !s_generate(),
-                                    }
-                                    CheckboxCell {
-                                        label: "CBOR TA store",
-                                        name: "cbor-ta-store",
-                                        sig: s_cbor_ta_store,
-                                        disabled: !s_generate(),
-                                    }
+                            PathRow {
+                                label: "CA Folder or File",
+                                name: "ca-folder",
+                                sig: s_ca_folder,
+                            }
+                            // The file the run writes — labelled as such, since it sits
+                            // among inputs and is otherwise indistinguishable from one.
+                            // Which store it holds follows the CBOR TA store checkbox
+                            // below, so it is named for the row it will be loaded into on
+                            // the Validate view. (Same "(output)" convention as the
+                            // Mozilla CSV view's CA Folder.)
+                            if s_cbor_ta_store() {
+                                FileRow {
+                                    label: "TA CBOR (output)",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                    extensions: ["cbor", "pki", "ta"].as_slice(),
+                                }
+                            } else {
+                                FileRow {
+                                    label: "CA CBOR (output)",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized PKI",
+                                    extensions: ["cbor", "pki"].as_slice(),
                                 }
                             }
+                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            // Labelled like every other row. An unlabelled field lands in the
+                            // grid's first column, which is the label column.
+                            div { class: "visible label-cell",
+                                label { "Actions: " }
+                            }
+                            // Both of these are consulted only while generating -- see
+                            // `chase_aia_and_sia` and `cbor_ta_store` in `args.rs` -- so with
+                            // Generate off they are settable controls that change nothing.
+                            // Disabled rather than hidden, and the signals are left alone: the
+                            // choice comes back with the control.
+                            div { class: "field check-group",
+                                CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
+                                CheckboxCell {
+                                    label: "Chase SIA and AIA",
+                                    name: "chase-aia-and-sia",
+                                    sig: s_chase_aia_and_sia,
+                                    disabled: !s_generate(),
+                                }
+                                CheckboxCell {
+                                    label: "CBOR TA store",
+                                    name: "cbor-ta-store",
+                                    sig: s_cbor_ta_store,
+                                    disabled: !s_generate(),
+                                }
+                            }
+                        }
+                        p { class: "hint",
+                            if s_cbor_ta_store() {
+                                "Generate writes a trust anchor store to the TA CBOR path above, read from the CA input; either input may be a single file."
+                            } else {
+                                "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
+                            }
+                        }
+                        // Both output rows bind the same `s_cbor` signal, because `--generate`
+                        // writes to `--cbor` whichever kind of store it is making. Flipping
+                        // CBOR TA store therefore relabels the row and keeps the path, so a
+                        // path picked for one kind is reused for the other without saying so.
+                        // The row's own label cannot show that -- the label is what changed --
+                        // which is why the file is named here instead.
+                        if !s_cbor().is_empty() {
                             p { class: "hint",
                                 if s_cbor_ta_store() {
-                                    "Generate writes a trust anchor store to the TA CBOR path above, read from the CA input; either input may be a single file."
+                                    "Writes a trust anchor store to {s_cbor()}"
                                 } else {
-                                    "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
-                                }
-                            }
-                            // Both output rows bind the same `s_cbor` signal, because `--generate`
-                            // writes to `--cbor` whichever kind of store it is making. Flipping
-                            // CBOR TA store therefore relabels the row and keeps the path, so a
-                            // path picked for one kind is reused for the other without saying so.
-                            // The row's own label cannot show that -- the label is what changed --
-                            // which is why the file is named here instead.
-                            if !s_cbor().is_empty() {
-                                p { class: "hint",
-                                    if s_cbor_ta_store() {
-                                        "Writes a trust anchor store to {s_cbor()}"
-                                    } else {
-                                        "Writes a CA store with partial paths to {s_cbor()}"
-                                    }
+                                    "Writes a CA store with partial paths to {s_cbor()}"
                                 }
                             }
                         }
@@ -2364,91 +2350,121 @@ pub(crate) fn App() -> Element {
                         }
                     },
                     View::Cleanup => rsx! {
-                        fieldset {
-                            legend { "Cleanup" }
-                            div { class: "controls",
-                                FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                                FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                                FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                        // One grid for the whole view. Each `.controls` is a separate CSS grid
+                        // that measures its own label column, so splitting the rows across three of
+                        // them left three columns of different widths and no two labels lining up.
+                        // The group box used to hide that; without it there is nothing to hide it.
+                        div { class: "controls",
+                            FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
+                            FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
+                            FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            // Labelled like every other row rather than floating in the grid's
+                            // first column, which is where an unlabelled field lands.
+                            div { class: "visible label-cell",
+                                label { "Actions: " }
                             }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            }
-                            div { class: "controls",
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
-                                    CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
-                                    CheckboxCell { label: "Report Only", name: "report-only", sig: s_report_only }
+                            // Report Only modifies the two actions rather than being one, so it
+                            // is unavailable while neither is chosen. Disabled rather than
+                            // hidden, and the signal is left alone: the choice comes back with
+                            // the control.
+                            div { class: "field check-group",
+                                CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
+                                CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
+                                CheckboxCell {
+                                    label: "Report Only",
+                                    name: "report-only",
+                                    sig: s_report_only,
+                                    disabled: !s_cleanup() && !s_ta_cleanup(),
                                 }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command, label: "Clean up the store" }
-                    },
-                    View::Diagnostics => rsx! {
-                        fieldset {
-                            legend { "Diagnostics" }
-                            p { class: "hint",
-                                "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
-                            }
-                            div { class: "controls",
-                                StoreRow { sig: s_store, status: s_store_export }
-                                StoreHint { selection: s_store() }
-                                StoreStatusRow { status: s_store_export }
-                                if !stores::has_ca_store(s_store()) {
-                                    FileRow {
-                                        label: "CA CBOR",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
-                                    }
-                                }
-                                PathRow {
-                                    label: "TA Folder or File",
-                                    name: "ta-folder",
-                                    sig: s_ta_folder,
-                                }
-                                if s_store() == stores::CUSTOM {
-                                    FileRow {
-                                        label: "TA CBOR",
-                                        name: "ta-cbor",
-                                        sig: s_ta_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                        extensions: ["cbor", "pki", "ta"].as_slice(),
-                                    }
-                                }
-                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            }
-                            div { class: "controls",
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "List Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
-                                    CheckboxCell { label: "List Buffers", name: "list-buffers", sig: s_list_buffers }
-                                    CheckboxCell { label: "List SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
-                                }
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "List Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
-                                    CheckboxCell { label: "List Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
-                                }
-                            }
-                            div { class: "controls",
-                                TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
-                                FileRow {
-                                    label: "List Partial Paths for Target",
-                                    name: "list-partial-paths-for-target",
-                                    sig: s_list_partial_paths_for_target,
-                                    filter_name: "Certificate File",
-                                    extensions: SINGLE_CERT_EXTENSIONS,
-                                }
-                                TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
+                        // The only view that removes material, and it had nothing to say about
+                        // what it removes or what decides. The time of interest is named
+                        // because it is the criterion rather than a filter on the report: a
+                        // wrong value here does not produce a wrong answer to run again, it
+                        // moves certificates that were fine.
+                        p { class: "hint",
+                            if s_report_only() {
+                                "Lists the certificates a run could not use — unparseable, not valid at the time of interest, self-signed, or not a CA — without touching anything. The time of interest is what decides."
+                            } else if s_error_folder().is_empty() {
+                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. No Error Folder is set, so they are deleted rather than moved. The time of interest is what decides. Check Report Only to see what would go first."
+                            } else {
+                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. They are moved to the Error Folder rather than deleted. The time of interest is what decides. Check Report Only to see what would go first."
                             }
                         }
                         RunButton {
                             running: s_running(),
                             onrun: run_command,
-                            label: "Run diagnostics",
+                            label: "Clean up the store",
+                            // Both actions off is a legal run that removes nothing, which reads as
+                            // "the folders were already clean" rather than as nothing being asked.
+                            nothing_to_do: match !s_cleanup() && !s_ta_cleanup() {
+                                true => "Choose Cleanup or TA Cleanup",
+                                false => "",
+                            },
+                        }
+                    },
+                    View::Inspect => rsx! {
+                        p { class: "hint",
+                            "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
+                        }
+                        div { class: "controls",
+                            StoreRow { sig: s_store, status: s_store_export }
+                            StoreHint { selection: s_store() }
+                            StoreStatusRow { status: s_store_export }
+                            if !stores::has_ca_store(s_store()) {
+                                FileRow {
+                                    label: "CA CBOR",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized PKI",
+                                    extensions: ["cbor", "pki"].as_slice(),
+                                }
+                            }
+                            PathRow {
+                                label: "TA Folder or File",
+                                name: "ta-folder",
+                                sig: s_ta_folder,
+                            }
+                            if s_store() == stores::CUSTOM {
+                                FileRow {
+                                    label: "TA CBOR",
+                                    name: "ta-cbor",
+                                    sig: s_ta_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                    extensions: ["cbor", "pki", "ta"].as_slice(),
+                                }
+                            }
+                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            // One group rather than the previous three-then-two, which was a wrap
+                            // rather than a grouping: all five list the store as a whole, and
+                            // splitting them implied a distinction that does not exist.
+                            div { class: "visible label-cell",
+                                label { "Items to list: " }
+                            }
+                            div { class: "field check-group",
+                                CheckboxCell { label: "Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
+                                CheckboxCell { label: "Buffers", name: "list-buffers", sig: s_list_buffers }
+                                CheckboxCell { label: "SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
+                                CheckboxCell { label: "Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
+                                CheckboxCell { label: "Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
+                            }
+                            TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
+                            FileRow {
+                                label: "List Partial Paths for Target",
+                                name: "list-partial-paths-for-target",
+                                sig: s_list_partial_paths_for_target,
+                                filter_name: "Certificate File",
+                                extensions: SINGLE_CERT_EXTENSIONS,
+                            }
+                            TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
+                        }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: "Inspect the store",
                             // Every control on this view is optional, so an untouched form is a
                             // legal run that lists nothing -- which reads as the store being empty
                             // rather than as nothing having been asked for.
@@ -2460,41 +2476,12 @@ pub(crate) fn App() -> Element {
                             {
                                 ""
                             } else {
-                                "Choose a diagnostic to run"
+                                "Choose something to list"
                             },
                         }
                     },
-                    View::Tools => rsx! {
-                        fieldset {
-                            legend { "Tools" }
-                            div { class: "controls",
-                                FileRow {
-                                    label: "Mozilla CSV",
-                                    name: "mozilla-csv",
-                                    sig: s_mozilla_csv,
-                                    filter_name: "CSV file",
-                                    extensions: ["csv"].as_slice(),
-                                }
-                                FolderRow { label: "CA Folder (output)", name: "ca-folder", sig: s_ca_folder }
-                            }
-                            p { class: "hint",
-                                "Parses the Mozilla intermediate CA CSV report and writes the certificates to the CA folder."
-                            }
-                        }
-                        fieldset {
-                            legend { "Check URIs in certificate" }
-                            p { class: "hint",
-                                "Fetches and evaluates the HTTP URIs (AIA, SIA, CRL DP, freshest CRL) carried in a certificate, independent of path processing."
-                            }
-                            div { class: "tool-actions",
-                                button {
-                                    r#type: "button",
-                                    onclick: move |_| s_uri_dialog_open.set(true),
-                                    "Check URIs in certificate\u{2026}"
-                                }
-                            }
-                        }
-                        RunButton { running: s_running(), onrun: run_command, label: "Check the URIs in this certificate" }
+                    View::CheckUris => rsx! {
+                        UriCheckView {}
                     },
                     View::Settings => rsx! {
                         // Always shown: settings are app state, not a document you must open
@@ -2534,12 +2521,23 @@ pub(crate) fn App() -> Element {
                                         filter_name: "log4rs Configuration",
                                         extensions: ["yaml"].as_slice(),
                                     }
+                                    // Named as a group because the distinction is the point:
+                                    // everything here is material this application fetched or
+                                    // computed, so losing it costs a refetch or a rebuild. The
+                                    // Cleanup view acts on the CA and trust anchor folders, which
+                                    // the user assembled and which may not be recoverable -- which
+                                    // is why that view has an error folder and a dry run and these
+                                    // buttons do not.
+                                    div { class: "visible label-cell",
+                                        label { "Caches and downloads: " }
+                                    }
+                                    div { class: "field" }
                                     div { class: "visible label-cell",
                                         label { "Downloaded certificates: " }
                                     }
                                     div { class: "field",
                                         button {
-                                            title: "Removes certificates a run could not use: unparseable, expired at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
+                                            title: "Removes certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
                                             onclick: move |_| {
                                                 let m = cleanup_certificate_folder(
                                                     &s_download_folder(),
@@ -2549,7 +2547,7 @@ pub(crate) fn App() -> Element {
                                                 s_folder_status
                                                     .set(format!("Removed {} downloaded certificate(s).", m.removed));
                                             },
-                                            "Cleanup Downloads"
+                                            "Remove unusable"
                                         }
                                         button {
                                             title: "Removes every file in the download folder.",
@@ -2563,7 +2561,7 @@ pub(crate) fn App() -> Element {
                                                     }
                                                 });
                                             },
-                                            "Purge Downloads"
+                                            "Empty"
                                         }
                                     }
                                     div { class: "visible label-cell",
@@ -2579,7 +2577,7 @@ pub(crate) fn App() -> Element {
                                                 );
                                                 s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
                                             },
-                                            "Cleanup CRLs"
+                                            "Remove stale"
                                         }
                                         button {
                                             title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
@@ -2593,7 +2591,7 @@ pub(crate) fn App() -> Element {
                                                     }
                                                 });
                                             },
-                                            "Purge CRLs"
+                                            "Empty"
                                         }
                                     }
                                     div { class: "visible label-cell",
@@ -2615,7 +2613,7 @@ pub(crate) fn App() -> Element {
                                                     }
                                                 });
                                             },
-                                            "Purge Graphs"
+                                            "Empty"
                                         }
                                         // The in-memory counterpart, and the only one of these
                                         // buttons that frees memory rather than disk. Discarding
@@ -2629,13 +2627,13 @@ pub(crate) fn App() -> Element {
                                                     s_folder_status
                                                         .set(match prepared_graph.clear() {
                                                             Some(certs) => {
-                                                                format!("Discarded {certs} prepared certificate(s).")
+                                                                format!("Discarded {certs} parsed certificate(s).")
                                                             }
                                                             None => "Nothing has been prepared this session.".to_string(),
                                                         });
                                                 }
                                             },
-                                            "Discard Prepared Graph"
+                                            "Discard In-Memory Graph"
                                         }
                                     }
                                     if !s_folder_status().is_empty() {
@@ -2828,7 +2826,7 @@ pub(crate) fn App() -> Element {
                             }
                             if !s_running() && s_report().is_none() {
                                 p { class: "hint",
-                                    "No results yet: run something from Validate, Generate, Cleanup or Diagnostics."
+                                    "No results yet: run something from Validate, Generate, Cleanup or Inspect."
                                 }
                             }
                             if !s_log().is_empty() {
@@ -2852,6 +2850,5 @@ pub(crate) fn App() -> Element {
                 }
             }
         }
-        UriCheckModal { open: s_uri_dialog_open }
     }
 }
