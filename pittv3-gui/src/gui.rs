@@ -1403,9 +1403,7 @@ pub(crate) fn App() -> Element {
     let s_download_folder =
         use_signal(|| saved_or_default(sa.download_folder.clone(), default_download_folder));
     let s_ca_folder = use_signal(|| saved_or_default(sa.ca_folder.clone(), default_ca_folder));
-    let s_generate = use_signal(|| sa.generate);
     let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
-    let s_cbor_ta_store = use_signal(|| sa.cbor_ta_store);
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
@@ -1551,9 +1549,12 @@ pub(crate) fn App() -> Element {
             download_folder: path_or_none(s_download_folder),
             ca_folder: path_or_none(s_ca_folder),
             ca_inputs: pool(s_ca_inputs),
-            generate: s_generate(),
+            // Implied by the view rather than checked: a button reading "Generate the store" on a
+            // tab called Generate has already said it. The checkbox that used to set this could be
+            // left off while pressing that button, which ran and did nothing.
+            generate: s_view() == View::Generate,
             chase_aia_and_sia: s_chase_aia_and_sia(),
-            cbor_ta_store: s_cbor_ta_store(),
+            cbor_ta_store: false,
             validate_all: s_validate_all(),
             check_uris_when_validating: s_check_uris(),
             validate_self_signed: s_validate_self_signed(),
@@ -1652,6 +1653,33 @@ pub(crate) fn App() -> Element {
                     return;
                 }
             };
+
+            // A trust store is a pair, and the two parts are two generation runs: `--generate`
+            // writes one store to `--cbor`, and `--cbor-ta-store` says which kind. Naming both
+            // output rows therefore means two passes rather than an ambiguity to resolve. Every
+            // other view runs exactly once, with the args as built.
+            let passes: Vec<Pittv3Args> = match args.generate {
+                false => vec![args.clone()],
+                true => {
+                    let mut passes = vec![];
+                    if let Some(ca) = path_or_none(s_cbor) {
+                        let mut p = args.clone();
+                        p.cbor = Some(ca);
+                        p.cbor_ta_store = false;
+                        passes.push(p);
+                    }
+                    if let Some(ta) = path_or_none(s_ta_cbor) {
+                        let mut p = args.clone();
+                        p.cbor = Some(ta);
+                        p.cbor_ta_store = true;
+                        passes.push(p);
+                    }
+                    passes
+                }
+            };
+            if passes.is_empty() {
+                return;
+            }
 
             let _ = save_args(&args);
 
@@ -1767,12 +1795,30 @@ pub(crate) fn App() -> Element {
                 };
                 // Retention is asked for here and nowhere else: the desktop offers the artifacts after
                 // a run, so it keeps what the run built. The CLI passes false and pays nothing.
-                let (report, run_artifacts) = rt.block_on(options_std_retaining(
-                    &args,
-                    true,
-                    Some(&run_cache),
-                    Some(&run_prepared),
-                ));
+                // Each pass in turn, the last one's report being what the Results view shows.
+                // A generation pass reports nothing a reader needs beyond its log line, and a
+                // non-generation run has exactly one pass, so "the last" is "the only" there.
+                let mut report = None;
+                let mut run_artifacts = None;
+                for pass in &passes {
+                    let (r, a) = rt.block_on(options_std_retaining(
+                        pass,
+                        true,
+                        Some(&run_cache),
+                        Some(&run_prepared),
+                    ));
+                    if r.error.is_some() {
+                        report = Some(r);
+                        run_artifacts = a;
+                        break;
+                    }
+                    report = Some(r);
+                    run_artifacts = a;
+                }
+                let (report, run_artifacts) = match report {
+                    Some(r) => (r, run_artifacts),
+                    None => return,
+                };
                 if let Ok(mut held) = run_retained.lock() {
                     *held = run_artifacts;
                 }
@@ -2251,102 +2297,101 @@ pub(crate) fn App() -> Element {
                         }
                     }
                     View::Generate => rsx! {
-                        div { class: "controls",
-                            PathRow {
-                                label: "TA Folder or File",
-                                name: "ta-folder",
-                                sig: s_ta_folder,
-                            }
-                            FileRow {
-                                label: "Mozilla CSV",
-                                name: "mozilla-csv",
-                                sig: s_mozilla_csv,
-                                filter_name: "CSV file",
-                                extensions: ["csv"].as_slice(),
-                            }
-                            PathRow {
-                                label: "CA Folder or File",
-                                name: "ca-folder",
-                                sig: s_ca_folder,
-                            }
-                            // The file the run writes — labelled as such, since it sits
-                            // among inputs and is otherwise indistinguishable from one.
-                            // Which store it holds follows the CBOR TA store checkbox
-                            // below, so it is named for the row it will be loaded into on
-                            // the Validate view. (Same "(output)" convention as the
-                            // Mozilla CSV view's CA Folder.)
-                            if s_cbor_ta_store() {
+                        // Grouped because this view turns one thing into another, and nothing but
+                        // a parenthesised "(output)" used to say which row was which. The group
+                        // names carry that; they are not the tab's own name repeated back, which is
+                        // what the boxes removed from the other views were doing.
+                        fieldset {
+                            legend { "Inputs" }
+                            div { class: "controls",
+                                // Named for what they hold rather than for the shape they take:
+                                // a folder, a certificate, a bundle and a store are all accepted
+                                // and told apart from the path and then the bytes, so "Folder or
+                                // File" spent the label on the one distinction that does not
+                                // matter.
+                                PathRow {
+                                    label: "Trust anchors",
+                                    name: "ta-folder",
+                                    sig: s_ta_folder,
+                                }
+                                PathRow {
+                                    label: "CA certificates",
+                                    name: "ca-folder",
+                                    sig: s_ca_folder,
+                                }
+                                // An input in the sense that matters here: it fills the CA folder
+                                // above, which generation then reads.
                                 FileRow {
-                                    label: "TA CBOR (output)",
-                                    name: "cbor",
-                                    sig: s_cbor,
+                                    label: "Mozilla CSV",
+                                    name: "mozilla-csv",
+                                    sig: s_mozilla_csv,
+                                    filter_name: "CSV file",
+                                    extensions: ["csv"].as_slice(),
+                                }
+                            }
+                        }
+                        fieldset {
+                            legend { "Output" }
+                            div { class: "controls",
+                                // A trust store is a pair, so the two parts get a row each and
+                                // naming one is how you ask for it. This replaces a single row
+                                // whose label followed a "CBOR TA store" checkbox: the path
+                                // carried over when that flipped, so a filename chosen for one
+                                // part silently became the destination for the other.
+                                //
+                                // Both named is the ordinary case, not an ambiguity -- generation
+                                // runs once per part. The command line makes the same store in two
+                                // invocations; this view combines them.
+                                FileRow {
+                                    label: "Trust anchor store",
+                                    name: "ta-cbor",
+                                    sig: s_ta_cbor,
                                     filter_name: "PITTv3 CBOR-serialized trust anchor store",
                                     extensions: ["cbor", "pki", "ta"].as_slice(),
                                 }
-                            } else {
                                 FileRow {
-                                    label: "CA CBOR (output)",
+                                    label: "CA store",
                                     name: "cbor",
                                     sig: s_cbor,
                                     filter_name: "PITTv3 CBOR-serialized PKI",
                                     extensions: ["cbor", "pki"].as_slice(),
                                 }
                             }
-                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            // Labelled like every other row. An unlabelled field lands in the
-                            // grid's first column, which is the label column.
-                            div { class: "visible label-cell",
-                                label { "Actions: " }
-                            }
-                            // Both of these are consulted only while generating -- see
-                            // `chase_aia_and_sia` and `cbor_ta_store` in `args.rs` -- so with
-                            // Generate off they are settable controls that change nothing.
-                            // Disabled rather than hidden, and the signals are left alone: the
-                            // choice comes back with the control.
-                            div { class: "field check-group",
-                                CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
-                                CheckboxCell {
-                                    label: "Chase SIA and AIA",
-                                    name: "chase-aia-and-sia",
-                                    sig: s_chase_aia_and_sia,
-                                    disabled: !s_generate(),
-                                }
-                                CheckboxCell {
-                                    label: "CBOR TA store",
-                                    name: "cbor-ta-store",
-                                    sig: s_cbor_ta_store,
-                                    disabled: !s_generate(),
-                                }
-                            }
-                        }
-                        p { class: "hint",
-                            if s_cbor_ta_store() {
-                                "Generate writes a trust anchor store to the TA CBOR path above, read from the CA input; either input may be a single file."
-                            } else {
-                                "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
-                            }
-                        }
-                        // Both output rows bind the same `s_cbor` signal, because `--generate`
-                        // writes to `--cbor` whichever kind of store it is making. Flipping
-                        // CBOR TA store therefore relabels the row and keeps the path, so a
-                        // path picked for one kind is reused for the other without saying so.
-                        // The row's own label cannot show that -- the label is what changed --
-                        // which is why the file is named here instead.
-                        if !s_cbor().is_empty() {
                             p { class: "hint",
-                                if s_cbor_ta_store() {
-                                    "Writes a trust anchor store to {s_cbor()}"
-                                } else {
-                                    "Writes a CA store with partial paths to {s_cbor()}"
+                                "A trust store is a pair: the trust anchor part holds the roots, the CA part holds intermediate CA certificates together with the partial paths found for them. Name one to write that part, or both to write the whole store."
+                            }
+                        }
+                        fieldset {
+                            legend { "Options" }
+                            div { class: "controls",
+                                div { class: "visible label-cell",
+                                    label { "Chase SIA and AIA: " }
                                 }
+                                div { class: "field check-group",
+                                    CheckboxCell {
+                                        label: "Follow AIA and SIA URIs while building",
+                                        name: "chase-aia-and-sia",
+                                        sig: s_chase_aia_and_sia,
+                                    }
+                                }
+                                // Beside the option it serves: this is where chasing puts what it
+                                // fetches, and it means nothing when nothing is being chased.
+                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                             }
                         }
                         RunButton {
                             running: s_running(),
                             onrun: run_command,
-                            label: "Generate the store",
-                            nothing_to_do: if s_generate() { "" } else { "Check Generate to build a store" },
+                            label: match (s_cbor().is_empty(), s_ta_cbor().is_empty()) {
+                                (false, false) => "Generate both parts of the store",
+                                (false, true) => "Generate the CA store",
+                                _ => "Generate the trust anchor store",
+                            },
+                            nothing_to_do: match s_cbor().is_empty() && s_ta_cbor().is_empty() {
+                                true => "Name a store to write",
+                                false => "",
+                            },
                         }
                     },
                     View::Cleanup => rsx! {
