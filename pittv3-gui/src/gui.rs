@@ -1,5 +1,7 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
+use dioxus::desktop::tao::dpi::{PhysicalPosition, PhysicalSize};
+use dioxus::desktop::{use_window, use_wry_event_handler};
 use dioxus::prelude::*;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -65,6 +67,8 @@ use pittv3_lib::RevocationCache;
 use crate::logging;
 use crate::peek;
 use crate::stores;
+use crate::window_state;
+use crate::window_state::Outcome;
 
 /// Records where a dialog just went, from what it returned: a folder is itself the location, a file
 /// is its parent.
@@ -1149,10 +1153,105 @@ fn RunButton(
     }
 }
 
+/// Restores the window's size and position, and keeps `~/.pittv3/window.json` in step with it.
+///
+/// **The geometry is applied to the live window, not through `WindowBuilder`.** Two earlier
+/// attempts went through the builder and both failed there: a size handed to it is resolved against
+/// whatever scale factor the system picks while the window is being created, which is where a
+/// remembered 1640x1600 came back as a default-sized window in one direction and a doubled one in
+/// the other. A window that already exists has a settled scale factor and reports its own position,
+/// so what was asked for and what happened can be compared.
+///
+/// The default therefore needs no code: `main` builds the window at its usual size, and this either
+/// overrides that or leaves it alone. See [`window_state::decide`] for when it declines.
+fn remember_window_geometry() {
+    let window = use_window();
+
+    let restore = window.clone();
+    use_hook(move || {
+        let window = restore;
+        let Some(saved) = window_state::load() else {
+            return;
+        };
+        let displays: Vec<window_state::Display> = window
+            .available_monitors()
+            .map(|m| {
+                let size = m.size();
+                window_state::Display {
+                    name: m.name(),
+                    width: size.width,
+                    height: size.height,
+                }
+            })
+            .collect();
+
+        // Silent when it works -- the window itself says so. A refusal is the case worth
+        // reporting, since the alternative is a default-sized window with no account of why.
+        if let Outcome::UseDefault(why) = window_state::decide(&saved, &displays) {
+            let (lw, lh) = saved.logical_size();
+            println!(
+                "Not restoring the remembered window geometry ({}x{} physical, {lw}x{lh} logical, on {:?}): {why}",
+                saved.width, saved.height, saved.monitor
+            );
+            return;
+        }
+
+        window.set_inner_size(PhysicalSize::new(saved.width, saved.height));
+        window.set_outer_position(PhysicalPosition::new(saved.x, saved.y));
+
+        // Verified rather than assumed. `current_monitor` is `NSWindow.screen`, which is nil
+        // exactly when the window is on no screen at all -- the one condition worth undoing for,
+        // and a measurement of what happened rather than a prediction of what would.
+        if window.current_monitor().is_none() {
+            println!(
+                "The restored position put the window on no display; returning to the default"
+            );
+            if let Some(primary) = window.primary_monitor() {
+                let p = primary.position();
+                window.set_outer_position(PhysicalPosition::new(p.x + 40, p.y + 40));
+            }
+        }
+    });
+
+    let desktop = window.clone();
+    // The size as the window last reported it. Taken from the `Resized` payload rather than by
+    // asking the window afterwards: querying `inner_size()` in the handler returned the size the
+    // window was built at no matter how it had been dragged, so moves were recorded and resizes
+    // were not. The event carries the new size; that is the value to trust.
+    let last_size = std::rc::Rc::new(std::cell::Cell::new(desktop.inner_size()));
+    use_wry_event_handler(move |event, _| {
+        let dioxus::desktop::tao::event::Event::WindowEvent { event, .. } = event else {
+            return;
+        };
+        use dioxus::desktop::tao::event::WindowEvent;
+        match event {
+            WindowEvent::Resized(size) => last_size.set(*size),
+            WindowEvent::Moved(_) => {}
+            _ => return,
+        }
+        let Ok(position) = desktop.outer_position() else {
+            // Reported unsupported on some platforms. A size with no position is not worth keeping:
+            // restoring it would leave the window wherever the system chose anyway.
+            return;
+        };
+        let size = last_size.get();
+        window_state::save(window_state::WindowState {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            scale: desktop.scale_factor(),
+            monitor: desktop.current_monitor().and_then(|m| m.name()),
+        });
+    });
+}
+
 /// Top-level application: sidebar task navigation over views that mirror the options offered by
 /// the pittv3 command line utility
 #[component]
 pub(crate) fn App() -> Element {
+    remember_window_geometry();
+
     let sa = use_hook(|| read_saved_args().unwrap_or_default());
 
     // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What

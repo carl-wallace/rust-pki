@@ -7,6 +7,7 @@ mod logging;
 mod peek;
 mod save;
 mod stores;
+mod window_state;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 
