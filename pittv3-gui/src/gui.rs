@@ -2613,6 +2613,28 @@ pub(crate) fn App() -> Element {
                                     title: "Save the structured report as JSON",
                                     "Save report"
                                 }
+                                // The log is shown below and was the one thing here that could be
+                                // read and not kept. Suffixed rather than sharing the report's
+                                // stamped name, since the path logs already take `{name}.txt`.
+                                button {
+                                    r#type: "button",
+                                    disabled: s_log().is_empty(),
+                                    onclick: move |_| {
+                                        let name = stamped_export_name(
+                                            &s_export_name(),
+                                            s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+                                        );
+                                        let text = s_log().join("\n");
+                                        spawn(write_export(
+                                            format!("{name}-log.txt"),
+                                            &["txt"],
+                                            text.into_bytes(),
+                                            s_log,
+                                        ));
+                                    },
+                                    title: "Save what the validation stack logged, as text",
+                                    "Save log"
+                                }
                                 // Saving what a run used is offered here, beside the report, rather
                                 // than below the results: the decision is made after seeing them,
                                 // which is the difference between this and a Results Folder. Same
@@ -2658,7 +2680,9 @@ pub(crate) fn App() -> Element {
                                 ResultsView { report }
                             }
                             if !s_running() && s_report().is_none() {
-                                p { class: "hint", "No results yet: run a command to see results here." }
+                                p { class: "hint",
+                                    "No results yet: run something from Validate, Generate, Cleanup or Diagnostics."
+                                }
                             }
                             if !s_log().is_empty() {
                                 details { class: "advanced", open: s_running(),

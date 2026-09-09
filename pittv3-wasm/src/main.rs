@@ -86,21 +86,38 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// this what I just deployed".
 const BUILT: &str = env!("PITTV3_BUILD_TIME");
 
-const VIEW_LABELS: &[&str] = &[
-    "Validate",
-    "Settings",
-    "Results",
-    "Store artifacts",
-    "Check URIs",
-    "Hackathon",
-    "Help",
+/// A view this application offers, named rather than numbered.
+///
+/// Positions used to be the identity -- `view` was a `usize` and two constants recorded where
+/// Settings and Results sat -- which made the display order load-bearing: reordering the sidebar
+/// silently re-pointed every `view.set(RESULTS_VIEW)` and the guard that asks before leaving a
+/// dirty settings form. Naming them makes the order below presentation only, as it already is on
+/// the desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Validate,
+    Results,
+    Settings,
+    StoreArtifacts,
+    CheckUris,
+    Hackathon,
+    Help,
+}
+
+/// Sidebar views in display order.
+///
+/// Head of the list matches the desktop: validate something, read the outcome, adjust what a run
+/// does. What follows differs because the two applications offer different tools, and Help is last
+/// in both.
+const VIEWS: &[(View, &str)] = &[
+    (View::Validate, "Validate"),
+    (View::Results, "Results"),
+    (View::Settings, "Settings"),
+    (View::StoreArtifacts, "Store artifacts"),
+    (View::CheckUris, "Check URIs"),
+    (View::Hackathon, "Hackathon"),
+    (View::Help, "Help"),
 ];
-
-/// Index of the Settings view within [`VIEW_LABELS`]
-const SETTINGS_VIEW: usize = 1;
-
-/// Index of the Results view within [`VIEW_LABELS`]
-const RESULTS_VIEW: usize = 2;
 
 fn now_as_unix_epoch() -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -339,7 +356,7 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
 
 #[component]
 fn App() -> Element {
-    let mut view = use_signal(|| 0usize);
+    let mut view = use_signal(|| View::Validate);
     let mut mode = use_signal(|| 0usize);
 
     // The settings are held as a single SettingsModel, edited through the shared EditSettings form
@@ -377,6 +394,10 @@ fn App() -> Element {
     let log_lines = use_memo(move || {
         log_tick();
         log_capture::len()
+    });
+    let log_text = use_memo(move || {
+        log_tick();
+        log_capture::contents()
     });
 
     let mut notes = use_signal(Vec::<ResultLine>::new);
@@ -1044,7 +1065,7 @@ fn App() -> Element {
         }
         run_ms.set(started.elapsed().as_millis() as u64);
         log_tick += 1;
-        view.set(RESULTS_VIEW);
+        view.set(View::Results);
     };
 
     // validates everything loaded (certificates against the store/uploads) using the settings in
@@ -1113,7 +1134,7 @@ fn App() -> Element {
                     text: e,
                 });
                 validating.set(false);
-                view.set(RESULTS_VIEW);
+                view.set(View::Results);
                 return;
             }
         }
@@ -1195,7 +1216,7 @@ fn App() -> Element {
                             text: e,
                         });
                         validating.set(false);
-                        view.set(RESULTS_VIEW);
+                        view.set(View::Results);
                         return;
                     }
                 }
@@ -1388,7 +1409,7 @@ fn App() -> Element {
         run_ms.set(started.elapsed().as_millis() as u64);
         log_tick += 1;
         validating.set(false);
-        view.set(RESULTS_VIEW);
+        view.set(View::Results);
     };
 
     // Where the selected store's material came from, said in the selector rather than left to the
@@ -1432,22 +1453,23 @@ fn App() -> Element {
                 " compiled to WebAssembly. Certificates never leave this page."
             }
             AppShell {
-                items: VIEW_LABELS.to_vec(),
-                selected: view(),
+                items: VIEWS.iter().map(|(_, label)| *label).collect::<Vec<_>>(),
+                selected: VIEWS.iter().position(|(v, _)| *v == view()).unwrap_or(0),
                 // Leaving the settings form is the only way to discard its edits now that saving no
                 // longer navigates away, so it is the one transition that asks. `window.confirm`
                 // rather than a rendered control: the sidebar is outside the form, and blocking the
                 // navigation is the whole point.
                 on_select: move |i: usize| {
+                    let to = VIEWS[i].0;
                     let leaving_dirty =
-                        view() == SETTINGS_VIEW && i != SETTINGS_VIEW && settings_dirty();
+                        view() == View::Settings && to != View::Settings && settings_dirty();
                     if leaving_dirty && !confirm_discard_settings() {
                         return;
                     }
-                    view.set(i);
+                    view.set(to);
                 },
                 match view() {
-                    0 => rsx! {
+                    View::Validate => rsx! {
                         // The tier governs the whole run, so it is stated before the trust material
                         // rather than tucked in beside it. Disabled rather than hidden when no
                         // service is present: that this frontend *can* retrieve, given one, is
@@ -1733,12 +1755,18 @@ fn App() -> Element {
                                     // The desktop's sentence, word for word, and counted rather
                                     // than "(s)": the count here is exact, since these are
                                     // certificates already parsed into the page rather than files
-                                    // still to be read. The zero arm is what the disabled button
-                                    // shows, so it names no count at all.
+                                    // still to be read.
+                                    //
+                                    // The zero arm is what the disabled button shows, so it names
+                                    // what is missing rather than an action that cannot be taken.
+                                    // The desktop says the same thing at the same moment, from
+                                    // `RunButton`'s idle label; it keeps a zero-count *sentence*
+                                    // as well, for the case this frontend does not have -- a pool
+                                    // holding a folder that turns out to be empty, where something
+                                    // was supplied and the button stays live.
                                     {
                                         match loaded_ees().len() {
-                                            0 => "Validate using the current store and settings"
-                                                .to_string(),
+                                            0 => "Add a certificate to validate".to_string(),
                                             1 => "Validate 1 certificate using the current store and settings"
                                                 .to_string(),
                                             n => format!(
@@ -1750,7 +1778,7 @@ fn App() -> Element {
                             }
                         }
                     },
-                    1 => rsx! {
+                    View::Settings => rsx! {
                         // The shared settings form, the same component the desktop app mounts. It
                         // presents every tab including the ones this frontend cannot act on, each
                         // carrying a notice saying so — see Capabilities. Keyed on form_gen so a
@@ -1848,7 +1876,7 @@ fn App() -> Element {
                             }
                         }
                     },
-                    2 => rsx! {
+                    View::Results => rsx! {
                         div { class: "results",
                             h2 { "Results" }
                             // The heading sits above the row rather than in it: sharing the line
@@ -1893,6 +1921,13 @@ fn App() -> Element {
                                         // One Clear rather than two, matching the desktop: a
                                         // separate "Clear log" was a second button doing part of
                                         // what this one does, and the row is where that cost shows.
+                                        //
+                                        // Off when there is nothing to discard, as on the desktop.
+                                        // It covers all three streams, so it stays live while any
+                                        // one of them holds something.
+                                        disabled: targets.read().is_empty()
+                                            && notes.read().is_empty()
+                                            && log_lines == 0,
                                         onclick: move |_| {
                                             targets.write().clear();
                                             notes.write().clear();
@@ -1904,7 +1939,13 @@ fn App() -> Element {
                                         "Clear"
                                     }
                             }
-                            if targets.read().is_empty() && notes.read().is_empty() {
+                            if validating() {
+                                div { class: "progress-line",
+                                    span { class: "spinner" }
+                                    span { " Validating\u{2026}" }
+                                }
+                            }
+                            if !validating() && targets.read().is_empty() && notes.read().is_empty() {
                                 p { class: "hint",
                                     "No results yet: validate a certificate from the Validate view."
                                 }
@@ -1931,9 +1972,27 @@ fn App() -> Element {
                                     }
                                 }
                             }
+                            // What Save log writes, on screen. Until now this frontend could keep
+                            // the stack's log without ever showing it, while the desktop showed its
+                            // log without being able to keep it; the two now do both.
+                            //
+                            // One `pre` rather than a paragraph per line, as the desktop renders
+                            // its own: the capture is bounded at 20,000 lines and is handed over as
+                            // a single document, so this stays one node instead of twenty thousand.
+                            //
+                            // Not opened while a run is in flight, which is where the desktop's
+                            // does open: the capture is a global buffer read on a tick, and the
+                            // tick comes when the run ends, so opening it early would show the log
+                            // as it stood before rather than as it fills.
+                            if log_lines() > 0 {
+                                details { class: "advanced",
+                                    summary { "Run log ({log_lines} line(s))" }
+                                    pre { class: "log-stream", "{log_text}" }
+                                }
+                            }
                         }
                     },
-                    3 => rsx! {
+                    View::StoreArtifacts => rsx! {
                         div { class: "help-view",
                             h2 { "Store artifacts" }
                             p {
@@ -2012,7 +2071,7 @@ fn App() -> Element {
                             }
                         }
                     },
-                    4 => rsx! {
+                    View::CheckUris => rsx! {
                         div { class: "help-view",
                             h2 { "Check URIs in certificate" }
                             p {
@@ -2133,7 +2192,7 @@ fn App() -> Element {
                             UriCheckResults { report }
                         }
                     },
-                    5 => rsx! {
+                    View::Hackathon => rsx! {
                         div { class: "controls",
                             label { "Hackathon artifacts zip: " }
                             input {
@@ -2174,7 +2233,7 @@ fn App() -> Element {
                             }
                         }
                     },
-                    _ => rsx! {
+                    View::Help => rsx! {
                         div { class: "help-view",
                             h2 { "Notes" }
                             ul {
