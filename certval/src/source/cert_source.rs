@@ -383,7 +383,11 @@ pub struct BuffersAndPaths {
 #[cfg(test)]
 mod der_encoding_tests {
     use super::CertFile;
+    // Spelled out because this module builds without `std`: the prelude that would supply these is
+    // not there, and `--all-features` hides it by pulling in a shape where it is.
+    use alloc::string::ToString;
     use alloc::vec;
+    use alloc::vec::Vec;
 
     /// A certificate is written as a CBOR byte string, not as one integer per octet.
     ///
