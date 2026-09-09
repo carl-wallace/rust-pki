@@ -3,6 +3,7 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod gui;
+mod logging;
 mod peek;
 mod save;
 mod stores;

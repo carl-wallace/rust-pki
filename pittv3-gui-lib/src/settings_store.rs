@@ -82,6 +82,34 @@ fn app_home_folder(name: &str) -> Option<String> {
     Some(folder.to_str()?.to_string())
 }
 
+/// Default log4rs configuration file, `log.yaml` in [`app_home`].
+///
+/// Offered to the Logging Configuration field the way the folder defaults are offered to theirs, so
+/// what governs logging is on screen and can be edited or cleared rather than resolved behind the
+/// form. Unlike [`default_settings_path`], the file has to exist to mean anything -- log4rs treats
+/// a missing configuration as an error, not as "all defaults" -- so the frontend writes it from a
+/// template on first use.
+#[cfg(feature = "std")]
+pub fn default_log_config_path() -> Option<String> {
+    Some(app_home()?.join("log.yaml").to_str()?.to_string())
+}
+
+/// Default log file, `logs/pittv3.log` in [`app_home`].
+///
+/// A destination rather than a configuration: `logging_config` names a log4rs file that replaces
+/// the built-in setup wholesale, and this is where that setup writes when no such file is given.
+/// Offered because a desktop application launched from the Finder has no stdout to fall back on,
+/// so without it a run's log existed only in the Results view and went with the process.
+#[cfg(feature = "std")]
+pub fn default_log_file() -> Option<String> {
+    Some(
+        std::path::Path::new(&app_home_folder("logs")?)
+            .join("pittv3.log")
+            .to_str()?
+            .to_string(),
+    )
+}
+
 /// Default folder for CA certificates, `cas` in [`app_home`].
 ///
 /// Dynamic building needs somewhere to put what it fetches, and with nowhere named the run is

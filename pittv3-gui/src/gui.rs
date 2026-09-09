@@ -10,6 +10,10 @@ use futures_util::StreamExt;
 use home::home_dir;
 use log::{debug, error, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
@@ -42,7 +46,8 @@ use pittv3_gui_lib::gui_utils::{
 };
 use pittv3_gui_lib::settings_store::{
     default_ca_folder, default_crl_folder, default_download_folder, default_error_folder,
-    default_settings_path, expand_tilde, saved_or_default,
+    default_log_config_path, default_log_file, default_settings_path, expand_tilde,
+    saved_or_default,
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
@@ -57,6 +62,7 @@ use pittv3_lib::std_utils::{
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use pittv3_lib::RevocationCache;
 
+use crate::logging;
 use crate::peek;
 use crate::stores;
 
@@ -1303,7 +1309,10 @@ pub(crate) fn App() -> Element {
             );
         }
     });
-    let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
+    // Offered into the field like the folder defaults, so what governs logging is visible and can
+    // be edited or cleared. The file it names is written from a template when the run needs it.
+    let s_logging_config =
+        use_signal(|| saved_or_default(sa.logging_config.clone(), default_log_config_path));
     let s_error_folder =
         use_signal(|| saved_or_default(sa.error_folder.clone(), default_error_folder));
     // Same shape as the settings file below: a saved value wins, otherwise a default under
@@ -1569,7 +1578,16 @@ pub(crate) fn App() -> Element {
             let mut logging_configured = false;
 
             if let Some(logging_config) = &args.logging_config {
-                if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
+                // Written only when absent, so an edited file is never replaced. Without a
+                // destination to substitute there is nothing to write, and the load below fails
+                // through to the built-in configuration.
+                if let Some(log_file) = default_log_file() {
+                    logging::ensure_config_file(logging_config, &log_file);
+                }
+                // `deserializers()` rather than `Default::default()`: the template names the
+                // channel appender that feeds the Results view, and the default registry cannot
+                // resolve it.
+                if let Err(e) = log4rs::init_file(logging_config, logging::deserializers()) {
                     println!(
                     "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
                 );
@@ -1585,15 +1603,36 @@ pub(crate) fn App() -> Element {
                 let stdout = ConsoleAppender::builder()
                     .encoder(Box::new(PatternEncoder::new("{m}{n}")))
                     .build();
-                match Config::builder()
+
+                // A file as well, because the other two do not survive the run: an application
+                // launched from the Finder has no stdout to read, and the channel appender feeds a
+                // view that is cleared by the next run. Rolling rather than plain -- 5 MB across
+                // four files, so a session that logs heavily is bounded at 20 MB and needs no
+                // maintenance action of its own. A log4rs file named in the settings replaces all
+                // of this, which is what that setting is for.
+                let file = default_log_file().and_then(|path| {
+                    let roll = FixedWindowRoller::builder()
+                        .build(&format!("{path}.{{}}"), 3)
+                        .ok()?;
+                    let policy = CompoundPolicy::new(
+                        Box::new(SizeTrigger::new(5 * 1024 * 1024)),
+                        Box::new(roll),
+                    );
+                    RollingFileAppender::builder()
+                        .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
+                        .build(&path, Box::new(policy))
+                        .ok()
+                });
+
+                let mut builder = Config::builder()
                     .appender(Appender::builder().build("stdout", Box::new(stdout)))
-                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)))
-                    .build(
-                        Root::builder()
-                            .appender("stdout")
-                            .appender("channel")
-                            .build(LevelFilter::Info),
-                    ) {
+                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)));
+                let mut root = Root::builder().appender("stdout").appender("channel");
+                if let Some(file) = file {
+                    builder = builder.appender(Appender::builder().build("file", Box::new(file)));
+                    root = root.appender("file");
+                }
+                match builder.build(root.build(LevelFilter::Info)) {
                     Ok(config) => {
                         let handle = log4rs::init_config(config);
                         if let Err(e) = handle {
@@ -2359,237 +2398,246 @@ pub(crate) fn App() -> Element {
                         RunButton { running: s_running(), onrun: run_command, label: "Check the URIs in this certificate" }
                     },
                     View::Settings => rsx! {
+                        // Always shown: settings are app state, not a document you must open
+                        // first. The path below selects which file backs them and defaults to
+                        // ~/.pittv3/settings.json, which is created on save if it does not
+                        // exist. The empty case is only reachable with no home directory.
+                        if s_settings().is_empty() {
+                            p { class: "hint",
+                                "No home directory, so there is no default settings file. Choose or type the path of a JSON settings file to edit."
+                            }
+                        } else {
+                            EditSettingsFile {
+                                path: s_settings(),
+                                // The other reason to read the file again: the same one, on
+                                // request (Revert to Saved) or because it is no longer there
+                                // (Delete).
+                                reload_token: s_settings_gen(),
+                                // Folders the run writes to, and the actions that maintain
+                                // them, beside the folders it reads from. They persist with the
+                                // rest of the args rather than into the settings file, which
+                                // stays the CLI's `-s` JSON.
+                                extra_folder_rows: Some(rsx! {
+                                    // Read and written both: indexing removes any CRL that is
+                                    // not valid at the time of interest, which is why it sits
+                                    // with the folders the run maintains rather than with the
+                                    // revocation material a run is handed. The Cleanup and
+                                    // Purge buttons below act on this path, and until it moved
+                                    // here they acted on a folder nothing on this screen could
+                                    // see, let alone change.
+                                    FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
+                                    FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
+                                    FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                                    FileRow {
+                                        label: "Logging Configuration",
+                                        name: "logging-config",
+                                        sig: s_logging_config,
+                                        filter_name: "log4rs Configuration",
+                                        extensions: ["yaml"].as_slice(),
+                                    }
+                                    div { class: "visible label-cell",
+                                        label { "Downloaded certificates: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes certificates a run could not use: unparseable, expired at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
+                                            onclick: move |_| {
+                                                let m = cleanup_certificate_folder(
+                                                    &s_download_folder(),
+                                                    &s_error_folder(),
+                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                );
+                                                s_folder_status
+                                                    .set(format!("Removed {} downloaded certificate(s).", m.removed));
+                                            },
+                                            "Cleanup Downloads"
+                                        }
+                                        button {
+                                            title: "Removes every file in the download folder.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = s_download_folder();
+                                                    if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} file(s) from the download folder.", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Purge Downloads"
+                                        }
+                                    }
+                                    div { class: "visible label-cell",
+                                        label { "CRL index: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes CRLs that do not cover the time of interest, and any file that cannot be read as a CRL. A superseded CRL generally cannot be fetched again, so this forecloses validating as of a time it covered.",
+                                            onclick: move |_| {
+                                                let m = cleanup_crls(
+                                                    &s_crl_folder(),
+                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                );
+                                                s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
+                                            },
+                                            "Cleanup CRLs"
+                                        }
+                                        button {
+                                            title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = s_crl_folder();
+                                                    if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} file(s) from the CRL folder.", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Purge CRLs"
+                                        }
+                                    }
+                                    div { class: "visible label-cell",
+                                        label { "Cached graphs: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes every cached graph. Nothing else removes one, and a run whose inputs, settings or time of interest differ from the last writes another, so the folder grows until it is emptied. Rebuilding one costs the partial-path search on the next run that needs it.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = graph_cache::cache_folder();
+                                                    if folder.is_empty() {
+                                                        s_folder_status
+                                                            .set("No graph cache folder to empty.".to_string());
+                                                    } else if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} cached graph file(s).", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Purge Graphs"
+                                        }
+                                        // The in-memory counterpart, and the only one of these
+                                        // buttons that frees memory rather than disk. Discarding
+                                        // costs the next run a parse and nothing else: the graph
+                                        // on disk is untouched.
+                                        button {
+                                            title: "Discards the parsed certificates this session is holding, which is tens of megabytes for a large store. The next run over the same material parses them again; no result changes either way.",
+                                            onclick: {
+                                                let prepared_graph = prepared_graph.clone();
+                                                move |_| {
+                                                    s_folder_status
+                                                        .set(match prepared_graph.clear() {
+                                                            Some(certs) => {
+                                                                format!("Discarded {certs} prepared certificate(s).")
+                                                            }
+                                                            None => "Nothing has been prepared this session.".to_string(),
+                                                        });
+                                                }
+                                            },
+                                            "Discard Prepared Graph"
+                                        }
+                                    }
+                                    if !s_folder_status().is_empty() {
+                                        span { class: "hint", "{s_folder_status}" }
+                                    }
+                                }),
+                                on_reload: move |_| s_settings_gen += 1,
+                                on_dirty_change: move |d| s_settings_dirty.set(d),
+                            }
+                        }
+                        // The file the form above is backed by, and the actions that change
+                        // which one that is or whether it exists at all. Below the form rather
+                        // than above it, as in the browser: the tabs are what this view is for,
+                        // and naming the store is housekeeping done once.
+                        //
+                        // Save, Revert to Saved and Reset to defaults are deliberately not in
+                        // here. They act on whichever store backs the form -- localStorage in
+                        // the browser, this file here -- so grouping them under a heading that
+                        // says `file` would mislabel them in the other frontend.
                         fieldset {
-                            legend { "Settings" }
+                            legend { "Settings file" }
                             div { class: "controls",
                                 div { class: "label-cell",
                                     label { r#for: "settings", "Settings file: " }
                                 }
                                 div { class: "field",
                                     input {
-                                                                                r#type: "text",
-                                                                                name: "settings",
-                                                                                value: "{s_settings}",
-                                                                                // Committed on exit, not per keystroke: this path drives a
-                                                                                // file read and reseeds the form below, so a half-typed
-                                                                                // path would read as "missing" and blank the form on the
-                                                                                // way to a name that does exist. Same reason the datetime
-                                                                                // row uses onchange. Committing once also makes the
-                                                                                // unsaved-edits question askable, which it is not per
-                                                                                // character.
-                                                                                onchange: move |ev| {
-                                                                                    let typed = ev.value();
-                                                                                    spawn(async move {
-                                                                                        if leave_settings_ok(s_settings_dirty()).await {
-                                                                                            s_settings.set(typed);
-                                                                                            return;
-                                                                                        }
-                                                                                        // Declined, so the path does not move -- but the box
-                                                                                        // is still showing what was typed. Rewriting the
-                                                                                        // signal it is bound to is what puts it back.
-                                                                                        let unchanged = s_settings();
-                                                                                        s_settings.set(unchanged);
-                                                                                    });
-                                                                                },
-                                                                            }
+                                        r#type: "text",
+                                        name: "settings",
+                                        value: "{s_settings}",
+                                        // Committed on exit, not per keystroke: this path drives a
+                                        // file read and reseeds the form above, so a half-typed
+                                        // path would read as "missing" and blank the form on the
+                                        // way to a name that does exist. Same reason the datetime
+                                        // row uses onchange. Committing once also makes the
+                                        // unsaved-edits question askable, which it is not per
+                                        // character.
+                                        onchange: move |ev| {
+                                            let typed = ev.value();
+                                            spawn(async move {
+                                                if leave_settings_ok(s_settings_dirty()).await {
+                                                    s_settings.set(typed);
+                                                    return;
+                                                }
+                                                // Declined, so the path does not move -- but the box
+                                                // is still showing what was typed. Rewriting the
+                                                // signal it is bound to is what puts it back.
+                                                let unchanged = s_settings();
+                                                s_settings.set(unchanged);
+                                            });
+                                        },
+                                    }
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        pick_file_into(s_settings, "PITTv3 Settings", &["json"]).await;
-                                                                                    });
-                                                                                },
-                                                                                "..."
-                                                                            }
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                if !leave_settings_ok(s_settings_dirty()).await {
+                                                    return;
+                                                }
+                                                pick_file_into(s_settings, "PITTv3 Settings", &["json"]).await;
+                                            });
+                                        },
+                                        "\u{2026}"
+                                    }
                                     // Actions on the file itself, beside the box that names it and
-                                    // not among the form's actions below: these change *which*
+                                    // not among the form's actions above: these change *which*
                                     // settings are being edited, or whether they exist at all,
                                     // where Save and Revert act on whichever file is named here.
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        if let Some(p) = default_settings_path() {
-                                                                                            s_settings.set(p);
-                                                                                        }
-                                                                                    });
-                                                                                },
-                                                                                "Default"
-                                                                            }
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                if !leave_settings_ok(s_settings_dirty()).await {
+                                                    return;
+                                                }
+                                                if let Some(p) = default_settings_path() {
+                                                    s_settings.set(p);
+                                                }
+                                            });
+                                        },
+                                        "Default"
+                                    }
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        let path = s_settings();
-                                                                                        if !confirm_delete_settings(&path).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        match std::fs::remove_file(&path) {
-                                                                                            // The form re-reads on remount and a missing
-                                                                                            // file loads as an empty settings map, which
-                                                                                            // is the same thing as all defaults.
-                                                                                            Ok(()) => s_settings_gen += 1,
-                                                                                            Err(e) => error!("Failed to delete {path}: {e}"),
-                                                                                        }
-                                                                                    });
-                                                                                },
-                                                                                "Delete"
-                                                                            }
-                                }
-                            }
-                            // Always shown: settings are app state, not a document you must open
-                            // first. The path above selects which file backs them and defaults to
-                            // ~/.pittv3/settings.json, which is created on save if it does not
-                            // exist. The empty case is only reachable with no home directory.
-                            if s_settings().is_empty() {
-                                p { class: "hint",
-                                    "No home directory, so there is no default settings file. Choose or type the path of a JSON settings file to edit."
-                                }
-                            } else {
-                                EditSettingsFile {
-                                    path: s_settings(),
-                                    // The other reason to read the file again: the same one, on
-                                    // request (Revert to Saved) or because it is no longer there
-                                    // (Delete).
-                                    reload_token: s_settings_gen(),
-                                    // Folders the run writes to, and the actions that maintain
-                                    // them, beside the folders it reads from. They persist with the
-                                    // rest of the args rather than into the settings file, which
-                                    // stays the CLI's `-s` JSON.
-                                    extra_folder_rows: Some(rsx! {
-                                        // Read and written both: indexing removes any CRL that is
-                                        // not valid at the time of interest, which is why it sits
-                                        // with the folders the run maintains rather than with the
-                                        // revocation material a run is handed. The Cleanup and
-                                        // Purge buttons below act on this path, and until it moved
-                                        // here they acted on a folder nothing on this screen could
-                                        // see, let alone change.
-                                        FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
-                                        FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
-                                        FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                                        FileRow {
-                                            label: "Logging Configuration",
-                                            name: "logging-config",
-                                            sig: s_logging_config,
-                                            filter_name: "log4rs Configuration",
-                                            extensions: ["yaml"].as_slice(),
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "Downloaded certificates: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes certificates a run could not use: unparseable, expired at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
-                                                onclick: move |_| {
-                                                    let m = cleanup_certificate_folder(
-                                                        &s_download_folder(),
-                                                        &s_error_folder(),
-                                                        s_time_of_interest().parse().unwrap_or(0),
-                                                    );
-                                                    s_folder_status
-                                                        .set(format!("Removed {} downloaded certificate(s).", m.removed));
-                                                },
-                                                "Cleanup Downloads"
-                                            }
-                                            button {
-                                                title: "Removes every file in the download folder.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = s_download_folder();
-                                                        if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} file(s) from the download folder.", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge Downloads"
-                                            }
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "CRL index: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes CRLs that do not cover the time of interest, and any file that cannot be read as a CRL. A superseded CRL generally cannot be fetched again, so this forecloses validating as of a time it covered.",
-                                                onclick: move |_| {
-                                                    let m = cleanup_crls(
-                                                        &s_crl_folder(),
-                                                        s_time_of_interest().parse().unwrap_or(0),
-                                                    );
-                                                    s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
-                                                },
-                                                "Cleanup CRLs"
-                                            }
-                                            button {
-                                                title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = s_crl_folder();
-                                                        if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} file(s) from the CRL folder.", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge CRLs"
-                                            }
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "Cached graphs: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes every cached graph. Nothing else removes one, and a run whose inputs, settings or time of interest differ from the last writes another, so the folder grows until it is emptied. Rebuilding one costs the partial-path search on the next run that needs it.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = graph_cache::cache_folder();
-                                                        if folder.is_empty() {
-                                                            s_folder_status
-                                                                .set("No graph cache folder to empty.".to_string());
-                                                        } else if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} cached graph file(s).", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge Graphs"
-                                            }
-                                            // The in-memory counterpart, and the only one of these
-                                            // buttons that frees memory rather than disk. Discarding
-                                            // costs the next run a parse and nothing else: the graph
-                                            // on disk is untouched.
-                                            button {
-                                                title: "Discards the parsed certificates this session is holding, which is tens of megabytes for a large store. The next run over the same material parses them again; no result changes either way.",
-                                                onclick: {
-                                                    let prepared_graph = prepared_graph.clone();
-                                                    move |_| {
-                                                        s_folder_status
-                                                            .set(match prepared_graph.clear() {
-                                                                Some(certs) => {
-                                                                    format!("Discarded {certs} prepared certificate(s).")
-                                                                }
-                                                                None => "Nothing has been prepared this session.".to_string(),
-                                                            });
-                                                    }
-                                                },
-                                                "Discard Prepared Graph"
-                                            }
-                                        }
-                                        if !s_folder_status().is_empty() {
-                                            span { class: "hint", "{s_folder_status}" }
-                                        }
-                                    }),
-                                    on_reload: move |_| s_settings_gen += 1,
-                                    on_dirty_change: move |d| s_settings_dirty.set(d),
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                let path = s_settings();
+                                                if !confirm_delete_settings(&path).await {
+                                                    return;
+                                                }
+                                                match std::fs::remove_file(&path) {
+                                                    // The form re-reads on remount and a missing
+                                                    // file loads as an empty settings map, which
+                                                    // is the same thing as all defaults.
+                                                    Ok(()) => s_settings_gen += 1,
+                                                    Err(e) => error!("Failed to delete {path}: {e}"),
+                                                }
+                                            });
+                                        },
+                                        "Delete"
+                                    }
                                 }
                             }
                         }

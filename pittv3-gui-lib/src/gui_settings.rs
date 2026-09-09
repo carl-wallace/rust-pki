@@ -696,6 +696,11 @@ pub fn EditSettings(
                 "defaults; editing a field records an override."
             }
 
+            // The selected tab's fields, boxed. A tab body is a group in exactly the sense
+            // `.panel` exists for, and without the box the fields ran together with the hint above
+            // them and the action row below, leaving the tab strip as the only thing marking where
+            // the form began. The hint stays outside: it describes the whole form, not this tab.
+            div { class: "panel",
             match tab() {
                 SettingsTab::Policy => rsx! {
                     div { class: "controls",
@@ -995,6 +1000,7 @@ pub fn EditSettings(
                         {extra_folder_rows.clone()}
                     }
                 },
+            }
             }
 
             if let Some(p) = pending() {
