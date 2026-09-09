@@ -1,5 +1,7 @@
 //! Provides GUI interface to similar set of actions as offered by command line utility
 
+use dioxus::desktop::tao::dpi::{PhysicalPosition, PhysicalSize};
+use dioxus::desktop::{use_window, use_wry_event_handler};
 use dioxus::prelude::*;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,6 +12,10 @@ use futures_util::StreamExt;
 use home::home_dir;
 use log::{debug, error, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
@@ -42,7 +48,8 @@ use pittv3_gui_lib::gui_utils::{
 };
 use pittv3_gui_lib::settings_store::{
     default_ca_folder, default_crl_folder, default_download_folder, default_error_folder,
-    default_settings_path, expand_tilde, saved_or_default,
+    default_log_config_path, default_log_file, default_settings_path, expand_tilde,
+    saved_or_default,
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
@@ -57,8 +64,11 @@ use pittv3_lib::std_utils::{
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use pittv3_lib::RevocationCache;
 
+use crate::logging;
 use crate::peek;
 use crate::stores;
+use crate::window_state;
+use crate::window_state::Outcome;
 
 /// Records where a dialog just went, from what it returned: a folder is itself the location, a file
 /// is its parent.
@@ -273,7 +283,7 @@ async fn pick_file_or_folder_into(mut sig: Signal<String>) {
 /// repository may no longer publish, so it asks.
 async fn confirm_purge(folder: &str) -> bool {
     rfd::AsyncMessageDialog::new()
-        .set_title("Purge folder")
+        .set_title("Empty folder")
         .set_description(format!(
             "Remove every file in {folder}?\n\nCertificates can generally be fetched again. A \
              superseded CRL usually cannot: a CA publishes the current one and nothing else, so \
@@ -559,9 +569,21 @@ fn dedup_pool(v: Vec<String>) -> Vec<String> {
 struct PoolCounts {
     trust_anchors: usize,
     ca_certificates: usize,
+    crl_pool: RevocationCounts,
+    ocsp_pool: RevocationCounts,
+    end_entities: usize,
+}
+
+/// What one revocation pool contributes, counted by kind.
+///
+/// Per pool rather than per view because the two rows are two lists and each answers for itself.
+/// Both counts are kept for both rows: the rows are named for what they are *for*, and a file is
+/// sorted by what it holds, so a row can honestly hold the other kind. Reporting what is there
+/// beats reporting what the label promised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RevocationCounts {
     crls: usize,
     ocsp_responses: usize,
-    end_entities: usize,
 }
 
 /// `n` followed by the noun, plural unless there is one of them.
@@ -578,7 +600,7 @@ fn plural(n: usize, noun: &str) -> String {
 /// A kind that contributed nothing is left out rather than shown as a zero — a pool of CRLs is the
 /// ordinary case and "0 OCSP responses" beside it is noise. Both being empty is worth saying, since
 /// the entries are there on the row and something has to account for them.
-fn revocation_contents(counts: &PoolCounts) -> String {
+fn revocation_contents(counts: &RevocationCounts) -> String {
     let mut parts = vec![];
     if counts.crls > 0 {
         parts.push(plural(counts.crls, "CRL"));
@@ -592,13 +614,35 @@ fn revocation_contents(counts: &PoolCounts) -> String {
     }
 }
 
+/// Counts one pool by kind, using the loader the run itself uses so the answer is what the run will
+/// see rather than what the file names suggest.
+fn revocation_counts(paths: &[String]) -> RevocationCounts {
+    let (crls, ocsp_responses) = count_revocation_inputs(paths.iter().map(String::as_str));
+    RevocationCounts {
+        crls,
+        ocsp_responses,
+    }
+}
+
+/// Which row a restored path belongs in.
+///
+/// Saved arguments carry one `rev_inputs` list -- the two rows concatenate into it, because that is
+/// what the run takes -- so which row a path came from is not recorded and has to be recovered from
+/// the bytes. A path counts as OCSP only when it yields responses and no CRLs: a folder holding
+/// both is CRL material with a response in it, and moving it would take the CRLs with it.
+fn is_ocsp_only(path: &str) -> bool {
+    let (crls, ocsp_responses) = count_revocation_inputs(std::iter::once(path));
+    ocsp_responses > 0 && crls == 0
+}
+
 /// The paths a count is about, as the worker thread needs them: owned, since it outlives the render
 /// that read the signals, and carrying the time the material is judged at, which decides the answer
 /// as surely as the paths do.
 struct PoolInputs {
     ta: Vec<String>,
     ca: Vec<String>,
-    rev: Vec<String>,
+    crl: Vec<String>,
+    ocsp: Vec<String>,
     ee: Vec<String>,
     time_of_interest: u64,
 }
@@ -626,12 +670,11 @@ fn spawn_pool_count(
             return;
         }
         let toi = inputs.time_of_interest;
-        let (crls, ocsp_responses) = count_revocation_inputs(inputs.rev.iter().map(String::as_str));
         let counts = PoolCounts {
             trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str)),
             ca_certificates: count_ca_inputs(inputs.ca.iter().map(String::as_str), toi),
-            crls,
-            ocsp_responses,
+            crl_pool: revocation_counts(&inputs.crl),
+            ocsp_pool: revocation_counts(&inputs.ocsp),
             end_entities: count_end_entity_inputs(inputs.ee.iter().map(String::as_str)),
         };
         let _ = tx.unbounded_send((generation, counts));
@@ -709,7 +752,10 @@ fn PathRow(
             on_browse_alt: move |_| {
                 spawn(pick_file_into(sig, "Certificate File", CERT_EXTENSIONS));
             },
-            alt_label: "File...",
+            // Named rather than left as the bare "..." the single-dialog platforms show. Beside a
+            // button that says File, an ellipsis reads as "more" rather than as the other kind.
+            primary_label: "Folder\u{2026}",
+            alt_label: "File\u{2026}",
         }
     };
 }
@@ -821,17 +867,12 @@ fn FileRow(
 /// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
 /// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
 #[component]
-fn UriCheckModal(open: Signal<bool>) -> Element {
-    let mut open = open;
+fn UriCheckView() -> Element {
     let s_target = use_signal(String::new);
     let s_issuer = use_signal(String::new);
     let s_auto = use_signal(|| true);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<UriCheckReport>);
-
-    if !open() {
-        return rsx! {};
-    }
 
     let run_check = move |_| async move {
         let target = s_target();
@@ -874,60 +915,57 @@ fn UriCheckModal(open: Signal<bool>) -> Element {
     };
 
     rsx! {
-        div { class: "modal-overlay",
-            div { class: "modal",
-                div { class: "modal-header",
-                    h2 { "Check URIs in certificate" }
-                    button {
-                        r#type: "button",
-                        class: "modal-close",
-                        onclick: move |_| open.set(false),
-                        "\u{00d7}"
-                    }
-                }
-                p { class: "hint",
-                    "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. An issuer, supplied or auto-discovered, adds CRL signature verification and OCSP checks."
-                }
-                div { class: "controls",
-                    FileRow {
-                        label: "Target certificate",
-                        name: "uri-target",
-                        sig: s_target,
-                        filter_name: "Certificate File",
-                        extensions: SINGLE_CERT_EXTENSIONS,
-                    }
-                    FileRow {
-                        label: "Issuer certificate (optional)",
-                        name: "uri-issuer",
-                        sig: s_issuer,
-                        filter_name: "Certificate File",
-                        extensions: SINGLE_CERT_EXTENSIONS,
-                    }
-                    div { class: "field check-group",
-                        CheckboxCell {
-                                                    label: "Attempt auto-discovery if issuer not specified",
-                                                    name: "uri-auto",
-                                                    sig: s_auto,
-                                                }
-                    }
-                }
-                div { class: "modal-actions",
-                    button {
-                        r#type: "button",
-                        disabled: s_running(),
-                        onclick: run_check,
-                        if s_running() { "Checking\u{2026}" } else { "Check URIs" }
-                    }
-                    button {
-                        r#type: "button",
-                        onclick: move |_| s_report.set(None),
-                        "Clear Results"
-                    }
-                }
-                if let Some(report) = s_report() {
-                    UriCheckResults { report }
+        p { class: "hint",
+            "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. This is a check of the repositories, not of the certificate: it builds no path and reaches no verdict about trust. An issuer, supplied or auto-discovered, is what makes CRL signature verification and OCSP possible; without one those rows report that they could not be checked rather than failing."
+        }
+        div { class: "controls",
+            FileRow {
+                label: "Target certificate",
+                name: "uri-target",
+                sig: s_target,
+                filter_name: "Certificate File",
+                extensions: SINGLE_CERT_EXTENSIONS,
+            }
+            FileRow {
+                label: "Issuer certificate (optional)",
+                name: "uri-issuer",
+                sig: s_issuer,
+                filter_name: "Certificate File",
+                extensions: SINGLE_CERT_EXTENSIONS,
+            }
+            div { class: "visible label-cell",
+                label { "Issuer discovery: " }
+            }
+            div { class: "field check-group",
+                CheckboxCell {
+                    label: "Attempt auto-discovery if issuer not specified",
+                    name: "uri-auto",
+                    sig: s_auto,
                 }
             }
+        }
+        div { class: "tool-actions",
+            button {
+                r#type: "button",
+                disabled: s_running() || s_target().is_empty(),
+                onclick: run_check,
+                if s_running() {
+                    "Checking\u{2026}"
+                } else if s_target().is_empty() {
+                    "Choose a certificate to check"
+                } else {
+                    "Check URIs"
+                }
+            }
+            button {
+                r#type: "button",
+                disabled: s_report().is_none(),
+                onclick: move |_| s_report.set(None),
+                "Clear Results"
+            }
+        }
+        if let Some(report) = s_report() {
+            UriCheckResults { report }
         }
     }
 }
@@ -938,8 +976,8 @@ enum View {
     Validate,
     Generate,
     Cleanup,
-    Diagnostics,
-    Tools,
+    Inspect,
+    CheckUris,
     Settings,
     Results,
     Help,
@@ -958,10 +996,10 @@ const VIEWS: &[(View, &str)] = &[
     (View::Validate, "Validate"),
     (View::Results, "Results"),
     (View::Settings, "Settings"),
+    (View::CheckUris, "Check URIs"),
     (View::Generate, "Generate"),
     (View::Cleanup, "Cleanup"),
-    (View::Diagnostics, "Diagnostics"),
-    (View::Tools, "Tools"),
+    (View::Inspect, "Inspect"),
     (View::Help, "Help"),
 ];
 
@@ -1074,17 +1112,31 @@ fn StoreHint(selection: usize) -> Element {
 /// It said "Run Command(s)" everywhere, which named the command line the view assembles rather than
 /// the thing the view is for; the plural belonged to a form that stood in for several invocations.
 /// Each caller now supplies the sentence, as the browser frontend does.
+///
+/// `idle` is for a view whose action is switched off: pressing "Generate the store" with Generate
+/// unchecked, or the Inspect button with nothing selected, assembles a run that does nothing and
+/// reports nothing, which reads as the app failing rather than as the form being incomplete. The
+/// button says what is missing instead. `nothing_to_do` names the sentence; an empty one leaves the
+/// button enabled, which is what every view that always has something to do passes.
 #[component]
-fn RunButton(running: bool, onrun: EventHandler<()>, label: String) -> Element {
+fn RunButton(
+    running: bool,
+    onrun: EventHandler<()>,
+    label: String,
+    #[props(default)] nothing_to_do: String,
+) -> Element {
+    let idle = !nothing_to_do.is_empty();
     rsx! {
         div { style: "text-align:center",
             button {
                 r#type: "button",
                 class: "run-button",
-                disabled: running,
+                disabled: running || idle,
                 onclick: move |_| onrun.call(()),
                 if running {
                     "Running…"
+                } else if idle {
+                    "{nothing_to_do}"
                 } else {
                     "{label}"
                 }
@@ -1093,10 +1145,95 @@ fn RunButton(running: bool, onrun: EventHandler<()>, label: String) -> Element {
     }
 }
 
+/// Restores the window's size and position, and keeps `~/.pittv3/window.json` in step with it.
+///
+/// **The geometry is applied to the live window, not through `WindowBuilder`.** Two earlier
+/// attempts went through the builder and both failed there: a size handed to it is resolved against
+/// whatever scale factor the system picks while the window is being created, which is where a
+/// remembered 1640x1600 came back as a default-sized window in one direction and a doubled one in
+/// the other. A window that already exists has a settled scale factor and reports its own position,
+/// so what was asked for and what happened can be compared.
+///
+/// The default therefore needs no code: `main` builds the window at its usual size, and this either
+/// overrides that or leaves it alone. See [`window_state::decide`] for when it declines.
+fn remember_window_geometry() {
+    let window = use_window();
+
+    let restore = window.clone();
+    use_hook(move || {
+        let window = restore;
+        let Some(saved) = window_state::load() else {
+            return;
+        };
+        let displays: Vec<window_state::Display> = window
+            .available_monitors()
+            .map(|m| {
+                let size = m.size();
+                window_state::Display {
+                    name: m.name(),
+                    width: size.width,
+                    height: size.height,
+                }
+            })
+            .collect();
+
+        if let Outcome::UseDefault(_) = window_state::decide(&saved, &displays) {
+            return;
+        }
+
+        window.set_inner_size(PhysicalSize::new(saved.width, saved.height));
+        window.set_outer_position(PhysicalPosition::new(saved.x, saved.y));
+
+        // Verified rather than assumed. `current_monitor` is `NSWindow.screen`, which is nil
+        // exactly when the window is on no screen at all -- the one condition worth undoing for,
+        // and a measurement of what happened rather than a prediction of what would.
+        if window.current_monitor().is_none() {
+            if let Some(primary) = window.primary_monitor() {
+                let p = primary.position();
+                window.set_outer_position(PhysicalPosition::new(p.x + 40, p.y + 40));
+            }
+        }
+    });
+
+    let desktop = window.clone();
+    // The size as the window last reported it. Taken from the `Resized` payload rather than by
+    // asking the window afterwards: querying `inner_size()` in the handler returned the size the
+    // window was built at no matter how it had been dragged, so moves were recorded and resizes
+    // were not. The event carries the new size; that is the value to trust.
+    let last_size = std::rc::Rc::new(std::cell::Cell::new(desktop.inner_size()));
+    use_wry_event_handler(move |event, _| {
+        let dioxus::desktop::tao::event::Event::WindowEvent { event, .. } = event else {
+            return;
+        };
+        use dioxus::desktop::tao::event::WindowEvent;
+        match event {
+            WindowEvent::Resized(size) => last_size.set(*size),
+            WindowEvent::Moved(_) => {}
+            _ => return,
+        }
+        let Ok(position) = desktop.outer_position() else {
+            // Reported unsupported on some platforms. A size with no position is not worth keeping:
+            // restoring it would leave the window wherever the system chose anyway.
+            return;
+        };
+        let size = last_size.get();
+        window_state::save(window_state::WindowState {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            scale: desktop.scale_factor(),
+            monitor: desktop.current_monitor().and_then(|m| m.name()),
+        });
+    });
+}
+
 /// Top-level application: sidebar task navigation over views that mirror the options offered by
 /// the pittv3 command line utility
 #[component]
 pub(crate) fn App() -> Element {
+    remember_window_geometry();
+
     let sa = use_hook(|| read_saved_args().unwrap_or_default());
 
     // A run against a built-in store saves the cache paths it wrote into the CBOR arguments. What
@@ -1151,7 +1288,46 @@ pub(crate) fn App() -> Element {
         v.extend(sa.end_entity_folder.clone().filter(|p| !p.is_empty()));
         dedup_pool(v)
     });
-    let s_rev_inputs = use_signal(|| sa.rev_inputs.clone());
+    // Two rows, so each kind can be cleared or pruned without touching the other, and one saved
+    // list, because `rev_inputs` is what the run takes. Which row a saved path came from is
+    // therefore not recorded and is recovered by reading the files.
+    //
+    // That read is the same work the counts do and is done the same way -- on a worker thread,
+    // since a pool naming a folder of CRLs would otherwise stall the WebView on startup. So
+    // everything starts in the CRL row and the OCSP entries move out when the read returns.
+    // Correct at every instant rather than merely at the end: the rows concatenate into one
+    // argument, so a run started before the sort lands takes exactly the same material, and each
+    // row reports its contents by kind throughout, so the CRL row says what it is holding while it
+    // is still holding both.
+    let mut s_crl_inputs = use_signal(|| sa.rev_inputs.clone());
+    let mut s_ocsp_inputs = use_signal(Vec::<String>::new);
+    use_hook(|| {
+        let saved = sa.rev_inputs.clone();
+        if saved.is_empty() {
+            return;
+        }
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<(Vec<String>, Vec<String>)>();
+        std::thread::spawn(move || {
+            let (ocsp, crl): (Vec<String>, Vec<String>) =
+                saved.into_iter().partition(|p| is_ocsp_only(p));
+            let _ = tx.unbounded_send((crl, ocsp));
+        });
+        // Written on the UI executor, like every other signal write off a worker thread. Applied
+        // only if nothing was added meanwhile, so a file dropped in during the read is not lost to
+        // a wholesale replacement.
+        spawn(async move {
+            if let Some((crl, ocsp)) = rx.next().await {
+                if ocsp.is_empty() {
+                    return;
+                }
+                let added = s_crl_inputs().len() != crl.len() + ocsp.len();
+                if !added {
+                    s_crl_inputs.set(crl);
+                    s_ocsp_inputs.set(ocsp);
+                }
+            }
+        });
+    });
     // Not persisted with the arguments: a host is the way a target was *obtained*, and what the run
     // validates is the file that came back. Restoring the host would suggest the next run re-asks.
     let s_peek_host = use_signal(String::new);
@@ -1201,7 +1377,8 @@ pub(crate) fn App() -> Element {
                 PoolInputs {
                     ta: pool(s_ta_inputs),
                     ca: pool(s_ca_inputs),
-                    rev: pool(s_rev_inputs),
+                    crl: pool(s_crl_inputs),
+                    ocsp: pool(s_ocsp_inputs),
                     ee: pool(s_ee_inputs),
                     time_of_interest: s_time_of_interest()
                         .parse::<u64>()
@@ -1213,7 +1390,10 @@ pub(crate) fn App() -> Element {
             );
         }
     });
-    let s_logging_config = use_signal(|| sa.logging_config.clone().unwrap_or_default());
+    // Offered into the field like the folder defaults, so what governs logging is visible and can
+    // be edited or cleared. The file it names is written from a template when the run needs it.
+    let s_logging_config =
+        use_signal(|| saved_or_default(sa.logging_config.clone(), default_log_config_path));
     let s_error_folder =
         use_signal(|| saved_or_default(sa.error_folder.clone(), default_error_folder));
     // Same shape as the settings file below: a saved value wins, otherwise a default under
@@ -1223,9 +1403,7 @@ pub(crate) fn App() -> Element {
     let s_download_folder =
         use_signal(|| saved_or_default(sa.download_folder.clone(), default_download_folder));
     let s_ca_folder = use_signal(|| saved_or_default(sa.ca_folder.clone(), default_ca_folder));
-    let s_generate = use_signal(|| sa.generate);
     let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
-    let s_cbor_ta_store = use_signal(|| sa.cbor_ta_store);
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
@@ -1325,7 +1503,6 @@ pub(crate) fn App() -> Element {
     // Whether the last run left anything to save. The artifacts live behind a mutex the worker
     // thread fills, which the rsx cannot observe, so the buttons key off this instead.
     let mut s_can_export = use_signal(|| false);
-    let mut s_uri_dialog_open = use_signal(|| false);
     let mut s_log = use_signal(Vec::<String>::new);
 
     // The arguments the form currently describes. Shared by the run and by anything else that has
@@ -1344,7 +1521,7 @@ pub(crate) fn App() -> Element {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
             // The Validate view's pools. Passed alongside the singular arguments rather than
-            // instead of them, because those still have rows on Generate, Cleanup and Diagnostics
+            // instead of them, because those still have rows on Generate, Cleanup and Inspect
             // and are the same arguments; an input named twice is carried once, since `push`
             // deduplicates on both the anchor and the certificate side.
             ta_inputs: pool(s_ta_inputs),
@@ -1372,9 +1549,12 @@ pub(crate) fn App() -> Element {
             download_folder: path_or_none(s_download_folder),
             ca_folder: path_or_none(s_ca_folder),
             ca_inputs: pool(s_ca_inputs),
-            generate: s_generate(),
+            // Implied by the view rather than checked: a button reading "Generate the store" on a
+            // tab called Generate has already said it. The checkbox that used to set this could be
+            // left off while pressing that button, which ran and did nothing.
+            generate: s_view() == View::Generate,
             chase_aia_and_sia: s_chase_aia_and_sia(),
-            cbor_ta_store: s_cbor_ta_store(),
+            cbor_ta_store: false,
             validate_all: s_validate_all(),
             check_uris_when_validating: s_check_uris(),
             validate_self_signed: s_validate_self_signed(),
@@ -1389,7 +1569,9 @@ pub(crate) fn App() -> Element {
             results_folder: path_or_none(s_results_folder),
             settings: path_or_none(s_settings),
             crl_folder: path_or_none(s_crl_folder),
-            rev_inputs: pool(s_rev_inputs),
+            // One argument, both rows: the split is how the material is offered, not how it is
+            // consumed -- `load_revocation_inputs` sorts by content on the way in.
+            rev_inputs: [pool(s_crl_inputs), pool(s_ocsp_inputs)].concat(),
             keep_crl_entries_in_memory: false,
             no_revocation_cache: !s_reuse_rev_cache(),
             cleanup: s_cleanup(),
@@ -1442,7 +1624,7 @@ pub(crate) fn App() -> Element {
                     extend_pool(s_ee_inputs, vec![peeked.end_entity]);
                     extend_pool(s_ca_inputs, peeked.chain);
                     if let Some(response) = peeked.stapled_ocsp {
-                        extend_pool(s_rev_inputs, vec![response]);
+                        extend_pool(s_ocsp_inputs, vec![response]);
                     }
                 }
                 Err(msg) => {
@@ -1472,12 +1654,48 @@ pub(crate) fn App() -> Element {
                 }
             };
 
+            // A trust store is a pair, and the two parts are two generation runs: `--generate`
+            // writes one store to `--cbor`, and `--cbor-ta-store` says which kind. Naming both
+            // output rows therefore means two passes rather than an ambiguity to resolve. Every
+            // other view runs exactly once, with the args as built.
+            let passes: Vec<Pittv3Args> = match args.generate {
+                false => vec![args.clone()],
+                true => {
+                    let mut passes = vec![];
+                    if let Some(ca) = path_or_none(s_cbor) {
+                        let mut p = args.clone();
+                        p.cbor = Some(ca);
+                        p.cbor_ta_store = false;
+                        passes.push(p);
+                    }
+                    if let Some(ta) = path_or_none(s_ta_cbor) {
+                        let mut p = args.clone();
+                        p.cbor = Some(ta);
+                        p.cbor_ta_store = true;
+                        passes.push(p);
+                    }
+                    passes
+                }
+            };
+            if passes.is_empty() {
+                return;
+            }
+
             let _ = save_args(&args);
 
             let mut logging_configured = false;
 
             if let Some(logging_config) = &args.logging_config {
-                if let Err(e) = log4rs::init_file(logging_config, Default::default()) {
+                // Written only when absent, so an edited file is never replaced. Without a
+                // destination to substitute there is nothing to write, and the load below fails
+                // through to the built-in configuration.
+                if let Some(log_file) = default_log_file() {
+                    logging::ensure_config_file(logging_config, &log_file);
+                }
+                // `deserializers()` rather than `Default::default()`: the template names the
+                // channel appender that feeds the Results view, and the default registry cannot
+                // resolve it.
+                if let Err(e) = log4rs::init_file(logging_config, logging::deserializers()) {
                     println!(
                     "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
                 );
@@ -1493,15 +1711,36 @@ pub(crate) fn App() -> Element {
                 let stdout = ConsoleAppender::builder()
                     .encoder(Box::new(PatternEncoder::new("{m}{n}")))
                     .build();
-                match Config::builder()
+
+                // A file as well, because the other two do not survive the run: an application
+                // launched from the Finder has no stdout to read, and the channel appender feeds a
+                // view that is cleared by the next run. Rolling rather than plain -- 5 MB across
+                // four files, so a session that logs heavily is bounded at 20 MB and needs no
+                // maintenance action of its own. A log4rs file named in the settings replaces all
+                // of this, which is what that setting is for.
+                let file = default_log_file().and_then(|path| {
+                    let roll = FixedWindowRoller::builder()
+                        .build(&format!("{path}.{{}}"), 3)
+                        .ok()?;
+                    let policy = CompoundPolicy::new(
+                        Box::new(SizeTrigger::new(5 * 1024 * 1024)),
+                        Box::new(roll),
+                    );
+                    RollingFileAppender::builder()
+                        .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
+                        .build(&path, Box::new(policy))
+                        .ok()
+                });
+
+                let mut builder = Config::builder()
                     .appender(Appender::builder().build("stdout", Box::new(stdout)))
-                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)))
-                    .build(
-                        Root::builder()
-                            .appender("stdout")
-                            .appender("channel")
-                            .build(LevelFilter::Info),
-                    ) {
+                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)));
+                let mut root = Root::builder().appender("stdout").appender("channel");
+                if let Some(file) = file {
+                    builder = builder.appender(Appender::builder().build("file", Box::new(file)));
+                    root = root.appender("file");
+                }
+                match builder.build(root.build(LevelFilter::Info)) {
                     Ok(config) => {
                         let handle = log4rs::init_config(config);
                         if let Err(e) = handle {
@@ -1556,12 +1795,30 @@ pub(crate) fn App() -> Element {
                 };
                 // Retention is asked for here and nowhere else: the desktop offers the artifacts after
                 // a run, so it keeps what the run built. The CLI passes false and pays nothing.
-                let (report, run_artifacts) = rt.block_on(options_std_retaining(
-                    &args,
-                    true,
-                    Some(&run_cache),
-                    Some(&run_prepared),
-                ));
+                // Each pass in turn, the last one's report being what the Results view shows.
+                // A generation pass reports nothing a reader needs beyond its log line, and a
+                // non-generation run has exactly one pass, so "the last" is "the only" there.
+                let mut report = None;
+                let mut run_artifacts = None;
+                for pass in &passes {
+                    let (r, a) = rt.block_on(options_std_retaining(
+                        pass,
+                        true,
+                        Some(&run_cache),
+                        Some(&run_prepared),
+                    ));
+                    if r.error.is_some() {
+                        report = Some(r);
+                        run_artifacts = a;
+                        break;
+                    }
+                    report = Some(r);
+                    run_artifacts = a;
+                }
+                let (report, run_artifacts) = match report {
+                    Some(r) => (r, run_artifacts),
+                    None => return,
+                };
                 if let Ok(mut held) = run_retained.lock() {
                     *held = run_artifacts;
                 }
@@ -1769,7 +2026,17 @@ pub(crate) fn App() -> Element {
                             // the runs that add to it. Open by default for a custom selection,
                             // where they are not supplementary but the whole of the trust
                             // material and an empty panel would hide the fields a run needs.
-                            details { class: "panel", open: s_store() == stores::CUSTOM,
+                            //
+                            // Also open whenever the pools hold anything, whatever the store is.
+                            // Collapsed-and-occupied is the one state that misleads: the panel
+                            // reads as "nothing here" while the run takes material the form is
+                            // not showing, and an input left over from an earlier run is then
+                            // invisible rather than merely tidied away.
+                            details {
+                                class: "panel",
+                                open: s_store() == stores::CUSTOM
+                                    || !s_ta_inputs().is_empty()
+                                    || !s_ca_inputs().is_empty(),
                                 summary {
                                     if s_store() == stores::CUSTOM {
                                         "Trust anchors and certification authorities"
@@ -1815,22 +2082,41 @@ pub(crate) fn App() -> Element {
                                 }
                             }
                             // Revocation material is optional in the same way, and a run that
-                            // supplies none is the common one.
-                            details { class: "panel",
+                            // supplies none is the common one -- so this one opens on content and
+                            // not on the store selection, which says nothing about revocation.
+                            // The CRL folder counts only when it is not the default, which is
+                            // always set; see `is_chosen`.
+                            details {
+                                class: "panel",
+                                open: !s_crl_inputs().is_empty() || !s_ocsp_inputs().is_empty(),
                                 summary { "Revocation data (CRLs and OCSP responses)" }
                                 div { class: "controls",
                                     // Read-only, unlike the CRL folder below it, which is an index:
                                     // that folder is written as well as read, and indexing deletes
                                     // any CRL not valid at the time of interest.
+                                    // Two rows for one argument. They are not filtered apart --
+                                    // an OCSP response has no settled extension, and an `accept`
+                                    // list greys out whatever it failed to anticipate -- so both
+                                    // offer the same files and each reports what it is actually
+                                    // holding. What the split buys is being able to clear or prune
+                                    // one kind without disturbing the other, which one list cannot
+                                    // offer however it is counted.
                                     PoolRow {
-                                        label: "CRLs and OCSP Responses",
+                                        label: "CRLs",
                                         name: "rev",
-                                        sig: s_rev_inputs,
-                                        filter_name: "CRL or OCSP response",
+                                        sig: s_crl_inputs,
+                                        filter_name: "CRL",
                                         extensions: REV_POOL_EXTENSIONS,
-                                        contents: revocation_contents(&s_pool_counts()),
+                                        contents: revocation_contents(&s_pool_counts().crl_pool),
                                     }
-                                    FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
+                                    PoolRow {
+                                        label: "OCSP Responses",
+                                        name: "ocsp",
+                                        sig: s_ocsp_inputs,
+                                        filter_name: "OCSP response",
+                                        extensions: REV_POOL_EXTENSIONS,
+                                        contents: revocation_contents(&s_pool_counts().ocsp_pool),
+                                    }
                                 }
                             }
                             fieldset {
@@ -1987,153 +2273,54 @@ pub(crate) fn App() -> Element {
                                     }
                                 }
                             }
-                            RunButton { running: s_running(), onrun: run_command, label: validate_label }
+                            RunButton {
+                                running: s_running(),
+                                onrun: run_command,
+                                label: validate_label,
+                                // Gated on the pool being empty rather than on the target count
+                                // being zero, which is the tempting test and the wrong one: the
+                                // count is produced on a worker thread behind a debounce, so it
+                                // reads zero for the first moments of every session and for as
+                                // long as a large pool takes to read. Disabling on it would grey
+                                // the button while the row above says the material is there.
+                                // The pool is known immediately and is what the user acted on.
+                                //
+                                // A pool that holds only an empty folder therefore stays enabled,
+                                // and the run says it found nothing to judge -- the honest answer
+                                // to "validate what I pointed you at" when it turns out to hold
+                                // nothing.
+                                nothing_to_do: match s_ee_inputs().is_empty() {
+                                    true => "Add a certificate to validate",
+                                    false => "",
+                                },
+                            }
                         }
                     }
                     View::Generate => rsx! {
+                        // Grouped because this view turns one thing into another, and nothing but
+                        // a parenthesised "(output)" used to say which row was which. The group
+                        // names carry that; they are not the tab's own name repeated back, which is
+                        // what the boxes removed from the other views were doing.
                         fieldset {
-                            legend { "Generation" }
+                            legend { "Inputs" }
                             div { class: "controls",
+                                // Named for what they hold rather than for the shape they take:
+                                // a folder, a certificate, a bundle and a store are all accepted
+                                // and told apart from the path and then the bytes, so "Folder or
+                                // File" spent the label on the one distinction that does not
+                                // matter.
                                 PathRow {
-                                    label: "TA Folder or File",
+                                    label: "Trust anchors",
                                     name: "ta-folder",
                                     sig: s_ta_folder,
                                 }
                                 PathRow {
-                                    label: "CA Folder or File",
+                                    label: "CA certificates",
                                     name: "ca-folder",
                                     sig: s_ca_folder,
                                 }
-                                // The file the run writes — labelled as such, since it sits
-                                // among inputs and is otherwise indistinguishable from one.
-                                // Which store it holds follows the CBOR TA store checkbox
-                                // below, so it is named for the row it will be loaded into on
-                                // the Validate view. (Same "(output)" convention as the
-                                // Mozilla CSV view's CA Folder.)
-                                if s_cbor_ta_store() {
-                                    FileRow {
-                                        label: "TA CBOR (output)",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                        extensions: ["cbor", "pki", "ta"].as_slice(),
-                                    }
-                                } else {
-                                    FileRow {
-                                        label: "CA CBOR (output)",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
-                                    }
-                                }
-                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            }
-                            div { class: "controls",
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
-                                    CheckboxCell { label: "Chase SIA and AIA", name: "chase-aia-and-sia", sig: s_chase_aia_and_sia }
-                                    CheckboxCell { label: "CBOR TA store", name: "cbor-ta-store", sig: s_cbor_ta_store }
-                                }
-                            }
-                            p { class: "hint",
-                                if s_cbor_ta_store() {
-                                    "Generate writes a trust anchor store to the TA CBOR path above, read from the CA input; either input may be a single file."
-                                } else {
-                                    "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
-                                }
-                            }
-                        }
-                        RunButton { running: s_running(), onrun: run_command, label: "Generate the store" }
-                    },
-                    View::Cleanup => rsx! {
-                        fieldset {
-                            legend { "Cleanup" }
-                            div { class: "controls",
-                                FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                                FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                                FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                            }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            }
-                            div { class: "controls",
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
-                                    CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
-                                    CheckboxCell { label: "Report Only", name: "report-only", sig: s_report_only }
-                                }
-                            }
-                        }
-                        RunButton { running: s_running(), onrun: run_command, label: "Clean up the store" }
-                    },
-                    View::Diagnostics => rsx! {
-                        fieldset {
-                            legend { "Diagnostics" }
-                            div { class: "controls",
-                                StoreRow { sig: s_store, status: s_store_export }
-                                StoreHint { selection: s_store() }
-                                StoreStatusRow { status: s_store_export }
-                                if !stores::has_ca_store(s_store()) {
-                                    FileRow {
-                                        label: "CA CBOR",
-                                        name: "cbor",
-                                        sig: s_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized PKI",
-                                        extensions: ["cbor", "pki"].as_slice(),
-                                    }
-                                }
-                                PathRow {
-                                    label: "TA Folder or File",
-                                    name: "ta-folder",
-                                    sig: s_ta_folder,
-                                }
-                                if s_store() == stores::CUSTOM {
-                                    FileRow {
-                                        label: "TA CBOR",
-                                        name: "ta-cbor",
-                                        sig: s_ta_cbor,
-                                        filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                        extensions: ["cbor", "pki", "ta"].as_slice(),
-                                    }
-                                }
-                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            }
-                            div { class: "controls",
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            }
-                            div { class: "controls",
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "List Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
-                                    CheckboxCell { label: "List Buffers", name: "list-buffers", sig: s_list_buffers }
-                                    CheckboxCell { label: "List SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
-                                }
-                                div { class: "field check-group",
-                                    CheckboxCell { label: "List Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
-                                    CheckboxCell { label: "List Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
-                                }
-                            }
-                            div { class: "controls",
-                                TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
-                                FileRow {
-                                    label: "List Partial Paths for Target",
-                                    name: "list-partial-paths-for-target",
-                                    sig: s_list_partial_paths_for_target,
-                                    filter_name: "Certificate File",
-                                    extensions: SINGLE_CERT_EXTENSIONS,
-                                }
-                                TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
-                            }
-                        }
-                        RunButton { running: s_running(), onrun: run_command, label: "Run diagnostics" }
-                    },
-                    View::Tools => rsx! {
-                        fieldset {
-                            legend { "Tools" }
-                            div { class: "controls",
+                                // An input in the sense that matters here: it fills the CA folder
+                                // above, which generation then reads.
                                 FileRow {
                                     label: "Mozilla CSV",
                                     name: "mozilla-csv",
@@ -2141,251 +2328,458 @@ pub(crate) fn App() -> Element {
                                     filter_name: "CSV file",
                                     extensions: ["csv"].as_slice(),
                                 }
-                                FolderRow { label: "CA Folder (output)", name: "ca-folder", sig: s_ca_folder }
-                            }
-                            p { class: "hint",
-                                "Parses the Mozilla intermediate CA CSV report and writes the certificates to the CA folder."
                             }
                         }
                         fieldset {
-                            legend { "Check URIs in certificate" }
-                            p { class: "hint",
-                                "Fetches and evaluates the HTTP URIs (AIA, SIA, CRL DP, freshest CRL) carried in a certificate, independent of path processing."
+                            legend { "Output" }
+                            div { class: "controls",
+                                // A trust store is a pair, so the two parts get a row each and
+                                // naming one is how you ask for it. This replaces a single row
+                                // whose label followed a "CBOR TA store" checkbox: the path
+                                // carried over when that flipped, so a filename chosen for one
+                                // part silently became the destination for the other.
+                                //
+                                // Both named is the ordinary case, not an ambiguity -- generation
+                                // runs once per part. The command line makes the same store in two
+                                // invocations; this view combines them.
+                                FileRow {
+                                    label: "Trust anchor store",
+                                    name: "ta-cbor",
+                                    sig: s_ta_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                    extensions: ["cbor", "pki", "ta"].as_slice(),
+                                }
+                                FileRow {
+                                    label: "CA store",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized PKI",
+                                    extensions: ["cbor", "pki"].as_slice(),
+                                }
                             }
-                            div { class: "tool-actions",
-                                button {
-                                    r#type: "button",
-                                    onclick: move |_| s_uri_dialog_open.set(true),
-                                    "Check URIs in certificate\u{2026}"
+                            p { class: "hint",
+                                "A trust store is a pair: the trust anchor part holds the roots, the CA part holds intermediate CA certificates together with the partial paths found for them. Name one to write that part, or both to write the whole store."
+                            }
+                        }
+                        fieldset {
+                            legend { "Options" }
+                            div { class: "controls",
+                                div { class: "visible label-cell",
+                                    label { "Chase SIA and AIA: " }
+                                }
+                                div { class: "field check-group",
+                                    CheckboxCell {
+                                        label: "Follow AIA and SIA URIs while building",
+                                        name: "chase-aia-and-sia",
+                                        sig: s_chase_aia_and_sia,
+                                    }
+                                }
+                                // Beside the option it serves: this is where chasing puts what it
+                                // fetches, and it means nothing when nothing is being chased.
+                                FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            }
+                        }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: match (s_cbor().is_empty(), s_ta_cbor().is_empty()) {
+                                (false, false) => "Generate both parts of the store",
+                                (false, true) => "Generate the CA store",
+                                _ => "Generate the trust anchor store",
+                            },
+                            nothing_to_do: match s_cbor().is_empty() && s_ta_cbor().is_empty() {
+                                true => "Name a store to write",
+                                false => "",
+                            },
+                        }
+                    },
+                    View::Cleanup => rsx! {
+                        // One grid for the whole view. Each `.controls` is a separate CSS grid
+                        // that measures its own label column, so splitting the rows across three of
+                        // them left three columns of different widths and no two labels lining up.
+                        // The group box used to hide that; without it there is nothing to hide it.
+                        div { class: "controls",
+                            FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
+                            FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
+                            FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            // Labelled like every other row rather than floating in the grid's
+                            // first column, which is where an unlabelled field lands.
+                            div { class: "visible label-cell",
+                                label { "Actions: " }
+                            }
+                            // Report Only modifies the two actions rather than being one, so it
+                            // is unavailable while neither is chosen. Disabled rather than
+                            // hidden, and the signal is left alone: the choice comes back with
+                            // the control.
+                            div { class: "field check-group",
+                                CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
+                                CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
+                                CheckboxCell {
+                                    label: "Report Only",
+                                    name: "report-only",
+                                    sig: s_report_only,
+                                    disabled: !s_cleanup() && !s_ta_cleanup(),
                                 }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command, label: "Check the URIs in this certificate" }
+                        // The only view that removes material, and it had nothing to say about
+                        // what it removes or what decides. The time of interest is named
+                        // because it is the criterion rather than a filter on the report: a
+                        // wrong value here does not produce a wrong answer to run again, it
+                        // moves certificates that were fine.
+                        p { class: "hint",
+                            if s_report_only() {
+                                "Lists the certificates a run could not use — unparseable, not valid at the time of interest, self-signed, or not a CA — without touching anything. The time of interest is what decides."
+                            } else if s_error_folder().is_empty() {
+                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. No Error Folder is set, so they are deleted rather than moved. The time of interest is what decides. Check Report Only to see what would go first."
+                            } else {
+                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. They are moved to the Error Folder rather than deleted. The time of interest is what decides. Check Report Only to see what would go first."
+                            }
+                        }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: "Clean up the store",
+                            // Both actions off is a legal run that removes nothing, which reads as
+                            // "the folders were already clean" rather than as nothing being asked.
+                            nothing_to_do: match !s_cleanup() && !s_ta_cleanup() {
+                                true => "Choose Cleanup or TA Cleanup",
+                                false => "",
+                            },
+                        }
+                    },
+                    View::Inspect => rsx! {
+                        p { class: "hint",
+                            "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
+                        }
+                        div { class: "controls",
+                            StoreRow { sig: s_store, status: s_store_export }
+                            StoreHint { selection: s_store() }
+                            StoreStatusRow { status: s_store_export }
+                            if !stores::has_ca_store(s_store()) {
+                                FileRow {
+                                    label: "CA CBOR",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized PKI",
+                                    extensions: ["cbor", "pki"].as_slice(),
+                                }
+                            }
+                            PathRow {
+                                label: "TA Folder or File",
+                                name: "ta-folder",
+                                sig: s_ta_folder,
+                            }
+                            if s_store() == stores::CUSTOM {
+                                FileRow {
+                                    label: "TA CBOR",
+                                    name: "ta-cbor",
+                                    sig: s_ta_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                    extensions: ["cbor", "pki", "ta"].as_slice(),
+                                }
+                            }
+                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                            // One group rather than the previous three-then-two, which was a wrap
+                            // rather than a grouping: all five list the store as a whole, and
+                            // splitting them implied a distinction that does not exist.
+                            div { class: "visible label-cell",
+                                label { "Items to list: " }
+                            }
+                            div { class: "field check-group",
+                                CheckboxCell { label: "Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
+                                CheckboxCell { label: "Buffers", name: "list-buffers", sig: s_list_buffers }
+                                CheckboxCell { label: "SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
+                                CheckboxCell { label: "Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
+                                CheckboxCell { label: "Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
+                            }
+                            TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
+                            FileRow {
+                                label: "List Partial Paths for Target",
+                                name: "list-partial-paths-for-target",
+                                sig: s_list_partial_paths_for_target,
+                                filter_name: "Certificate File",
+                                extensions: SINGLE_CERT_EXTENSIONS,
+                            }
+                            TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
+                        }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: "Inspect the store",
+                            // Every control on this view is optional, so an untouched form is a
+                            // legal run that lists nothing -- which reads as the store being empty
+                            // rather than as nothing having been asked for.
+                            nothing_to_do: if s_list_partial_paths() || s_list_buffers()
+                                || s_list_aia_and_sia() || s_list_name_constraints()
+                                || s_list_trust_anchors() || !s_dump_cert_at_index().is_empty()
+                                || !s_list_partial_paths_for_target().is_empty()
+                                || !s_list_partial_paths_for_leaf_ca().is_empty()
+                            {
+                                ""
+                            } else {
+                                "Choose something to list"
+                            },
+                        }
+                    },
+                    View::CheckUris => rsx! {
+                        UriCheckView {}
                     },
                     View::Settings => rsx! {
+                        // Always shown: settings are app state, not a document you must open
+                        // first. The path below selects which file backs them and defaults to
+                        // ~/.pittv3/settings.json, which is created on save if it does not
+                        // exist. The empty case is only reachable with no home directory.
+                        if s_settings().is_empty() {
+                            p { class: "hint",
+                                "No home directory, so there is no default settings file. Choose or type the path of a JSON settings file to edit."
+                            }
+                        } else {
+                            EditSettingsFile {
+                                path: s_settings(),
+                                // The other reason to read the file again: the same one, on
+                                // request (Revert to Saved) or because it is no longer there
+                                // (Delete).
+                                reload_token: s_settings_gen(),
+                                // Folders the run writes to, and the actions that maintain
+                                // them, beside the folders it reads from. They persist with the
+                                // rest of the args rather than into the settings file, which
+                                // stays the CLI's `-s` JSON.
+                                extra_folder_rows: Some(rsx! {
+                                    // Read and written both: indexing removes any CRL that is
+                                    // not valid at the time of interest, which is why it sits
+                                    // with the folders the run maintains rather than with the
+                                    // revocation material a run is handed. The Cleanup and
+                                    // Purge buttons below act on this path, and until it moved
+                                    // here they acted on a folder nothing on this screen could
+                                    // see, let alone change.
+                                    FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
+                                    FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
+                                    FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
+                                    FileRow {
+                                        label: "Logging Configuration",
+                                        name: "logging-config",
+                                        sig: s_logging_config,
+                                        filter_name: "log4rs Configuration",
+                                        extensions: ["yaml"].as_slice(),
+                                    }
+                                    // Named as a group because the distinction is the point:
+                                    // everything here is material this application fetched or
+                                    // computed, so losing it costs a refetch or a rebuild. The
+                                    // Cleanup view acts on the CA and trust anchor folders, which
+                                    // the user assembled and which may not be recoverable -- which
+                                    // is why that view has an error folder and a dry run and these
+                                    // buttons do not.
+                                    div { class: "visible label-cell",
+                                        label { "Caches and downloads: " }
+                                    }
+                                    div { class: "field" }
+                                    div { class: "visible label-cell",
+                                        label { "Downloaded certificates: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
+                                            onclick: move |_| {
+                                                let m = cleanup_certificate_folder(
+                                                    &s_download_folder(),
+                                                    &s_error_folder(),
+                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                );
+                                                s_folder_status
+                                                    .set(format!("Removed {} downloaded certificate(s).", m.removed));
+                                            },
+                                            "Remove unusable"
+                                        }
+                                        button {
+                                            title: "Removes every file in the download folder.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = s_download_folder();
+                                                    if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} file(s) from the download folder.", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Empty"
+                                        }
+                                    }
+                                    div { class: "visible label-cell",
+                                        label { "CRL index: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes CRLs that do not cover the time of interest, and any file that cannot be read as a CRL. A superseded CRL generally cannot be fetched again, so this forecloses validating as of a time it covered.",
+                                            onclick: move |_| {
+                                                let m = cleanup_crls(
+                                                    &s_crl_folder(),
+                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                );
+                                                s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
+                                            },
+                                            "Remove stale"
+                                        }
+                                        button {
+                                            title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = s_crl_folder();
+                                                    if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} file(s) from the CRL folder.", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Empty"
+                                        }
+                                    }
+                                    div { class: "visible label-cell",
+                                        label { "Cached graphs: " }
+                                    }
+                                    div { class: "field",
+                                        button {
+                                            title: "Removes every cached graph. Nothing else removes one, and a run whose inputs, settings or time of interest differ from the last writes another, so the folder grows until it is emptied. Rebuilding one costs the partial-path search on the next run that needs it.",
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let folder = graph_cache::cache_folder();
+                                                    if folder.is_empty() {
+                                                        s_folder_status
+                                                            .set("No graph cache folder to empty.".to_string());
+                                                    } else if confirm_purge(&folder).await {
+                                                        let m = purge_folder(&folder);
+                                                        s_folder_status
+                                                            .set(format!("Removed {} cached graph file(s).", m.removed));
+                                                    }
+                                                });
+                                            },
+                                            "Empty"
+                                        }
+                                        // The in-memory counterpart, and the only one of these
+                                        // buttons that frees memory rather than disk. Discarding
+                                        // costs the next run a parse and nothing else: the graph
+                                        // on disk is untouched.
+                                        button {
+                                            title: "Discards the parsed certificates this session is holding, which is tens of megabytes for a large store. The next run over the same material parses them again; no result changes either way.",
+                                            onclick: {
+                                                let prepared_graph = prepared_graph.clone();
+                                                move |_| {
+                                                    s_folder_status
+                                                        .set(match prepared_graph.clear() {
+                                                            Some(certs) => {
+                                                                format!("Discarded {certs} parsed certificate(s).")
+                                                            }
+                                                            None => "Nothing has been prepared this session.".to_string(),
+                                                        });
+                                                }
+                                            },
+                                            "Discard In-Memory Graph"
+                                        }
+                                    }
+                                    if !s_folder_status().is_empty() {
+                                        span { class: "hint", "{s_folder_status}" }
+                                    }
+                                }),
+                                on_reload: move |_| s_settings_gen += 1,
+                                on_dirty_change: move |d| s_settings_dirty.set(d),
+                            }
+                        }
+                        // The file the form above is backed by, and the actions that change
+                        // which one that is or whether it exists at all. Below the form rather
+                        // than above it, as in the browser: the tabs are what this view is for,
+                        // and naming the store is housekeeping done once.
+                        //
+                        // Save, Revert to Saved and Reset to defaults are deliberately not in
+                        // here. They act on whichever store backs the form -- localStorage in
+                        // the browser, this file here -- so grouping them under a heading that
+                        // says `file` would mislabel them in the other frontend.
                         fieldset {
-                            legend { "Settings" }
+                            legend { "Settings file" }
                             div { class: "controls",
                                 div { class: "label-cell",
                                     label { r#for: "settings", "Settings file: " }
                                 }
                                 div { class: "field",
                                     input {
-                                                                                r#type: "text",
-                                                                                name: "settings",
-                                                                                value: "{s_settings}",
-                                                                                // Committed on exit, not per keystroke: this path drives a
-                                                                                // file read and reseeds the form below, so a half-typed
-                                                                                // path would read as "missing" and blank the form on the
-                                                                                // way to a name that does exist. Same reason the datetime
-                                                                                // row uses onchange. Committing once also makes the
-                                                                                // unsaved-edits question askable, which it is not per
-                                                                                // character.
-                                                                                onchange: move |ev| {
-                                                                                    let typed = ev.value();
-                                                                                    spawn(async move {
-                                                                                        if leave_settings_ok(s_settings_dirty()).await {
-                                                                                            s_settings.set(typed);
-                                                                                            return;
-                                                                                        }
-                                                                                        // Declined, so the path does not move -- but the box
-                                                                                        // is still showing what was typed. Rewriting the
-                                                                                        // signal it is bound to is what puts it back.
-                                                                                        let unchanged = s_settings();
-                                                                                        s_settings.set(unchanged);
-                                                                                    });
-                                                                                },
-                                                                            }
+                                        r#type: "text",
+                                        name: "settings",
+                                        value: "{s_settings}",
+                                        // Committed on exit, not per keystroke: this path drives a
+                                        // file read and reseeds the form above, so a half-typed
+                                        // path would read as "missing" and blank the form on the
+                                        // way to a name that does exist. Same reason the datetime
+                                        // row uses onchange. Committing once also makes the
+                                        // unsaved-edits question askable, which it is not per
+                                        // character.
+                                        onchange: move |ev| {
+                                            let typed = ev.value();
+                                            spawn(async move {
+                                                if leave_settings_ok(s_settings_dirty()).await {
+                                                    s_settings.set(typed);
+                                                    return;
+                                                }
+                                                // Declined, so the path does not move -- but the box
+                                                // is still showing what was typed. Rewriting the
+                                                // signal it is bound to is what puts it back.
+                                                let unchanged = s_settings();
+                                                s_settings.set(unchanged);
+                                            });
+                                        },
+                                    }
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        pick_file_into(s_settings, "PITTv3 Settings", &["json"]).await;
-                                                                                    });
-                                                                                },
-                                                                                "..."
-                                                                            }
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                if !leave_settings_ok(s_settings_dirty()).await {
+                                                    return;
+                                                }
+                                                pick_file_into(s_settings, "PITTv3 Settings", &["json"]).await;
+                                            });
+                                        },
+                                        "\u{2026}"
+                                    }
                                     // Actions on the file itself, beside the box that names it and
-                                    // not among the form's actions below: these change *which*
+                                    // not among the form's actions above: these change *which*
                                     // settings are being edited, or whether they exist at all,
                                     // where Save and Revert act on whichever file is named here.
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        if !leave_settings_ok(s_settings_dirty()).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        if let Some(p) = default_settings_path() {
-                                                                                            s_settings.set(p);
-                                                                                        }
-                                                                                    });
-                                                                                },
-                                                                                "Default"
-                                                                            }
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                if !leave_settings_ok(s_settings_dirty()).await {
+                                                    return;
+                                                }
+                                                if let Some(p) = default_settings_path() {
+                                                    s_settings.set(p);
+                                                }
+                                            });
+                                        },
+                                        "Default"
+                                    }
                                     button {
-                                                                                r#type: "button",
-                                                                                onclick: move |_| {
-                                                                                    spawn(async move {
-                                                                                        let path = s_settings();
-                                                                                        if !confirm_delete_settings(&path).await {
-                                                                                            return;
-                                                                                        }
-                                                                                        match std::fs::remove_file(&path) {
-                                                                                            // The form re-reads on remount and a missing
-                                                                                            // file loads as an empty settings map, which
-                                                                                            // is the same thing as all defaults.
-                                                                                            Ok(()) => s_settings_gen += 1,
-                                                                                            Err(e) => error!("Failed to delete {path}: {e}"),
-                                                                                        }
-                                                                                    });
-                                                                                },
-                                                                                "Delete"
-                                                                            }
-                                }
-                            }
-                            // Always shown: settings are app state, not a document you must open
-                            // first. The path above selects which file backs them and defaults to
-                            // ~/.pittv3/settings.json, which is created on save if it does not
-                            // exist. The empty case is only reachable with no home directory.
-                            if s_settings().is_empty() {
-                                p { class: "hint",
-                                    "No home directory, so there is no default settings file. Choose or type the path of a JSON settings file to edit."
-                                }
-                            } else {
-                                EditSettingsFile {
-                                    path: s_settings(),
-                                    // The other reason to read the file again: the same one, on
-                                    // request (Revert to Saved) or because it is no longer there
-                                    // (Delete).
-                                    reload_token: s_settings_gen(),
-                                    // Folders the run writes to, and the actions that maintain
-                                    // them, beside the folders it reads from. They persist with the
-                                    // rest of the args rather than into the settings file, which
-                                    // stays the CLI's `-s` JSON.
-                                    extra_folder_rows: Some(rsx! {
-                                        FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
-                                        FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                                        FileRow {
-                                            label: "Logging Configuration",
-                                            name: "logging-config",
-                                            sig: s_logging_config,
-                                            filter_name: "log4rs Configuration",
-                                            extensions: ["yaml"].as_slice(),
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "Downloaded certificates: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes certificates a run could not use: unparseable, expired at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
-                                                onclick: move |_| {
-                                                    let m = cleanup_certificate_folder(
-                                                        &s_download_folder(),
-                                                        &s_error_folder(),
-                                                        s_time_of_interest().parse().unwrap_or(0),
-                                                    );
-                                                    s_folder_status
-                                                        .set(format!("Removed {} downloaded certificate(s).", m.removed));
-                                                },
-                                                "Cleanup Downloads"
-                                            }
-                                            button {
-                                                title: "Removes every file in the download folder.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = s_download_folder();
-                                                        if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} file(s) from the download folder.", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge Downloads"
-                                            }
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "CRL index: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes CRLs that do not cover the time of interest, and any file that cannot be read as a CRL. A superseded CRL generally cannot be fetched again, so this forecloses validating as of a time it covered.",
-                                                onclick: move |_| {
-                                                    let m = cleanup_crls(
-                                                        &s_crl_folder(),
-                                                        s_time_of_interest().parse().unwrap_or(0),
-                                                    );
-                                                    s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
-                                                },
-                                                "Cleanup CRLs"
-                                            }
-                                            button {
-                                                title: "Removes every file in the CRL folder, including the last-modified map that makes fetches conditional.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = s_crl_folder();
-                                                        if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} file(s) from the CRL folder.", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge CRLs"
-                                            }
-                                        }
-                                        div { class: "visible label-cell",
-                                            label { "Cached graphs: " }
-                                        }
-                                        div { class: "field",
-                                            button {
-                                                title: "Removes every cached graph. Nothing else removes one, and a run whose inputs, settings or time of interest differ from the last writes another, so the folder grows until it is emptied. Rebuilding one costs the partial-path search on the next run that needs it.",
-                                                onclick: move |_| {
-                                                    spawn(async move {
-                                                        let folder = graph_cache::cache_folder();
-                                                        if folder.is_empty() {
-                                                            s_folder_status
-                                                                .set("No graph cache folder to empty.".to_string());
-                                                        } else if confirm_purge(&folder).await {
-                                                            let m = purge_folder(&folder);
-                                                            s_folder_status
-                                                                .set(format!("Removed {} cached graph file(s).", m.removed));
-                                                        }
-                                                    });
-                                                },
-                                                "Purge Graphs"
-                                            }
-                                            // The in-memory counterpart, and the only one of these
-                                            // buttons that frees memory rather than disk. Discarding
-                                            // costs the next run a parse and nothing else: the graph
-                                            // on disk is untouched.
-                                            button {
-                                                title: "Discards the parsed certificates this session is holding, which is tens of megabytes for a large store. The next run over the same material parses them again; no result changes either way.",
-                                                onclick: {
-                                                    let prepared_graph = prepared_graph.clone();
-                                                    move |_| {
-                                                        s_folder_status
-                                                            .set(match prepared_graph.clear() {
-                                                                Some(certs) => {
-                                                                    format!("Discarded {certs} prepared certificate(s).")
-                                                                }
-                                                                None => "Nothing has been prepared this session.".to_string(),
-                                                            });
-                                                    }
-                                                },
-                                                "Discard Prepared Graph"
-                                            }
-                                        }
-                                        if !s_folder_status().is_empty() {
-                                            span { class: "hint", "{s_folder_status}" }
-                                        }
-                                    }),
-                                    on_reload: move |_| s_settings_gen += 1,
-                                    on_dirty_change: move |d| s_settings_dirty.set(d),
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            spawn(async move {
+                                                let path = s_settings();
+                                                if !confirm_delete_settings(&path).await {
+                                                    return;
+                                                }
+                                                match std::fs::remove_file(&path) {
+                                                    // The form re-reads on remount and a missing
+                                                    // file loads as an empty settings map, which
+                                                    // is the same thing as all defaults.
+                                                    Ok(()) => s_settings_gen += 1,
+                                                    Err(e) => error!("Failed to delete {path}: {e}"),
+                                                }
+                                            });
+                                        },
+                                        "Delete"
+                                    }
                                 }
                             }
                         }
@@ -2408,6 +2802,28 @@ pub(crate) fn App() -> Element {
                                     },
                                     title: "Save the structured report as JSON",
                                     "Save report"
+                                }
+                                // The log is shown below and was the one thing here that could be
+                                // read and not kept. Suffixed rather than sharing the report's
+                                // stamped name, since the path logs already take `{name}.txt`.
+                                button {
+                                    r#type: "button",
+                                    disabled: s_log().is_empty(),
+                                    onclick: move |_| {
+                                        let name = stamped_export_name(
+                                            &s_export_name(),
+                                            s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+                                        );
+                                        let text = s_log().join("\n");
+                                        spawn(write_export(
+                                            format!("{name}-log.txt"),
+                                            &["txt"],
+                                            text.into_bytes(),
+                                            s_log,
+                                        ));
+                                    },
+                                    title: "Save what the validation stack logged, as text",
+                                    "Save log"
                                 }
                                 // Saving what a run used is offered here, beside the report, rather
                                 // than below the results: the decision is made after seeing them,
@@ -2454,7 +2870,9 @@ pub(crate) fn App() -> Element {
                                 ResultsView { report }
                             }
                             if !s_running() && s_report().is_none() {
-                                p { class: "hint", "No results yet: run a command to see results here." }
+                                p { class: "hint",
+                                    "No results yet: run something from Validate, Generate, Cleanup or Inspect."
+                                }
                             }
                             if !s_log().is_empty() {
                                 details { class: "advanced", open: s_running(),
@@ -2469,14 +2887,42 @@ pub(crate) fn App() -> Element {
                         }
                     },
                     View::Help => rsx! {
-                        fieldset {
-                            legend { "Help" }
-                            HelpView {}
+                        HelpView {
+                            // Absolute: a desktop application has no origin to be relative to.
+                            // https rather than http, which does not serve the manual.
+                            manual_url: "https://pittv3.redhoundsoftware.com/pittv3-book/",
+                            notes: rsx! {
+                                ul {
+                                    li {
+                                        "Every input list takes a folder, a certificate, a PEM or "
+                                        "PKCS#7 bundle, or a CBOR store. What an entry is comes "
+                                        "from the path and then from its contents, so entries need "
+                                        "not be sorted by kind."
+                                    }
+                                    li {
+                                        "A store selected above the input lists is used together "
+                                        "with them. Choose the custom entry to rely on the lists "
+                                        "alone."
+                                    }
+                                    li {
+                                        "A time of interest of 0 disables validity period checks."
+                                    }
+                                    li {
+                                        "Cleanup moves certificates to the error folder rather than "
+                                        "deleting them whenever one is named, which it is by "
+                                        "default. Report Only says what would go without touching "
+                                        "anything."
+                                    }
+                                    li {
+                                        "Folders this application writes to live under ~/.pittv3, "
+                                        "including the log at ~/.pittv3/logs/pittv3.log."
+                                    }
+                                }
+                            },
                         }
                     },
                 }
             }
         }
-        UriCheckModal { open: s_uri_dialog_open }
     }
 }

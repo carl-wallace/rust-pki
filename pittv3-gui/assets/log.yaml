@@ -1,0 +1,50 @@
+# Default logging configuration for PITTv3.
+#
+# Written to ~/.pittv3/log.yaml on first run and never overwritten, so edits made
+# here survive. The Logging Configuration setting names this file; clear that
+# setting to fall back to the configuration built into the application.
+#
+# refresh_rate makes log4rs re-read this file while running, so a level change
+# below takes effect on the next run rather than the next launch.
+refresh_rate: 30 seconds
+
+appenders:
+  file:
+    kind: rolling_file
+    path: <PITTV3 LOG FILE>
+    encoder:
+      pattern: "{d} {l} {t} - {m}{n}"
+    policy:
+      kind: compound
+      trigger:
+        kind: size
+        limit: 5 mb
+      roller:
+        kind: fixed_window
+        pattern: "<PITTV3 LOG FILE>.{}"
+        count: 3
+
+  # Feeds the Run log on the Results view, which is also what Save log writes.
+  # A log4rs file that omits this appender is perfectly legal and silences both;
+  # it is named here so the default configuration keeps them working.
+  channel:
+    kind: channel
+
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{m}{n}"
+
+root:
+  level: info
+  appenders:
+    - file
+    - channel
+    - stdout
+
+loggers:
+  # Turn these up to see more from a particular dependency.
+  reqwest:
+    level: error
+  rustls:
+    level: error

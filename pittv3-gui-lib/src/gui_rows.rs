@@ -126,7 +126,17 @@ pub fn BrowseRow(
     #[props(default)] title: String,
     #[props(default)] on_browse_alt: Option<EventHandler<()>>,
     #[props(default)] alt_label: String,
+    /// Label for the browse button. Defaults to an ellipsis, which is the right thing to say when
+    /// it is the only button on the row: the dialog it opens takes whatever the row accepts. A row
+    /// carrying `on_browse_alt` should name both buttons instead, since beside one that names a
+    /// kind an ellipsis reads as "more options" rather than as the other kind.
+    #[props(default)]
+    primary_label: String,
 ) -> Element {
+    let primary_label = match primary_label.is_empty() {
+        true => "\u{2026}".to_string(),
+        false => primary_label,
+    };
     let title = tooltip(title, &name);
     rsx! {
         div { title, class: "visible label-cell",
@@ -142,7 +152,7 @@ pub fn BrowseRow(
             button {
                 r#type: "button",
                 onclick: move |_| on_browse.call(()),
-                "..."
+                "{primary_label}"
             }
             if let Some(on_browse_alt) = on_browse_alt {
                 button {
@@ -208,6 +218,12 @@ pub fn CheckboxCell(
     name: String,
     sig: Signal<bool>,
     #[props(default)] title: String,
+    /// Whether the control is settable, as on [`CheckboxRow`] and with one difference worth
+    /// stating: a cell is disabled here when another setting makes it *irrelevant* rather than
+    /// when one dictates its value, so the signal is left alone. The value the user last chose
+    /// stays visible and comes back when the control does, and the run ignores it meanwhile.
+    #[props(default)]
+    disabled: bool,
 ) -> Element {
     let title = tooltip(title, &name);
     rsx! {
@@ -217,6 +233,7 @@ pub fn CheckboxCell(
                 r#type: "checkbox",
                 name,
                 checked: sig(),
+                disabled,
                 onchange: move |ev| sig.set(ev.checked()),
             }
         }

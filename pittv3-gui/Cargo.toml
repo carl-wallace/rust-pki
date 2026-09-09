@@ -48,6 +48,11 @@ home = "0.5.12"
 log = "0.4.33"
 log4rs = "1.4.0"
 rfd = "0.17.2"
+anyhow = "1.0.100"
+# Already in the tree through the desktop stack; named here to decode the window icon, which tao
+# takes as raw pixels rather than as an encoded image.
+png = "0.17.16"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["rt", "time"] }
 

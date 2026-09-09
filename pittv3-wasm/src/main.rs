@@ -16,6 +16,7 @@ use certval::{
     TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
+use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
@@ -86,21 +87,36 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// this what I just deployed".
 const BUILT: &str = env!("PITTV3_BUILD_TIME");
 
-const VIEW_LABELS: &[&str] = &[
-    "Validate",
-    "Settings",
-    "Results",
-    "Store artifacts",
-    "Check URIs",
-    "Hackathon",
-    "Help",
+/// A view this application offers, named rather than numbered.
+///
+/// Positions used to be the identity -- `view` was a `usize` and two constants recorded where
+/// Settings and Results sat -- which made the display order load-bearing: reordering the sidebar
+/// silently re-pointed every `view.set(RESULTS_VIEW)` and the guard that asks before leaving a
+/// dirty settings form. Naming them makes the order below presentation only, as it already is on
+/// the desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Validate,
+    Results,
+    Settings,
+    CheckUris,
+    Hackathon,
+    Help,
+}
+
+/// Sidebar views in display order.
+///
+/// Head of the list matches the desktop: validate something, read the outcome, adjust what a run
+/// does. What follows differs because the two applications offer different tools, and Help is last
+/// in both.
+const VIEWS: &[(View, &str)] = &[
+    (View::Validate, "Validate"),
+    (View::Results, "Results"),
+    (View::Settings, "Settings"),
+    (View::CheckUris, "Check URIs"),
+    (View::Hackathon, "Hackathon"),
+    (View::Help, "Help"),
 ];
-
-/// Index of the Settings view within [`VIEW_LABELS`]
-const SETTINGS_VIEW: usize = 1;
-
-/// Index of the Results view within [`VIEW_LABELS`]
-const RESULTS_VIEW: usize = 2;
 
 fn now_as_unix_epoch() -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -339,7 +355,7 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
 
 #[component]
 fn App() -> Element {
-    let mut view = use_signal(|| 0usize);
+    let mut view = use_signal(|| View::Validate);
     let mut mode = use_signal(|| 0usize);
 
     // The settings are held as a single SettingsModel, edited through the shared EditSettings form
@@ -377,6 +393,10 @@ fn App() -> Element {
     let log_lines = use_memo(move || {
         log_tick();
         log_capture::len()
+    });
+    let log_text = use_memo(move || {
+        log_tick();
+        log_capture::contents()
     });
 
     let mut notes = use_signal(Vec::<ResultLine>::new);
@@ -1044,7 +1064,7 @@ fn App() -> Element {
         }
         run_ms.set(started.elapsed().as_millis() as u64);
         log_tick += 1;
-        view.set(RESULTS_VIEW);
+        view.set(View::Results);
     };
 
     // validates everything loaded (certificates against the store/uploads) using the settings in
@@ -1113,7 +1133,7 @@ fn App() -> Element {
                     text: e,
                 });
                 validating.set(false);
-                view.set(RESULTS_VIEW);
+                view.set(View::Results);
                 return;
             }
         }
@@ -1195,7 +1215,7 @@ fn App() -> Element {
                             text: e,
                         });
                         validating.set(false);
-                        view.set(RESULTS_VIEW);
+                        view.set(View::Results);
                         return;
                     }
                 }
@@ -1388,7 +1408,7 @@ fn App() -> Element {
         run_ms.set(started.elapsed().as_millis() as u64);
         log_tick += 1;
         validating.set(false);
-        view.set(RESULTS_VIEW);
+        view.set(View::Results);
     };
 
     // Where the selected store's material came from, said in the selector rather than left to the
@@ -1432,22 +1452,23 @@ fn App() -> Element {
                 " compiled to WebAssembly. Certificates never leave this page."
             }
             AppShell {
-                items: VIEW_LABELS.to_vec(),
-                selected: view(),
+                items: VIEWS.iter().map(|(_, label)| *label).collect::<Vec<_>>(),
+                selected: VIEWS.iter().position(|(v, _)| *v == view()).unwrap_or(0),
                 // Leaving the settings form is the only way to discard its edits now that saving no
                 // longer navigates away, so it is the one transition that asks. `window.confirm`
                 // rather than a rendered control: the sidebar is outside the form, and blocking the
                 // navigation is the whole point.
                 on_select: move |i: usize| {
+                    let to = VIEWS[i].0;
                     let leaving_dirty =
-                        view() == SETTINGS_VIEW && i != SETTINGS_VIEW && settings_dirty();
+                        view() == View::Settings && to != View::Settings && settings_dirty();
                     if leaving_dirty && !confirm_discard_settings() {
                         return;
                     }
-                    view.set(i);
+                    view.set(to);
                 },
                 match view() {
-                    0 => rsx! {
+                    View::Validate => rsx! {
                         // The tier governs the whole run, so it is stated before the trust material
                         // rather than tucked in beside it. Disabled rather than hidden when no
                         // service is present: that this frontend *can* retrieve, given one, is
@@ -1730,12 +1751,33 @@ fn App() -> Element {
                                 if validating() {
                                     "Validating\u{2026}"
                                 } else {
-                                    "Validate loaded certificate(s) using current TA and CA stores and settings"
+                                    // The desktop's sentence, word for word, and counted rather
+                                    // than "(s)": the count here is exact, since these are
+                                    // certificates already parsed into the page rather than files
+                                    // still to be read.
+                                    //
+                                    // The zero arm is what the disabled button shows, so it names
+                                    // what is missing rather than an action that cannot be taken.
+                                    // The desktop says the same thing at the same moment, from
+                                    // `RunButton`'s idle label; it keeps a zero-count *sentence*
+                                    // as well, for the case this frontend does not have -- a pool
+                                    // holding a folder that turns out to be empty, where something
+                                    // was supplied and the button stays live.
+                                    {
+                                        match loaded_ees().len() {
+                                            0 => "Add a certificate to validate".to_string(),
+                                            1 => "Validate 1 certificate using the current store and settings"
+                                                .to_string(),
+                                            n => format!(
+                                                "Validate {n} certificates using the current store and settings"
+                                            ),
+                                        }
+                                    }
                                 }
                             }
                         }
                     },
-                    1 => rsx! {
+                    View::Settings => rsx! {
                         // The shared settings form, the same component the desktop app mounts. It
                         // presents every tab including the ones this frontend cannot act on, each
                         // carrying a notice saying so — see Capabilities. Keyed on form_gen so a
@@ -1833,7 +1875,7 @@ fn App() -> Element {
                             }
                         }
                     },
-                    2 => rsx! {
+                    View::Results => rsx! {
                         div { class: "results",
                             h2 { "Results" }
                             // The heading sits above the row rather than in it: sharing the line
@@ -1878,6 +1920,13 @@ fn App() -> Element {
                                         // One Clear rather than two, matching the desktop: a
                                         // separate "Clear log" was a second button doing part of
                                         // what this one does, and the row is where that cost shows.
+                                        //
+                                        // Off when there is nothing to discard, as on the desktop.
+                                        // It covers all three streams, so it stays live while any
+                                        // one of them holds something.
+                                        disabled: targets.read().is_empty()
+                                            && notes.read().is_empty()
+                                            && log_lines == 0,
                                         onclick: move |_| {
                                             targets.write().clear();
                                             notes.write().clear();
@@ -1889,7 +1938,13 @@ fn App() -> Element {
                                         "Clear"
                                     }
                             }
-                            if targets.read().is_empty() && notes.read().is_empty() {
+                            if validating() {
+                                div { class: "progress-line",
+                                    span { class: "spinner" }
+                                    span { " Validating\u{2026}" }
+                                }
+                            }
+                            if !validating() && targets.read().is_empty() && notes.read().is_empty() {
                                 p { class: "hint",
                                     "No results yet: validate a certificate from the Validate view."
                                 }
@@ -1916,88 +1971,27 @@ fn App() -> Element {
                                     }
                                 }
                             }
-                        }
-                    },
-                    3 => rsx! {
-                        div { class: "help-view",
-                            h2 { "Store artifacts" }
-                            p {
-                                "A trust store is a pair of CBOR files. The trust-anchor half "
-                                "(*_ta.cbor) holds roots. The CA half (*_ca.cbor) holds intermediate "
-                                "CA certificates together with precomputed partial certification "
-                                "paths \u{2014} the paths from each anchor down through the "
-                                "intermediates, worked out in advance."
-                            }
-                            p {
-                                "That precomputation is why the halves are worth carrying around. "
-                                "Discovering partial paths is the expensive step of preparing an "
-                                "environment; building a path against one already discovered is "
-                                "cheap. A store is therefore not merely a bag of certificates, it is "
-                                "a bag of certificates with the search already done."
-                            }
-                            h3 { "Where they come from" }
-                            p {
-                                "Three sources, all the same format, all interchangeable:"
-                            }
-                            ul {
-                                li {
-                                    strong { "Built into this app. " }
-                                    "Selectable from the dropdown on the Validate tab without any "
-                                    "network access."
+                            // What Save log writes, on screen. Until now this frontend could keep
+                            // the stack's log without ever showing it, while the desktop showed its
+                            // log without being able to keep it; the two now do both.
+                            //
+                            // One `pre` rather than a paragraph per line, as the desktop renders
+                            // its own: the capture is bounded at 20,000 lines and is handed over as
+                            // a single document, so this stays one node instead of twenty thousand.
+                            //
+                            // Not opened while a run is in flight, which is where the desktop's
+                            // does open: the capture is a global buffer read on a tick, and the
+                            // tick comes when the run ends, so opening it early would show the log
+                            // as it stood before rather than as it fills.
+                            if log_lines() > 0 {
+                                details { class: "advanced",
+                                    summary { "Run log ({log_lines} line(s))" }
+                                    pre { class: "log-stream", "{log_text}" }
                                 }
-                                li {
-                                    strong { "Served by a PITTv3 service. " }
-                                    "Where this app is served by one, the stores it holds appear in "
-                                    "the same dropdown and are downloaded from it. The dropdown says "
-                                    "which is which, and whether a store came from a trust store "
-                                    "provider or was configured by whoever runs the service \u{2014} "
-                                    "worth knowing, because a configured store may hold chased "
-                                    "material rather than published trust material."
-                                }
-                                li {
-                                    strong { "Exported from a run. " }
-                                    "Export PKI Environment on the Results view writes the trust "
-                                    "material a validation actually used, in this same format. That "
-                                    "is the way to capture a store you assembled by uploading, or by "
-                                    "letting a run chase for certificates it did not have."
-                                }
-                            }
-                            h3 { "Using them" }
-                            p {
-                                "Upload either half through the trust-anchor and intermediate-CA "
-                                "controls on the Validate tab. A .cbor upload merges all of its "
-                                "certificates into that side, so stores mix freely: Web PKI roots "
-                                "with another collection's intermediates, or your own trust anchors "
-                                "with a built-in CA store. Select \"None\" as the store to rely on "
-                                "uploads alone."
-                            }
-                            p {
-                                "Offline store-generation tooling produces the same format, so a "
-                                "store you build yourself uploads exactly like a built-in one, and a "
-                                "store exported from a run can be handed to the CLI or the desktop "
-                                "app unchanged."
-                            }
-                            h3 { "Freshness" }
-                            p {
-                                "The built-in stores are generated when this app is built, from the "
-                                "trust store provider crates, rather than being refreshed by hand. "
-                                "Their currency is therefore that of those crates at the time this "
-                                "build was made \u{2014} which is why no date is given here: the "
-                                "providers do not record when their material was collected, so any "
-                                "date this page stated would be a claim it could not check."
-                            }
-                            p {
-                                "A service's stores are baked in the same way and are no fresher for "
-                                "being served: the ones it marks \u{201c}provider\u{201d} were "
-                                "generated when that service was built. The exception is a store the "
-                                "dropdown marks \u{201c}configured\u{201d}, which is read from a "
-                                "directory the service was pointed at \u{2014} that one can be "
-                                "replaced and the service restarted, with nothing rebuilt. Where "
-                                "currency matters, that is the one to prefer."
                             }
                         }
                     },
-                    4 => rsx! {
+                    View::CheckUris => rsx! {
                         div { class: "help-view",
                             h2 { "Check URIs in certificate" }
                             p {
@@ -2118,7 +2112,7 @@ fn App() -> Element {
                             UriCheckResults { report }
                         }
                     },
-                    5 => rsx! {
+                    View::Hackathon => rsx! {
                         div { class: "controls",
                             label { "Hackathon artifacts zip: " }
                             input {
@@ -2159,83 +2153,41 @@ fn App() -> Element {
                             }
                         }
                     },
-                    _ => rsx! {
-                        div { class: "help-view",
-                            h2 { "Notes" }
-                            ul {
-                                li {
-                                    "Uploaded trust anchors and intermediate CAs may be DER or PEM certificates, "
-                                    "or a .cbor store file (the same format as the built-in stores). Export PKI "
-                                    "Environment on the Results view writes that same format, so a run's trust "
-                                    "material can be saved and uploaded again. A .cbor upload merges all of its "
-                                    "certificates into that side."
-                                }
-                                li {
-                                    "Uploaded trust anchors and intermediate CA certificates are used together "
-                                    "with the selected built-in store; select \"None\" to rely on uploads alone, "
-                                    "which \u{2014} with .cbor uploads \u{2014} lets you freely mix any trust-anchor "
-                                    "store with any CA store. Uploads accumulate across selections until cleared."
-                                }
-                                li {
-                                    "Certificates to validate accumulate as they are selected; nothing runs "
-                                    "until the Validate button is clicked, which validates every loaded "
-                                    "certificate against the current store, uploads and settings."
-                                }
-                                li { "A time of interest of 0 disables validity period checks." }
-                                li {
-                                    "When \"Validate all paths\" is unchecked, processing stops at the first "
-                                    "valid path; otherwise every discovered path is validated."
-                                }
-                                li {
-                                    "Path validation always runs in the browser; what changes with the "
-                                    "Retrieval setting is whether anything is fetched to feed it. "
-                                    "\"In this browser only\" fetches nothing: paths are built from the "
-                                    "selected store and uploads, and revocation status is undetermined "
-                                    "unless revocation data was supplied. \"Retrieve through the service\" "
-                                    "has the PITTv3 service fetch on this page's behalf — issuer "
-                                    "certificates from AIA and SIA URIs when no path can be built, and, for "
-                                    "the certificates on the paths it builds, their CRLs and an OCSP response "
-                                    "per certificate whose issuer runs a responder. The certificates being "
-                                    "validated stay in this page; the URIs they name do not, and an OCSP "
-                                    "request identifies the certificate being asked about even though the "
-                                    "certificate itself is not sent."
-                                }
-                                li {
-                                    "Built-in stores: \"Web PKI\" holds the Mozilla trust anchors plus the CCADB "
-                                    "intermediate CAs; \"U.S. DoD\" holds the NIPR DoD roots and "
-                                    "intermediate CAs."
-                                }
-                                li {
-                                    "Where this app is served by the PITTv3 service, the trust stores that "
-                                    "service holds are offered in the same dropdown. A store it holds under a "
-                                    "name this app already ships is the same material and is not listed twice. "
-                                    "The line under the dropdown says where the selected store came from, which "
-                                    "matters for a store a deployment supplied itself: its certificates may have "
-                                    "been gathered by following AIA URIs rather than published by the PKI they "
-                                    "claim to come from."
-                                }
-                                li {
-                                    "The Hackathon tab validates provider artifacts_certs_r5.zip archives from "
-                                    "the hackathon repo wholesale: the zip's own trust anchors are used and each "
-                                    "end entity certificate is validated against them, honoring these settings. "
-                                    "This is separate from certificate validation on the Validate tab."
-                                }
-                                li {
-                                    "The Save button in the Results view downloads the accumulated results as "
-                                    "a JSON report."
-                                }
-                                li {
-                                    "PITTv3 is open source. The source \u{2014} including the certval path-validation "
-                                    "library and this wasm frontend \u{2014} is available in the "
-                                    a {
-                                        href: "https://github.com/carl-wallace/rust-pki",
-                                        target: "_blank",
-                                        "rust-pki repository"
+                    View::Help => rsx! {
+                        HelpView {
+                            // Relative: the manual is served beside this application, so the link
+                            // stays same-origin and adds no second host to a page whose point is
+                            // that nothing leaves it.
+                            manual_url: "pittv3-book/",
+                            notes: rsx! {
+                                ul {
+                                    li {
+                                        "Uploaded trust anchors and intermediate CAs are used "
+                                        "together with the selected store, and accumulate across "
+                                        "selections until cleared. Choose the custom entry to rely "
+                                        "on uploads alone."
                                     }
-                                    "."
+                                    li {
+                                        "Uploads may be DER or PEM certificates, or a .cbor store; "
+                                        "a store upload merges all of its certificates into that "
+                                        "side."
+                                    }
+                                    li {
+                                        "Certificates to validate accumulate as they are chosen. "
+                                        "Nothing runs until Validate is pressed."
+                                    }
+                                    li {
+                                        "A time of interest of 0 disables validity period checks."
+                                    }
+                                    li {
+                                        "The Hackathon view validates provider "
+                                        "artifacts_certs_r5.zip archives against the archive's own "
+                                        "trust anchors, separately from the Validate view."
+                                    }
                                 }
-                            }
+                            },
                         }
+                        p { class: "hint version", "Version {VERSION} · built {BUILT}" }
                     },
                 }
             }

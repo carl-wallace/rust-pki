@@ -5079,6 +5079,7 @@ dependencies = [
 name = "pittv3-gui"
 version = "0.2.0-pre"
 dependencies = [
+ "anyhow",
  "certval 0.2.0-pre",
  "certval_stores_core",
  "certval_stores_fpki",
@@ -5095,7 +5096,9 @@ dependencies = [
  "pittv3-gui-lib",
  "pittv3-lib",
  "pittv3-relay",
+ "png 0.17.16",
  "rfd",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

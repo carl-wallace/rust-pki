@@ -1,17 +1,28 @@
-//! Help text for the [`Pittv3Args`](crate::args::Pittv3Args) fields, keyed by the argument name.
+//! Tooltip text for the GUI frontends, keyed by the [`Pittv3Args`](crate::args::Pittv3Args) field
+//! name the control sets.
 //!
-//! The CLI describes a flag in its `--help` output; a GUI describes the same thing in a tooltip on
-//! the control that sets it. Both should say the same thing, so the wording lives here rather than
-//! being written once per frontend. The text is taken from the `Pittv3Args` field documentation,
-//! which is the canonical description of what each argument does.
+//! **This feeds tooltips and nothing else.** The sole consumer is `tooltip` in
+//! `pittv3-gui-lib/src/gui_rows.rs`, which falls back to [`arg_help`] when a row supplies no title
+//! of its own. `--help` does not come from here: clap builds that from the doc comments on
+//! `Pittv3Args` in `pittv3/src/cliargs.rs`. The two are separate on purpose, because they address
+//! different readers.
+//!
+//! **So command-line vocabulary here is always wrong.** A tooltip naming `ca_folder`, or a
+//! "parameter", or a flag by its `--long` spelling, describes something the reader cannot see:
+//! they are looking at a labelled row in a window. Say what the control does, using the label on
+//! screen. Twenty of these forty-five entries were rewritten on 2026-09-09 for exactly this --
+//! among them `generate`, which said a store would be "saved to location indicated by cbor
+//! parameter" beside a row labelled CA CBOR (output). The long form belongs in the PITTv3 User's
+//! Guide, which the Help view links to; a tooltip that needs three sentences has already failed.
+//!
+//! Copying a field's documentation verbatim is how this goes wrong -- maintainer rationale and
+//! command-line conventions arriving in a tooltip that has neither.
 //!
 //! **Where the two frontends do not offer the same thing, the wording here follows the GUI.** The
 //! CAPI arguments are the case today: the CLI takes any store name and so has to explain the
 //! `Location\Name` syntax, while the GUI offers two Windows stores as selector entries and accepts
 //! no name at all. Text covering both would carry a syntax one of them cannot use, so those entries
-//! read as the control does and the CLI keeps its own fuller wording in `cliargs.rs`. Copying a
-//! field's documentation verbatim is how the opposite happens -- maintainer rationale and
-//! command-line conventions arriving in a tooltip that has neither.
+//! read as the control does and the CLI keeps its own fuller wording in `cliargs.rs`.
 //!
 //! Names are the kebab-case form the frontends already use for their form controls, which is also
 //! the CLI's long-flag spelling. Where a field exists as cfg-gated variants with different wording
@@ -28,17 +39,15 @@ pub fn arg_help(name: &str) -> &'static str {
             "validating certification paths. A file may hold several concatenated PEM objects.",
         ),
         "ta-cbor" => concat!(
-            "Full path and filename of a CBOR-formatted trust anchor store, i.e., the form written by ",
-            "--generate --cbor-ta-store and the form the certval trust store providers serialize. This ",
-            "is the trust anchor counterpart of --cbor; it may be combined with --ta-folder, in which ",
-            "case the anchors from both are used.",
+            "A CBOR trust anchor store: the form Generate writes with CBOR TA store checked, and ",
+            "the form the certval trust store providers serialize. Anchors from this and from the ",
+            "TA Folder are used together.",
         ),
         "ta" => concat!(
-            "Additional trust anchor input, repeatable. Each occurrence may name a folder, a ",
-            "certificate, a bundle holding several, or a CBOR-formatted trust anchor store; what it ",
-            "is comes from the path and then from the bytes, so the four need not be sorted into ",
-            "different arguments first. This is the plural form of --ta-folder and --ta-cbor, which ",
-            "still work and are used alongside it.",
+            "Trust anchors for the run. Each entry may be a folder, a certificate, a bundle ",
+            "holding several, or a CBOR trust anchor store; what an entry is comes from the path ",
+            "and then from the bytes, so entries need not be sorted by kind. Everything listed is ",
+            "used together.",
         ),
         "webpki-tas" => "Use trust anchors from webpki-roots crate (which are from Mozilla)",
         // Keyed by the CLI long flag -- `--capi-ta`, not the `capi_ta_stores` field it fills. The
@@ -71,40 +80,33 @@ pub fn arg_help(name: &str) -> &'static str {
             "validation. If absent, errant files are not saved for review.",
         ),
         "download-folder" => concat!(
-            "Full path and filename of folder to receive downloaded binary DER-encoded certificates, if ",
-            "absent at generate time, the ca_folder is used, which requires it to name a folder rather ",
-            "than a single file. Additionally, this is used to designate where exported buffers are ",
-            "written by dump_cert_at_index or list_buffers.",
+            "Where certificates fetched while chasing AIA and SIA URIs are written. With none ",
+            "named, the CA Folder is used, which then has to name a folder rather than a single ",
+            "file. Exported buffers are written here too.",
         ),
         "ca-folder" => concat!(
-            "Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a ",
-            "single such file (which may hold several concatenated PEM objects, e.g. a fullchain). ",
-            "Required when generate action is performed. When path validation is performed, these ",
-            "certificates are added to the graph that is built, augmenting any CBOR store in use. A ",
-            "folder also doubles as a place to store downloaded files when dynamic building is used and ",
-            "download_folder is not specified.",
+            "A folder of DER-encoded intermediate CA certificates, or a single file holding one or ",
+            "more. Required to generate a store. When validating, these are added to the graph ",
+            "that is built, augmenting any CBOR store in use. A folder here also receives fetched ",
+            "certificates when chasing is on and no Download Folder is named.",
         ),
         "ca" => concat!(
-            "Additional intermediate CA input, repeatable. Each occurrence may name a folder, a ",
-            "certificate, a bundle holding several, or a CBOR-formatted store, and all of them feed ",
-            "the one graph a run builds. This is the plural form of --ca-folder and --cbor for ",
-            "validation. It is not consulted when generating: --ca-folder names the folder generation ",
-            "reads, and --cbor the file it writes.",
+            "Intermediate CA certificates for the run. Each entry may be a folder, a certificate, ",
+            "a bundle holding several, or a CBOR store, and all of them feed the one graph a run ",
+            "builds. Not read when generating a store: generation reads the CA Folder.",
         ),
         "generate" => concat!(
-            "Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and ",
-            "map containing set of partial certification paths should be generated and saved to location ",
-            "indicated by cbor parameter.",
+            "Build a store from the trust anchor and CA inputs and write it to the CBOR output ",
+            "named above. Off, nothing is generated and the other controls here do nothing.",
         ),
         "chase-aia-and-sia" => concat!(
             "Flag that indicates whether AIA and SIA URIs should be consulted when performing generate ",
             "action.",
         ),
         "cbor-ta-store" => concat!(
-            "Flag that indicates generated CBOR file will contain only trust anchors (so no need for ",
-            "partial paths and no need to exclude self-signed certificates). The anchors are read ",
-            "from the CA input, which may name a single file, and the result is the form --ta-cbor ",
-            "takes.",
+            "Write a trust anchor store rather than a CA store: only the anchors, with no partial ",
+            "paths. The anchors are read from the CA input, and the output row is relabelled to ",
+            "say so \u{2014} the file it names does not change when this is turned on.",
         ),
         "use-downloaded-cas" => concat!(
             "Include the folder downloaded intermediates are written to among the CA certificates ",
@@ -113,11 +115,14 @@ pub fn arg_help(name: &str) -> &'static str {
             "folder, either of which may come from the settings file.",
         ),
         "validate-all" => "Flag that indicates all available certification paths should be validated for each target.",
-        "validate-self-signed" => "Check if certificate passed as end_entity_file is self-signed.",
+        "validate-self-signed" => concat!(
+            "Answer the narrower question of whether the end entity certificate is self-signed, ",
+            "instead of building paths for it.",
+        ),
         "dynamic-build" => concat!(
-            "Process AIA and SIA during path validation, as appropriate. Either ca_folder or ",
-            "download_folder must be specified when using this flag to provide a place to store ",
-            "downloaded artifacts.",
+            "Follow the AIA and SIA URIs of certificates encountered while building paths, to find ",
+            "issuers the inputs do not hold. Needs a CA Folder or a Download Folder to put what it ",
+            "fetches.",
         ),
         "end-entity-file" => "Full path and filename of a binary DER-encoded certificate to validate.",
         "end-entity-folder" => concat!(
@@ -125,10 +130,8 @@ pub fn arg_help(name: &str) -> &'static str {
             "Only files with .der, .crt or cert as file extension are processed.",
         ),
         "ee" => concat!(
-            "Additional certificate to validate, repeatable. Each occurrence may name a single ",
-            "certificate or a folder to traverse for them. This is the plural form of ",
-            "--end-entity-file and --end-entity-folder, which still work and are validated alongside ",
-            "it.",
+            "The certificates to validate. Each entry may be a single certificate or a folder to ",
+            "traverse for them, and everything listed is validated.",
         ),
         "results-folder" => concat!(
             "Full path and filename of folder to receive binary DER-encoded certificates from ",
@@ -140,12 +143,11 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "settings" => "Full path and filename of JSON-formatted certification path validation settings.",
         "rev" => concat!(
-            "Revocation artifact to staple into candidate certification paths, repeatable. Each ",
-            "occurrence may name a single artifact or a folder to traverse, and may hold either a ",
-            "CRL or an OCSP response \u{2014} the bytes decide, since an OCSP response has no settled ",
-            "file extension. CRLs are matched to path positions by issuer name, OCSP responses by ",
-            "the CertID each answers about. Unlike --crl-folder, which is an index a run adds ",
-            "fetched CRLs to, artifacts named here are read and left alone.",
+            "CRLs and OCSP responses supplied for this run, stapled into candidate paths. Either ",
+            "list accepts either kind \u{2014} the bytes decide, since an OCSP response has no ",
+            "settled file extension. CRLs are matched to path positions by issuer name, OCSP ",
+            "responses by the CertID each answers about. Unlike the CRL index, these are read and ",
+            "left alone.",
         ),
         "crl-folder" => concat!(
             "Full path of a folder containing DER- or PEM-encoded CRLs, traversed recursively and indexed ",
@@ -157,9 +159,9 @@ pub fn arg_help(name: &str) -> &'static str {
             "run asking about a different time can still use it.",
         ),
         "keep-crl-entries-in-memory" => concat!(
-            "When set together with crl_folder, retain the revoked serial numbers of each verified ",
-            "full/direct CRL in memory so subsequent certificates under the same scope are answered ",
-            "without re-parsing or re-verifying the CRL.",
+            "Keep the revoked serial numbers of each verified CRL in memory, so later certificates ",
+            "under the same scope are answered without re-reading or re-verifying it. Needs a CRL ",
+            "index to draw on.",
         ),
         "no-revocation-cache" => concat!(
             "Makes every path derive every certificate's revocation status from revocation data of ",
@@ -169,33 +171,29 @@ pub fn arg_help(name: &str) -> &'static str {
             "reports a status and carries no evidence for it in a results folder or an export.",
         ),
         "cleanup" => concat!(
-            "Paired with ca_folder to remove expired, unparseable certificates, self-signed certificates ",
-            "and non-CA certificates from consideration. When paired with error_folder, the errant files ",
-            "are moved instead of deleted. After cleanup completes, the application exits with no other ",
-            "parameters acted upon.",
+            "Remove certificates from the CA Folder that a run could not use: unparseable, not ",
+            "valid at the time of interest, self-signed, or not a CA. With an Error Folder named ",
+            "they are moved there rather than deleted. The run does nothing else.",
         ),
         "ta-cleanup" => concat!(
-            "Paired with ta_folder to remove expired or unparseable certificatesfrom consideration. When ",
-            "paired with error_folder, the errant files are moved instead of deleted. After cleanup ",
-            "completes, the application exits with no other parameters acted upon.",
+            "Remove trust anchors from the TA Folder that are unparseable or not valid at the time ",
+            "of interest. With an Error Folder named they are moved there rather than deleted. The ",
+            "run does nothing else.",
         ),
         "report-only" => concat!(
             "Pair with cleanup to generate list of files that would be cleaned up by cleanup operation ",
             "without actually deleting or moving files.",
         ),
         "list-partial-paths" => concat!(
-            "Outputs all partial paths present in CBOR file. If a ta_folder is provided, the CBOR file ",
-            "will be re-evaluated using ta_folder and time_of_interest (possibly changing the set of ",
-            "partial paths relative to that read from CBOR). Use of a logging-config option is ",
-            "recommended for large CBOR files.",
+            "List every partial path the store holds. With a TA Folder given, the store is ",
+            "re-evaluated against those anchors and the time of interest first, which can change ",
+            "the set. Large stores produce a great deal of output.",
         ),
         "list-buffers" => "Outputs all buffers present in CBOR file.",
         "list-aia-and-sia" => concat!(
-            "Outputs all URIs from AIA and SIA extensions found in certificates present in CBOR file. Add ",
-            "downloads_folder to save certificates that are valid as of time_of_interest from the ",
-            "downloaded artifacts (use time_of_interest=0 to download all). Specify a blocklist or ",
-            "last_modified_map if desired via CertificationPathSettings or rely on default files that ",
-            "will be generated and managed in folder used to download artifacts.",
+            "List the AIA and SIA URIs carried by the certificates in the store. With a Download ",
+            "Folder given, the certificates those URIs name are fetched and kept if they are valid ",
+            "at the time of interest; a time of interest of 0 keeps all of them.",
         ),
         "list-name-constraints" => "Outputs all name constraints found in certificates present in CBOR file.",
         "check-uris" => concat!(
@@ -212,26 +210,23 @@ pub fn arg_help(name: &str) -> &'static str {
         "no-auto-discover" => "Disables auto-discovery of the issuer certificate from AIA caIssuers during `check_uris`.",
         "list-trust-anchors" => "Outputs all buffers present in trust anchors folder.",
         "dump-cert-at-index" => concat!(
-            "Outputs the certificate at the specified index to a file names `<index>.der` in the ",
-            "download_folder if specified, else current working directory.",
+            "Write one certificate from the store to a file named for its index. The index is the ",
+            "position reported by List Buffers. Written to the Download Folder if one is named, ",
+            "otherwise to the working directory.",
         ),
         "list-partial-paths-for-target" => concat!(
-            "Outputs all partial paths present in CBOR file relative to the indicated target. If a ",
-            "ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and ",
-            "time_of_interest (possibly changing the set of partial paths relative to that read from ",
-            "CBOR).",
+            "List the partial paths the store holds that could serve this certificate \u{2014} the ",
+            "question to ask when a certificate would not validate. With a TA Folder given, the ",
+            "store is re-evaluated against those anchors and the time of interest first.",
         ),
         "list-partial-paths-for-leaf-ca" => concat!(
-            "Outputs all partial paths present in CBOR file relative to the indicated leaf CA. If a ",
-            "ta_folder is provided, the CBOR file will be re-evaluated using ta_folder and ",
-            "time_of_interest (possibly changing the set of partial paths relative to that read from ",
-            "CBOR).",
+            "List the partial paths the store holds below one CA, named by its index. With a TA ",
+            "Folder given, the store is re-evaluated against those anchors and the time of ",
+            "interest first.",
         ),
         "mozilla-csv" => concat!(
-            "Parses the given CSV file and saves files to folder indicated by the ca_folder parameter. ",
-            "The CSV file is assumed to be as posted as the \"Non-revoked, non-expired Intermediate CA ",
-            "Certificates chaining up to roots in Mozilla's program with the Websites trust bit set (CSV ",
-            "with PEM of raw certificate data)\" report available on the Mozilla wiki page at ",
+            "Parse Mozilla's intermediate CA report and write the certificates it holds into the ",
+            "CA Folder. The file is the CSV published at ",
             "<https://wiki.mozilla.org/CA/Intermediate_Certificates>.",
         ),
         _ => "",
