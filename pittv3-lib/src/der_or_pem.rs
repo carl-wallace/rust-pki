@@ -15,7 +15,10 @@
 //! So the rule is: decode here, once, at every boundary where caller bytes arrive — and never let a
 //! DER-only parse be the first thing a file meets, the expansion of a container included.
 
-use certval::{certs_from_signed_data, decode_bare_base64, decode_pem_to_ders, Error, Result};
+use certval::{
+    certs_from_signed_data, decode_bare_base64, decode_pem_to_der, decode_pem_to_ders, Error,
+    Result,
+};
 
 // Re-exported so a caller has one place for both halves of "what is a certificate file": which
 // extensions to offer, and how to decode what arrives. pittv3-gui does not depend on certval.
@@ -25,15 +28,19 @@ pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTE
 ///
 /// DER is detected by its leading tag rather than by attempting a parse: `SEQUENCE` covers
 /// certificates and the certificate variant of `TrustAnchorChoice`, and the two context tags cover
-/// the `tbsCert` and `taInfo` variants of a DER-encoded RFC 5914 `TrustAnchorChoice`. Anything else
-/// is offered to the PEM decoder, then to [`decode_bare_base64`] for a file that is base64 with
-/// no boundaries at all; a failure there means the bytes are none of the three.
+/// the `tbsCert` and `taInfo` variants of a DER-encoded RFC 5914 `TrustAnchorChoice`. An input that
+/// opens with an encapsulation boundary goes to [`decode_pem_to_der`]; anything else to
+/// [`decode_bare_base64`], for a file that is base64 with no boundaries at all. A failure means the
+/// bytes are none of the three.
 pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
     if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA1 | 0xA2) {
         return Ok(bytes.to_vec());
     }
-    if let Ok((_label, der)) = pem_rfc7468::decode_vec(bytes) {
-        return Ok(der);
+    // Tolerate non-standard PEM: decode_pem_to_der accepts wrapping widths other than 64. Armor
+    // is tested here (0x2D = '-') rather than delegated, since that decoder returns unknown bytes
+    // as `Ok` and a caller asking for a certificate needs them refused.
+    if bytes.first() == Some(&0x2D) {
+        return decode_pem_to_der(bytes);
     }
     decode_bare_base64(bytes).ok_or(Error::Unrecognized)
 }
@@ -255,6 +262,41 @@ mod tests {
                 der,
                 "wrapped at {width}, still the same certificate"
             );
+        }
+    }
+
+    /// Armored PEM is one certificate at any wrapping width, through both entry points. The test
+    /// above covers the unarmored spelling, which reaches a decoder that strips whitespace and so
+    /// has no width to disagree about; armored input reaches one that accepts only 64.
+    #[test]
+    fn armored_base64_decodes_at_a_width_strict_rfc7468_refuses() {
+        use base64ct::{Base64, Encoding};
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let b64 = Base64::encode_string(&der);
+
+        for width in [64, 76] {
+            for (ending, name) in [("\n", "LF"), ("\r\n", "CRLF")] {
+                let body = b64
+                    .as_bytes()
+                    .chunks(width)
+                    .map(|c| String::from_utf8_lossy(c).into_owned())
+                    .collect::<Vec<_>>()
+                    .join(ending);
+                let armored = format!(
+                    "-----BEGIN CERTIFICATE-----{ending}{body}{ending}-----END CERTIFICATE-----{ending}"
+                );
+
+                assert_eq!(
+                    maybe_pem(armored.as_bytes()).unwrap(),
+                    der,
+                    "wrapped at {width} with {name} endings, still the same certificate"
+                );
+                assert_eq!(
+                    certs_in(armored.as_bytes()).unwrap(),
+                    vec![der.clone()],
+                    "and the bundle entry point agrees at {width} with {name} endings"
+                );
+            }
         }
     }
 
