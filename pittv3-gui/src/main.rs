@@ -1,6 +1,19 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
+// No console window behind the application on Windows. Release builds only: a debug build keeps its
+// console, which is where `println!` diagnostics go while something is being worked on.
+//
+// This asks Windows not to allocate a console at all, rather than allocating one and hiding it --
+// which is what pbyk does, through `GetConsoleWindow` and `ShowWindow` in an `unsafe` block. That
+// approach is unavailable here, and worse: this crate is `forbid(unsafe_code)`, and hiding a console
+// after the fact means it flashes on screen first. pbyk needs the conditional form because one
+// binary is both a CLI and a GUI; this crate is only ever the GUI, the command line being `pittv3`.
+//
+// The cost is that a release build run from a terminal prints nothing at all. That is why the
+// window-geometry diagnostics were removed once they had done their job, and why the run log is
+// written to a file -- see `logging`.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gui;
 mod logging;
