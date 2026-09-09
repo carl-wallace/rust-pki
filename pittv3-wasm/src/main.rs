@@ -16,6 +16,7 @@ use certval::{
     TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
+use pittv3_gui_lib::gui_help::HelpView;
 use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
@@ -98,7 +99,6 @@ enum View {
     Validate,
     Results,
     Settings,
-    StoreArtifacts,
     CheckUris,
     Hackathon,
     Help,
@@ -114,7 +114,6 @@ const VIEWS: &[(View, &str)] = &[
     (View::Results, "Results"),
     (View::Settings, "Settings"),
     (View::CheckUris, "Check URIs"),
-    (View::StoreArtifacts, "Store artifacts"),
     (View::Hackathon, "Hackathon"),
     (View::Help, "Help"),
 ];
@@ -1992,85 +1991,6 @@ fn App() -> Element {
                             }
                         }
                     },
-                    View::StoreArtifacts => rsx! {
-                        div { class: "help-view",
-                            h2 { "Store artifacts" }
-                            p {
-                                "A trust store is a pair of CBOR files. The trust-anchor half "
-                                "(*_ta.cbor) holds roots. The CA half (*_ca.cbor) holds intermediate "
-                                "CA certificates together with precomputed partial certification "
-                                "paths \u{2014} the paths from each anchor down through the "
-                                "intermediates, worked out in advance."
-                            }
-                            p {
-                                "That precomputation is why the halves are worth carrying around. "
-                                "Discovering partial paths is the expensive step of preparing an "
-                                "environment; building a path against one already discovered is "
-                                "cheap. A store is therefore not merely a bag of certificates, it is "
-                                "a bag of certificates with the search already done."
-                            }
-                            h3 { "Where they come from" }
-                            p {
-                                "Three sources, all the same format, all interchangeable:"
-                            }
-                            ul {
-                                li {
-                                    strong { "Built into this app. " }
-                                    "Selectable from the dropdown on the Validate tab without any "
-                                    "network access."
-                                }
-                                li {
-                                    strong { "Served by a PITTv3 service. " }
-                                    "Where this app is served by one, the stores it holds appear in "
-                                    "the same dropdown and are downloaded from it. The dropdown says "
-                                    "which is which, and whether a store came from a trust store "
-                                    "provider or was configured by whoever runs the service \u{2014} "
-                                    "worth knowing, because a configured store may hold chased "
-                                    "material rather than published trust material."
-                                }
-                                li {
-                                    strong { "Exported from a run. " }
-                                    "Export PKI Environment on the Results view writes the trust "
-                                    "material a validation actually used, in this same format. That "
-                                    "is the way to capture a store you assembled by uploading, or by "
-                                    "letting a run chase for certificates it did not have."
-                                }
-                            }
-                            h3 { "Using them" }
-                            p {
-                                "Upload either half through the trust-anchor and intermediate-CA "
-                                "controls on the Validate tab. A .cbor upload merges all of its "
-                                "certificates into that side, so stores mix freely: Web PKI roots "
-                                "with another collection's intermediates, or your own trust anchors "
-                                "with a built-in CA store. Select \"None\" as the store to rely on "
-                                "uploads alone."
-                            }
-                            p {
-                                "Offline store-generation tooling produces the same format, so a "
-                                "store you build yourself uploads exactly like a built-in one, and a "
-                                "store exported from a run can be handed to the CLI or the desktop "
-                                "app unchanged."
-                            }
-                            h3 { "Freshness" }
-                            p {
-                                "The built-in stores are generated when this app is built, from the "
-                                "trust store provider crates, rather than being refreshed by hand. "
-                                "Their currency is therefore that of those crates at the time this "
-                                "build was made \u{2014} which is why no date is given here: the "
-                                "providers do not record when their material was collected, so any "
-                                "date this page stated would be a claim it could not check."
-                            }
-                            p {
-                                "A service's stores are baked in the same way and are no fresher for "
-                                "being served: the ones it marks \u{201c}provider\u{201d} were "
-                                "generated when that service was built. The exception is a store the "
-                                "dropdown marks \u{201c}configured\u{201d}, which is read from a "
-                                "directory the service was pointed at \u{2014} that one can be "
-                                "replaced and the service restarted, with nothing rebuilt. Where "
-                                "currency matters, that is the one to prefer."
-                            }
-                        }
-                    },
                     View::CheckUris => rsx! {
                         div { class: "help-view",
                             h2 { "Check URIs in certificate" }
@@ -2234,82 +2154,40 @@ fn App() -> Element {
                         }
                     },
                     View::Help => rsx! {
-                        div { class: "help-view",
-                            h2 { "Notes" }
-                            ul {
-                                li {
-                                    "Uploaded trust anchors and intermediate CAs may be DER or PEM certificates, "
-                                    "or a .cbor store file (the same format as the built-in stores). Export PKI "
-                                    "Environment on the Results view writes that same format, so a run's trust "
-                                    "material can be saved and uploaded again. A .cbor upload merges all of its "
-                                    "certificates into that side."
-                                }
-                                li {
-                                    "Uploaded trust anchors and intermediate CA certificates are used together "
-                                    "with the selected built-in store; select \"None\" to rely on uploads alone, "
-                                    "which \u{2014} with .cbor uploads \u{2014} lets you freely mix any trust-anchor "
-                                    "store with any CA store. Uploads accumulate across selections until cleared."
-                                }
-                                li {
-                                    "Certificates to validate accumulate as they are selected; nothing runs "
-                                    "until the Validate button is clicked, which validates every loaded "
-                                    "certificate against the current store, uploads and settings."
-                                }
-                                li { "A time of interest of 0 disables validity period checks." }
-                                li {
-                                    "When \"Validate all paths\" is unchecked, processing stops at the first "
-                                    "valid path; otherwise every discovered path is validated."
-                                }
-                                li {
-                                    "Path validation always runs in the browser; what changes with the "
-                                    "Retrieval setting is whether anything is fetched to feed it. "
-                                    "\"In this browser only\" fetches nothing: paths are built from the "
-                                    "selected store and uploads, and revocation status is undetermined "
-                                    "unless revocation data was supplied. \"Retrieve through the service\" "
-                                    "has the PITTv3 service fetch on this page's behalf — issuer "
-                                    "certificates from AIA and SIA URIs when no path can be built, and, for "
-                                    "the certificates on the paths it builds, their CRLs and an OCSP response "
-                                    "per certificate whose issuer runs a responder. The certificates being "
-                                    "validated stay in this page; the URIs they name do not, and an OCSP "
-                                    "request identifies the certificate being asked about even though the "
-                                    "certificate itself is not sent."
-                                }
-                                li {
-                                    "Built-in stores: \"Web PKI\" holds the Mozilla trust anchors plus the CCADB "
-                                    "intermediate CAs; \"U.S. DoD\" holds the NIPR DoD roots and "
-                                    "intermediate CAs."
-                                }
-                                li {
-                                    "Where this app is served by the PITTv3 service, the trust stores that "
-                                    "service holds are offered in the same dropdown. A store it holds under a "
-                                    "name this app already ships is the same material and is not listed twice. "
-                                    "The line under the dropdown says where the selected store came from, which "
-                                    "matters for a store a deployment supplied itself: its certificates may have "
-                                    "been gathered by following AIA URIs rather than published by the PKI they "
-                                    "claim to come from."
-                                }
-                                li {
-                                    "The Hackathon tab validates provider artifacts_certs_r5.zip archives from "
-                                    "the hackathon repo wholesale: the zip's own trust anchors are used and each "
-                                    "end entity certificate is validated against them, honoring these settings. "
-                                    "This is separate from certificate validation on the Validate tab."
-                                }
-                                li {
-                                    "The Save button in the Results view downloads the accumulated results as "
-                                    "a JSON report."
-                                }
-                                li {
-                                    "PITTv3 is open source. The source \u{2014} including the certval path-validation "
-                                    "library and this wasm frontend \u{2014} is available in the "
-                                    a {
-                                        href: "https://github.com/carl-wallace/rust-pki",
-                                        target: "_blank",
-                                        "rust-pki repository"
+                        HelpView {
+                            // Relative: the manual is served beside this application, so the link
+                            // stays same-origin and adds no second host to a page whose point is
+                            // that nothing leaves it.
+                            manual_url: "pittv3-book/",
+                            notes: rsx! {
+                                ul {
+                                    li {
+                                        "Uploaded trust anchors and intermediate CAs are used "
+                                        "together with the selected store, and accumulate across "
+                                        "selections until cleared. Choose the custom entry to rely "
+                                        "on uploads alone."
                                     }
-                                    "."
+                                    li {
+                                        "Uploads may be DER or PEM certificates, or a .cbor store; "
+                                        "a store upload merges all of its certificates into that "
+                                        "side."
+                                    }
+                                    li {
+                                        "Certificates to validate accumulate as they are chosen. "
+                                        "Nothing runs until Validate is pressed."
+                                    }
+                                    li {
+                                        "A time of interest of 0 disables validity period checks."
+                                    }
+                                    li {
+                                        "The Hackathon view validates provider "
+                                        "artifacts_certs_r5.zip archives against the archive's own "
+                                        "trust anchors, separately from the Validate view."
+                                    }
                                 }
-                            }
+                            },
                         }
+                        p { class: "hint version", "Version {VERSION} · built {BUILT}" }
                     },
                 }
             }

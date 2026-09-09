@@ -2842,9 +2842,38 @@ pub(crate) fn App() -> Element {
                         }
                     },
                     View::Help => rsx! {
-                        fieldset {
-                            legend { "Help" }
-                            HelpView {}
+                        HelpView {
+                            // Absolute: a desktop application has no origin to be relative to.
+                            // https rather than http, which does not serve the manual.
+                            manual_url: "https://pittv3.redhoundsoftware.com/pittv3-book/",
+                            notes: rsx! {
+                                ul {
+                                    li {
+                                        "Every input list takes a folder, a certificate, a PEM or "
+                                        "PKCS#7 bundle, or a CBOR store. What an entry is comes "
+                                        "from the path and then from its contents, so entries need "
+                                        "not be sorted by kind."
+                                    }
+                                    li {
+                                        "A store selected above the input lists is used together "
+                                        "with them. Choose the custom entry to rely on the lists "
+                                        "alone."
+                                    }
+                                    li {
+                                        "A time of interest of 0 disables validity period checks."
+                                    }
+                                    li {
+                                        "Cleanup moves certificates to the error folder rather than "
+                                        "deleting them whenever one is named, which it is by "
+                                        "default. Report Only says what would go without touching "
+                                        "anything."
+                                    }
+                                    li {
+                                        "Folders this application writes to live under ~/.pittv3, "
+                                        "including the log at ~/.pittv3/logs/pittv3.log."
+                                    }
+                                }
+                            },
                         }
                     },
                 }
