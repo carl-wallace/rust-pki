@@ -1730,7 +1730,22 @@ fn App() -> Element {
                                 if validating() {
                                     "Validating\u{2026}"
                                 } else {
-                                    "Validate loaded certificate(s) using current TA and CA stores and settings"
+                                    // The desktop's sentence, word for word, and counted rather
+                                    // than "(s)": the count here is exact, since these are
+                                    // certificates already parsed into the page rather than files
+                                    // still to be read. The zero arm is what the disabled button
+                                    // shows, so it names no count at all.
+                                    {
+                                        match loaded_ees().len() {
+                                            0 => "Validate using the current store and settings"
+                                                .to_string(),
+                                            1 => "Validate 1 certificate using the current store and settings"
+                                                .to_string(),
+                                            n => format!(
+                                                "Validate {n} certificates using the current store and settings"
+                                            ),
+                                        }
+                                    }
                                 }
                             }
                         }

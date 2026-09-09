@@ -559,9 +559,21 @@ fn dedup_pool(v: Vec<String>) -> Vec<String> {
 struct PoolCounts {
     trust_anchors: usize,
     ca_certificates: usize,
+    crl_pool: RevocationCounts,
+    ocsp_pool: RevocationCounts,
+    end_entities: usize,
+}
+
+/// What one revocation pool contributes, counted by kind.
+///
+/// Per pool rather than per view because the two rows are two lists and each answers for itself.
+/// Both counts are kept for both rows: the rows are named for what they are *for*, and a file is
+/// sorted by what it holds, so a row can honestly hold the other kind. Reporting what is there
+/// beats reporting what the label promised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RevocationCounts {
     crls: usize,
     ocsp_responses: usize,
-    end_entities: usize,
 }
 
 /// `n` followed by the noun, plural unless there is one of them.
@@ -578,7 +590,7 @@ fn plural(n: usize, noun: &str) -> String {
 /// A kind that contributed nothing is left out rather than shown as a zero — a pool of CRLs is the
 /// ordinary case and "0 OCSP responses" beside it is noise. Both being empty is worth saying, since
 /// the entries are there on the row and something has to account for them.
-fn revocation_contents(counts: &PoolCounts) -> String {
+fn revocation_contents(counts: &RevocationCounts) -> String {
     let mut parts = vec![];
     if counts.crls > 0 {
         parts.push(plural(counts.crls, "CRL"));
@@ -592,13 +604,35 @@ fn revocation_contents(counts: &PoolCounts) -> String {
     }
 }
 
+/// Counts one pool by kind, using the loader the run itself uses so the answer is what the run will
+/// see rather than what the file names suggest.
+fn revocation_counts(paths: &[String]) -> RevocationCounts {
+    let (crls, ocsp_responses) = count_revocation_inputs(paths.iter().map(String::as_str));
+    RevocationCounts {
+        crls,
+        ocsp_responses,
+    }
+}
+
+/// Which row a restored path belongs in.
+///
+/// Saved arguments carry one `rev_inputs` list -- the two rows concatenate into it, because that is
+/// what the run takes -- so which row a path came from is not recorded and has to be recovered from
+/// the bytes. A path counts as OCSP only when it yields responses and no CRLs: a folder holding
+/// both is CRL material with a response in it, and moving it would take the CRLs with it.
+fn is_ocsp_only(path: &str) -> bool {
+    let (crls, ocsp_responses) = count_revocation_inputs(std::iter::once(path));
+    ocsp_responses > 0 && crls == 0
+}
+
 /// The paths a count is about, as the worker thread needs them: owned, since it outlives the render
 /// that read the signals, and carrying the time the material is judged at, which decides the answer
 /// as surely as the paths do.
 struct PoolInputs {
     ta: Vec<String>,
     ca: Vec<String>,
-    rev: Vec<String>,
+    crl: Vec<String>,
+    ocsp: Vec<String>,
     ee: Vec<String>,
     time_of_interest: u64,
 }
@@ -626,12 +660,11 @@ fn spawn_pool_count(
             return;
         }
         let toi = inputs.time_of_interest;
-        let (crls, ocsp_responses) = count_revocation_inputs(inputs.rev.iter().map(String::as_str));
         let counts = PoolCounts {
             trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str)),
             ca_certificates: count_ca_inputs(inputs.ca.iter().map(String::as_str), toi),
-            crls,
-            ocsp_responses,
+            crl_pool: revocation_counts(&inputs.crl),
+            ocsp_pool: revocation_counts(&inputs.ocsp),
             end_entities: count_end_entity_inputs(inputs.ee.iter().map(String::as_str)),
         };
         let _ = tx.unbounded_send((generation, counts));
@@ -709,7 +742,10 @@ fn PathRow(
             on_browse_alt: move |_| {
                 spawn(pick_file_into(sig, "Certificate File", CERT_EXTENSIONS));
             },
-            alt_label: "File...",
+            // Named rather than left as the bare "..." the single-dialog platforms show. Beside a
+            // button that says File, an ellipsis reads as "more" rather than as the other kind.
+            primary_label: "Folder\u{2026}",
+            alt_label: "File\u{2026}",
         }
     };
 }
@@ -1074,17 +1110,31 @@ fn StoreHint(selection: usize) -> Element {
 /// It said "Run Command(s)" everywhere, which named the command line the view assembles rather than
 /// the thing the view is for; the plural belonged to a form that stood in for several invocations.
 /// Each caller now supplies the sentence, as the browser frontend does.
+///
+/// `idle` is for a view whose action is switched off: pressing "Generate the store" with Generate
+/// unchecked, or "Run diagnostics" with nothing selected, assembles a run that does nothing and
+/// reports nothing, which reads as the app failing rather than as the form being incomplete. The
+/// button says what is missing instead. `nothing_to_do` names the sentence; an empty one leaves the
+/// button enabled, which is what every view that always has something to do passes.
 #[component]
-fn RunButton(running: bool, onrun: EventHandler<()>, label: String) -> Element {
+fn RunButton(
+    running: bool,
+    onrun: EventHandler<()>,
+    label: String,
+    #[props(default)] nothing_to_do: String,
+) -> Element {
+    let idle = !nothing_to_do.is_empty();
     rsx! {
         div { style: "text-align:center",
             button {
                 r#type: "button",
                 class: "run-button",
-                disabled: running,
+                disabled: running || idle,
                 onclick: move |_| onrun.call(()),
                 if running {
                     "Running…"
+                } else if idle {
+                    "{nothing_to_do}"
                 } else {
                     "{label}"
                 }
@@ -1151,7 +1201,46 @@ pub(crate) fn App() -> Element {
         v.extend(sa.end_entity_folder.clone().filter(|p| !p.is_empty()));
         dedup_pool(v)
     });
-    let s_rev_inputs = use_signal(|| sa.rev_inputs.clone());
+    // Two rows, so each kind can be cleared or pruned without touching the other, and one saved
+    // list, because `rev_inputs` is what the run takes. Which row a saved path came from is
+    // therefore not recorded and is recovered by reading the files.
+    //
+    // That read is the same work the counts do and is done the same way -- on a worker thread,
+    // since a pool naming a folder of CRLs would otherwise stall the WebView on startup. So
+    // everything starts in the CRL row and the OCSP entries move out when the read returns.
+    // Correct at every instant rather than merely at the end: the rows concatenate into one
+    // argument, so a run started before the sort lands takes exactly the same material, and each
+    // row reports its contents by kind throughout, so the CRL row says what it is holding while it
+    // is still holding both.
+    let mut s_crl_inputs = use_signal(|| sa.rev_inputs.clone());
+    let mut s_ocsp_inputs = use_signal(Vec::<String>::new);
+    use_hook(|| {
+        let saved = sa.rev_inputs.clone();
+        if saved.is_empty() {
+            return;
+        }
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<(Vec<String>, Vec<String>)>();
+        std::thread::spawn(move || {
+            let (ocsp, crl): (Vec<String>, Vec<String>) =
+                saved.into_iter().partition(|p| is_ocsp_only(p));
+            let _ = tx.unbounded_send((crl, ocsp));
+        });
+        // Written on the UI executor, like every other signal write off a worker thread. Applied
+        // only if nothing was added meanwhile, so a file dropped in during the read is not lost to
+        // a wholesale replacement.
+        spawn(async move {
+            if let Some((crl, ocsp)) = rx.next().await {
+                if ocsp.is_empty() {
+                    return;
+                }
+                let added = s_crl_inputs().len() != crl.len() + ocsp.len();
+                if !added {
+                    s_crl_inputs.set(crl);
+                    s_ocsp_inputs.set(ocsp);
+                }
+            }
+        });
+    });
     // Not persisted with the arguments: a host is the way a target was *obtained*, and what the run
     // validates is the file that came back. Restoring the host would suggest the next run re-asks.
     let s_peek_host = use_signal(String::new);
@@ -1201,7 +1290,8 @@ pub(crate) fn App() -> Element {
                 PoolInputs {
                     ta: pool(s_ta_inputs),
                     ca: pool(s_ca_inputs),
-                    rev: pool(s_rev_inputs),
+                    crl: pool(s_crl_inputs),
+                    ocsp: pool(s_ocsp_inputs),
                     ee: pool(s_ee_inputs),
                     time_of_interest: s_time_of_interest()
                         .parse::<u64>()
@@ -1389,7 +1479,9 @@ pub(crate) fn App() -> Element {
             results_folder: path_or_none(s_results_folder),
             settings: path_or_none(s_settings),
             crl_folder: path_or_none(s_crl_folder),
-            rev_inputs: pool(s_rev_inputs),
+            // One argument, both rows: the split is how the material is offered, not how it is
+            // consumed -- `load_revocation_inputs` sorts by content on the way in.
+            rev_inputs: [pool(s_crl_inputs), pool(s_ocsp_inputs)].concat(),
             keep_crl_entries_in_memory: false,
             no_revocation_cache: !s_reuse_rev_cache(),
             cleanup: s_cleanup(),
@@ -1442,7 +1534,7 @@ pub(crate) fn App() -> Element {
                     extend_pool(s_ee_inputs, vec![peeked.end_entity]);
                     extend_pool(s_ca_inputs, peeked.chain);
                     if let Some(response) = peeked.stapled_ocsp {
-                        extend_pool(s_rev_inputs, vec![response]);
+                        extend_pool(s_ocsp_inputs, vec![response]);
                     }
                 }
                 Err(msg) => {
@@ -1769,7 +1861,17 @@ pub(crate) fn App() -> Element {
                             // the runs that add to it. Open by default for a custom selection,
                             // where they are not supplementary but the whole of the trust
                             // material and an empty panel would hide the fields a run needs.
-                            details { class: "panel", open: s_store() == stores::CUSTOM,
+                            //
+                            // Also open whenever the pools hold anything, whatever the store is.
+                            // Collapsed-and-occupied is the one state that misleads: the panel
+                            // reads as "nothing here" while the run takes material the form is
+                            // not showing, and an input left over from an earlier run is then
+                            // invisible rather than merely tidied away.
+                            details {
+                                class: "panel",
+                                open: s_store() == stores::CUSTOM
+                                    || !s_ta_inputs().is_empty()
+                                    || !s_ca_inputs().is_empty(),
                                 summary {
                                     if s_store() == stores::CUSTOM {
                                         "Trust anchors and certification authorities"
@@ -1815,22 +1917,41 @@ pub(crate) fn App() -> Element {
                                 }
                             }
                             // Revocation material is optional in the same way, and a run that
-                            // supplies none is the common one.
-                            details { class: "panel",
+                            // supplies none is the common one -- so this one opens on content and
+                            // not on the store selection, which says nothing about revocation.
+                            // The CRL folder counts only when it is not the default, which is
+                            // always set; see `is_chosen`.
+                            details {
+                                class: "panel",
+                                open: !s_crl_inputs().is_empty() || !s_ocsp_inputs().is_empty(),
                                 summary { "Revocation data (CRLs and OCSP responses)" }
                                 div { class: "controls",
                                     // Read-only, unlike the CRL folder below it, which is an index:
                                     // that folder is written as well as read, and indexing deletes
                                     // any CRL not valid at the time of interest.
+                                    // Two rows for one argument. They are not filtered apart --
+                                    // an OCSP response has no settled extension, and an `accept`
+                                    // list greys out whatever it failed to anticipate -- so both
+                                    // offer the same files and each reports what it is actually
+                                    // holding. What the split buys is being able to clear or prune
+                                    // one kind without disturbing the other, which one list cannot
+                                    // offer however it is counted.
                                     PoolRow {
-                                        label: "CRLs and OCSP Responses",
+                                        label: "CRLs",
                                         name: "rev",
-                                        sig: s_rev_inputs,
-                                        filter_name: "CRL or OCSP response",
+                                        sig: s_crl_inputs,
+                                        filter_name: "CRL",
                                         extensions: REV_POOL_EXTENSIONS,
-                                        contents: revocation_contents(&s_pool_counts()),
+                                        contents: revocation_contents(&s_pool_counts().crl_pool),
                                     }
-                                    FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
+                                    PoolRow {
+                                        label: "OCSP Responses",
+                                        name: "ocsp",
+                                        sig: s_ocsp_inputs,
+                                        filter_name: "OCSP response",
+                                        extensions: REV_POOL_EXTENSIONS,
+                                        contents: revocation_contents(&s_pool_counts().ocsp_pool),
+                                    }
                                 }
                             }
                             fieldset {
@@ -1987,7 +2108,27 @@ pub(crate) fn App() -> Element {
                                     }
                                 }
                             }
-                            RunButton { running: s_running(), onrun: run_command, label: validate_label }
+                            RunButton {
+                                running: s_running(),
+                                onrun: run_command,
+                                label: validate_label,
+                                // Gated on the pool being empty rather than on the target count
+                                // being zero, which is the tempting test and the wrong one: the
+                                // count is produced on a worker thread behind a debounce, so it
+                                // reads zero for the first moments of every session and for as
+                                // long as a large pool takes to read. Disabling on it would grey
+                                // the button while the row above says the material is there.
+                                // The pool is known immediately and is what the user acted on.
+                                //
+                                // A pool that holds only an empty folder therefore stays enabled,
+                                // and the run says it found nothing to judge -- the honest answer
+                                // to "validate what I pointed you at" when it turns out to hold
+                                // nothing.
+                                nothing_to_do: match s_ee_inputs().is_empty() {
+                                    true => "Add a certificate to validate",
+                                    false => "",
+                                },
+                            }
                         }
                     }
                     View::Generate => rsx! {
@@ -2033,10 +2174,25 @@ pub(crate) fn App() -> Element {
                                 TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
                             }
                             div { class: "controls",
+                                // Both of these are consulted only while generating -- see
+                                // `chase_aia_and_sia` and `cbor_ta_store` in `args.rs` -- so with
+                                // Generate off they are settable controls that change nothing.
+                                // Disabled rather than hidden, and the signals are left alone: the
+                                // choice comes back with the control.
                                 div { class: "field check-group",
                                     CheckboxCell { label: "Generate", name: "generate", sig: s_generate }
-                                    CheckboxCell { label: "Chase SIA and AIA", name: "chase-aia-and-sia", sig: s_chase_aia_and_sia }
-                                    CheckboxCell { label: "CBOR TA store", name: "cbor-ta-store", sig: s_cbor_ta_store }
+                                    CheckboxCell {
+                                        label: "Chase SIA and AIA",
+                                        name: "chase-aia-and-sia",
+                                        sig: s_chase_aia_and_sia,
+                                        disabled: !s_generate(),
+                                    }
+                                    CheckboxCell {
+                                        label: "CBOR TA store",
+                                        name: "cbor-ta-store",
+                                        sig: s_cbor_ta_store,
+                                        disabled: !s_generate(),
+                                    }
                                 }
                             }
                             p { class: "hint",
@@ -2046,8 +2202,28 @@ pub(crate) fn App() -> Element {
                                     "Generate writes the store to the CA CBOR path above, built from the TA and CA inputs; either may be a single file. Check CBOR TA store for a trust anchor store instead."
                                 }
                             }
+                            // Both output rows bind the same `s_cbor` signal, because `--generate`
+                            // writes to `--cbor` whichever kind of store it is making. Flipping
+                            // CBOR TA store therefore relabels the row and keeps the path, so a
+                            // path picked for one kind is reused for the other without saying so.
+                            // The row's own label cannot show that -- the label is what changed --
+                            // which is why the file is named here instead.
+                            if !s_cbor().is_empty() {
+                                p { class: "hint",
+                                    if s_cbor_ta_store() {
+                                        "Writes a trust anchor store to {s_cbor()}"
+                                    } else {
+                                        "Writes a CA store with partial paths to {s_cbor()}"
+                                    }
+                                }
+                            }
                         }
-                        RunButton { running: s_running(), onrun: run_command, label: "Generate the store" }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: "Generate the store",
+                            nothing_to_do: if s_generate() { "" } else { "Check Generate to build a store" },
+                        }
                     },
                     View::Cleanup => rsx! {
                         fieldset {
@@ -2073,6 +2249,9 @@ pub(crate) fn App() -> Element {
                     View::Diagnostics => rsx! {
                         fieldset {
                             legend { "Diagnostics" }
+                            p { class: "hint",
+                                "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
+                            }
                             div { class: "controls",
                                 StoreRow { sig: s_store, status: s_store_export }
                                 StoreHint { selection: s_store() }
@@ -2128,7 +2307,24 @@ pub(crate) fn App() -> Element {
                                 TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
                             }
                         }
-                        RunButton { running: s_running(), onrun: run_command, label: "Run diagnostics" }
+                        RunButton {
+                            running: s_running(),
+                            onrun: run_command,
+                            label: "Run diagnostics",
+                            // Every control on this view is optional, so an untouched form is a
+                            // legal run that lists nothing -- which reads as the store being empty
+                            // rather than as nothing having been asked for.
+                            nothing_to_do: if s_list_partial_paths() || s_list_buffers()
+                                || s_list_aia_and_sia() || s_list_name_constraints()
+                                || s_list_trust_anchors() || !s_dump_cert_at_index().is_empty()
+                                || !s_list_partial_paths_for_target().is_empty()
+                                || !s_list_partial_paths_for_leaf_ca().is_empty()
+                            {
+                                ""
+                            } else {
+                                "Choose a diagnostic to run"
+                            },
+                        }
                     },
                     View::Tools => rsx! {
                         fieldset {
@@ -2267,6 +2463,14 @@ pub(crate) fn App() -> Element {
                                     // rest of the args rather than into the settings file, which
                                     // stays the CLI's `-s` JSON.
                                     extra_folder_rows: Some(rsx! {
+                                        // Read and written both: indexing removes any CRL that is
+                                        // not valid at the time of interest, which is why it sits
+                                        // with the folders the run maintains rather than with the
+                                        // revocation material a run is handed. The Cleanup and
+                                        // Purge buttons below act on this path, and until it moved
+                                        // here they acted on a folder nothing on this screen could
+                                        // see, let alone change.
+                                        FolderRow { label: "CRL Folder (index)", name: "crl-folder", sig: s_crl_folder }
                                         FolderRow { label: "Results Folder", name: "results-folder", sig: s_results_folder }
                                         FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
                                         FileRow {
