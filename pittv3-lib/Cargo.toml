@@ -34,6 +34,7 @@ pkcs1 = { version = "0.8.0-rc.4", default-features = false, features = ["alloc"]
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
+rfc5934 = { git = "https://github.com/carl-wallace/rfc5934.git", rev = "71cad7826cb9b01dddeeaf450b996ab6b4a29c39", optional = true }
 cms = { version = "0.3.0-pre.2", optional = true }
 reqwest = { version = "0.13.4", optional = true }
 # Only so `run_blocking` can drive the async `options_std` for a caller that has no runtime of its
@@ -85,6 +86,9 @@ webpki = ["certval/webpki"]
 # Microsoft CryptoAPI system certificate stores as trust anchor and CA sources. Windows-only in
 # effect; the certval side is cfg(windows) and contributes nothing elsewhere.
 capi = ["certval/capi", "std"]
+# DoD InstallRoot streams as trust anchor and CA inputs. They are RFC 5934 TAMP messages, so
+# reading one is a different job from reading a certificate or a CBOR store.
+installroot = ["dep:rfc5934"]
 sha1_sig = ["rsa"]
 rsa = ["certval/rsa", "dep:rsa"]
 eddsa = ["certval/eddsa"]

@@ -12,6 +12,8 @@ pub mod der_or_pem;
 #[cfg(feature = "std")]
 pub mod graph_cache;
 pub mod help;
+#[cfg(feature = "installroot")]
+pub mod installroot;
 pub mod no_std_utils;
 pub mod ocsp_match;
 pub mod options_no_std;
