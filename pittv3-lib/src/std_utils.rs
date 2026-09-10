@@ -167,8 +167,33 @@ pub fn load_ca_inputs<'a>(
             }
         }
 
+        // A stream named here contributes its CA message -- the 41 intermediates DoD publishes,
+        // for example. The anchors in its Root message need a trust anchor store, which this side
+        // does not have; naming the same file as a trust anchor input is what reaches both halves.
+        #[cfg(feature = "installroot")]
+        let from_installroot = if cert_source.len() == before && Path::new(path).is_file() {
+            match crate::installroot::read_installroot(pe, path) {
+                Some(inputs) => {
+                    for cf in inputs.cas {
+                        cert_source.push(cf);
+                    }
+                    true
+                }
+                None => false,
+            }
+        } else {
+            false
+        };
+        #[cfg(not(feature = "installroot"))]
+        let from_installroot = false;
+
         let contributed = cert_source.len() - before;
-        if from_cbor_store && adopted_at.is_some() {
+        if from_installroot {
+            info!(
+                "Read {contributed} CA certificate(s) from the InstallRoot stream at {path}, \
+                 signatures not verified"
+            );
+        } else if from_cbor_store && adopted_at.is_some() {
             info!(
                 "Read {contributed} certificate(s) and {} partial path(s) from the CBOR store at {path}",
                 cert_source.num_partial_paths()
@@ -204,11 +229,13 @@ pub fn load_ca_inputs<'a>(
 /// it did not find; a missing anchor costs trust, and a run against fewer anchors than the user
 /// named does not look wrong — it looks like an answer.
 #[cfg(feature = "std")]
+#[cfg_attr(not(feature = "installroot"), allow(unused_variables))]
 pub fn push_trust_anchor_input(
     pe: &PkiEnvironment,
     path: &str,
     ta_store: &mut TaSource,
     time_of_interest: TimeOfInterest,
+    ca_material: Option<&mut Vec<CertFile>>,
 ) -> core::result::Result<usize, String> {
     let named_file = Path::new(path).is_file();
     let before = ta_store.len();
@@ -235,6 +262,28 @@ pub fn push_trust_anchor_input(
                 "Read {} trust anchor(s) from the CBOR store at {path}",
                 ta_store.len() - before
             );
+        }
+    }
+
+    // A file that is neither certificate material nor a CBOR store may be a DoD InstallRoot
+    // stream, which carries anchors and intermediates in separate messages. The anchors belong
+    // here; the intermediates go back to the caller, since a trust anchor store is not where a
+    // path-building certificate belongs.
+    #[cfg(feature = "installroot")]
+    if named_file && ta_store.len() == before {
+        if let Some(inputs) = crate::installroot::read_installroot(pe, path) {
+            for cf in inputs.anchors {
+                ta_store.push(cf);
+            }
+            info!(
+                "Read {} trust anchor(s) and {} CA certificate(s) from the InstallRoot stream at \
+                 {path}, signatures not verified",
+                ta_store.len() - before,
+                inputs.cas.len()
+            );
+            if let Some(sink) = ca_material {
+                sink.extend(inputs.cas);
+            }
         }
     }
 
@@ -329,6 +378,7 @@ pub fn load_capi_ca_stores(
 pub fn load_trust_anchors(
     pe: &PkiEnvironment,
     args: &Pittv3Args,
+    mut ca_material: Option<&mut Vec<CertFile>>,
 ) -> core::result::Result<Option<TaSource>, String> {
     #[cfg(all(windows, feature = "capi"))]
     let no_capi = args.capi_ta_stores.is_empty();
@@ -390,7 +440,13 @@ pub fn load_trust_anchors(
     // inputs were named in. Nothing depends on the order otherwise: `push` deduplicates, so an
     // anchor appearing in two inputs is carried once whichever was read first.
     for path in args.ta_folder.iter().chain(args.ta_inputs.iter()) {
-        push_trust_anchor_input(pe, path, &mut ta_store, TimeOfInterest::disabled())?;
+        push_trust_anchor_input(
+            pe,
+            path,
+            &mut ta_store,
+            TimeOfInterest::disabled(),
+            ca_material.as_deref_mut(),
+        )?;
     }
 
     if let Err(e) = ta_store.initialize() {
@@ -426,7 +482,7 @@ pub fn count_trust_anchor_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -
     let mut ta_store = TaSource::new();
     for path in paths {
         if let Err(e) =
-            push_trust_anchor_input(&pe, path, &mut ta_store, TimeOfInterest::disabled())
+            push_trust_anchor_input(&pe, path, &mut ta_store, TimeOfInterest::disabled(), None)
         {
             debug!("Counting no trust anchors from {path}: {e}");
         }
@@ -468,6 +524,40 @@ pub fn count_ca_inputs<'a>(
         counting_time_of_interest(time_of_interest),
     )
     .certs
+}
+
+/// As [`count_ca_inputs`], additionally counting the `CA` message of any InstallRoot stream named
+/// as a *trust anchor* input.
+///
+/// The two pools are counted from their own entries everywhere else, and this is the one input that
+/// crosses them: a stream names anchors and intermediates in separate messages, and naming it as a
+/// trust anchor input contributes both. Counting only this pool's entries would report zero
+/// intermediates for a run that goes on to use forty-one.
+///
+/// Both sets are pushed into one source, so a file named in both rows is counted once.
+#[cfg(all(feature = "std", feature = "installroot"))]
+pub fn count_ca_inputs_with_streams<'a>(
+    ca_paths: impl IntoIterator<Item = &'a str>,
+    ta_paths: impl IntoIterator<Item = &'a str>,
+    time_of_interest: u64,
+) -> usize {
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    let mut cert_source = CertSource::new();
+    load_ca_inputs(
+        &pe,
+        ca_paths,
+        &mut cert_source,
+        counting_time_of_interest(time_of_interest),
+    );
+    for path in ta_paths {
+        if let Some(inputs) = crate::installroot::read_installroot(&pe, path) {
+            for cf in inputs.cas {
+                cert_source.push(cf);
+            }
+        }
+    }
+    cert_source.len()
 }
 
 /// How many targets the entries in an end entity input pool would yield.

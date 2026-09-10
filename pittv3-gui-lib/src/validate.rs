@@ -11,6 +11,8 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use certval::*;
+#[cfg(feature = "installroot")]
+use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport, TargetStatus};
 use web_time::Instant;
 
@@ -124,6 +126,16 @@ pub fn prepare_validation(
 ) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
 
+    // Built here rather than after the inputs: reading an InstallRoot stream screens its CA
+    // message for self-signed certificates, which needs signature verification.
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+
+    // Certificates an InstallRoot stream named as a trust anchor input carried in its CA message,
+    // held until the CA store below exists to take them.
+    #[cfg(feature = "installroot")]
+    let mut installroot_cas: Vec<CertFile> = vec![];
+
     // --- trust anchors: baked store (if any) + uploaded TAs (certs or .cbor stores) ---
     let mut ta_store = match store {
         Some((_, ta_cbor, _)) => match TaSource::new_from_cbor(ta_cbor) {
@@ -139,6 +151,22 @@ pub fn prepare_validation(
             for cf in src.get_tas() {
                 ta_store.push(cf);
             }
+            continue;
+        }
+        // Before certs_in, which returns any DER SEQUENCE whole as though it were a certificate:
+        // a stream is a SEQUENCE, so it would be claimed there and pushed as a certificate-shaped
+        // nothing rather than reaching this.
+        #[cfg(feature = "installroot")]
+        if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
+            let anchors = inputs.anchors.len();
+            for cf in inputs.anchors {
+                ta_store.push(cf);
+            }
+            let cas = inputs.cas.len();
+            installroot_cas.extend(inputs.cas);
+            out.push(info(format!(
+                "Read {anchors} trust anchor(s) and {cas} CA certificate(s) from the InstallRoot stream {name}, signatures not verified"
+            )));
             continue;
         }
         // certs_in rather than maybe_pem: a `.p7c` of cross-certificates and a concatenated PEM
@@ -187,6 +215,17 @@ pub fn prepare_validation(
             }
             continue;
         }
+        #[cfg(feature = "installroot")]
+        if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
+            let cas = inputs.cas.len();
+            for cf in inputs.cas {
+                cert_source.push(cf);
+            }
+            out.push(info(format!(
+                "Read {cas} CA certificate(s) from the InstallRoot stream {name}, signatures not verified"
+            )));
+            continue;
+        }
         match certs_in(bytes) {
             Ok(ders) => {
                 let count = ders.len();
@@ -202,6 +241,11 @@ pub fn prepare_validation(
             ))),
         }
     }
+    #[cfg(feature = "installroot")]
+    for cf in installroot_cas.drain(..) {
+        cert_source.push(cf);
+    }
+
     if let Err(e) = cert_source.initialize(cps) {
         return Err(vec![err(format!("Failed to initialize CA store: {e:?}"))]);
     }
@@ -220,9 +264,7 @@ pub fn prepare_validation(
         ))),
     }
 
-    // --- prepare the environment ONCE ---
-    let mut pe = PkiEnvironment::default();
-    pe.populate_5280_pki_environment();
+    // --- prepare the environment ---
     // The graph and the paths built over it re-present the same CA signatures many times;
     // caching them is sound because a hit means this exact signature already verified under
     // this exact key.

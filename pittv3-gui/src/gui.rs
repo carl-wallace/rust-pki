@@ -57,9 +57,13 @@ use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std_retaining;
 use pittv3_lib::prepared_graph::PreparedGraph;
 use pittv3_lib::report::ValidationReport;
+#[cfg(not(feature = "installroot"))]
+use pittv3_lib::std_utils::count_ca_inputs;
+#[cfg(feature = "installroot")]
+use pittv3_lib::std_utils::count_ca_inputs_with_streams;
 use pittv3_lib::std_utils::{cleanup_certificate_folder, cleanup_crls, purge_folder};
 use pittv3_lib::std_utils::{
-    count_ca_inputs, count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
+    count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
 };
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use pittv3_lib::RevocationCache;
@@ -672,6 +676,15 @@ fn spawn_pool_count(
         let toi = inputs.time_of_interest;
         let counts = PoolCounts {
             trust_anchors: count_trust_anchor_inputs(inputs.ta.iter().map(String::as_str)),
+            // A stream named as a trust anchor input contributes its CA message to the run, so
+            // the two pools are counted together where that is possible.
+            #[cfg(feature = "installroot")]
+            ca_certificates: count_ca_inputs_with_streams(
+                inputs.ca.iter().map(String::as_str),
+                inputs.ta.iter().map(String::as_str),
+                toi,
+            ),
+            #[cfg(not(feature = "installroot"))]
             ca_certificates: count_ca_inputs(inputs.ca.iter().map(String::as_str), toi),
             crl_pool: revocation_counts(&inputs.crl),
             ocsp_pool: revocation_counts(&inputs.ocsp),
@@ -829,8 +842,17 @@ const CERT_EXTENSIONS: &[&str] = TA_BUNDLE_EXTENSIONS;
 
 /// Extensions suggested for the trust anchor and CA pools: the bundle list plus the CBOR stores
 /// this app itself exports, which those pools read as readily as they read a certificate.
+#[cfg(not(feature = "installroot"))]
 const TA_POOL_EXTENSIONS: &[&str] = &[
     "der", "crt", "cer", "p7c", "p7b", "pem", "ta", "cbor", "pki",
+];
+
+/// As above, plus the `ir4` DoD InstallRoot streams are published as. Offered on both pools: a
+/// stream carries anchors and intermediates in separate messages, and each pool takes the message
+/// that belongs to it -- the trust anchor input additionally passing the CA message across.
+#[cfg(feature = "installroot")]
+const TA_POOL_EXTENSIONS: &[&str] = &[
+    "der", "crt", "cer", "p7c", "p7b", "pem", "ta", "cbor", "pki", "ir4",
 ];
 
 /// Extensions suggested for the revocation pool. Only a suggestion, and a thin one: `.crl` is

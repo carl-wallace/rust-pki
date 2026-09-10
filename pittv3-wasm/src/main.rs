@@ -25,6 +25,7 @@ use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::certs_in;
 use pittv3_gui_lib::PITTV3_CSS;
+use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports};
 
@@ -414,12 +415,23 @@ fn App() -> Element {
     // upload's own rather than prepare_validation's numbering, which changes nothing -- `CertFile`
     // equality is over the bytes alone.
     let loaded_ta_count = use_memo(move || {
+        let mut pe = PkiEnvironment::default();
+        pe.populate_5280_pki_environment();
         let mut ta_store = TaSource::new();
         for (name, bytes) in uploaded_tas().iter() {
             // A `.cbor` trust-anchor store merges all of its anchors; new_from_cbor rejects
             // anything else, so certificates and bundles fall through to the parse below
             if let Ok(src) = TaSource::new_from_cbor(bytes) {
                 for cf in src.get_tas() {
+                    ta_store.push(cf);
+                }
+                continue;
+            }
+            // Before certs_in, which hands back any DER SEQUENCE whole as though it were a
+            // certificate. A stream's Root message is what counts as a trust anchor here; its CA
+            // message is counted with the intermediates below, where it is also used.
+            if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
+                for cf in inputs.anchors {
                     ta_store.push(cf);
                 }
                 continue;
@@ -436,10 +448,18 @@ fn App() -> Element {
         ta_store.len()
     });
     let loaded_ca_count = use_memo(move || {
+        let mut pe = PkiEnvironment::default();
+        pe.populate_5280_pki_environment();
         let mut cert_source = CertSource::new();
         for (name, bytes) in uploaded_cas().iter() {
             if let Ok(src) = CertSource::new_from_cbor(bytes) {
                 for cf in src.get_buffers() {
+                    cert_source.push(cf);
+                }
+                continue;
+            }
+            if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
+                for cf in inputs.cas {
                     cert_source.push(cf);
                 }
                 continue;
@@ -450,6 +470,15 @@ fn App() -> Element {
                         filename: name.clone(),
                         bytes: der,
                     });
+                }
+            }
+        }
+        // A stream uploaded as a trust anchor contributes its CA message to this pool as well --
+        // `prepare_validation` puts it there, so the label would understate the run without it.
+        for (name, bytes) in uploaded_tas().iter() {
+            if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
+                for cf in inputs.cas {
+                    cert_source.push(cf);
                 }
             }
         }
@@ -833,9 +862,16 @@ fn App() -> Element {
     let save_log = move |_| {
         let text = log_capture::contents();
         let uri = format!("data:text/plain;charset=utf-8,{}", percent_encode(&text));
+        // The export name and the run's stamp, as the other three downloads use: a saved log
+        // belongs to the run it describes, and a name of its own filed it away from the results
+        // and the archive it should sit beside. `-log` keeps it distinct from the results text,
+        // which takes the same stamped name.
+        let name = stamped_export_name(
+            &export_name(),
+            run_stamp().unwrap_or_else(now_as_unix_epoch),
+        );
         let js = format!(
-            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"pittv3-log-{}.txt\"; a.click();",
-            now_as_unix_epoch()
+            "const a = document.createElement('a'); a.href = \"{uri}\"; a.download = \"{name}-log.txt\"; a.click();"
         );
         let _ = dioxus::document::eval(&js);
     };
@@ -1424,12 +1460,12 @@ fn App() -> Element {
     // the strict list there. See is_touch_device.
     let touch = is_touch_device();
     // Built from the shared lists rather than restated, so an extension added there reaches the
-    // picker too; `cbor` is not a certificate encoding, so it is appended here where a store is
-    // also a valid drop.
+    // picker too. `cbor` and `ir4` are not certificate encodings, so they are appended here: a
+    // store and a DoD InstallRoot stream are both valid drops wherever a certificate is.
     let accept = |exts: &[&str]| -> String {
         let mut s = exts
             .iter()
-            .chain(["cbor"].iter())
+            .chain(["cbor", "ir4"].iter())
             .map(|e| format!(".{e}"))
             .collect::<Vec<_>>()
             .join(",");

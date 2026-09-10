@@ -64,7 +64,13 @@ certval = { path = "../certval", default-features = false, features = ["capi"], 
 # than a variant of the app, and a non-Windows build has nothing to turn on. Inert if enabled
 # there anyway -- the certval side is cfg(windows).
 [features]
+# On by default: an InstallRoot stream is a file a user can be handed, and needing a special build
+# to read one is a trap -- the "All Files" filter offers it either way.
+default = ["installroot"]
 capi = ["dep:certval", "pittv3-lib/capi"]
+# Reads a DoD InstallRoot stream named as a trust anchor input, taking anchors from its Root
+# message and intermediates from its CA message.
+installroot = ["pittv3-lib/installroot", "pittv3-gui-lib/installroot"]
 
 # Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
 # read; the app itself reaches certval through pittv3-lib.

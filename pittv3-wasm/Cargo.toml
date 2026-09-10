@@ -29,8 +29,8 @@ rust-version = "1.88"
 # pittv3-gui-lib's feature to fan out, so each line states what that crate is built with.
 [dependencies]
 certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
-pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
-pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
+pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "installroot", "pqc", "revocation", "rsa"] }
+pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["installroot", "pqc", "revocation"] }
 
 # The relay exchanges JSON, so a retrieved artifact arrives base64-encoded (see relay.rs).
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }

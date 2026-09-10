@@ -70,6 +70,8 @@ remote = ["certval/remote", "pittv3-lib/remote", "revocation", "std"]
 pqc = ["certval/pqc", "pittv3-lib/pqc"]
 webpki = ["certval/webpki", "pittv3-lib/webpki"]
 gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
+# DoD InstallRoot streams as uploaded trust anchor or CA inputs.
+installroot = ["pittv3-lib/installroot"]
 
 [dev-dependencies]
 base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }

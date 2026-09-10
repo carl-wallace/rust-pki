@@ -340,7 +340,7 @@ async fn options_std_inner(
         let pe = PkiEnvironment::default();
 
         // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-        match load_trust_anchors(&pe, args) {
+        match load_trust_anchors(&pe, args, None) {
             Ok(Some(ta_store)) => ta_store.log_tas(),
             Ok(None) => {}
             Err(msg) => {
@@ -437,7 +437,7 @@ async fn options_std_inner(
             };
         }
 
-        let ta_store = match load_trust_anchors(&pe, args) {
+        let ta_store = match load_trust_anchors(&pe, args, None) {
             Ok(ta_store) => ta_store,
             Err(msg) => {
                 println!("Failed to load trust anchors: {msg}");
@@ -864,8 +864,13 @@ async fn generate_and_validate(
         };
     }
 
+    // Certificates that arrived with the anchors rather than in a CA input -- an InstallRoot
+    // stream names both in one file. Placed with the CA inputs further down, because they are
+    // path-building material wherever they were read from.
+    let mut installroot_cas: Vec<CertFile> = Vec::new();
+
     // Load up the trust anchors. This occurs once and is not effected by the dynamic_build flag.
-    match load_trust_anchors(&pe, args) {
+    match load_trust_anchors(&pe, args, Some(&mut installroot_cas)) {
         Ok(Some(ta_store)) => {
             // A folder whose objects were all filtered contributes nothing, which is otherwise
             // indistinguishable from having supplied no folder at all — and this is the loudest
@@ -1158,6 +1163,21 @@ async fn generate_and_validate(
                 }
             }
         }
+    }
+
+    // Outside the block above, which a run whose graph came from the cache skips: these
+    // certificates are an input the trust anchor side read, not part of the graph that was
+    // cached, so a hit would otherwise drop them and the same file would have to be named as a
+    // CA input as well. Pushed after the path-shaped inputs for the reason the stores are:
+    // adopting a CBOR store's graph replaces the source wholesale.
+    if !installroot_cas.is_empty() {
+        let before = cert_source.len();
+        for cf in installroot_cas.drain(..) {
+            cert_source.push(cf);
+        }
+        let added = cert_source.len() - before;
+        ca_folder_certs += added;
+        info!("Added {added} CA certificate(s) from an InstallRoot stream named as a trust anchor input");
     }
 
     loop {
