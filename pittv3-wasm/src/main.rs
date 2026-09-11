@@ -27,7 +27,9 @@ use pittv3_gui_lib::validate::certs_in;
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
-use pittv3_lib::uri_check::{check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports};
+use pittv3_lib::uri_check::{
+    anchor_certificate_der, check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports,
+};
 
 use pittv3_gui_lib::export::{
     path_entries, paths_text, pool_includes_ca_store, pool_includes_ta_store, stamped_export_name,
@@ -1369,16 +1371,28 @@ fn App() -> Element {
             // the loop happens to visit things in.
             let mut work: Vec<(Vec<u8>, Option<Vec<u8>>, bool)> = vec![];
             for r in retained_paths.read().iter() {
-                let mut ordered = vec![r.path.trust_anchor.encoded_ta.clone()];
-                ordered.extend(r.path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()));
-                ordered.push(r.path.target.as_bytes().to_vec());
-                for (i, der) in ordered.iter().enumerate() {
+                // The certificate the anchor carries rather than its `TrustAnchorChoice` wrapper,
+                // and nothing at all when it carries none. Same rule as the desktop's
+                // `check_path_uris`, keyed the same way so one renderer serves both.
+                let mut ordered: Vec<Option<Vec<u8>>> =
+                    vec![anchor_certificate_der(&r.path.trust_anchor)];
+                ordered.extend(
+                    r.path
+                        .intermediates
+                        .iter()
+                        .map(|ca| Some(ca.as_bytes().to_vec())),
+                );
+                ordered.push(Some(r.path.target.as_bytes().to_vec()));
+                for (i, slot) in ordered.iter().enumerate() {
+                    let Some(der) = slot else {
+                        continue;
+                    };
                     if work.iter().any(|(seen, _, _)| seen == der) {
                         continue;
                     }
                     let issuer = match i {
                         0 => None,
-                        _ => ordered.get(i - 1).cloned(),
+                        _ => ordered.get(i - 1).and_then(|s| s.clone()),
                     };
                     work.push((der.clone(), issuer, i == 0));
                 }

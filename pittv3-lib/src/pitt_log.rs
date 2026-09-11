@@ -1166,7 +1166,11 @@ fn render_uri_checks(f: &mut dyn Write, path: &CertificationPath, reports: &UriC
     if reports.is_empty() {
         return;
     }
-    let mut certs: Vec<Vec<u8>> = vec![path.trust_anchor.encoded_ta.clone()];
+    // The anchor by the certificate it carries, matching the key the checker recorded it under --
+    // an anchor holding no certificate was never checked and simply does not appear.
+    let mut certs: Vec<Vec<u8>> = crate::uri_check::anchor_certificate_der(&path.trust_anchor)
+        .into_iter()
+        .collect();
     certs.extend(path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()));
     certs.push(path.target.as_bytes().to_vec());
 

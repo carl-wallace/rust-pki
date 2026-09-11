@@ -28,6 +28,9 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
+use certval::{get_certificate_from_trust_anchor, PDVTrustAnchorChoice};
+use der::Encode;
+
 use crate::report::CertSummary;
 
 /// Which extension carried a URI. Rendered in the "Extension" column of the results grid.
@@ -80,6 +83,27 @@ pub struct UriCheckOptions<'a> {
     pub is_trust_anchor: bool,
     /// Hosts or URIs to skip, reported as blocklisted rather than fetched.
     pub blocklist: &'a [String],
+}
+
+/// The certificate a trust anchor carries, DER-encoded, or `None` when it carries none —
+/// **the key a URI report is filed under, and nothing more.**
+///
+/// An anchor is held as its `TrustAnchorChoice` encoding: a certificate outright in the
+/// `certificate` variant, and one wrapped in the `taInfo` variant, which is the form a `.ta` file
+/// and a DoD InstallRoot stream both store. A `taInfo` carrying only a name and a public key has no
+/// certificate to give, and neither has the `tbsCert` variant, which nothing produces.
+///
+/// **Not for validation.** A `TrustAnchorInfo` carries `CertPathControls` — the policy set, policy
+/// flags, name constraints and path length an RFC 5937 run enforces — and none of that is in the
+/// certificate it wraps. Substituting the certificate for the anchor anywhere on the validation
+/// path would discard those constraints silently, which is the opposite of what an anchor that
+/// bothers to state them is asking for. Path validation takes the `PDVTrustAnchorChoice` whole.
+///
+/// The re-encoded certificate is the right identity for a per-certificate record: the same
+/// certificate met as an intermediate on another path must produce the same bytes, or the record
+/// describes the role rather than the material.
+pub fn anchor_certificate_der(ta: &PDVTrustAnchorChoice) -> Option<Vec<u8>> {
+    get_certificate_from_trust_anchor(&ta.decoded_ta).and_then(|cert| cert.to_der().ok())
 }
 
 /// The URI check results for one run, keyed by the certificate they describe.

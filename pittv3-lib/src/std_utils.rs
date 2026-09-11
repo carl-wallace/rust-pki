@@ -19,7 +19,7 @@ use certval::util::pdv_utilities::*;
 use certval::*;
 
 use crate::pitt_log::*;
-use crate::uri_check::UriCheckReports;
+use crate::uri_check::{anchor_certificate_der, UriCheckReports};
 #[cfg(feature = "remote")]
 use crate::uri_check::{check_uris_in_cert, ReqwestFetcher, UriCheckOptions};
 use crate::{
@@ -988,18 +988,31 @@ async fn check_path_uris(
     path: &CertificationPath,
     reports: &mut UriCheckReports,
 ) {
-    let mut ordered: Vec<Vec<u8>> = vec![path.trust_anchor.encoded_ta.clone()];
-    ordered.extend(path.intermediates.iter().map(|ca| ca.as_bytes().to_vec()));
-    ordered.push(path.target.as_bytes().to_vec());
+    // The anchor contributes the certificate it carries, not the `TrustAnchorChoice` wrapping it:
+    // that wrapper is not a certificate this checker can parse, and handing it over produced one
+    // "failed to parse target certificate" line for the anchor and a second for the certificate
+    // below it, whose issuer it is. An anchor with no certificate to give -- a `taInfo` holding
+    // only a name and a key -- contributes nothing and leaves the certificate below without an
+    // issuer, which is the honest state rather than a parse failure.
+    let mut ordered: Vec<Option<Vec<u8>>> = vec![anchor_certificate_der(&path.trust_anchor)];
+    ordered.extend(
+        path.intermediates
+            .iter()
+            .map(|ca| Some(ca.as_bytes().to_vec())),
+    );
+    ordered.push(Some(path.target.as_bytes().to_vec()));
 
     let fetcher = ReqwestFetcher::new();
-    for (i, der) in ordered.iter().enumerate() {
+    for (i, slot) in ordered.iter().enumerate() {
+        let Some(der) = slot else {
+            continue;
+        };
         if reports.contains(der) {
             continue;
         }
         let issuer = match i {
             0 => None,
-            _ => ordered.get(i - 1).map(|b| b.as_slice()),
+            _ => ordered.get(i - 1).and_then(|s| s.as_deref()),
         };
         // `auto_discover` off: the issuer is known from the path, so following an AIA pointer to
         // find one would be answering a question this run has already answered -- and adopting
