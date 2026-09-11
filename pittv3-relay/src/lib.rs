@@ -255,20 +255,31 @@ impl Relay {
 /// Builds the redirect policy. A redirect names a URI the requester did not present and the
 /// admission check therefore never saw, so each hop is put through the same URI check; the
 /// addresses each hop resolves to are checked by the resolver the client was built with.
+///
+/// A hop that is refused, and a chain that outruns the limit, are raised as errors rather than
+/// stopped. Stopping hands the 3xx back as the response, which leaves the caller reporting a bare
+/// "answered with status 302" -- true, and indistinguishable from a repository that really did
+/// serve one. Erroring carries the [`PolicyError`] out through [`policy_error_in`], so a refusal
+/// reads as a refusal and names the URI that caused it.
 fn redirect_policy(policy: Arc<NetworkPolicy>) -> reqwest::redirect::Policy {
     if policy.max_redirects == 0 {
         return reqwest::redirect::Policy::none();
     }
     let max = policy.max_redirects;
     reqwest::redirect::Policy::custom(move |attempt| {
+        let url = attempt.url().to_string();
+        // The first entry is the URI originally requested rather than a redirection, so it is
+        // excluded from the count -- the same arithmetic reqwest's own `Policy::limited` uses,
+        // which is what makes this limit comparable to certval's.
         if attempt.previous().len() > max {
-            return attempt.stop();
+            debug!("Refused redirect to {url}: more than {max} hops");
+            return attempt.error(PolicyError::Redirect(url));
         }
-        match policy.check_uri(attempt.url().as_str()) {
+        match policy.check_uri(&url) {
             Ok(_) => attempt.follow(),
             Err(e) => {
-                debug!("Refused redirect to {}: {e}", attempt.url());
-                attempt.stop()
+                debug!("Refused redirect to {url}: {e}");
+                attempt.error(PolicyError::Redirect(url))
             }
         }
     })

@@ -70,11 +70,12 @@ pub struct CheckedUri {
 
 /// Rules the relay applies to a URI before retrieving it.
 ///
-/// The defaults are what a public deployment wants: HTTP and HTTPS on their usual ports, no
-/// redirects, and no destination that is not a public address. `allow_private_addresses` exists for
-/// the deployment that runs the relay beside a PKI repository on an internal network, where the
-/// whole point is to reach an address this policy otherwise refuses; it is a deliberate,
-/// configuration-level decision rather than something a request can ask for.
+/// The defaults are what a public deployment wants: HTTP and HTTPS on their usual ports, redirects
+/// followed as far as `certval` follows them, and no destination that is not a public address.
+/// `allow_private_addresses` exists for the deployment that runs the relay beside a PKI repository
+/// on an internal network, where the whole point is to reach an address this policy otherwise
+/// refuses; it is a deliberate, configuration-level decision rather than something a request can
+/// ask for.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct NetworkPolicy {
@@ -90,9 +91,15 @@ pub struct NetworkPolicy {
     pub allow_hosts: Vec<String>,
     /// Hosts that may never be retrieved from, applied ahead of `allow_hosts`.
     pub deny_hosts: Vec<String>,
-    /// Number of redirects that may be followed. Zero refuses them outright, which is the default
-    /// because a redirect is a second URI the requester did not present and the policy would
-    /// otherwise never see.
+    /// Number of redirects that may be followed. A redirect names a URI the requester did not
+    /// present, so each hop is put back through [`check_uri`](Self::check_uri) and the addresses it
+    /// resolves to through [`PolicyResolver`]: a hop is followed because it was checked, not
+    /// because the repository named it. Zero refuses them outright.
+    ///
+    /// The default is ten, the limit `certval`'s own HTTP client takes from reqwest. A repository
+    /// that redirects has to resolve the same way whichever frontend reached it -- the relay is how
+    /// the browser application fetches what the CLI fetches directly, so a limit of its own would
+    /// mean the same certificate validating in one and not the other.
     pub max_redirects: usize,
     /// Permits destinations that are not public addresses, for a relay deployed on the network
     /// whose repositories it is meant to reach.
@@ -106,7 +113,7 @@ impl Default for NetworkPolicy {
             ports: vec![80, 443],
             allow_hosts: vec![],
             deny_hosts: vec![],
-            max_redirects: 0,
+            max_redirects: 10,
             allow_private_addresses: false,
         }
     }
@@ -491,5 +498,35 @@ mod tests {
             ..Default::default()
         };
         assert!(permissive.resolve(&dest).await.is_ok());
+    }
+
+    /// The relay is how the browser application fetches what the CLI fetches through `certval`
+    /// directly, so a repository that answers with a redirect has to resolve the same way through
+    /// both. `certval` builds its client with `reqwest::Client::builder()` and no `redirect` call,
+    /// taking reqwest's default of ten hops; this default is that number, and it is here as a test
+    /// because it is a cross-frontend agreement rather than a taste in numbers -- a later edit that
+    /// lowers it to nothing is what put a bare "answered with status 302" in front of a user.
+    #[test]
+    fn the_default_follows_redirects_as_far_as_certval_does() {
+        assert_eq!(NetworkPolicy::default().max_redirects, 10);
+    }
+
+    /// A redirect is followed because it was checked, not because it was named, so the hop itself
+    /// faces the checks the originally requested URI faced. Nothing here reaches the client; this
+    /// is the check the redirect policy calls for each hop.
+    #[test]
+    fn a_redirect_target_faces_the_same_uri_check() {
+        let policy = NetworkPolicy::default();
+        assert!(policy.check_uri("http://crl.example.com/ca.crl").is_ok());
+        assert_eq!(
+            policy.check_uri("file:///etc/passwd").unwrap_err(),
+            PolicyError::Scheme("file".to_string())
+        );
+        assert_eq!(
+            policy
+                .check_uri("http://crl.example.com:8443/ca.crl")
+                .unwrap_err(),
+            PolicyError::Port(8443)
+        );
     }
 }
