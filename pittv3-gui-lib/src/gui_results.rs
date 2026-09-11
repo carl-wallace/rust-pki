@@ -170,12 +170,9 @@ pub fn PathDetail(path: PathReport, path_index: usize) -> Element {
                         tr {
                             class: if path.failure_index == Some(i) { "row-failure" } else { "" },
                             td {
-                                // Slot 0 is the trust anchor unless the producer says it is not;
-                                // assuming it always was is how an expired end entity came to be
-                                // labelled one.
-                                if i == 0 && path.no_anchor {
-                                    "EE"
-                                } else if i == 0 {
+                                // `certs` is assembled trust-anchor-first by the one producer that
+                                // fills it, so slot 0 is the anchor whenever there is a path.
+                                if i == 0 {
                                     "TA"
                                 } else {
                                     "{i}"

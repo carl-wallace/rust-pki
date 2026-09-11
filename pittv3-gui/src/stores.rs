@@ -146,6 +146,16 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         pki: "the U.S. Federal PKI",
         note: "Its bridge-era roots are nodes within the PKI, reached by cross-certificate.",
     },
+    // The External Certification Authority program: vendor CAs issuing to people and systems
+    // outside the department that interoperate with it. Its own entry rather than part of the NIPR
+    // one, because it is a separate trust set -- the two ECA roots anchor nothing the DoD roots do.
+    BuiltInStore {
+        label: "U.S. DoD (External Certification Authority)",
+        env: "ECA",
+        source: StoreSource::Provider(certval_stores_eca::provider),
+        pki: "the DoD ECA program, under which commercial vendors issue to non-DoD subscribers",
+        note: "",
+    },
     BuiltInStore {
         label: "U.S. DoD (Purebred development)",
         env: "DEV",

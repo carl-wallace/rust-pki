@@ -56,6 +56,12 @@ pub const STORES: &[Store] = &[
         ta_url: "resources/dod_nipr_prod_ta.cbor",
         ca_url: Some("resources/dod_nipr_prod_ca.cbor"),
     },
+    Store {
+        id: "dod_eca",
+        label: "U.S. DoD (ECA)",
+        ta_url: "resources/dod_eca_ta.cbor",
+        ca_url: Some("resources/dod_eca_ca.cbor"),
+    },
 ];
 
 /// Where a store in the selector came from, which is as much as this application can say about how
