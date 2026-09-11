@@ -766,6 +766,15 @@ fn App() -> Element {
         env_dirty.set(true);
     });
 
+    // What a loaded settings file held, kept whole until it is saved or discarded.
+    //
+    // `SettingsModel` has fields only for what the form can express, so parsing a file into one
+    // narrows it: every key the form does not surface is dropped on the spot. The desktop never
+    // loses those because its file stays on disk and a save re-reads it; local storage is this
+    // frontend's only store, so a narrowed load is unrecoverable. Holding the parsed map here gives
+    // Save and Download the same "start from what was loaded" base the desktop gets from the file.
+    let mut settings_base = use_signal(|| None::<CertificationPathSettings>);
+
     // Replaces the whole model, remounting the form so it reseeds from the new values. Used by
     // loading a settings file and by Revert to Saved.
     //
@@ -773,6 +782,10 @@ fn App() -> Element {
     // holds are two different things here, exactly as the desktop's settings path and its file are.
     let mut replace_settings = move |model: SettingsModel| {
         settings.set(model);
+        // Wholesale replacement abandons any base a previously loaded file established -- Revert to
+        // Saved goes back to local storage and must not carry the discarded file's extras with it.
+        // A caller with bytes worth preserving sets a new base after calling this.
+        settings_base.set(None);
         form_gen += 1;
     };
 
@@ -785,10 +798,16 @@ fn App() -> Element {
     // overwritten by the caller's success message -- localStorage refuses in private browsing and
     // when the origin's quota is full, and a save that says it worked when it did not is the one
     // failure the user cannot see.
-    let persist_settings = move |model: &SettingsModel| -> Result<(), String> {
-        let mut cps = LocalStorageSettingsStore.load();
+    let mut persist_settings = move |model: &SettingsModel| -> Result<(), String> {
+        let mut cps = settings_base().unwrap_or_else(|| LocalStorageSettingsStore.load());
         model.apply(&mut cps);
-        LocalStorageSettingsStore.save(&cps)
+        let outcome = LocalStorageSettingsStore.save(&cps);
+        if outcome.is_ok() {
+            // Everything the loaded file carried is in local storage now, so the base has nothing
+            // left to contribute and a later Revert to Saved returns to exactly this.
+            settings_base.set(None);
+        }
+        outcome
     };
 
     // The time a run validates against, for stamping reports: the chosen time of interest, or the
@@ -968,7 +987,10 @@ fn App() -> Element {
     let save_settings_file = move |_| {
         // Written from the model, not from run_settings: a time of interest the user did not choose
         // stays absent so the file remains portable, and the reader supplies its own current time.
-        let mut cps = LocalStorageSettingsStore.load();
+        // The loaded file when there is one, local storage otherwise -- the same base a Save would
+        // merge over, so a downloaded file carries what an imported one brought even when the form
+        // has no field for it.
+        let mut cps = settings_base().unwrap_or_else(|| LocalStorageSettingsStore.load());
         settings().apply(&mut cps);
         let json = serde_json::to_string_pretty(&cps).unwrap_or_default();
         let uri = format!(
@@ -1006,6 +1028,9 @@ fn App() -> Element {
             }
         };
         replace_settings(SettingsModel::from_cps(&cps));
+        // After the replacement, which clears any previous base: keep this file's own map so the
+        // settings it carries that the form cannot show survive a Save or a Download.
+        settings_base.set(Some(cps));
         // Says it is not saved because nothing on screen would otherwise show it. The desktop has a
         // path box naming the file it is editing; here the only difference between a loaded file and
         // the saved settings is invisible, and Revert to Saved is how it is undone.

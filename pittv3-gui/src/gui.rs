@@ -2948,3 +2948,86 @@ pub(crate) fn App() -> Element {
         }
     }
 }
+
+/// A row that gives no `title` falls back to `arg_help(name)`, and `arg_help` is a string-keyed
+/// match with no compile-time tie to anything: add a row, or rename an argument, and the tooltip
+/// silently becomes empty with nothing failing to build.
+///
+/// This reads the source it is testing rather than a list kept beside it, because a list is the
+/// thing that goes stale. `include_str!` is compile-time, so there is no generation step.
+#[cfg(test)]
+mod tooltip_coverage {
+    use pittv3_lib::help::arg_help;
+
+    /// The components in `gui_rows` that call `tooltip(title, name)`, i.e. the ones that fall back
+    /// to `arg_help`. A component missing from this list is not checked, so keep it in step with
+    /// the `tooltip(` call sites in `pittv3-gui-lib/src/gui_rows.rs`.
+    const TOOLTIP_ROWS: &[&str] = &[
+        "TextRow",
+        "BrowseRow",
+        "TimeRow",
+        "CheckboxCell",
+        "CheckboxRow",
+        "PathListRow",
+    ];
+
+    /// The text between `{` at `open` and its matching `}`.
+    fn block(src: &str, open: usize) -> &str {
+        let bytes = src.as_bytes();
+        let mut depth = 0usize;
+        for (i, c) in bytes.iter().enumerate().skip(open) {
+            match c {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &src[open..i];
+                    }
+                }
+                _ => {}
+            }
+        }
+        &src[open..]
+    }
+
+    /// The `name: "…"` a row states outright, or `None` when it forwards a caller's -- the local
+    /// helper components in this file take `name` as a parameter and pass it along, so the literal
+    /// is at their call site and is checked when that call site is visited.
+    fn literal_name(block: &str) -> Option<&str> {
+        let rest = block.split("name: \"").nth(1)?;
+        rest.split('"').next()
+    }
+
+    #[test]
+    fn every_row_relying_on_arg_help_has_an_entry() {
+        let src = include_str!("gui.rs");
+        let mut checked = 0;
+        for component in TOOLTIP_ROWS {
+            let pattern = format!("{component} {{");
+            let mut from = 0;
+            while let Some(offset) = src[from..].find(&pattern) {
+                let open = from + offset + pattern.len() - 1;
+                from = open + 1;
+                let block = block(src, open);
+                // A row that states its own text never reaches the fallback.
+                if block.contains("title:") {
+                    continue;
+                }
+                let Some(name) = literal_name(block) else {
+                    continue;
+                };
+                checked += 1;
+                assert!(
+                    !arg_help(name).is_empty(),
+                    "{component} {name:?} gives no title and has no arg_help entry, so its tooltip is empty"
+                );
+            }
+        }
+        // Guards against the scan silently matching nothing -- a renamed component or a change in
+        // how rows are written would otherwise turn this test into an assertion about nothing.
+        assert!(
+            checked >= 10,
+            "only {checked} rows were checked; the scan has stopped finding them"
+        );
+    }
+}
