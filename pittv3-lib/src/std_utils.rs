@@ -19,9 +19,11 @@ use certval::util::pdv_utilities::*;
 use certval::*;
 
 use crate::pitt_log::*;
-use crate::uri_check::{anchor_certificate_der, UriCheckReports};
+use crate::uri_check::UriCheckReports;
 #[cfg(feature = "remote")]
-use crate::uri_check::{check_uris_in_cert, ReqwestFetcher, UriCheckOptions};
+use crate::uri_check::{
+    anchor_certificate_der, check_uris_in_cert, ReqwestFetcher, UriCheckOptions,
+};
 use crate::{
     args::Pittv3Args,
     report::{
