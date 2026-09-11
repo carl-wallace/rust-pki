@@ -540,7 +540,7 @@ const TABS: &[(SettingsTab, &str)] = &[
     (SettingsTab::TrustAndPath, "Trust anchors & path"),
     (SettingsTab::Target, "Target"),
     (SettingsTab::Revocation, "Revocation"),
-    (SettingsTab::Fetching, "Fetching"),
+    (SettingsTab::Fetching, "SIA/AIA"),
     (SettingsTab::Folders, "Folders & files"),
 ];
 
@@ -641,15 +641,12 @@ pub fn EditSettings(
     // same place.
     let mut model = use_signal(|| initial.clone());
     let mut baseline = use_signal(|| initial.clone());
-    // Folders and files first: it is what a person opening Settings most often came to change, and
-    // the two folder defaults landing there made it the tab that answers "where will this run put
-    // things". Falls back to the first tab a frontend actually shows -- the browser has no
-    // filesystem, so `tab_applies` hides Folders there and defaulting to it would open the form on a
-    // tab that is not in the bar.
-    let mut tab = use_signal(|| match tab_applies(SettingsTab::Folders, &caps) {
-        true => SettingsTab::Folders,
-        false => SettingsTab::Policy,
-    });
+    // Target first, because it carries the time of interest -- the sharp corner of this form. A
+    // stale one changes every verdict in a run without changing anything a reader would look at:
+    // certificates valid then and expired now still validate, and revocation data published since
+    // is refused as not yet valid. Opening here puts it in front of the person before they set
+    // anything else. Shown in every frontend, unlike Folders, so no fallback is needed.
+    let mut tab = use_signal(|| SettingsTab::Target);
     // Set when a discarding action is asked for while there are unsaved edits, so the confirmation
     // is rendered here rather than through a dialog toolkit neither frontend shares.
     let mut pending = use_signal(|| None::<PendingDiscard>);
@@ -724,19 +721,19 @@ pub fn EditSettings(
                         }
                     }
                     OidListEditor {
-                        label: "Initial policy set",
+                        label: "Policy set",
                         value: m.initial_policy_set.clone(),
                         onchange: move |v| model.write().initial_policy_set = v,
                     }
                 },
                 SettingsTab::NameConstraints => rsx! {
                     NameSubtreesEditor {
-                        label: "Initial permitted subtrees",
+                        label: "Permitted subtrees",
                         value: m.initial_permitted_subtrees.clone(),
                         onchange: move |v| model.write().initial_permitted_subtrees = v,
                     }
                     NameSubtreesEditor {
-                        label: "Initial excluded subtrees",
+                        label: "Excluded subtrees",
                         value: m.initial_excluded_subtrees.clone(),
                         onchange: move |v| model.write().initial_excluded_subtrees = v,
                     }
@@ -768,7 +765,7 @@ pub fn EditSettings(
                             onchange: move |v| model.write().use_validator_filter_when_building = Some(v),
                         }
                         NumberRow {
-                            label: "Initial path length constraint",
+                            label: "Path length constraint",
                             value: m.initial_path_length_constraint.map(|v| v as u64),
                             placeholder: "15",
                             onchange: move |v: Option<u64>| {
@@ -915,12 +912,6 @@ pub fn EditSettings(
                                 onchange: move |v| model.write().check_crldp_http = Some(v),
                             }
                             BoolRow {
-                                label: "Fetch CRLs from LDAP CRL DPs (no LDAP support)",
-                                checked: m.check_crldp_ldap.unwrap_or(false),
-                                overridden: m.check_crldp_ldap.is_some(),
-                                onchange: move |v| model.write().check_crldp_ldap = Some(v),
-                            }
-                            BoolRow {
                                 label: "Allow stale CRLs within grace periods",
                                 checked: m.crl_grace_periods_as_last_resort.unwrap_or(true),
                                 overridden: m.crl_grace_periods_as_last_resort.is_some(),
@@ -957,12 +948,6 @@ pub fn EditSettings(
                             checked: m.retrieve_from_aia_sia_http.unwrap_or(true),
                             overridden: m.retrieve_from_aia_sia_http.is_some(),
                             onchange: move |v| model.write().retrieve_from_aia_sia_http = Some(v),
-                        }
-                        BoolRow {
-                            label: "Retrieve from LDAP AIA and SIA (no LDAP support)",
-                            checked: m.retrieve_from_aia_sia_ldap.unwrap_or(false),
-                            overridden: m.retrieve_from_aia_sia_ldap.is_some(),
-                            onchange: move |v| model.write().retrieve_from_aia_sia_ldap = Some(v),
                         }
                         NumberRow {
                             label: "Maximum AIA/SIA certificates",

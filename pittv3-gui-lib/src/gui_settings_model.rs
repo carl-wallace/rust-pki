@@ -89,8 +89,6 @@ pub struct SettingsModel {
     pub check_ocsp_from_aia: Option<bool>,
     /// Fetch CRLs from HTTP CRL DP locations when determining status
     pub check_crldp_http: Option<bool>,
-    /// Fetch CRLs from LDAP CRL DP locations when determining status (no LDAP support at present)
-    pub check_crldp_ldap: Option<bool>,
     /// Nonce handling for OCSP requests
     pub ocsp_aia_nonce_setting: Option<OcspNonceSetting>,
     /// Allow stale CRLs within grace periods as a last resort
@@ -103,8 +101,6 @@ pub struct SettingsModel {
     // ---- fetching ----
     /// Retrieve certificates from HTTP AIA and SIA locations while building paths
     pub retrieve_from_aia_sia_http: Option<bool>,
-    /// Retrieve certificates from LDAP AIA and SIA locations (no LDAP support at present)
-    pub retrieve_from_aia_sia_ldap: Option<bool>,
     /// Maximum number of certificates to retrieve via AIA and SIA
     pub max_aia_sia_certs: Option<u64>,
 
@@ -182,7 +178,6 @@ impl SettingsModel {
             check_ocsp_from_aia: present(cps, PS_CHECK_OCSP_FROM_AIA)
                 .then(|| cps.get_check_ocsp_from_aia()),
             check_crldp_http: present(cps, PS_CHECK_CRLDP_HTTP).then(|| cps.get_check_crldp_http()),
-            check_crldp_ldap: present(cps, PS_CHECK_CRLDP_LDAP).then(|| cps.get_check_crldp_ldap()),
             ocsp_aia_nonce_setting: present(cps, PS_OCSP_AIA_NONCE_SETTING)
                 .then(|| cps.get_ocsp_aia_nonce_setting()),
             crl_grace_periods_as_last_resort: present(cps, PS_CRL_GRACE_PERIODS_AS_LAST_RESORT)
@@ -192,8 +187,6 @@ impl SettingsModel {
             crl_timeout_secs: present(cps, PS_CRL_TIMEOUT).then(|| cps.get_crl_timeout().as_secs()),
             retrieve_from_aia_sia_http: present(cps, PS_RETRIEVE_FROM_AIA_SIA_HTTP)
                 .then(|| cps.get_retrieve_from_aia_sia_http()),
-            retrieve_from_aia_sia_ldap: present(cps, PS_RETRIEVE_FROM_AIA_SIA_LDAP)
-                .then(|| cps.get_retrieve_from_aia_sia_ldap()),
             max_aia_sia_certs: present(cps, PS_MAX_AIA_SIA_CERTS)
                 .then(|| cps.get_max_aia_sia_certs()),
             require_country_code_indicator: present(cps, PS_REQUIRE_COUNTRY_CODE_INDICATOR)
@@ -350,9 +343,6 @@ impl SettingsModel {
         set_or_remove(cps, PS_CHECK_CRLDP_HTTP, &self.check_crldp_http, |c, v| {
             c.set_check_crldp_http(v)
         });
-        set_or_remove(cps, PS_CHECK_CRLDP_LDAP, &self.check_crldp_ldap, |c, v| {
-            c.set_check_crldp_ldap(v)
-        });
         set_or_remove(
             cps,
             PS_OCSP_AIA_NONCE_SETTING,
@@ -379,12 +369,6 @@ impl SettingsModel {
             PS_RETRIEVE_FROM_AIA_SIA_HTTP,
             &self.retrieve_from_aia_sia_http,
             |c, v| c.set_retrieve_from_aia_sia_http(v),
-        );
-        set_or_remove(
-            cps,
-            PS_RETRIEVE_FROM_AIA_SIA_LDAP,
-            &self.retrieve_from_aia_sia_ldap,
-            |c, v| c.set_retrieve_from_aia_sia_ldap(v),
         );
         set_or_remove(
             cps,
