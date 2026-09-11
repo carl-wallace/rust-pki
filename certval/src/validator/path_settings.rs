@@ -281,16 +281,6 @@ pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
 /// `PS_CRL_TIMEOUT` is used to a u64 that expresses the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT: &str = "psCrlTimeout";
 
-/// `PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is false. When true, certification path validation should ensure the
-/// no operative algorithm or key size constraints are violated.
-pub static PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS: &str = "psEnforceAlgAndKeySizeConstraints";
-
-/// `PS_USE_VALIDATOR_FILTER_WHEN_BUILDING` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is true. When true, certification path building should employ relevant
-/// certification path validation practices during path building (see RFC 4158).
-pub static PS_USE_VALIDATOR_FILTER_WHEN_BUILDING: &str = "psUseValidatorFilterWhenBuilding";
-
 /// `PS_CHECK_REVOCATION_STATUS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is true. When true, certification path validation should perform
 /// revocation status checks via available means, i.e., CRLs, OCSP, etc.
@@ -338,12 +328,6 @@ pub static PS_RETAIN_EXPIRED_KEPT_CRLS: &str = "psRetainExpiredKeptCrls";
 /// object. The default value is true. When true, certification path validation should process CRLs
 /// using grace periods only after exhausting other notionally current options.
 pub static PS_CRL_GRACE_PERIODS_AS_LAST_RESORT: &str = "psCrlGracePeriodsAsLastResort";
-
-/// `PS_IGNORE_EXPIRED` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is false. When true, certification path validation should ignore certificate
-/// expiry errors. This is useful only in limited cases, such as when processing iOS device certificates
-/// issued by expired CAs (see warning in Apple's Over-the-Air Profile Delivery and Configuration specification).
-pub static PS_IGNORE_EXPIRED: &str = "psIgnoreExpired";
 
 /// `PS_OCSP_AIA_NONCE_SETTING` is used to retrieve an i8 value indicating an enumerated value that
 /// determines whether or not OCSP requests associated with OCSP responders arrived at via AIA extensions
@@ -413,21 +397,6 @@ pub static PS_MAX_AIA_FETCH_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
 /// `PS_CERTIFICATES` is used to retrieve a set of potentially useful certificates from a [`CertificationPathSettings`]
 /// object.
 pub static PS_CERTIFICATES: &str = "psCertificates";
-
-/// `PS_REQUIRE_COUNTRY_CODE_INDICATOR` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is false. When true, certification path validation should process require
-/// target certificates to feature a subjectDirectoryAttributes extension containing a country code.
-pub static PS_REQUIRE_COUNTRY_CODE_INDICATOR: &str = "psRequireCountryCodeIndicator";
-
-/// `PS_PERM_COUNTRIES` is used to retrieve a Strings value, i.e., vector of String, from a [`CertificationPathSettings`]
-/// object. When present, target certificates featuring a subjectDirectoryAttributes extension containing a country code
-/// will be evaluated to affirm the values in the certificate are permitted.
-pub static PS_PERM_COUNTRIES: &str = "psPermCountries";
-
-/// `PS_EXCL_COUNTRIES` is used to retrieve a Strings value, i.e., vector of String, from a [`CertificationPathSettings`]
-/// object. When present, target certificates featuring a subjectDirectoryAttributes extension containing a country code
-/// will be evaluated to affirm the values in the certificate are not exluded.
-pub static PS_EXCL_COUNTRIES: &str = "psExclCountries";
 
 /// PS_TRUST_ANCHOR_FOLDER is used to retrieve a String value containing the full path of a folder containing trust anchors
 pub static PS_TRUST_ANCHOR_FOLDER: &str = "psTrustAnchorFolder";
@@ -762,8 +731,6 @@ cps_gets_and_sets_with_default!(
 );
 cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, Duration, PS_CRL_TIMEOUT_DEFAULT);
 
-cps_gets_and_sets_with_default!(PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS, bool, false);
-cps_gets_and_sets_with_default!(PS_USE_VALIDATOR_FILTER_WHEN_BUILDING, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_REVOCATION_STATUS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_OCSP_FROM_AIA, bool, true);
 cps_gets_and_sets_with_default!(PS_RETRIEVE_FROM_AIA_SIA_HTTP, bool, true);
@@ -773,7 +740,6 @@ cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_HTTP, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_LDAP, bool, false);
 cps_gets_and_sets_with_default!(PS_RETAIN_EXPIRED_KEPT_CRLS, bool, false);
 cps_gets_and_sets_with_default!(PS_CRL_GRACE_PERIODS_AS_LAST_RESORT, bool, true);
-cps_gets_and_sets_with_default!(PS_IGNORE_EXPIRED, bool, false);
 cps_gets_and_sets_with_default!(
     PS_OCSP_AIA_NONCE_SETTING,
     OcspNonceSetting,
@@ -794,9 +760,6 @@ cps_gets_and_sets_with_default!(
 cps_gets_and_sets_with_default!(PS_MAX_AIA_FETCH_BYTES, u64, PS_MAX_AIA_FETCH_BYTES_DEFAULT);
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
 // PS_CERTIFICATES (will need lifetime aware macro)
-cps_gets_and_sets_with_default!(PS_REQUIRE_COUNTRY_CODE_INDICATOR, bool, false);
-cps_gets_and_sets!(PS_PERM_COUNTRIES, Strings);
-cps_gets_and_sets!(PS_EXCL_COUNTRIES, Strings);
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
 
@@ -904,9 +867,7 @@ fn test_default_gets_cps() {
     assert!(cps.get_enforce_trust_anchor_validity());
     assert!(!cps.get_extended_key_usage_path());
     assert_eq!(Duration::from_secs(60), cps.get_crl_timeout());
-    assert!(!cps.get_enforce_alg_and_key_size_constraints());
 
-    assert!(cps.get_use_validator_filter_when_building());
     assert!(cps.get_check_revocation_status());
     assert!(cps.get_check_ocsp_from_aia());
     assert!(cps.get_retrieve_from_aia_sia_http());
@@ -915,14 +876,12 @@ fn test_default_gets_cps() {
     assert!(cps.get_check_crldp_http());
     assert!(!cps.get_check_crldp_ldap());
     assert!(cps.get_crl_grace_periods_as_last_resort());
-    assert!(!cps.get_ignore_expired());
     assert_eq!(
         OcspNonceSetting::DoNotSendNonce,
         cps.get_ocsp_aia_nonce_setting()
     );
     assert_eq!(Duration::from_secs(0), cps.get_revocation_max_age());
     assert_eq!(2000, cps.get_max_aia_sia_certs());
-    assert!(!cps.get_require_country_code_indicator());
 
     assert_eq!(vec![ANY_POLICY.to_string()], cps.get_initial_policy_set());
     assert!(!cps.get_cbor_ta_store());
@@ -932,8 +891,6 @@ fn test_default_gets_cps() {
 fn test_no_default_gets_cps() {
     let cps = CertificationPathSettings::default();
 
-    assert_eq!(None, cps.get_perm_countries());
-    assert_eq!(None, cps.get_excl_countries());
     assert_eq!(None, cps.get_initial_permitted_subtrees());
     let mut bufs1 = BTreeMap::new();
     assert_eq!(
@@ -1007,11 +964,7 @@ fn test_default_sets_cps() {
     assert!(cps.get_extended_key_usage_path());
     cps.set_crl_timeout(Duration::from_secs(120));
     assert_eq!(Duration::from_secs(120), cps.get_crl_timeout());
-    cps.set_enforce_alg_and_key_size_constraints(true);
-    assert!(cps.get_enforce_alg_and_key_size_constraints());
 
-    cps.set_use_validator_filter_when_building(false);
-    assert!(!cps.get_use_validator_filter_when_building());
     cps.set_check_revocation_status(false);
     assert!(!cps.get_check_revocation_status());
     cps.set_check_ocsp_from_aia(false);
@@ -1033,9 +986,6 @@ fn test_default_sets_cps() {
     cps.set_crl_grace_periods_as_last_resort(false);
     assert!(!cps.get_crl_grace_periods_as_last_resort());
 
-    cps.set_ignore_expired(true);
-    assert!(cps.get_ignore_expired());
-
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::SendNonceRequireMatch);
     assert_eq!(
         OcspNonceSetting::SendNonceRequireMatch,
@@ -1046,9 +996,6 @@ fn test_default_sets_cps() {
     assert_eq!(Duration::from_secs(3600), cps.get_revocation_max_age());
     cps.set_max_aia_sia_certs(500);
     assert_eq!(500, cps.get_max_aia_sia_certs());
-
-    cps.set_require_country_code_indicator(true);
-    assert!(cps.get_require_country_code_indicator());
 
     cps.set_initial_policy_set(vec![ID_CE_POLICY_MAPPINGS.to_string()]);
     assert_eq!(
@@ -1067,12 +1014,6 @@ fn test_no_default_sets_cps() {
     use x509_cert::ext::pkix::name::GeneralName;
 
     let mut cps = CertificationPathSettings::default();
-
-    let v = vec!["US".to_string()];
-    cps.set_perm_countries(v.clone());
-    assert_eq!(&v, &cps.get_perm_countries().unwrap());
-    cps.set_excl_countries(v.clone());
-    assert_eq!(&v, &cps.get_excl_countries().unwrap());
 
     assert_eq!(None, cps.get_initial_permitted_subtrees());
     let mut bufs1 = BTreeMap::new();

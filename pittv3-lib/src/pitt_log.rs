@@ -167,14 +167,6 @@ pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) {
         .as_bytes(),
     )
     .expect("Unable to write manifest file");
-    f.write_all(
-        format!(
-            "Enforce algorithm and key size constraints: {}\n",
-            cps.get_enforce_alg_and_key_size_constraints()
-        )
-        .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
     f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())
         .expect("Unable to write manifest file");
 }
@@ -1238,7 +1230,6 @@ fn test_cps_log() {
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
     cps.set_extended_key_usage(ekus);
     cps.set_extended_key_usage_path(false);
-    cps.set_enforce_alg_and_key_size_constraints(false);
     cps.set_check_revocation_status(false);
     cps.set_check_ocsp_from_aia(false);
     cps.set_check_ocsp_from_aia(false);
@@ -1248,13 +1239,7 @@ fn test_cps_log() {
     cps.set_check_crldp_http(false);
     cps.set_check_crldp_ldap(false);
     cps.set_crl_grace_periods_as_last_resort(false);
-    cps.set_ignore_expired(false);
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
-    cps.set_require_country_code_indicator(false);
-    let permcountries = vec!["AA".to_string()];
-    cps.set_perm_countries(permcountries);
-    let exclcountries = vec!["BB".to_string()];
-    cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
     cps.set_target_key_usage(fs);
 

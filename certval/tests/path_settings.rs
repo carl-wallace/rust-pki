@@ -46,7 +46,6 @@ fn settings_serialization_test() {
     let ekus = vec![ID_KP_SERVER_AUTH.to_string()];
     cps.set_extended_key_usage(ekus);
     cps.set_extended_key_usage_path(false);
-    cps.set_enforce_alg_and_key_size_constraints(false);
     cps.set_check_revocation_status(false);
     cps.set_check_ocsp_from_aia(false);
     cps.set_check_ocsp_from_aia(false);
@@ -56,13 +55,7 @@ fn settings_serialization_test() {
     cps.set_check_crldp_http(false);
     cps.set_check_crldp_ldap(false);
     cps.set_crl_grace_periods_as_last_resort(false);
-    cps.set_ignore_expired(false);
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
-    cps.set_require_country_code_indicator(false);
-    let permcountries = vec!["AA".to_string()];
-    cps.set_perm_countries(permcountries);
-    let exclcountries = vec!["BB".to_string()];
-    cps.set_perm_countries(exclcountries);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
     cps.set_target_key_usage(fs);
 

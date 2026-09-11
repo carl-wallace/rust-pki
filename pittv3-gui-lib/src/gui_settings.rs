@@ -758,12 +758,6 @@ pub fn EditSettings(
                             overridden: m.require_ta_store.is_some(),
                             onchange: move |v| model.write().require_ta_store = Some(v),
                         }
-                        BoolRow {
-                            label: "Filter candidate paths while building",
-                            checked: m.use_validator_filter_when_building.unwrap_or(true),
-                            overridden: m.use_validator_filter_when_building.is_some(),
-                            onchange: move |v| model.write().use_validator_filter_when_building = Some(v),
-                        }
                         NumberRow {
                             label: "Path length constraint",
                             value: m.initial_path_length_constraint.map(|v| v as u64),
@@ -797,21 +791,9 @@ pub fn EditSettings(
                             overridden: m.forbid_self_signed_ee.is_some(),
                             onchange: move |v| model.write().forbid_self_signed_ee = Some(v),
                         }
-                        BoolRow {
-                            label: "Enforce algorithm and key size constraints",
-                            checked: m.enforce_alg_and_key_size_constraints.unwrap_or(false),
-                            overridden: m.enforce_alg_and_key_size_constraints.is_some(),
-                            onchange: move |v| model.write().enforce_alg_and_key_size_constraints = Some(v),
-                        }
                         TimeOfInterestRow {
                             value: m.time_of_interest,
                             onchange: move |v| model.write().time_of_interest = v,
-                        }
-                        BoolRow {
-                            label: "Ignore expired certificates when building",
-                            checked: m.ignore_expired.unwrap_or(false),
-                            overridden: m.ignore_expired.is_some(),
-                            onchange: move |v| model.write().ignore_expired = Some(v),
                         }
                     }
                 },

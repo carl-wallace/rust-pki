@@ -71,7 +71,6 @@ pub fn validate_path_rfc5280(
     cp: &mut CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
-    //enforce_alg_and_key_size_constraints(pe, cps, cp, cpr)?;
     check_validity(pe, cps, cp, cpr)?;
     if cps.get_require_ta_store() {
         if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
@@ -119,7 +118,6 @@ pub fn validate_path_rfc5280(
 
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
-    //check_country_codes(pe, cps, cp, cpr)?;
     // Certificate policy processing is always graph-based (RFC 9618).
     check_certificate_policies_graph(pe, cps, cp, cpr)?;
     check_key_usage(pe, cps, cp, cpr)?;
@@ -1050,31 +1048,6 @@ pub fn verify_signatures(
     }
     Ok(())
 }
-
-/*
-/// `enforce_alg_and_key_size_constraints` enforces algorithm and key size constraints, if any.
-pub fn enforce_alg_and_key_size_constraints(
-    _pe: &PkiEnvironment,
-    _cps: &CertificationPathSettings,
-    _cp: &mut CertificationPath,
-    _cpr: &mut CertificationPathResults,
-) -> Result<()> {
-    //TODO - implement alg and key size constraints enforcement
-    Ok(())
-}
-
-/// `check_country_codes` ensures the target certificate from a CertificationPath does not violate any
-/// constraints defined in the `PS_PERM_COUNTRIES` and `PS_EXCL_COUNTRIES` values from the [`CertificationPathSettings`].
-pub fn check_country_codes(
-    _pe: &PkiEnvironment,
-    _cps: &CertificationPathSettings,
-    _cp: &mut CertificationPath,
-    _cpr: &mut CertificationPathResults,
-) -> Result<()> {
-    //TODO - implement country code enforcement
-    Ok(())
-}
-*/
 
 #[cfg(test)]
 mod tests {
