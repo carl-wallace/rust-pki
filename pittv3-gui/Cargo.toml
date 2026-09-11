@@ -36,6 +36,7 @@ pittv3-relay = { path = "../pittv3-relay" }
 # a second copy of the reqwest/icu stack for nothing.
 certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false }
 certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr"] }
+certval_stores_eca = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["eca"] }
 certval_stores_pbdev = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["dev"] }
 certval_stores_fpki = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["fpki"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_tls", "mozilla_email", "mozilla_cas"] }

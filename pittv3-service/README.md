@@ -48,7 +48,7 @@ half is optional; a CA artifact with no trust anchors beside it is skipped.
 Two ways to have less than all of that. `--no-builtin-stores` offers only what `--stores` names, for
 a deployment that means to present a chosen catalogue and nothing else. Building without the
 `builtin-stores` feature goes further: the provider crates leave the build entirely, so the binary
-sheds the 7.9 MB of trust material it linked in (6.6 MB of that the Mozilla CA store) and the
+sheds the 4.6 MB of trust material it linked in (3.9 MB of that the Mozilla CA store) and the
 build no longer reaches the repositories carrying it.
 
 The listing says where each store came from — `provider` for a built-in, `configured` for one from

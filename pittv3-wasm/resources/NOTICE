@@ -63,10 +63,24 @@ dod_nipr_prod_ta.cbor, dod_nipr_prod_ca.cbor — U.S. DoD PKI (NIPR)
 -------------------------------------------------------------------
 
 Generated from certval_stores_nipr (Apache-2.0 OR MIT),
-https://github.com/carl-wallace/certval-stores: the three production DoD
-roots (DoD Root CA 3, 5 and 6) and the 37 intermediate CAs beneath them, with
-one partial path each. The certificates are public artifacts of the U.S.
-Department of Defense PKI and are the works of the CAs that issued them.
+https://github.com/carl-wallace/certval-stores: the four production DoD roots
+(DoD Root CA 3, 4, 5 and 6) and the 41 intermediate CAs beneath them, with one
+partial path each. The certificates are public artifacts of the U.S.
+Department of Defense PKI and are the works of the CAs that issued them. That
+crate generates them from the DoD InstallRoot stream it carries, so the set is
+what the department publishes rather than what someone collected.
+
+
+dod_eca_ta.cbor, dod_eca_ca.cbor — U.S. DoD ECA program
+---------------------------------------------------------
+
+Generated from certval_stores_eca (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: ECA Root CA 4 and 5 and the 6
+vendor CAs beneath them, with one partial path each. The External
+Certification Authority program is how commercial vendors -- IdenTrust and
+WidePoint in the current material -- issue certificates to people and systems
+outside the Department of Defense that need to interoperate with it. Public
+artifacts of that program, and the works of the CAs that issued them.
 
 
 pkits_ml_dsa_44_ta.cbor, pkits_ml_dsa_44_ca.cbor,

@@ -111,6 +111,16 @@ fn artifacts() -> Vec<Artifact> {
             ta: "dod_nipr_prod_ta.cbor",
             ca: Some("dod_nipr_prod_ca.cbor"),
         },
+        // The External Certification Authority program: vendor CAs issuing to
+        // people and systems outside the department that interoperate with it.
+        // A separate trust set from NIPR rather than a part of it -- its two
+        // roots anchor nothing the DoD roots anchor.
+        Artifact {
+            provider: certval_stores_eca::provider(),
+            env: "ECA",
+            ta: "dod_eca_ta.cbor",
+            ca: Some("dod_eca_ca.cbor"),
+        },
         // MOZILLA_ALL rather than MOZILLA_TLS: the CA store hangs off the
         // combined environment only, because 356 of the intermediates chain
         // solely to email-only roots and would be unanchored under the
