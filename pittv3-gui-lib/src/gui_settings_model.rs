@@ -59,8 +59,6 @@ pub struct SettingsModel {
     pub require_ta_store: Option<bool>,
     /// Maximum number of non-self-issued intermediate certificates permitted in a path
     pub initial_path_length_constraint: Option<u8>,
-    /// Use validation checks to filter candidate paths while building
-    pub use_validator_filter_when_building: Option<bool>,
 
     // ---- target ----
     /// Key usage bits the target certificate must assert
@@ -71,14 +69,10 @@ pub struct SettingsModel {
     pub extended_key_usage_path: Option<bool>,
     /// Reject self-signed end entity certificates
     pub forbid_self_signed_ee: Option<bool>,
-    /// Enforce algorithm and key size constraints
-    pub enforce_alg_and_key_size_constraints: Option<bool>,
 
     // ---- time ----
     /// Time of interest as seconds since Unix epoch (0 disables validity checks)
     pub time_of_interest: Option<u64>,
-    /// Ignore expired certificates when building paths
-    pub ignore_expired: Option<bool>,
 
     // ---- revocation ----
     /// Master switch for revocation status determination
@@ -103,14 +97,6 @@ pub struct SettingsModel {
     pub retrieve_from_aia_sia_http: Option<bool>,
     /// Maximum number of certificates to retrieve via AIA and SIA
     pub max_aia_sia_certs: Option<u64>,
-
-    // ---- countries ----
-    /// Require country codes in target certificates to satisfy the permitted/excluded lists
-    pub require_country_code_indicator: Option<bool>,
-    /// Permitted country codes
-    pub perm_countries: Option<Vec<String>>,
-    /// Excluded country codes
-    pub excl_countries: Option<Vec<String>>,
 
     // ---- folders and files (desktop-only tab) ----
     /// Folder containing trust anchors
@@ -156,22 +142,14 @@ impl SettingsModel {
             require_ta_store: present(cps, PS_REQUIRE_TA_STORE).then(|| cps.get_require_ta_store()),
             initial_path_length_constraint: present(cps, PS_INITIAL_PATH_LENGTH_CONSTRAINT)
                 .then(|| cps.get_initial_path_length_constraint()),
-            use_validator_filter_when_building: present(cps, PS_USE_VALIDATOR_FILTER_WHEN_BUILDING)
-                .then(|| cps.get_use_validator_filter_when_building()),
             target_key_usage: cps.get_target_key_usage(),
             extended_key_usage: cps.get_extended_key_usage(),
             extended_key_usage_path: present(cps, PS_EXTENDED_KEY_USAGE_PATH)
                 .then(|| cps.get_extended_key_usage_path()),
             forbid_self_signed_ee: present(cps, PS_FORBID_SELF_SIGNED_EE)
                 .then(|| cps.get_forbid_self_signed_ee()),
-            enforce_alg_and_key_size_constraints: present(
-                cps,
-                PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS,
-            )
-            .then(|| cps.get_enforce_alg_and_key_size_constraints()),
             time_of_interest: present(cps, PS_TIME_OF_INTEREST)
                 .then(|| cps.get_time_of_interest().as_unix_secs()),
-            ignore_expired: present(cps, PS_IGNORE_EXPIRED).then(|| cps.get_ignore_expired()),
             check_revocation_status: present(cps, PS_CHECK_REVOCATION_STATUS)
                 .then(|| cps.get_check_revocation_status()),
             check_crls: present(cps, PS_CHECK_CRLS).then(|| cps.get_check_crls()),
@@ -189,10 +167,6 @@ impl SettingsModel {
                 .then(|| cps.get_retrieve_from_aia_sia_http()),
             max_aia_sia_certs: present(cps, PS_MAX_AIA_SIA_CERTS)
                 .then(|| cps.get_max_aia_sia_certs()),
-            require_country_code_indicator: present(cps, PS_REQUIRE_COUNTRY_CODE_INDICATOR)
-                .then(|| cps.get_require_country_code_indicator()),
-            perm_countries: cps.get_perm_countries(),
-            excl_countries: cps.get_excl_countries(),
             trust_anchor_folder: cps.get_trust_anchor_folder(),
             certification_authority_folder: cps.get_certification_authority_folder(),
             download_folder: cps.get_download_folder(),
@@ -277,12 +251,6 @@ impl SettingsModel {
             &self.initial_path_length_constraint,
             |c, v| c.set_initial_path_length_constraint(v),
         );
-        set_or_remove(
-            cps,
-            PS_USE_VALIDATOR_FILTER_WHEN_BUILDING,
-            &self.use_validator_filter_when_building,
-            |c, v| c.set_use_validator_filter_when_building(v),
-        );
         set_or_remove(cps, PS_KEY_USAGE, &self.target_key_usage, |c, v| {
             c.set_target_key_usage(v)
         });
@@ -304,12 +272,6 @@ impl SettingsModel {
             &self.forbid_self_signed_ee,
             |c, v| c.set_forbid_self_signed_ee(v),
         );
-        set_or_remove(
-            cps,
-            PS_ENFORCE_ALG_AND_KEY_SIZE_CONSTRAINTS,
-            &self.enforce_alg_and_key_size_constraints,
-            |c, v| c.set_enforce_alg_and_key_size_constraints(v),
-        );
         match self.time_of_interest {
             Some(secs) => {
                 let toi = match TimeOfInterest::from_unix_secs(secs) {
@@ -322,9 +284,6 @@ impl SettingsModel {
                 cps.0.remove(PS_TIME_OF_INTEREST);
             }
         }
-        set_or_remove(cps, PS_IGNORE_EXPIRED, &self.ignore_expired, |c, v| {
-            c.set_ignore_expired(v)
-        });
         set_or_remove(
             cps,
             PS_CHECK_REVOCATION_STATUS,
@@ -376,18 +335,6 @@ impl SettingsModel {
             &self.max_aia_sia_certs,
             |c, v| c.set_max_aia_sia_certs(v),
         );
-        set_or_remove(
-            cps,
-            PS_REQUIRE_COUNTRY_CODE_INDICATOR,
-            &self.require_country_code_indicator,
-            |c, v| c.set_require_country_code_indicator(v),
-        );
-        set_or_remove(cps, PS_PERM_COUNTRIES, &self.perm_countries, |c, v| {
-            c.set_perm_countries(v)
-        });
-        set_or_remove(cps, PS_EXCL_COUNTRIES, &self.excl_countries, |c, v| {
-            c.set_excl_countries(v)
-        });
         set_or_remove(
             cps,
             PS_TRUST_ANCHOR_FOLDER,
@@ -491,7 +438,6 @@ mod tests {
             revocation_max_age_secs: Some(3600),
             crl_timeout_secs: Some(30),
             max_aia_sia_certs: Some(100),
-            perm_countries: Some(vec!["US".to_string()]),
             trust_anchor_folder: Some("/tas".to_string()),
             initial_permitted_subtrees: Some(NameConstraintsSettings {
                 dns_name: Some(vec!["example.com".to_string()]),
@@ -514,7 +460,7 @@ mod tests {
     fn apply_removes_none_fields_and_preserves_uncovered() {
         let mut cps = CertificationPathSettings::new();
         cps.set_check_revocation_status(false);
-        cps.set_ignore_expired(true);
+        cps.set_check_crldp_http(true);
         // A setting the model has no field for, so nothing here can express an opinion about it.
         cps.0.insert(
             PS_MAX_CRL_FETCH_BYTES.to_string(),
@@ -522,7 +468,7 @@ mod tests {
         );
 
         let model = SettingsModel {
-            ignore_expired: Some(false),
+            check_crldp_http: Some(false),
             ..Default::default()
         };
         model.apply(&mut cps);
@@ -530,7 +476,7 @@ mod tests {
         // check_revocation_status was None in the model, so the key is gone (default applies)
         assert!(!cps.0.contains_key(PS_CHECK_REVOCATION_STATUS));
         assert!(cps.get_check_revocation_status());
-        assert!(!cps.get_ignore_expired());
+        assert!(!cps.get_check_crldp_http());
         // The uncovered half of this test's name. It is also why the desktop offers a Delete
         // button beside its settings path: Reset to defaults followed by Save clears every key the
         // form can express and leaves the rest of the file standing, so it is not a full reset.
@@ -547,8 +493,7 @@ mod tests {
     fn resetting_to_defaults_clears_every_covered_key() {
         let mut cps = CertificationPathSettings::new();
         cps.set_check_revocation_status(false);
-        cps.set_ignore_expired(true);
-        cps.set_require_country_code_indicator(true);
+        cps.set_check_crldp_http(false);
         cps.0.insert(
             PS_MAX_CRL_FETCH_BYTES.to_string(),
             CertificationPathProcessingTypes::U64(1024),

@@ -52,10 +52,6 @@ pub enum PathValidationStatus {
     /// has not CertPathControls or that has a CertPathControls that does not assert a name or wrap
     /// a Certificate.
     MissingTrustAnchorName,
-    /// ProhibitedAlg occurs when an algorithm constraint is violated.
-    ProhibitedAlg,
-    /// ProhibitedKeySize occurs when a key size constraint is violated.
-    ProhibitedKeySize,
     /// EncodingError occurs when an object cannot be parsed (though this is more likely to manifest
     /// as an Asn1Error).
     EncodingError,
@@ -63,9 +59,6 @@ pub enum PathValidationStatus {
     MissingCertificate,
     /// NoPathsFounds occurs when the certification path builder fails to find any candidate paths.
     NoPathsFound,
-    /// CountryCodeViolation occurs when a target certificate is not compliant with operative PS_PERM_COUNTRIES
-    /// or PS_EXCL_COUNTRIES items in a CertificationPathSettings instance.
-    CountryCodeViolation,
     /// CertificateRevoked occurs when a CertificationPath contains a certificate that has been revoked.
     CertificateRevoked,
     /// CertificateRevokedEndEntity occurs when a CertificationPath contains an end entity certificate that has been revoked.
@@ -184,12 +177,9 @@ impl fmt::Display for PathValidationStatus {
             }
             PathValidationStatus::MissingTrustAnchor => write!(f, "MissingTrustAnchor"),
             PathValidationStatus::MissingTrustAnchorName => write!(f, "MissingTrustAnchorName"),
-            PathValidationStatus::ProhibitedAlg => write!(f, "ProhibitedAlg"),
-            PathValidationStatus::ProhibitedKeySize => write!(f, "ProhibitedKeySize"),
             PathValidationStatus::EncodingError => write!(f, "EncodingError"),
             PathValidationStatus::MissingCertificate => write!(f, "MissingCertificate"),
             PathValidationStatus::NoPathsFound => write!(f, "NoPathsFound"),
-            PathValidationStatus::CountryCodeViolation => write!(f, "CountryCodeViolation"),
             PathValidationStatus::CertificateRevoked => write!(f, "CertificateRevoked"),
             PathValidationStatus::CertificateRevokedEndEntity => {
                 write!(f, "CertificateRevokedEndEntity")
@@ -265,12 +255,9 @@ fn error_test() {
     let _s = format!("{}", PathValidationStatus::UnprocessedCriticalExtension);
     let _s = format!("{}", PathValidationStatus::MissingTrustAnchor);
     let _s = format!("{}", PathValidationStatus::MissingTrustAnchorName);
-    let _s = format!("{}", PathValidationStatus::ProhibitedAlg);
-    let _s = format!("{}", PathValidationStatus::ProhibitedKeySize);
     let _s = format!("{}", PathValidationStatus::EncodingError);
     let _s = format!("{}", PathValidationStatus::MissingCertificate);
     let _s = format!("{}", PathValidationStatus::NoPathsFound);
-    let _s = format!("{}", PathValidationStatus::CountryCodeViolation);
     let _s = format!("{}", PathValidationStatus::CertificateRevoked);
     let _s = format!("{}", PathValidationStatus::CertificateRevokedEndEntity);
     let _s = format!(
