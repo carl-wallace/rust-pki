@@ -196,6 +196,28 @@ pub fn arg_help(name: &str) -> &'static str {
             "at the time of interest; a time of interest of 0 keeps all of them.",
         ),
         "list-name-constraints" => "Outputs all name constraints found in certificates present in CBOR file.",
+        "uri-target" => concat!(
+            "The certificate whose URIs are checked. Every HTTP URI in its AIA, SIA, CRL DP and ",
+            "freshest-CRL extensions is fetched and evaluated against this certificate. No store or ",
+            "trust anchors are needed: this check does not build or validate a path.",
+        ),
+        "uri-issuer" => concat!(
+            "The issuer of the target, used to verify a CRL signature and to ask an OCSP responder. ",
+            "Optional: without it those two checks report reachability alone, unless auto-discovery ",
+            "finds the issuer from the target's AIA.",
+        ),
+        "uri-auto" => concat!(
+            "Looks the issuer up from the target's AIA caIssuers URIs when none is supplied, so CRL ",
+            "signature and OCSP checks can still run. Turn it off to check only what the ",
+            "certificates in hand support.",
+        ),
+        "check-uris-when-validating" => concat!(
+            "Runs the URI checker over every certificate on each validated path and appends the ",
+            "results to that path's log. Each distinct certificate is checked once per run and its ",
+            "result is rendered into every path it appears on, so an intermediate common to forty ",
+            "paths is fetched for once. Trust anchors are scanned for their SIA only. Retrieves from ",
+            "the repositories the certificates name, so it needs network access.",
+        ),
         "check-uris" => concat!(
             "Checks the HTTP URIs carried in the AIA, SIA, CRL DP and freshest-CRL extensions of the ",
             "certificate at the given path, reporting per-URI reachability and correctness (the SIA/AIA ",
