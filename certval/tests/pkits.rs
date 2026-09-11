@@ -729,9 +729,9 @@ pub fn pkits_guts_sync(
                     cpool.push(ca);
                 }
 
-                for i in 0..case.intermediate_ca_file_names.len() {
-                    chain.push(cpool[i].clone());
-                    chain2.push(cpool[i].clone());
+                for ca in &cpool {
+                    chain.push(ca.clone());
+                    chain2.push(ca.clone());
                 }
 
                 let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
@@ -791,7 +791,7 @@ pub fn pkits_guts_sync(
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+                let r = pe.validate_path(pe, &tmp_settings, &mut cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
                 let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
@@ -832,7 +832,7 @@ pub fn pkits_guts_sync(
                         CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                    let r = pe.validate_path(pe, &tmp_settings, &mut cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
                     let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);

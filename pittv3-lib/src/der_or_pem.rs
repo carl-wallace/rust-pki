@@ -27,13 +27,14 @@ pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTE
 /// Returns DER bytes given a buffer that may be PEM or DER encoded.
 ///
 /// DER is detected by its leading tag rather than by attempting a parse: `SEQUENCE` covers
-/// certificates and the certificate variant of `TrustAnchorChoice`, and the two context tags cover
-/// the `tbsCert` and `taInfo` variants of a DER-encoded RFC 5914 `TrustAnchorChoice`. An input that
-/// opens with an encapsulation boundary goes to [`decode_pem_to_der`]; anything else to
-/// [`decode_bare_base64`], for a file that is base64 with no boundaries at all. A failure means the
-/// bytes are none of the three.
+/// certificates and the certificate variant of `TrustAnchorChoice`, and `[2]` covers its `taInfo`
+/// variant, which is how a DER-encoded RFC 5914 trust anchor arrives. The remaining variant,
+/// `tbsCert` (`[1]`), is not accepted: nothing produces one. An input that opens with an
+/// encapsulation boundary goes to [`decode_pem_to_der`]; anything else to [`decode_bare_base64`],
+/// for a file that is base64 with no boundaries at all. A failure means the bytes are none of the
+/// three.
 pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
-    if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA1 | 0xA2) {
+    if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA2) {
         return Ok(bytes.to_vec());
     }
     // Tolerate non-standard PEM: decode_pem_to_der accepts wrapping widths other than 64. Armor
@@ -68,7 +69,7 @@ pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     }
     // Bare DER is one object, already in the encoding the caller wants. Same leading tags as
     // maybe_pem, for the same reason.
-    if matches!(bytes.first(), Some(0x30 | 0xA1 | 0xA2)) {
+    if matches!(bytes.first(), Some(0x30 | 0xA2)) {
         return Ok(vec![bytes.to_vec()]);
     }
     // One object with no boundaries around it. Tried before the armor check below because that

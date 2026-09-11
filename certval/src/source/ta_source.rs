@@ -285,7 +285,19 @@ impl TaSource {
     }
 
     /// Processes any buffers passed to the instance, i.e., via new_from_cbor
+    ///
+    /// Calling this again after pushing more buffers is supported, and yields the same store as
+    /// initializing once with all of them: the parsed vector and the indexes are rebuilt from the
+    /// buffers rather than added to. Appending instead left every anchor in `tas` twice, and
+    /// [`get_trust_anchors`](TrustAnchorSource::get_trust_anchors) walks that vector directly.
+    ///
+    /// Rebuilt rather than parsing only what is new, which is what
+    /// [`CertSource`](crate::CertSource) does: that store keeps its parsed vector index-aligned with
+    /// its buffers, leaving a `None` where one will not parse, so the count of parsed entries says
+    /// exactly how far it got. Here a buffer that fails to parse is dropped instead, so that count
+    /// would name the wrong buffer as soon as one did. Anchors are few and this runs rarely.
     pub fn initialize(&mut self) -> Result<()> {
+        self.tas.clear();
         populate_parsed_ta_vector(&self.buffers, &mut self.tas);
         self.index_tas();
         Ok(())
@@ -299,6 +311,10 @@ impl TaSource {
     /// index_tas builds internally used maps based on key identifiers and names. It must be called
     /// after populating the `tas` and `buffers` fields and before use.
     pub fn index_tas(&mut self) {
+        // Rebuilt, not added to: an index left from a previous call names a position in a vector
+        // that no longer holds what it did.
+        self.skid_map.clear();
+        self.name_map.clear();
         for (i, ta) in self.tas.iter().enumerate() {
             let hex_skid = hex_skid_from_ta(ta);
             // a TA whose key identifier cannot be computed (e.g. malformed public key) is left out
@@ -458,6 +474,62 @@ fn populate_parsed_ta_vector(
             Err(e) => error!("Failed to parse TrustAnchorChoice: {:?}", e),
         }
     }
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn initialize_again_after_appending_test() {
+    use crate::{ta_folder_to_vec, PkiEnvironment};
+    use hex_literal::hex;
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+
+    let mut ta_store = TaSource::new();
+    let ta_store_folder = format!(
+        "{}{}",
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/examples/ta_store_with_bad"
+    );
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
+    ta_store.initialize().unwrap();
+
+    let buffers_before = ta_store.buffers.len();
+    let parsed_before = ta_store.tas.len();
+    assert_eq!(buffers_before, parsed_before);
+
+    // An anchor the folder does not hold, pushed the way a caller adds one it obtained elsewhere.
+    let extra = std::fs::read(format!(
+        "{}{}",
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/examples/DigiCertGlobalCAG2.der"
+    ))
+    .unwrap();
+    ta_store.push(CertFile {
+        filename: "DigiCertGlobalCAG2.der".to_string(),
+        bytes: extra,
+    });
+    assert_eq!(ta_store.buffers.len(), buffers_before + 1);
+
+    ta_store.initialize().unwrap();
+
+    // Grew by exactly the buffer that was added. Appending instead of rebuilding gave
+    // 2 * parsed_before + 1 here, and `get_trust_anchors` walks this vector directly.
+    assert_eq!(ta_store.tas.len(), parsed_before + 1);
+    assert_eq!(
+        ta_store.get_trust_anchors().unwrap().len(),
+        parsed_before + 1
+    );
+
+    // And the indexes address the rebuilt vector rather than the one they were built over.
+    let good = hex!("6C8A94A277B180721D817A16AAF2DCCE66EE45C0");
+    assert!(ta_store.get_trust_anchor_by_skid(&good).is_ok());
 }
 
 #[cfg(feature = "std")]

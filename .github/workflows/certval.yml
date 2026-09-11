@@ -100,6 +100,9 @@ jobs:
       # Its store selector holds the only CAPI code no job compiles, so re-including it is a real
       # gain whenever that cost is acceptable; the tests are headless and do not open a window.
       - run: cargo test --workspace --exclude pittv3-gui --exclude pittv3-gui-lib --exclude pittv3-wasm --exclude pittv3-relay --exclude pittv3-service
+      # pittv3-lib's Web PKI tests need a verifier for the signatures that material carries, which
+      # the default features do not bring. Without this leg they compile away and prove nothing.
+      - run: cargo test -p pittv3-lib --features std,rsa
       - run: cargo test -p certval --features capi
       # pittv3 pulls pittv3-lib/capi and certval/capi in behind it, so this covers the whole chain
       # in one run. Note the runner is not elevated: the LocalMachine paths return PermissionDenied
