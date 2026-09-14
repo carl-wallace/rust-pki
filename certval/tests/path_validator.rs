@@ -60,12 +60,12 @@ fn pkits_test1() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(ta, chain, ee);
+    let cert_path = CertificationPath::new(ta, chain, ee);
 
     let cps = CertificationPathSettings::new();
     let mut cpr = CertificationPathResults::new();
 
-    let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
     if r.is_err() {
         panic!("Failed to validate path");
     }

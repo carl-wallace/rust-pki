@@ -204,7 +204,7 @@ impl PkiEnvironment {
         &self,
         pe: &PkiEnvironment,
         cps: &CertificationPathSettings,
-        cp: &mut CertificationPath,
+        cp: &CertificationPath,
         cpr: &mut CertificationPathResults,
     ) -> Result<()> {
         let mut err = None;

@@ -39,10 +39,10 @@ fn validate(der_ca: &[u8], der_ee: &[u8]) -> certval::Result<()> {
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source));
 
-    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
     let cps = CertificationPathSettings::new();
     let mut cpr = CertificationPathResults::new();
-    pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr)
+    pe.validate_path(&pe, &cps, &cert_path, &mut cpr)
 }
 
 const EE: &[u8] =

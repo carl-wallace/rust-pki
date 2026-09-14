@@ -19,6 +19,12 @@ pub mod crl_source;
 #[cfg(feature = "revocation")]
 pub mod revocation_cache;
 
+// Ungated, unlike `crl_source` above and the status cache beside it. CRLs in a vector need neither
+// the filesystem nor `revocation`'s processing code -- `CrlSource` is a plain trait, always present
+// -- and the callers who cannot use `crl_source` are exactly the ones who need this, so a gate here
+// would withhold it from them. A consumer taking certval with default features off still gets it.
+pub mod memory_crl_source;
+
 pub use crate::{source::cert_source::*, source::ta_source::*};
 
 #[cfg(all(windows, feature = "capi"))]
@@ -29,3 +35,5 @@ pub use crate::source::crl_source::*;
 
 #[cfg(feature = "revocation")]
 pub use crate::source::revocation_cache::*;
+
+pub use crate::source::memory_crl_source::*;

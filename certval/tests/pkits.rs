@@ -386,7 +386,7 @@ pub fn pkits_guts_pqc_sync(folder: &str) {
             let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
-            let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+            let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
 
             if (r.is_err() && case.expected_error.is_none())
                 || (r.is_ok() && case.expected_error.is_some())
@@ -408,7 +408,7 @@ pub fn pkits_guts_pqc_sync(folder: &str) {
                 let mut cert_path2 =
                     CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                 let mut cpr = CertificationPathResults::new();
-                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                let r = pe.validate_path(&pe, &tmp_settings, &cert_path2, &mut cpr);
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
                 {
@@ -530,7 +530,7 @@ pub async fn pkits_guts_pqc(folder: &str) {
             let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
-            let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+            let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
 
             if (r.is_err() && case.expected_error.is_none())
                 || (r.is_ok() && case.expected_error.is_some())
@@ -544,10 +544,10 @@ pub async fn pkits_guts_pqc(folder: &str) {
                     "TrustAnchorRootCertificate.crt",
                 )
                 .unwrap();
-                let mut cert_path2 =
+                let cert_path2 =
                     CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                 let mut cpr = CertificationPathResults::new();
-                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                let r = pe.validate_path(&pe, &tmp_settings, &cert_path2, &mut cpr);
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
                 {
@@ -791,14 +791,14 @@ pub fn pkits_guts_sync(
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                let r = pe.validate_path(pe, &tmp_settings, &cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
-                let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+                let mut r = pe.validate_path(pe, &tmp_settings, &cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
                 if r.is_ok() && !skip_revocation_check {
-                    r = check_revocation_local(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                    r = check_revocation_local(pe, &tmp_settings, &cert_path, &mut cpr);
                 }
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
@@ -828,17 +828,17 @@ pub fn pkits_guts_sync(
                         parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt")
                             .unwrap();
 
-                    let mut cert_path2 =
+                    let cert_path2 =
                         CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                    let r = pe.validate_path(pe, &tmp_settings, &cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
-                    let mut r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                    let mut r = pe.validate_path(pe, &tmp_settings, &cert_path2, &mut cpr);
                     #[cfg(feature = "revocation")]
                     if r.is_ok() && !skip_revocation_check {
-                        r = check_revocation_local(pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                        r = check_revocation_local(pe, &tmp_settings, &cert_path2, &mut cpr);
                     }
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
@@ -876,19 +876,18 @@ pub fn pkits_guts_sync(
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
-                    let mut cert_path2 =
+                    let cert_path2 =
                         CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = m {
                         #[cfg(not(feature = "revocation"))]
-                        let r =
-                            pe_5914.validate_path(&pe_5914, &mod_cps, &mut cert_path2, &mut cpr);
+                        let r = pe_5914.validate_path(&pe_5914, &mod_cps, &cert_path2, &mut cpr);
 
                         #[cfg(feature = "revocation")]
                         let mut r =
-                            pe_5914.validate_path(&pe_5914, &mod_cps, &mut cert_path2, &mut cpr);
+                            pe_5914.validate_path(&pe_5914, &mod_cps, &cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
-                            r = check_revocation_local(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                            r = check_revocation_local(pe, &tmp_settings, &cert_path, &mut cpr);
                         }
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())
@@ -1124,13 +1123,13 @@ pub async fn pkits_guts(
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path, &mut cpr);
+                let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
-                let mut r = pe.validate_path(pe, &tmp_settings, &mut cert_path, &mut cpr);
+                let mut r = pe.validate_path(pe, &tmp_settings, &cert_path, &mut cpr);
                 #[cfg(feature = "revocation")]
                 if r.is_ok() && !skip_revocation_check {
-                    r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr).await;
+                    r = check_revocation(pe, &tmp_settings, &cert_path, &mut cpr).await;
                 }
                 if (r.is_err() && case.expected_error.is_none())
                     || (r.is_ok() && case.expected_error.is_some())
@@ -1149,17 +1148,17 @@ pub async fn pkits_guts(
                     )
                     .unwrap();
 
-                    let mut cert_path2 =
+                    let cert_path2 =
                         CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(&pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                    let r = pe.validate_path(&pe, &tmp_settings, &cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
-                    let mut r = pe.validate_path(pe, &tmp_settings, &mut cert_path2, &mut cpr);
+                    let mut r = pe.validate_path(pe, &tmp_settings, &cert_path2, &mut cpr);
                     #[cfg(feature = "revocation")]
                     if r.is_ok() && !skip_revocation_check {
-                        r = check_revocation(pe, &tmp_settings, &mut cert_path2, &mut cpr).await;
+                        r = check_revocation(pe, &tmp_settings, &cert_path2, &mut cpr).await;
                     }
                     if (r.is_err() && case.expected_error.is_none())
                         || (r.is_ok() && case.expected_error.is_some())
@@ -1197,18 +1196,17 @@ pub async fn pkits_guts(
                     // validate again with settings supplied by 5914 formatted TA
                     let mut cpr = CertificationPathResults::new();
                     let m = enforce_trust_anchor_constraints(&G_DEFAULT_SETTINGS_5914, &ta5914);
-                    let mut cert_path2 =
+                    let cert_path2 =
                         CertificationPath::new(ta5914, chain2, cert_path.target.clone());
                     if let Ok(mod_cps) = &m {
                         #[cfg(not(feature = "revocation"))]
-                        let r = pe_5914.validate_path(&pe_5914, mod_cps, &mut cert_path2, &mut cpr);
+                        let r = pe_5914.validate_path(&pe_5914, mod_cps, &cert_path2, &mut cpr);
 
                         #[cfg(feature = "revocation")]
-                        let mut r =
-                            pe_5914.validate_path(&pe_5914, mod_cps, &mut cert_path2, &mut cpr);
+                        let mut r = pe_5914.validate_path(&pe_5914, mod_cps, &cert_path2, &mut cpr);
                         #[cfg(feature = "revocation")]
                         if r.is_ok() && !skip_revocation_check {
-                            r = check_revocation(pe, &tmp_settings, &mut cert_path, &mut cpr).await;
+                            r = check_revocation(pe, &tmp_settings, &cert_path, &mut cpr).await;
                         }
                         if (r.is_err() && case.expected_error.is_none())
                             || (r.is_ok() && case.expected_error.is_some())

@@ -52,11 +52,11 @@ fn validate(der_ee: &[u8]) -> (certval::Result<()>, CertificationPathResults) {
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source));
 
-    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
     let mut cps = CertificationPathSettings::new();
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(TOI).unwrap());
     let mut cpr = CertificationPathResults::new();
-    let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
     (r, cpr)
 }
 
