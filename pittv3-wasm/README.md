@@ -65,8 +65,14 @@ generates its built-in stores from the same provider environments this crate's `
 the two are the same material by construction. The selector says where the selected store came from
 — published with the app, from a provider built into the service, or from the store directory that
 service was configured with — because a configured store may hold certificates whose only
-provenance is that some repository served them. A statically hosted copy asks, gets no answer, and
-carries on with the stores in `resources/`; nothing about deploying to a static host changes.
+provenance is that some repository served them. It also says how current the material is, as the
+dates the provider states — when the source published it, and when the provider collected it —
+which the origin alone cannot convey: material from a trust store provider can still be a year and
+a half old. The dates for the shipped stores are read off the providers by `build.rs` and passed in
+as environment variables, the CBOR artifacts having nowhere to carry them; for a served store they
+come from the same `api/stores` answer as the rest of its description. A statically hosted copy
+asks, gets no answer, and carries on with the stores in `resources/`; nothing about deploying to a
+static host changes.
 
 Provider archives from the [IETF Hackathon PQC Certificate repo](https://github.com/IETF-Hackathon/pqc-certificates)
 in the artifacts_certs_r5.zip format can be validated wholesale: `*_ta.der` entries form a

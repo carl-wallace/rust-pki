@@ -1101,13 +1101,17 @@ fn StoreStatusRow(status: Signal<String>) -> Element {
     }
 }
 
-/// Says what the selected built-in store is, and whether it carries intermediates as well as
-/// anchors. Renders nothing for a custom selection.
+/// Says what the selected built-in store is, whether it carries intermediates as well as anchors,
+/// and how current its material is. Renders nothing for a custom selection.
 ///
 /// It does **not** say what the fields beneath it do: that is the same sentence for every store, so
 /// it belongs to the group heading rather than to each blurb. The intermediates sentence names the
 /// CA CBOR field only when the store carries none, which is the same condition that puts that row
 /// on the screen — a hint should not send the reader looking for a field the view is not showing.
+///
+/// The dates come last because they qualify the store rather than identify it, and are absent for
+/// the entries that have none to give. They are the same sentence the browser frontend shows, from
+/// [`pittv3_gui_lib::store_provenance`].
 #[component]
 fn StoreHint(selection: usize) -> Element {
     if selection == stores::CUSTOM {
@@ -1117,6 +1121,7 @@ fn StoreHint(selection: usize) -> Element {
         return rsx! {};
     };
     let has_ca = stores::has_ca_store(selection);
+    let age = stores::material_age(selection);
     rsx! {
         span { class: "hint",
             if has_ca {
@@ -1125,6 +1130,12 @@ fn StoreHint(selection: usize) -> Element {
                 "Trust anchors from {store.pki}. Supply intermediates below or turn on dynamic build. "
             }
             "{store.note}"
+            if !age.is_empty() {
+                if !store.note.is_empty() {
+                    " "
+                }
+                "{age}"
+            }
         }
     }
 }

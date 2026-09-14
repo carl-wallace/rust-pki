@@ -38,6 +38,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check -p pittv3-gui-lib
       - run: cargo check -p pittv3-gui
+      # pittv3-wasm's unit tests, which had never been executed anywhere: the wasm job below
+      # cannot run them without a headless browser, and this crate will not build for the host on
+      # its own -- `dioxus-web` calls `web_sys::Window::location`, which needs a web-sys feature
+      # nothing in a standalone build enables. Naming pittv3-gui alongside it supplies that
+      # feature through dioxus-desktop, and cargo's unification hands it to dioxus-web. That
+      # coupling is the reason for the second `-p`, so leave it there. The tests reach the host
+      # through `src/bin/ziptest.rs`, which includes the app module wholesale.
+      - run: cargo test -p pittv3-wasm -p pittv3-gui --all-features
 
   # The service depends on pittv3-gui-lib for the shared validation path, so it carries the same
   # 1.88 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
@@ -66,6 +74,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo build -p pittv3-wasm --target wasm32-unknown-unknown
+      # The crate's unit tests are compiled by no other leg, and were never compiled by any: a
+      # plain `build` skips `#[cfg(test)]` code, and the crate cannot be built for the host at
+      # all, `dioxus-web` needing `web_sys::Window::location`. So they type-checked nowhere, and
+      # a struct gaining a field left their literals broken with nothing to say so. `--no-run`
+      # compiles them and stops; running them needs wasm-bindgen-test and a headless browser,
+      # which is a separate decision.
+      - run: cargo test -p pittv3-wasm --target wasm32-unknown-unknown --no-run
 
   # The doc half of certval.yml's rustdoc job, for the crates it excludes. Broken doc links are
   # invisible to check and clippy; only rustdoc resolves them. pittv3-wasm is documented for

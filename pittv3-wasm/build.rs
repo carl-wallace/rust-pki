@@ -95,6 +95,11 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 struct Artifact {
     provider: &'static dyn TrustStoreProvider,
     env: &'static str,
+    /// The identifier `STORES` gives this store, which also names the environment
+    /// variables its dates are passed through. Must match the `id` there; a
+    /// mismatch would leave the dates silently unset, which is what
+    /// `every_shipped_store_states_when_it_was_collected` is for.
+    id: &'static str,
     ta: &'static str,
     ca: Option<&'static str>,
 }
@@ -108,6 +113,7 @@ fn artifacts() -> Vec<Artifact> {
         Artifact {
             provider: certval_stores_nipr::provider(),
             env: "NIPR",
+            id: "dod_nipr_prod",
             ta: "dod_nipr_prod_ta.cbor",
             ca: Some("dod_nipr_prod_ca.cbor"),
         },
@@ -118,6 +124,7 @@ fn artifacts() -> Vec<Artifact> {
         Artifact {
             provider: certval_stores_eca::provider(),
             env: "ECA",
+            id: "dod_eca",
             ta: "dod_eca_ta.cbor",
             ca: Some("dod_eca_ca.cbor"),
         },
@@ -129,6 +136,7 @@ fn artifacts() -> Vec<Artifact> {
         Artifact {
             provider: certval_stores_mozilla::provider(),
             env: "MOZILLA_ALL",
+            id: "webpki",
             ta: "webpki_ta.cbor",
             ca: Some("webpki_ca.cbor"),
         },
@@ -150,6 +158,13 @@ fn main() {
             Err(e) => panic!("failed to serialize the {} store: {e:?}", a.env),
         };
 
+        // The dates ride in on the environment rather than in the CBOR, which has nowhere
+        // to hold them: the artifacts are bytes certval loads, not a container this
+        // application defines. `option_env!` in `STORES` reads them back, so a store whose
+        // provider states no date compiles to `None` with nothing further to arrange.
+        stamp_date(a.id, "PUBLISHED", store.published);
+        stamp_date(a.id, "COLLECTED", store.collected);
+
         write_if_changed(&dir.join(a.ta), &store.ta_cbor);
         match (a.ca, store.ca_cbor) {
             (Some(name), Some(bytes)) => write_if_changed(&dir.join(name), &bytes),
@@ -167,6 +182,20 @@ fn main() {
             }
             (None, None) => {}
         }
+    }
+}
+
+/// Pass one of a store's dates to the crate as `PITTV3_STORE_<WHICH>_<ID>`.
+///
+/// Nothing is emitted when the provider states no date: an unset variable is what
+/// makes `option_env!` produce `None`, and emitting an empty string instead would
+/// hand the selector a store claiming to have been collected on no day at all.
+fn stamp_date(id: &str, which: &str, date: Option<&str>) {
+    if let Some(date) = date {
+        println!(
+            "cargo::rustc-env=PITTV3_STORE_{which}_{}={date}",
+            id.to_ascii_uppercase()
+        );
     }
 }
 
