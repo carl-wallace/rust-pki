@@ -82,7 +82,7 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 pub async fn check_revocation(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = cps.get_check_revocation_status();
@@ -304,7 +304,7 @@ pub async fn check_revocation(
 pub fn check_revocation_local(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let check_rev = cps.get_check_revocation_status();

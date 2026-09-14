@@ -20,9 +20,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use certval::{
-    collect_crl_dp_uris, collect_ocsp_uris, collect_uris_from_aia_and_sia, compare_names,
-    decode_pem_to_der, parse_cert, CertificationPath, CertificationPathSettings, CrlSource, Error,
-    PDVCertificate, PathValidationStatus, Result, SubjectNameAndKey,
+    collect_crl_dp_uris, collect_ocsp_uris, collect_uris_from_aia_and_sia, decode_pem_to_der,
+    parse_cert, CertificationPath, CertificationPathSettings, PDVCertificate, PathValidationStatus,
+    SubjectNameAndKey,
 };
 // Building an OCSP request needs certval's `ocsp_client`, which exists only under its `revocation`
 // feature. Everything else here -- the URI collectors, the CRL source, the response map -- is
@@ -31,9 +31,7 @@ use certval::{
 // response either.
 #[cfg(feature = "revocation")]
 use certval::build_ocsp_request;
-use der::{Decode, Encode};
-use x509_cert::certificate::Raw;
-use x509_cert::crl::CertificateList;
+use der::Encode;
 // Deciding which certificate a response answers about lives in pittv3-lib so the command line and
 // the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
 #[cfg(feature = "revocation")]
@@ -339,94 +337,12 @@ fn dedup_in_place(uris: &mut Vec<String>) {
     });
 }
 
-/// CRLs held in memory for the revocation checker to consult.
-///
-/// certval ships one [`CrlSource`], `CrlSourceFolders`, and it is a directory of files behind
-/// `std`. A browser has neither, so this is the same idea over a vector: the frontend retrieves a
-/// CRL and puts it here, and `check_revocation` finds it through the environment.
-///
-/// **This answers with candidates, not with judgments.** `get_crls` matches on issuer name alone —
-/// it deliberately does not check scope, validity or signature, because certval's `process_crl`
-/// does all three on everything handed back and tolerates a CRL that turns out not to apply. A
-/// superset is therefore correct and a subset is not, which is why the cheap comparison is the
-/// right one here.
-///
-/// Cloning shares the contents: a clone is registered on the environment while the frontend keeps
-/// one to add to as retrievals complete, which is what lets CRLs accumulate across a run without
-/// the environment being rebuilt.
-#[derive(Clone, Default)]
-pub struct MemoryCrlSource {
-    crls: Arc<RwLock<Vec<StoredCrl>>>,
-}
-
-/// A CRL and the issuer name it was published under, decoded once when it is added.
-struct StoredCrl {
-    /// The CRL as retrieved.
-    bytes: Vec<u8>,
-    /// DER encoding of the issuer name, compared against a certificate's issuer.
-    issuer: x509_cert::name::Name,
-}
-
-impl MemoryCrlSource {
-    /// Returns an empty source.
-    pub fn new() -> Self {
-        MemoryCrlSource::default()
-    }
-
-    /// Adds a retrieved CRL, returning whether it was a CRL at all. A body that does not decode is
-    /// reported rather than stored: a distribution point serving something else is worth a note in
-    /// the run, and storing it would only produce a confusing failure later inside `process_crl`.
-    pub fn add(&self, bytes: &[u8]) -> bool {
-        let Ok(crl) = CertificateList::<Raw>::from_der(bytes) else {
-            return false;
-        };
-        let stored = StoredCrl {
-            bytes: bytes.to_vec(),
-            issuer: crl.tbs_cert_list.issuer.clone(),
-        };
-        match self.crls.write() {
-            Ok(mut guard) => {
-                guard.push(stored);
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    /// Reports how many CRLs are held.
-    pub fn len(&self) -> usize {
-        self.crls.read().map(|g| g.len()).unwrap_or(0)
-    }
-
-    /// Reports whether any CRL is held.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl CrlSource for MemoryCrlSource {
-    fn get_all_crls(&self) -> Result<Vec<Vec<u8>>> {
-        let guard = self.crls.read().map_err(|_| Error::Unrecognized)?;
-        Ok(guard.iter().map(|c| c.bytes.clone()).collect())
-    }
-
-    fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
-        let issuer = cert.decoded().tbs_certificate().issuer();
-        let guard = self.crls.read().map_err(|_| Error::Unrecognized)?;
-        Ok(guard
-            .iter()
-            .filter(|c| compare_names(&c.issuer, issuer))
-            .map(|c| c.bytes.clone())
-            .collect())
-    }
-
-    fn add_crl(&self, crl_buf: &[u8], _crl: &CertificateList<Raw>, _uri: &str) -> Result<()> {
-        match self.add(crl_buf) {
-            true => Ok(()),
-            false => Err(Error::Unrecognized),
-        }
-    }
-}
+// CRLs held in memory now live in certval, which is where a `CrlSource` belongs: this crate had
+// its own only because `certval::source::crl_source` is gated on `std` for the folder store's
+// sake, leaving a browser with no in-memory option. certval's is gated on `revocation` alone, so
+// the type is available here and to every other caller that retrieves its own revocation data.
+// Re-exported rather than renamed so the frontends keep the name they already use.
+pub use certval::MemoryCrlSource;
 
 /// Adds a CRL the user supplied by hand, accepting either DER or PEM.
 ///
@@ -631,14 +547,6 @@ mod tests {
         ];
         dedup_in_place(&mut uris);
         assert_eq!(uris, vec!["http://b/".to_string(), "http://a/".to_string()]);
-    }
-
-    #[test]
-    fn a_body_that_is_not_a_crl_is_refused_rather_than_stored() {
-        let source = MemoryCrlSource::new();
-        assert!(!source.add(b"this is not a CRL"));
-        assert!(source.is_empty());
-        assert!(source.get_all_crls().unwrap().is_empty());
     }
 
     #[test]
@@ -887,15 +795,7 @@ mod tests {
         );
     }
 
-    /// A clone shares the contents, which is what lets one be registered on the environment while
-    /// the frontend adds to another as retrievals complete.
-    #[test]
-    fn clones_share_their_contents() {
-        let source = MemoryCrlSource::new();
-        let registered = source.clone();
-        assert_eq!(registered.len(), 0);
-        // Nothing valid to add without a real CRL to hand; the shared handle is the claim under
-        // test, so assert on the pointer the two hold rather than on contents.
-        assert!(Arc::ptr_eq(&source.crls, &registered.crls));
-    }
+    // The store's own behaviour -- issuer matching, refusing a body that is not a CRL, clones
+    // sharing contents, and `add_crl` through the trait -- is tested in certval beside the type,
+    // against real CRL and certificate fixtures. What stays here is this crate's upload path.
 }

@@ -43,11 +43,11 @@ async fn stapled_crl_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using stapled OCSP responses");
         }
@@ -55,11 +55,11 @@ async fn stapled_crl_async() {
     #[cfg(feature = "remote")]
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation after failing over from stapled OCSP responses to dynamic");
         }
@@ -67,13 +67,13 @@ async fn stapled_crl_async() {
     #[cfg(not(feature = "remote"))]
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1649245609).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
         #[cfg(feature = "revocation")]
         {
-            let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+            let r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
             if r.is_ok() {
                 panic!("Failed to reject stale stapled CRLs");
             }
@@ -127,11 +127,11 @@ async fn stapled_mix_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using stapled OCSP responses");
         }
@@ -139,11 +139,11 @@ async fn stapled_mix_async() {
     #[cfg(feature = "remote")]
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation after failing over from stapled OCSP responses to dynamic");
         }
@@ -151,13 +151,13 @@ async fn stapled_mix_async() {
     #[cfg(not(feature = "remote"))]
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1649245609).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
         #[cfg(feature = "revocation")]
         {
-            let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+            let r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
             if r.is_ok() {
                 panic!("Failed to reject stale stapled CRLs");
             }
@@ -210,7 +210,7 @@ async fn cached_crl_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(ta, chain, ee);
+    let cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_require_ta_store(false);
@@ -220,11 +220,11 @@ async fn cached_crl_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using cached CRLs");
         }
@@ -236,11 +236,11 @@ async fn cached_crl_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using cached CRLs");
         }
@@ -425,7 +425,7 @@ async fn cached_crl_revoked_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(ta, chain, ee);
+    let cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_require_ta_store(false);
@@ -435,11 +435,11 @@ async fn cached_crl_revoked_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        if let Err(e) = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await {
+        if let Err(e) = check_revocation(&pe, &cps, &cert_path, &mut cpr).await {
             if Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) != e {
                 panic!("Failed to yield revoked end entity result (failed with other error)");
             }
@@ -454,11 +454,11 @@ async fn cached_crl_revoked_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        if let Err(e) = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await {
+        if let Err(e) = check_revocation(&pe, &cps, &cert_path, &mut cpr).await {
             if Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) != e {
                 panic!("Failed to yield revoked end entity result (failed with other error)");
             }
@@ -510,7 +510,7 @@ async fn cached_crl_revoked_remote_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(ta, chain, ee);
+    let cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_require_ta_store(false);
@@ -519,12 +519,12 @@ async fn cached_crl_revoked_remote_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
 
-        if let Err(e) = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await {
+        if let Err(e) = check_revocation(&pe, &cps, &cert_path, &mut cpr).await {
             if Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) != e {
                 panic!("Failed to yield revoked end entity result (failed with other error)");
             }
@@ -539,11 +539,11 @@ async fn cached_crl_revoked_remote_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        if let Err(e) = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await {
+        if let Err(e) = check_revocation(&pe, &cps, &cert_path, &mut cpr).await {
             if Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity) != e {
                 panic!("Failed to yield revoked end entity result (failed with other error)");
             }
@@ -595,7 +595,7 @@ async fn cached_crl_remote_async() {
 
     ee.parse_extensions(EXTS_OF_INTEREST);
 
-    let mut cert_path = CertificationPath::new(ta, chain, ee);
+    let cert_path = CertificationPath::new(ta, chain, ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_require_ta_store(false);
@@ -604,11 +604,11 @@ async fn cached_crl_remote_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using cached CRLs");
         }
@@ -620,11 +620,11 @@ async fn cached_crl_remote_async() {
 
     {
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
-        let mut r = pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr);
+        let mut r = pe.validate_path(&pe, &cps, &cert_path, &mut cpr);
         if r.is_err() {
             panic!("Failed to successfully validate path");
         }
-        r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+        r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
         if r.is_err() {
             panic!("Failed to successfully check revocation using cached CRLs");
         }
@@ -745,7 +745,7 @@ async fn stapled_crl_name_and_spki_trust_anchor() {
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
 
     let mut cpr = CertificationPathResults::new();
-    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    let r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
     assert!(
         r.is_ok(),
         "revocation should succeed using stapled CRLs with a name+SPKI trust anchor as CRL issuer, got {r:?}"
@@ -801,7 +801,7 @@ mod revocation_config {
         let mut path = make_path();
         staple(&mut path);
         let mut cpr = CertificationPathResults::new();
-        check_revocation(&pe, cps, &mut path, &mut cpr).await
+        check_revocation(&pe, cps, &path, &mut cpr).await
     }
 
     fn staple_both(p: &mut CertificationPath) {
@@ -906,7 +906,7 @@ async fn stapled_ocsp_async() {
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
     let mut cpr = CertificationPathResults::new();
 
-    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    let r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
     assert!(
         r.is_ok(),
         "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"
@@ -944,7 +944,7 @@ fn stapled_ocsp() {
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1646567209).unwrap());
     let mut cpr = CertificationPathResults::new();
 
-    let r = check_revocation_local(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = check_revocation_local(&pe, &cps, &cert_path, &mut cpr);
     assert!(
         r.is_ok(),
         "revocation should succeed using stapled CA-signed OCSP responses, got {r:?}"
@@ -1000,14 +1000,14 @@ async fn unverifiable_crl_leaves_revocation_undetermined() {
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1647011592).unwrap());
 
     let mut cpr = CertificationPathResults::new();
-    pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr)
+    pe.validate_path(&pe, &cps, &cert_path, &mut cpr)
         .expect("PKITS 4.4.4 path should pass basic path validation");
     assert_eq!(
         Some(PathValidationStatus::Valid),
         cpr.get_validation_status()
     );
 
-    let r = check_revocation(&pe, &cps, &mut cert_path, &mut cpr).await;
+    let r = check_revocation(&pe, &cps, &cert_path, &mut cpr).await;
     assert_eq!(
         Err(Error::PathValidation(
             PathValidationStatus::RevocationStatusNotDetermined
@@ -1076,10 +1076,10 @@ async fn unverifiable_crl_does_not_taint_a_later_determination() {
     cps.set_time_of_interest(toi);
 
     let mut cpr = CertificationPathResults::new();
-    pe.validate_path(&pe, &cps, &mut cert_path, &mut cpr)
+    pe.validate_path(&pe, &cps, &cert_path, &mut cpr)
         .expect("Failed to successfully validate path");
 
-    check_revocation(&pe, &cps, &mut cert_path, &mut cpr)
+    check_revocation(&pe, &cps, &cert_path, &mut cpr)
         .await
         .expect("Failed to successfully check revocation using cached CRLs");
     assert_eq!(
