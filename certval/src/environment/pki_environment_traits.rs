@@ -19,7 +19,7 @@ use crate::{
 pub type ValidatePath = fn(
     &PkiEnvironment,
     &CertificationPathSettings,    // path settings to govern validation
-    &mut CertificationPath,        // path to verify
+    &CertificationPath,            // path to verify
     &mut CertificationPathResults, // path validation results
 ) -> Result<()>;
 
