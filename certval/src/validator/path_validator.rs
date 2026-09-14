@@ -1084,10 +1084,10 @@ mod tests {
         let cps = CertificationPathSettings::new();
 
         // Without a cache, the mismatched signature is rejected.
-        let mut cp = build_path();
+        let cp = build_path();
         let mut cpr = CertificationPathResults::new();
         assert_eq!(
-            verify_signatures(&pe, &cps, &mut cp, &mut cpr),
+            verify_signatures(&pe, &cps, &cp, &mut cpr),
             Err(Error::PathValidation(
                 PathValidationStatus::SignatureVerificationFailure
             ))
@@ -1095,9 +1095,9 @@ mod tests {
 
         // With an always-verified cache, the signature check is skipped.
         pe.add_signature_cache(Box::new(AlwaysVerified));
-        let mut cp = build_path();
+        let cp = build_path();
         let mut cpr = CertificationPathResults::new();
-        assert!(verify_signatures(&pe, &cps, &mut cp, &mut cpr).is_ok());
+        assert!(verify_signatures(&pe, &cps, &cp, &mut cpr).is_ok());
     }
 
     #[test]

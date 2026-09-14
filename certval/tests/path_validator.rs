@@ -206,7 +206,7 @@ fn denies_self_signed_ee() {
     // This test previously hid that dead end behind an unconditional `paths.is_empty()` early return.
     let ta = PDVTrustAnchorChoice::try_from(der.as_slice()).unwrap();
     let target = PDVCertificate::try_from(cert_inner).unwrap();
-    let mut cert_path = CertificationPath::new(ta, CertificateChain::default(), target);
+    let cert_path = CertificationPath::new(ta, CertificateChain::default(), target);
 
     let mut cps = CertificationPathSettings::default();
     cps.set_forbid_self_signed_ee(true);
@@ -216,7 +216,7 @@ fn denies_self_signed_ee() {
     // The self-signed EE must be rejected *specifically* by the forbid guard — not tolerated, and
     // not failed for some incidental reason that would mask a regression in the guard.
     let mut cpr = CertificationPathResults::new();
-    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
     log::set_max_level(prev_log_level);
     assert!(
         matches!(
@@ -329,13 +329,13 @@ fn enforce_ta_constraints_accepts_matching_store_anchor() {
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 
-    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_enforce_trust_anchor_constraints(true);
     let mut cpr = CertificationPathResults::new();
 
-    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
     assert!(r.is_ok(), "expected success, got {r:?}");
 }
 
@@ -401,7 +401,7 @@ fn enforce_ta_constraints_rejects_same_key_different_constraints() {
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_source.clone()));
 
-    let mut cert_path = CertificationPath::new(presented, vec![ca], ee);
+    let cert_path = CertificationPath::new(presented, vec![ca], ee);
 
     let mut cps = CertificationPathSettings::new();
     cps.set_enforce_trust_anchor_constraints(true);
@@ -411,7 +411,7 @@ fn enforce_ta_constraints_rejects_same_key_different_constraints() {
     cps.set_enforce_trust_anchor_validity(false);
     let mut cpr = CertificationPathResults::new();
 
-    let r = validate_path_rfc5280(&pe, &cps, &mut cert_path, &mut cpr);
+    let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
     assert_eq!(
         r.err(),
         Some(Error::PathValidation(
@@ -556,7 +556,7 @@ fn target_that_is_a_trust_anchor_records_valid() {
         PDVCertificate::try_from(CertificateInner::<Raw>::from_der(der.as_slice()).unwrap())
             .unwrap();
     target.parse_extensions(EXTS_OF_INTEREST);
-    let mut path = CertificationPath::new(ta, CertificateChain::default(), target);
+    let path = CertificationPath::new(ta, CertificateChain::default(), target);
 
     let mut cps = CertificationPathSettings::default();
     cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1648039783).unwrap());
@@ -565,7 +565,7 @@ fn target_that_is_a_trust_anchor_records_valid() {
     assert!(cps.get_require_ta_store());
 
     let mut cpr = CertificationPathResults::new();
-    validate_path_rfc5280(&pe, &cps, &mut path, &mut cpr).unwrap();
+    validate_path_rfc5280(&pe, &cps, &path, &mut cpr).unwrap();
     assert_eq!(
         Some(PathValidationStatus::Valid),
         cpr.get_validation_status(),
