@@ -405,7 +405,7 @@ pub fn pkits_guts_pqc_sync(folder: &str) {
             if !verified_ta_as_target {
                 let ta_as_cert =
                     parse_cert(&ta.encoded_ta.to_vec(), "TrustAnchorRootCertificate.crt").unwrap();
-                let mut cert_path2 =
+                let cert_path2 =
                     CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                 let mut cpr = CertificationPathResults::new();
                 let r = pe.validate_path(&pe, &tmp_settings, &cert_path2, &mut cpr);
@@ -1123,7 +1123,7 @@ pub async fn pkits_guts(
 
                 let mut cpr = CertificationPathResults::new();
                 #[cfg(not(feature = "revocation"))]
-                let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
+                let r = pe.validate_path(pe, &tmp_settings, &cert_path, &mut cpr);
 
                 #[cfg(feature = "revocation")]
                 let mut r = pe.validate_path(pe, &tmp_settings, &cert_path, &mut cpr);
@@ -1152,7 +1152,7 @@ pub async fn pkits_guts(
                         CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                     let mut cpr = CertificationPathResults::new();
                     #[cfg(not(feature = "revocation"))]
-                    let r = pe.validate_path(&pe, &tmp_settings, &cert_path2, &mut cpr);
+                    let r = pe.validate_path(pe, &tmp_settings, &cert_path2, &mut cpr);
 
                     #[cfg(feature = "revocation")]
                     let mut r = pe.validate_path(pe, &tmp_settings, &cert_path2, &mut cpr);
