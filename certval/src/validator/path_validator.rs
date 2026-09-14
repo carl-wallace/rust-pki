@@ -68,7 +68,7 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
 pub fn validate_path_rfc5280(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     check_validity(pe, cps, cp, cpr)?;
@@ -143,7 +143,7 @@ pub fn validate_path_rfc5280(
 pub fn check_basic_constraints(
     pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_BASIC_CONSTRAINTS);
@@ -248,7 +248,7 @@ pub fn check_basic_constraints(
 pub fn check_validity(
     _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     // RFC 5280 states: (2)  The certificate validity period includes the current time.
@@ -363,7 +363,7 @@ fn name_constraint_matching_budget_exceeded(constraint_count: usize, san_len: us
 pub fn check_names(
     _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
@@ -558,7 +558,7 @@ pub fn check_names(
 pub fn check_key_usage(
     _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_KEY_USAGE);
@@ -612,7 +612,7 @@ pub fn check_key_usage(
 pub fn check_extended_key_usage(
     _pe: &PkiEnvironment,
     cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     cpr.add_processed_extension(ID_CE_EXT_KEY_USAGE);
@@ -731,7 +731,7 @@ pub fn check_extended_key_usage(
 pub fn check_critical_extensions(
     _pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let processed_exts: ObjectIdentifierSet = cpr.get_processed_extensions();
@@ -982,7 +982,7 @@ fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
 pub fn verify_signatures(
     pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
-    cp: &mut CertificationPath,
+    cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
     let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
