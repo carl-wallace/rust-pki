@@ -141,12 +141,25 @@ fn generate(dir: &Path, table: &mut String) {
         };
 
         table.push_str(&format!(
-            "    Builtin {{ id: {:?}, label: {:?}, ta_cbor: {}, ca_cbor: {} }},\n",
+            "    Builtin {{ id: {:?}, label: {:?}, ta_cbor: {}, ca_cbor: {}, published: {}, collected: {} }},\n",
             b.id,
             b.label,
             include_bytes_literal(&ta),
-            ca
+            ca,
+            option_literal(store.published),
+            option_literal(store.collected),
         ));
+    }
+}
+
+/// An `Option<&'static str>` literal, for the dates a provider states about its material. A
+/// provider that states neither is the ordinary case, not a build problem: the browser and the
+/// desktop both render a store that says nothing about its age by saying nothing.
+#[cfg(feature = "builtin-stores")]
+fn option_literal(value: Option<&str>) -> String {
+    match value {
+        Some(v) => format!("Some({v:?})"),
+        None => "None".to_string(),
     }
 }
 

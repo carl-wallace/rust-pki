@@ -58,6 +58,14 @@ conformance check; a configured store may have been assembled by following autho
 access URIs, where the provenance of a certificate is that some repository served it. Presenting
 them as peers in one selector would hide that, so the browser application says which it offered.
 
+Each built-in also reports how current its material is, as the two dates its provider states:
+`published`, the date the source itself gives — a DoD InstallRoot stream's timestamp, a CCADB
+report, a crawler bundle's publication — and `collected`, the day the provider took it. Both are
+absent for a configured store, since a CBOR artifact carries certificates and not a word about
+when they were gathered. The distance between them is the useful part: the DoD operational-test
+stream was published nineteen months before it was fetched, and a selector showing only the fetch
+date would present that store as fresh.
+
 ## Validation
 
 Server-side validation calls the same synchronous validation path the browser calls, in

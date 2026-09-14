@@ -418,6 +418,32 @@ pub(crate) fn export(index: usize, dest: &Path) -> Result<Exported, String> {
     })
 }
 
+/// How current the material behind the store at `index` is, as a sentence, or empty when there is
+/// nothing to say.
+///
+/// Asked of the provider at render time for the same reason as [`has_ca_store`]: a date restated in
+/// the catalogue here would be a second copy to keep in step with a refresh, and the copy that goes
+/// stale is the one a person reads. The Windows stores are read live and webpki-roots is built into
+/// certval, so neither has a collection date to report — which is the honest answer for a store
+/// whose contents are whatever the machine holds right now.
+pub(crate) fn material_age(index: usize) -> String {
+    if index == CUSTOM {
+        return String::new();
+    }
+    let Some(store) = STORES.get(index - 1) else {
+        return String::new();
+    };
+    let StoreSource::Provider(provider) = store.source else {
+        return String::new();
+    };
+    provider()
+        .entries()
+        .iter()
+        .find(|e| e.env == store.env)
+        .map(|e| pittv3_gui_lib::store_provenance::material_age(e.published, e.collected))
+        .unwrap_or_default()
+}
+
 /// Whether the store at `index` carries intermediate CA certificates as well as trust anchors.
 /// False for [`CUSTOM`] and for an anchors-only environment.
 ///

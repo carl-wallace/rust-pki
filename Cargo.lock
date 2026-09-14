@@ -850,7 +850,7 @@ dependencies = [
 [[package]]
 name = "certval"
 version = "0.2.0-pre"
-source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#086ca54c1a9abdd3e54acf748f15eaac30fd724d"
+source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#93063e700ba9887f57e2aead6f9fdfa82b956afa"
 dependencies = [
  "base64ct",
  "cfg-if",
@@ -883,7 +883,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_core"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#9be94a2b7ce5fa113fde78debeea6c4c1d7a6d65"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#4af8fdcc503b7e46da0f6fa52fd740b87f1e974d"
 dependencies = [
  "certval 0.2.0-pre (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
  "log",
@@ -892,7 +892,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_eca"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#9be94a2b7ce5fa113fde78debeea6c4c1d7a6d65"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#4af8fdcc503b7e46da0f6fa52fd740b87f1e974d"
 dependencies = [
  "certval_stores_core",
 ]
@@ -900,7 +900,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_fpki"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#9be94a2b7ce5fa113fde78debeea6c4c1d7a6d65"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#4af8fdcc503b7e46da0f6fa52fd740b87f1e974d"
 dependencies = [
  "certval_stores_core",
 ]
@@ -908,7 +908,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_mozilla"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores-mozilla.git?branch=main#0bb24a91909ba78bec9432f4d4bc1eab151202c7"
+source = "git+https://github.com/carl-wallace/certval-stores-mozilla.git?branch=main#aac9c791429b4867ed6849287a597f0eac159ca0"
 dependencies = [
  "certval_stores_core",
 ]
@@ -916,7 +916,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_nipr"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#9be94a2b7ce5fa113fde78debeea6c4c1d7a6d65"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#4af8fdcc503b7e46da0f6fa52fd740b87f1e974d"
 dependencies = [
  "certval_stores_core",
 ]
@@ -924,7 +924,7 @@ dependencies = [
 [[package]]
 name = "certval_stores_pbdev"
 version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#9be94a2b7ce5fa113fde78debeea6c4c1d7a6d65"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#4af8fdcc503b7e46da0f6fa52fd740b87f1e974d"
 dependencies = [
  "certval_stores_core",
 ]
@@ -5270,7 +5270,7 @@ dependencies = [
 [[package]]
 name = "pkiprocmacros"
 version = "0.1.2"
-source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#086ca54c1a9abdd3e54acf748f15eaac30fd724d"
+source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#93063e700ba9887f57e2aead6f9fdfa82b956afa"
 dependencies = [
  "quote",
  "syn 2.0.119",

@@ -16,6 +16,7 @@ pub mod gui_uri_check;
 pub mod gui_utils;
 pub mod retrieval;
 pub mod settings_store;
+pub mod store_provenance;
 pub mod validate;
 
 /// Shared stylesheet for GUI frontends; embed via a `style` element so each frontend ships one

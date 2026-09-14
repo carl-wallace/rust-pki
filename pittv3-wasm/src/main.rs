@@ -1493,6 +1493,23 @@ fn App() -> Element {
         .get(mode())
         .map(|s| s.origin.hint())
         .unwrap_or_default();
+    // How old that material is, which the origin sentence cannot say: "from a trust store
+    // provider" is a statement about provenance, and a provider's snapshot can be a year and a
+    // half old. Same wording as the desktop, from the shared helper. Joined here rather than in
+    // the markup so a store with no dates to give ends its line at the full stop.
+    let store_age = catalog()
+        .get(mode())
+        .map(|s| {
+            pittv3_gui_lib::store_provenance::material_age(
+                s.published.as_deref(),
+                s.collected.as_deref(),
+            )
+        })
+        .unwrap_or_default();
+    let store_line = match store_age.is_empty() {
+        true => format!("This store is {store_hint}."),
+        false => format!("This store is {store_hint}. {store_age}"),
+    };
 
     // On touch devices (iPad/iPhone) the file picker grays out .cbor/.ta stores unless a generic
     // supertype is offered; on desktop that supertype would defeat the extension filter, so keep
@@ -1608,7 +1625,7 @@ fn App() -> Element {
                                 option { value: "none", selected: mode() == NO_STORE, "None (uploaded trust anchors and CA certificates only)" }
                             }
                             if !store_hint.is_empty() {
-                                span { class: "hint", "This store is {store_hint}." }
+                                span { class: "hint", "{store_line}" }
                             }
                             // What asking a service for its stores produced. Shown here rather than
                             // on a tab of its own: it explains the contents of the selector directly

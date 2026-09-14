@@ -32,6 +32,17 @@ pub struct Store {
     /// `None` for a trust-anchor-only store (e.g. Web PKI roots without preloaded
     /// intermediates); intermediates can then be supplied via upload.
     pub ca_url: Option<&'static str>,
+    /// The date the provider's source says it published this material, `YYYY-MM-DD`, or `None`
+    /// where it says nothing.
+    ///
+    /// Baked in by the build script, which is the only part of this crate that sees the
+    /// provider: the CBOR it fetches carries the certificates and not a word about where they
+    /// came from, so a date reaching the browser any other way would be this application's
+    /// assertion rather than the publisher's.
+    pub published: Option<&'static str>,
+    /// The date the provider collected this material, `YYYY-MM-DD`, or `None` where it records
+    /// none. Same route as [`published`](Store::published).
+    pub collected: Option<&'static str>,
 }
 
 /// Stores shipped alongside the application, always available
@@ -49,18 +60,24 @@ pub const STORES: &[Store] = &[
         // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
         // fetch proxy lands) will cover anything not preloaded here
         ca_url: Some("resources/webpki_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_WEBPKI"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_WEBPKI"),
     },
     Store {
         id: "dod_nipr_prod",
         label: "U.S. DoD (NIPR)",
         ta_url: "resources/dod_nipr_prod_ta.cbor",
         ca_url: Some("resources/dod_nipr_prod_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_PROD"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_PROD"),
     },
     Store {
         id: "dod_eca",
         label: "U.S. DoD (ECA)",
         ta_url: "resources/dod_eca_ta.cbor",
         ca_url: Some("resources/dod_eca_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_ECA"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_ECA"),
     },
 ];
 
@@ -121,6 +138,10 @@ pub struct CatalogEntry {
     pub ca_url: Option<String>,
     /// Where the material came from
     pub origin: StoreOrigin,
+    /// The date the material's source says it published it, `YYYY-MM-DD`, or `None`
+    pub published: Option<String>,
+    /// The date the material was collected from that source, `YYYY-MM-DD`, or `None`
+    pub collected: Option<String>,
 }
 
 /// Where a service says one of its stores came from, as `GET api/stores` reports it.
@@ -154,6 +175,17 @@ pub struct StoreDescriptor {
     /// Where the service says the material came from
     #[serde(default)]
     pub provenance: Provenance,
+    /// The date the service says its source published this material, `YYYY-MM-DD`.
+    ///
+    /// Absent from an older service, and from a store the deployment configured rather than
+    /// generated, so this application has to render a served store that states nothing — the
+    /// same case as a provider that states nothing.
+    #[serde(default)]
+    pub published: Option<String>,
+    /// The date the service says the material was collected, `YYYY-MM-DD`, absent for the same
+    /// reasons as [`published`](StoreDescriptor::published).
+    #[serde(default)]
+    pub collected: Option<String>,
 }
 
 /// The catalogue as it stands before any service has been asked.
@@ -166,6 +198,8 @@ pub fn shipped_catalog() -> Vec<CatalogEntry> {
             ta_url: s.ta_url.to_string(),
             ca_url: s.ca_url.map(str::to_string),
             origin: StoreOrigin::Shipped,
+            published: s.published.map(str::to_string),
+            collected: s.collected.map(str::to_string),
         })
         .collect()
 }
@@ -198,6 +232,8 @@ pub fn merge_service_stores(
             ta_url: d.ta_url,
             ca_url: d.ca_url,
             origin,
+            published: d.published,
+            collected: d.collected,
         });
         added += 1;
     }
@@ -465,6 +501,8 @@ mod tests {
                 ta_url: "stores/webpki/ta.cbor".to_string(),
                 ca_url: Some("stores/webpki/ca.cbor".to_string()),
                 provenance: Provenance::Provider,
+                published: None,
+                collected: Some("2026-08-13".to_string()),
             },
             StoreDescriptor {
                 id: "dod_nipr_prod".to_string(),
@@ -472,6 +510,8 @@ mod tests {
                 ta_url: "stores/dod_nipr_prod/ta.cbor".to_string(),
                 ca_url: Some("stores/dod_nipr_prod/ca.cbor".to_string()),
                 provenance: Provenance::Provider,
+                published: Some("2026-06-12".to_string()),
+                collected: Some("2026-09-11".to_string()),
             },
         ];
 
@@ -482,6 +522,24 @@ mod tests {
         // and the shipped URLs are the ones still in use, not the service's
         let webpki = catalog.iter().find(|e| e.id == "webpki").unwrap();
         assert_eq!(webpki.ta_url, "resources/webpki_ta.cbor");
+    }
+
+    /// The dates arrive through environment variables the build script names from each
+    /// artifact's `id`, and `STORES` reads them back by spelling the same name again. Nothing in
+    /// the language ties the two: a renamed store, or an artifact whose `id` drifts from the
+    /// entry it feeds, leaves `option_env!` returning `None` and the selector quietly saying
+    /// nothing about how old the material is. Every provider behind these three records a
+    /// collection date, so this fails on that mismatch.
+    #[test]
+    fn every_shipped_store_states_when_it_was_collected() {
+        for store in STORES {
+            assert!(
+                store.collected.is_some(),
+                "{} carries no collection date: check that build.rs names it {}",
+                store.id,
+                store.id.to_ascii_uppercase()
+            );
+        }
     }
 
     /// A service that says nothing about where a store came from gets the conservative reading:
