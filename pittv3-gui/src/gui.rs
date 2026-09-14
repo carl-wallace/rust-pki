@@ -1455,6 +1455,9 @@ pub(crate) fn App() -> Element {
     // keeps the two apps' controls reading the same way round -- see the wasm app's
     // "Reuse revocation determinations".
     let s_reuse_rev_cache = use_signal(|| !sa.no_revocation_cache);
+    // Whether fetched CRLs are kept in memory for the run instead of in the CRL folder. Not
+    // inverted like the box above: the argument and the control name the same state.
+    let s_crl_in_memory = use_signal(|| sa.crl_in_memory);
     // Owned here rather than made per run, so a certificate checked on one Validate is not checked
     // again on the next. `Arc<RevocationCache>` implements `RevocationStatusCache` for exactly this
     // -- the run registers a clone and the handle stays here to be cleared.
@@ -1616,6 +1619,7 @@ pub(crate) fn App() -> Element {
             // consumed -- `load_revocation_inputs` sorts by content on the way in.
             rev_inputs: [pool(s_crl_inputs), pool(s_ocsp_inputs)].concat(),
             keep_crl_entries_in_memory: false,
+            crl_in_memory: s_crl_in_memory(),
             no_revocation_cache: !s_reuse_rev_cache(),
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
@@ -2244,6 +2248,16 @@ pub(crate) fn App() -> Element {
                                         name: "no-revocation-cache",
                                         sig: s_reuse_rev_cache,
                                         title: "On, a certificate checked on one path is not checked again on another, including across runs. Off, every path obtains its own revocation data - slower, but each path then carries the evidence for its own result, which an export needs.",
+                                    }
+                                    // Sits here rather than beside the CRL Folder row because it
+                                    // decides what a run does, not where a path points: with it on
+                                    // the folder is neither read nor written, and the run leaves
+                                    // nothing behind.
+                                    CheckboxRow {
+                                        label: "Keep fetched CRLs in memory only",
+                                        name: "crl-in-memory",
+                                        sig: s_crl_in_memory,
+                                        title: "On, CRLs fetched during the run are held in memory for as long as the application runs and the CRL Folder is neither read nor written - useful when a run should leave nothing behind. Without a CRL folder, If-Modified-Since is not used. Off, fetched CRLs are added to the CRL Folder and reused by later runs.",
                                     }
                                     // Clearing is its own action rather than a side effect of the
                                     // checkbox, which is the browser's arrangement and for its

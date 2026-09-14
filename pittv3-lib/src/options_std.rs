@@ -970,9 +970,13 @@ async fn generate_and_validate(
     // Start the clock for entire set of validation actions
     let start = Instant::now();
 
+    // `--crl-in-memory` takes precedence over a folder: the two are alternatives, and asking for
+    // both is a caller saying "keep nothing" alongside a path to keep it in. Nothing is read from
+    // the folder in that case either, which is the point -- a run that leaves nothing behind should
+    // also not start from what an earlier run left.
     #[cfg(all(feature = "std", feature = "revocation"))]
     let crl_source = match &args.crl_folder {
-        Some(crl_folder) => {
+        Some(crl_folder) if !args.crl_in_memory => {
             let crl_source =
                 CrlSourceFolders::with_options(crl_folder, args.keep_crl_entries_in_memory);
             match crl_source.index_crls(cps.get_time_of_interest()) {
@@ -986,11 +990,16 @@ async fn generate_and_validate(
         _ => None,
     };
 
+    // Without a CRL folder, If-Modified-Since is not used: the map records what a folder holds, and
+    // this run holds nothing on disk for it to describe.
     #[cfg(all(feature = "std", feature = "revocation"))]
-    let remote_status = args
-        .crl_folder
-        .as_ref()
-        .map(|crl_folder| RemoteStatus::new(crl_folder));
+    let remote_status = match args.crl_in_memory {
+        true => None,
+        false => args
+            .crl_folder
+            .as_ref()
+            .map(|crl_folder| RemoteStatus::new(crl_folder)),
+    };
 
     #[cfg(all(feature = "std", feature = "revocation"))]
     if let Some(remote_status) = remote_status {
@@ -1009,6 +1018,12 @@ async fn generate_and_validate(
     #[cfg(all(feature = "std", feature = "revocation"))]
     {
         let cache_determinations = !args.no_revocation_cache;
+        // Kept for the life of the run rather than per path, so a CRL fetched for one target serves
+        // the rest. It answers only as a CrlSource: unlike the folder store it retains no verified
+        // serials, so the generic RevocationCache below is what spares a second determination.
+        if args.crl_in_memory {
+            pe.add_crl_source(Box::new(MemoryCrlSource::new()));
+        }
         if let Some(crl_source) = crl_source {
             pe.add_crl_source(Box::new(crl_source.clone()));
             if cache_determinations {

@@ -223,6 +223,19 @@ pub struct Pittv3Args {
     #[serde(default)]
     pub rev_inputs: Vec<String>,
 
+    /// Keep CRLs fetched during the run in memory instead of in a folder, for a run that should
+    /// leave nothing behind.
+    ///
+    /// The store lasts as long as the process: a CRL retrieved for one path is reused by later
+    /// paths and later targets in the same run, and is gone when it exits. Needs no `crl_folder`,
+    /// and takes precedence over one when both are given.
+    ///
+    /// Without a CRL folder, `If-Modified-Since` is not used: the map records what a folder holds,
+    /// and a run keeping its CRLs in memory holds nothing on disk for it to describe.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[serde(default)]
+    pub crl_in_memory: bool,
+
     /// When set together with crl_folder, retain the revoked serial numbers of each verified
     /// full/direct CRL in memory so subsequent certificates under the same scope are answered
     /// without re-parsing or re-verifying the CRL.
