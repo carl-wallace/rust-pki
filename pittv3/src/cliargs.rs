@@ -238,6 +238,14 @@ pub struct Pittv3CliArgs {
     #[clap(long = "rev", value_name = "REV_INPUT", help_heading = "VALIDATION")]
     pub rev_inputs: Vec<String>,
 
+    /// Keep CRLs fetched during the run in memory instead of in a folder, for a run that should
+    /// leave nothing behind. The store lasts as long as the process, so a CRL retrieved for one
+    /// path serves later paths and targets in the same run. Needs no --crl-folder and takes
+    /// precedence over one. Without a CRL folder, If-Modified-Since is not used.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[clap(long, help_heading = "VALIDATION")]
+    pub crl_in_memory: bool,
+
     /// When set together with --crl-folder, retain the revoked serial numbers of each verified
     /// full/direct CRL in memory so subsequent certificates under the same scope are answered
     /// without re-parsing or re-verifying the CRL.
@@ -413,6 +421,8 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             crl_folder: v.crl_folder,
             #[cfg(all(feature = "std", feature = "revocation"))]
             rev_inputs: v.rev_inputs,
+            #[cfg(all(feature = "std", feature = "revocation"))]
+            crl_in_memory: v.crl_in_memory,
             #[cfg(feature = "std")]
             keep_crl_entries_in_memory: v.keep_crl_entries_in_memory,
             #[cfg(all(feature = "std", feature = "revocation"))]
