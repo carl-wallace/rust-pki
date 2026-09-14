@@ -329,16 +329,26 @@ async fn leave_settings_ok(dirty: bool) -> bool {
 }
 
 /// Confirms leaving the settings form with edits that have not been saved.
+///
+/// A question with two named outcomes, because the earlier wording was a statement — *the form has
+/// changes … leaving discards them* — over Yes and No, and neither button answers a statement. The
+/// labels say what each does rather than agreeing or refusing, which is the same rule the in-form
+/// Reset and Revert confirmations already follow.
+///
+/// `Custom` compares by label, so the match is on the discard label itself; anything else, the
+/// window being closed included, keeps the edits.
 async fn confirm_discard_settings() -> bool {
+    let discard = "Discard changes";
     rfd::AsyncMessageDialog::new()
         .set_title("Unsaved settings")
-        .set_description(
-            "The settings form has changes that have not been saved.\n\nLeaving discards them.",
-        )
-        .set_buttons(rfd::MessageButtons::YesNo)
+        .set_description("Discard the unsaved changes to the settings form?")
+        .set_buttons(rfd::MessageButtons::OkCancelCustom(
+            discard.to_string(),
+            "Keep editing".to_string(),
+        ))
         .show()
         .await
-        == rfd::MessageDialogResult::Yes
+        == rfd::MessageDialogResult::Custom(discard.to_string())
 }
 
 /// Where a file dialog should open: the folder that kind of dialog last used, falling back to the

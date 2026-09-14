@@ -321,8 +321,11 @@ fn is_touch_device() -> bool {
 fn confirm_discard_settings() -> bool {
     web_sys::window()
         .and_then(|w| {
+            // The same question the desktop asks. Its buttons cannot be relabelled -- window.confirm
+            // is OK and Cancel -- so the message names what each one does instead, rather than
+            // leaving "OK" to stand for an outcome the reader has to infer.
             w.confirm_with_message(
-                "The settings form has changes that have not been saved.\n\nLeaving discards them.",
+                "Discard the unsaved changes to the settings form?\n\nOK discards them. Cancel returns to the form.",
             )
             .ok()
         })
@@ -1960,6 +1963,17 @@ fn App() -> Element {
                                     "Files use the same JSON format as the PITTv3 CLI and desktop apps. "
                                     "Loading a file replaces every field above. The current settings are also "
                                     "cached in this browser's local storage; use Download to keep a copy."
+                                }
+                                // Says what the button writes, because it is not what the reader is
+                                // looking at: the form holds its own working copy and hands it over on
+                                // Save, so an edit made and not saved is downloaded as its old value
+                                // with nothing on screen to suggest it. Stated rather than fixed by
+                                // making Download read the form -- the form owns that copy, and a
+                                // button that silently downloaded unsaved edits would make "saved" and
+                                // "downloaded" two different answers to the same question.
+                                span { class: "hint",
+                                    "Download writes the settings as last saved, not the edits shown above. "
+                                    "Save first to include them."
                                 }
                                 if !settings_status().is_empty() {
                                     span { class: "hint", "{settings_status}" }
