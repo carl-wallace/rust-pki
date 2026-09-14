@@ -127,7 +127,10 @@ pub async fn validate(state: &ServiceState, input: ValidationInput) -> Validatio
 
     notes.extend(lines);
     let toi = time_of_interest(&settings);
-    let mut report = ValidationReport::from_targets(&targets, toi);
+    // From the settings the run was made under, not from the request: a caller that asked for
+    // revocation checking it did not get would still be told the run checked.
+    let mut report =
+        ValidationReport::from_targets(&targets, toi, Some(settings.get_check_revocation_status()));
     report.duration_ms = started.elapsed().as_millis() as u64;
     ValidationOutcome { report, notes }
 }

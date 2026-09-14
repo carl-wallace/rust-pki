@@ -1479,6 +1479,8 @@ pub async fn validate_targets_retaining(
         totals,
         time_of_interest: cps.get_time_of_interest().as_unix_secs(),
         duration_ms: (Instant::now() - start).as_millis() as u64,
+        // The settings the paths were judged under, so a saved report states its own scope.
+        revocation_checked: Some(cps.get_check_revocation_status()),
         error: None,
     };
     (report, retained)

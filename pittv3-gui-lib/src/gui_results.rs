@@ -127,7 +127,13 @@ pub fn RevocationBadge(outcome: RevocationOutcome) -> Element {
 /// Details for one certification path: certificate chain table (trust-anchor first), per-cert
 /// revocation outcomes, failure information and policy outputs
 #[component]
-pub fn PathDetail(path: PathReport, path_index: usize) -> Element {
+pub fn PathDetail(
+    path: PathReport,
+    path_index: usize,
+    /// See [`TargetCard`]'s field of the same name.
+    #[props(default)]
+    revocation_checked: Option<bool>,
+) -> Element {
     let status_text = match (&path.status, &path.error) {
         (Some(status), _) => format!("{status:?}"),
         (None, Some(_e)) => "Not recorded".to_string(),
@@ -185,6 +191,18 @@ pub fn PathDetail(path: PathReport, path_index: usize) -> Element {
                             td {
                                 if let Some(outcome) = path.revocation.iter().find(|o| o.cert_index == i) {
                                     RevocationBadge { outcome: outcome.clone() }
+                                // An empty cell used to mean both "revocation does not apply here"
+                                // and "this run did not look", which are different facts. Slot 0 is
+                                // the anchor, whose status is not determined as part of the path, so
+                                // it keeps the dash; anything else with no outcome, in a run that
+                                // had revocation off, says so.
+                                // `badge-nopaths`, the same grey `RevocationStatus::NotChecked`
+                                // already uses, rather than the amber of `undetermined`: nobody
+                                // looked and looked-but-could-not-tell are different facts, and the
+                                // amber one is the adverse of the two. The words are identical, so
+                                // the colour is all that would have separated them.
+                                } else if i > 0 && revocation_checked == Some(false) {
+                                    span { class: "badge badge-nopaths", "not checked" }
                                 } else {
                                     "—"
                                 }
@@ -288,7 +306,14 @@ fn nc_rows(s: &NameConstraintsSettings) -> Vec<(&'static str, String)> {
 
 /// Accordion card for one target certificate: status badge summary plus per-path details
 #[component]
-pub fn TargetCard(target: TargetReport, #[props(default)] open: bool) -> Element {
+pub fn TargetCard(
+    target: TargetReport,
+    #[props(default)] open: bool,
+    /// The run's revocation scope, from [`ValidationReport::revocation_checked`], so a row
+    /// with no outcome can say which kind of nothing it is. `None` leaves it unstated.
+    #[props(default)]
+    revocation_checked: Option<bool>,
+) -> Element {
     let path_count = target.paths.len();
     let subject = target
         .target
@@ -325,7 +350,7 @@ pub fn TargetCard(target: TargetReport, #[props(default)] open: bool) -> Element
                 }
             }
             for (i , path) in target.paths.iter().enumerate() {
-                PathDetail { path: path.clone(), path_index: i }
+                PathDetail { path: path.clone(), path_index: i, revocation_checked }
             }
         }
     }
@@ -383,6 +408,17 @@ pub fn ResultsView(report: ValidationReport) -> Element {
                 span { class: "hint", "Time of interest: {toi}" }
                 span { class: "hint", "{report.duration_ms} ms" }
             }
+            // The run's own terms, stated where the verdicts are. Only the negative case is shown:
+            // a run that checked revocation says so through the per-certificate outcomes already,
+            // while a run that did not leaves those cells empty and would otherwise read as a
+            // stronger answer than it is. `None` -- a report that recorded nothing -- says nothing,
+            // which is the honest rendering of an unknown.
+            if report.revocation_checked == Some(false) {
+                p { class: "hint",
+                    "Revocation checking was not in effect for this run: these verdicts are "
+                    "certification path validation alone."
+                }
+            }
             if report.targets.is_empty() {
                 p { class: "hint",
                     "No validation targets were processed (generation, cleanup, diagnostics and "
@@ -390,7 +426,11 @@ pub fn ResultsView(report: ValidationReport) -> Element {
                 }
             }
             for target in report.targets.iter() {
-                TargetCard { target: target.clone(), open: single_target }
+                TargetCard {
+                    target: target.clone(),
+                    open: single_target,
+                    revocation_checked: report.revocation_checked,
+                }
             }
         }
     }

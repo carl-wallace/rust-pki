@@ -321,8 +321,11 @@ fn is_touch_device() -> bool {
 fn confirm_discard_settings() -> bool {
     web_sys::window()
         .and_then(|w| {
+            // The same question the desktop asks. Its buttons cannot be relabelled -- window.confirm
+            // is OK and Cancel -- so the message names what each one does instead, rather than
+            // leaving "OK" to stand for an outcome the reader has to infer.
             w.confirm_with_message(
-                "The settings form has changes that have not been saved.\n\nLeaving discards them.",
+                "Discard the unsaved changes to the settings form?\n\nOK discards them. Cancel returns to the form.",
             )
             .ok()
         })
@@ -387,6 +390,12 @@ fn App() -> Element {
     // which is the validating alone -- with retrieval through the service that is a small fraction
     // of what the user waited for. pittv3-service overrides it the same way (orchestrate.rs).
     let mut run_ms = use_signal(|| 0u64);
+    // Whether the run that produced `targets` had revocation checking in effect, for the report to
+    // state its own terms. Stamped from the settings that run resolved rather than read back from
+    // the form, because the Results view rebuilds the report on every render and the form may have
+    // moved since -- a report is about the run that made it, not about what is on screen now. `None`
+    // until a run has happened, which is also the value a report with no targets carries.
+    let mut run_revocation = use_signal(|| None::<bool>);
 
     // The log buffer lives outside dioxus's reactivity, so nothing re-renders when a run fills it.
     // This tick is bumped where the buffer changes, which is what makes the line count on the button
@@ -859,7 +868,8 @@ fn App() -> Element {
     // downloads the accumulated results as a JSON-serialized ValidationReport via a synthesized
     // anchor click
     let save_results = move |_| {
-        let mut report = ValidationReport::from_targets(&targets.read(), effective_toi());
+        let mut report =
+            ValidationReport::from_targets(&targets.read(), effective_toi(), run_revocation());
         report.duration_ms = run_ms();
         let json = serde_json::to_string_pretty(&report).unwrap_or_default();
         let uri = format!(
@@ -1186,6 +1196,10 @@ fn App() -> Element {
         gloo_timers::future::TimeoutFuture::new(16).await;
 
         let cps = run_settings(&settings(), tier(), have_revocation_uploads());
+        // What this run resolved, kept for the report. `run_settings` is where the unstated default
+        // is decided -- a run that cannot obtain revocation data does not check -- so this is the
+        // answer after that decision rather than the preference that went into it.
+        run_revocation.set(Some(cps.get_check_revocation_status()));
 
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
@@ -1961,6 +1975,17 @@ fn App() -> Element {
                                     "Loading a file replaces every field above. The current settings are also "
                                     "cached in this browser's local storage; use Download to keep a copy."
                                 }
+                                // Says what the button writes, because it is not what the reader is
+                                // looking at: the form holds its own working copy and hands it over on
+                                // Save, so an edit made and not saved is downloaded as its old value
+                                // with nothing on screen to suggest it. Stated rather than fixed by
+                                // making Download read the form -- the form owns that copy, and a
+                                // button that silently downloaded unsaved edits would make "saved" and
+                                // "downloaded" two different answers to the same question.
+                                span { class: "hint",
+                                    "Download writes the settings as last saved, not the edits shown above. "
+                                    "Save first to include them."
+                                }
                                 if !settings_status().is_empty() {
                                     span { class: "hint", "{settings_status}" }
                                 }
@@ -2047,6 +2072,7 @@ fn App() -> Element {
                                         let mut r = ValidationReport::from_targets(
                                             &targets.read(),
                                             effective_toi(),
+                                            run_revocation(),
                                         );
                                         r.duration_ms = run_ms();
                                         r

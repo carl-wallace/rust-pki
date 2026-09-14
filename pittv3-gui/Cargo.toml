@@ -48,7 +48,10 @@ futures-util = { version = "0.3.31", default-features = false }
 home = "0.5.12"
 log = "0.4.33"
 log4rs = "1.4.0"
-rfd = "0.17.2"
+# common-controls-v6 is what lets a message dialog label its own buttons on Windows; without it
+# rfd falls back to OK/Cancel there, and a prompt whose answer is "Discard changes" would be left
+# asking the reader to agree with a statement. No effect on macOS or Linux.
+rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 anyhow = "1.0.100"
 # Already in the tree through the desktop stack; named here to decode the window icon, which tao
 # takes as raw pixels rather than as an encoded image.
