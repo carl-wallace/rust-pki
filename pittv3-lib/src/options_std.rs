@@ -1607,6 +1607,10 @@ async fn generate_and_validate(
         totals: ReportTotals::default(),
         time_of_interest: cps.get_time_of_interest().as_unix_secs(),
         duration_ms: duration.as_millis() as u64,
+        // The settings this run was made under, read here rather than from the arguments: these are
+        // what the paths were judged by, after a settings file and the command line have been folded
+        // together.
+        revocation_checked: Some(cps.get_check_revocation_status()),
         error: None,
     };
     for (name, s) in stats.iter_mut() {

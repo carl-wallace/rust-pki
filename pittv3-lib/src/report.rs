@@ -555,6 +555,22 @@ pub struct ValidationReport {
     /// it. [`ValidationReport::from_targets`] has no such run to time and sums what the paths
     /// report instead, which is the validating alone.
     pub duration_ms: u64,
+    /// Whether revocation checking was in effect for this run, or `None` when the producer did not
+    /// record it.
+    ///
+    /// A run that does not check revocation gives a complete answer to a narrower question, and its
+    /// verdicts are right as they stand — but the answer outlives the screen it was made on, and a
+    /// saved report reading `Valid` with nothing to say revocation was excluded invites being read
+    /// as more than it is. This is the run's scope, not any certificate's standing, which is why it
+    /// belongs here rather than in [`TargetStatus`]: a certificate whose revocation *was* checked
+    /// and came back undetermined is the different case certval already reports as
+    /// `ValidExceptRevocationUndetermined`.
+    ///
+    /// `None` rather than `false` for an unrecorded value, so a report written before this existed
+    /// stays distinguishable from one that states revocation was off. Stamp it from what the run
+    /// resolved, never from a settings form that may have moved since.
+    #[serde(default)]
+    pub revocation_checked: Option<bool>,
     /// Set when the run could not be carried out (e.g. a required input was missing or an output
     /// could not be written). A frontend should surface this as a failure rather than an empty
     /// result. `None` on a report that ran to completion.
@@ -588,7 +604,17 @@ impl ValidationReport {
     /// it, and it grows as targets accumulate, which is the behaviour a caller displaying it wants.
     /// Reporting zero instead was worse than either: a run showing `0 ms` beside paths that each
     /// report real durations reads as a broken clock rather than as an absent one.
-    pub fn from_targets(targets: &[TargetReport], time_of_interest: u64) -> Self {
+    ///
+    /// `revocation_checked` is a parameter rather than something derived from the targets because
+    /// nothing in a finished report distinguishes "revocation was off" from "revocation was on and
+    /// nothing needed checking". The caller knows, and is the only one who does — in a frontend
+    /// whose targets accumulate, it has to be what the *run* resolved and kept, not what the
+    /// settings say now.
+    pub fn from_targets(
+        targets: &[TargetReport],
+        time_of_interest: u64,
+        revocation_checked: Option<bool>,
+    ) -> Self {
         let mut totals = ReportTotals {
             targets: targets.len(),
             ..Default::default()
@@ -610,6 +636,7 @@ impl ValidationReport {
             totals,
             time_of_interest,
             duration_ms,
+            revocation_checked,
             error: None,
         }
     }
@@ -949,12 +976,16 @@ mod tests {
             },
             time_of_interest: 1_770_000_000,
             duration_ms: 15,
+            revocation_checked: Some(false),
             error: None,
         };
 
         let json = serde_json::to_string(&report).unwrap();
         let round_tripped: ValidationReport = serde_json::from_str(&json).unwrap();
         assert_eq!(round_tripped.targets.len(), 1);
+        // The run's scope is the half of a saved report that cannot be recovered by reading the
+        // verdicts, so it has to survive the trip that outlives the screen.
+        assert_eq!(round_tripped.revocation_checked, Some(false));
         let target = &round_tripped.targets[0];
         assert_eq!(target.status, TargetStatus::Invalid);
         assert_eq!(target.paths[0].failure_index, Some(1));
@@ -1259,19 +1290,19 @@ mod tests {
         };
 
         let one = target(vec![path(8), path(19)]);
-        let report = ValidationReport::from_targets(core::slice::from_ref(&one), 0);
+        let report = ValidationReport::from_targets(core::slice::from_ref(&one), 0, None);
         assert_eq!(27, report.duration_ms);
         assert_eq!(2, report.totals.paths_found);
 
         // A second target accumulating into the same view adds its paths' time to the total.
         let two = target(vec![path(5)]);
-        let report = ValidationReport::from_targets(&[one, two], 0);
+        let report = ValidationReport::from_targets(&[one, two], 0, None);
         assert_eq!(32, report.duration_ms);
 
         // No paths is the one case where zero is the truth.
         assert_eq!(
             0,
-            ValidationReport::from_targets(&[target(vec![])], 0).duration_ms
+            ValidationReport::from_targets(&[target(vec![])], 0, None).duration_ms
         );
     }
 
