@@ -60,15 +60,20 @@ impl Log for BufferLogger {
         }
 
         // The download half.
-        if let Ok(mut buffer) = BUFFER.write() {
-            if buffer.len() == MAX_LINES {
-                buffer.pop_front();
-            }
-            buffer.push_back(line);
-        }
+        append(line);
     }
 
     fn flush(&self) {}
+}
+
+/// Adds one line to the buffer, discarding the oldest when the bound is reached.
+fn append(line: String) {
+    if let Ok(mut buffer) = BUFFER.write() {
+        if buffer.len() == MAX_LINES {
+            buffer.pop_front();
+        }
+        buffer.push_back(line);
+    }
 }
 
 /// Claims the `log` global and starts capturing at `level`.
@@ -121,17 +126,19 @@ pub fn clear() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// The buffer is one static shared by the whole process, and the harness runs tests on parallel
+    /// threads, so a test that fills it and a test that reads it back would otherwise see each
+    /// other's lines. Every test that touches the buffer takes this first.
+    static SERIALIZE: Mutex<()> = Mutex::new(());
 
     #[test]
     fn oldest_lines_go_first_and_the_bound_holds() {
+        let _serialized = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
         clear();
         for i in 0..(MAX_LINES + 10) {
-            if let Ok(mut b) = BUFFER.write() {
-                if b.len() == MAX_LINES {
-                    b.pop_front();
-                }
-                b.push_back(format!("line {i}"));
-            }
+            append(format!("line {i}"));
         }
         assert_eq!(MAX_LINES, len(), "the bound holds");
         let text = contents();

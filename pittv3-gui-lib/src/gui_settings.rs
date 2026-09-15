@@ -111,8 +111,12 @@ fn CapabilityNotice(message: String) -> Element {
 
 /// Table row for the time of interest: the epoch value, a Now button, and a human-readable picker
 /// mirroring it. An empty value clears the override, which means "the time of the run".
+///
+/// Public because the time of interest is not only a setting: it decides which of a store's
+/// certificates are usable, so the Inspect view shows it beside the report it governs rather than
+/// leaving a reader to find it on another tab.
 #[component]
-fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>) -> Element {
+pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>) -> Element {
     let display = value.map(|v| v.to_string()).unwrap_or_default();
     // Empty while the value is absent or disabled (0), so the picker does not claim a time that is
     // not in effect.

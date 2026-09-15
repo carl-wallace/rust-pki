@@ -63,23 +63,17 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
     let named_file = Path::new(&ca_folder).is_file();
     let collect_tas = cps.get_cbor_ta_store();
 
-    #[cfg(feature = "remote")]
-    let chasing = cps.get_retrieve_from_aia_sia_http() && !collect_tas;
-
     // Absent a download folder the CA folder receives what is fetched, which a file cannot do. Only
     // a run that chases has anything to write, so this is an error for those runs alone.
     #[cfg(feature = "remote")]
-    if named_file && chasing && cps.get_download_folder().is_none() {
+    if named_file
+        && cps.get_retrieve_from_aia_sia_http()
+        && !collect_tas
+        && cps.get_download_folder().is_none()
+    {
         error!("a download folder is required when AIA and SIA are chased and the CA input names a file rather than a folder");
         return Err(Error::NotFound);
     }
-
-    #[cfg(feature = "remote")]
-    let download_folder = if let Some(download_folder) = cps.get_download_folder() {
-        download_folder
-    } else {
-        ca_folder.clone()
-    };
 
     let toi = cps.get_time_of_interest();
 
@@ -96,6 +90,56 @@ pub async fn build_graph(pe: &PkiEnvironment, cps: &CertificationPathSettings) -
             ca_folder, e
         );
     }
+
+    // The CA folder stands in as the destination for what a chase fetches when none was named,
+    // which only this entry point can offer -- a caller gathering its own certificates has no one
+    // folder to fall back to.
+    #[cfg(feature = "remote")]
+    let cps = &match cps.get_download_folder() {
+        Some(_) => cps.clone(),
+        None => {
+            let mut with_destination = cps.clone();
+            with_destination.set_download_folder(ca_folder.clone());
+            with_destination
+        }
+    };
+
+    build_graph_from(pe, cps, cert_store).await
+}
+
+/// Similar to [`build_graph`] but takes certificates the caller has already gathered.
+///
+/// The gathering is the part that differs between callers: one names a folder, another accumulates
+/// a pile of files, bundles, InstallRoot streams and existing stores. What follows is the same
+/// either way -- chase if asked, discover the partial paths, and serialize -- so it lives here and
+/// [`build_graph`] is the one-folder case of it.
+///
+/// A chasing build needs [`PS_DOWNLOAD_FOLDER`] set: there is no CA folder to fall back to when the
+/// certificates did not come from one.
+pub async fn build_graph_from(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    mut cert_store: CertSource,
+) -> Result<Vec<u8>> {
+    // Both of these serve the chase alone -- the path discovery below asks `cps` for itself -- so
+    // in a build without `remote` there is nothing to bind them for.
+    #[cfg(feature = "remote")]
+    let chasing = cps.get_retrieve_from_aia_sia_http() && !cps.get_cbor_ta_store();
+
+    #[cfg(feature = "remote")]
+    let download_folder = match cps.get_download_folder() {
+        Some(download_folder) => download_folder,
+        None => {
+            if chasing {
+                error!("a download folder is required when AIA and SIA are chased");
+                return Err(Error::NotFound);
+            }
+            String::new()
+        }
+    };
+
+    #[cfg(feature = "remote")]
+    let toi = cps.get_time_of_interest();
 
     #[cfg(feature = "remote")]
     if chasing {

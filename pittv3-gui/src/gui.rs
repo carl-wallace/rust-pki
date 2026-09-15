@@ -21,24 +21,26 @@ use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
 
 use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
-// Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
-#[cfg(not(target_os = "macos"))]
-use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
+use pittv3_lib::edit::{
+    apply_edits, cleanup_candidates, generate_and_report, EditedStore, StagedEdits,
+};
+use pittv3_lib::inspect::{anchor_bytes, certificate_bytes, Inspected};
+use pittv3_lib::options_std::inspect_args;
 
 use std::sync::Mutex;
 
 use crate::save::{self, RetainedArtifacts};
 use pittv3_gui_lib::export::{
-    pool_includes_ca_store, pool_includes_ta_store, stamped_export_name, RunInputs,
+    pool_includes_ca_store, pool_includes_ta_store, stamped_export_name, zip_files, RunInputs,
     DEFAULT_EXPORT_NAME,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
+use pittv3_gui_lib::gui_inspect::InspectReportView;
+use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
-use pittv3_gui_lib::gui_rows::{
-    BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TextRow, TimeRow,
-};
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TimeRow};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
@@ -260,21 +262,6 @@ async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
     }
 }
 
-/// Presents a selection dialog that accepts either a file or a folder and assigns the selection,
-/// if any, to `sig`. macOS only: `rfd` implements the combined dialog for that platform alone, so
-/// other platforms offer the two dialogs as separate buttons instead (see [`PathRow`]).
-#[cfg(target_os = "macos")]
-async fn pick_file_or_folder_into(mut sig: Signal<String>) {
-    let picked = AsyncFileDialog::new()
-        .set_directory(dialog_dir(DialogPurpose::Open))
-        .pick_file_or_folder()
-        .await;
-    if let Some(picked) = picked {
-        remember_pick(DialogPurpose::Open, picked.path());
-        sig.set(picked.path().to_string_lossy().to_string());
-    }
-}
-
 /// Asks where to put an export and writes it there, reporting either outcome into the run log.
 ///
 /// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
@@ -406,8 +393,8 @@ fn extend_pool(mut sig: Signal<Vec<String>>, picked: Vec<String>) {
 }
 
 /// Presents a multi-select dialog accepting files and folders together and appends what was chosen
-/// to the pool in `sig`. macOS only, as with [`pick_file_or_folder_into`]: `rfd` implements the
-/// combined dialog for that platform alone.
+/// to the pool in `sig`. macOS only: `rfd` implements the combined dialog for that platform alone,
+/// so other platforms offer the two dialogs as separate buttons instead.
 #[cfg(target_os = "macos")]
 async fn pick_files_or_folders_into(sig: Signal<Vec<String>>) {
     let picked = AsyncFileDialog::new()
@@ -704,14 +691,6 @@ fn spawn_pool_count(
     });
 }
 
-/// Returns the value of `sig` as a usize, or None if the value is empty or cannot be parsed
-fn usize_or_none(sig: Signal<String>) -> Option<usize> {
-    match string_or_none(sig) {
-        Some(v) => v.parse::<usize>().ok(),
-        None => None,
-    }
-}
-
 /// Table row with a labeled text input and a folder selection dialog. Thin wrapper over the shared
 /// [`BrowseRow`] supplying the native picker, which is the only part of the row that is not
 /// portable.
@@ -735,59 +714,11 @@ fn FolderRow(
     }
 }
 
-/// Row for an input that accepts either a folder of certificates or a single certificate
-/// file, which is what the trust anchor and CA inputs take.
-///
-/// macOS can offer both in one dialog, so there the `...` button does; every other platform has to
-/// choose a dialog kind up front, so the row carries a second button. The distinction is only about
-/// how the path is chosen — a typed or pasted path of either kind works everywhere, because the run
-/// decides from the path itself rather than from which button produced it.
-#[component]
-fn PathRow(
-    label: String,
-    name: String,
-    sig: Signal<String>,
-    #[props(default)] title: String,
-) -> Element {
-    #[cfg(target_os = "macos")]
-    return rsx! {
-        BrowseRow {
-            label,
-            name,
-            sig,
-            title,
-            on_browse: move |_| {
-                spawn(pick_file_or_folder_into(sig));
-            },
-        }
-    };
-
-    #[cfg(not(target_os = "macos"))]
-    return rsx! {
-        BrowseRow {
-            label,
-            name,
-            sig,
-            title,
-            on_browse: move |_| {
-                spawn(pick_folder_into(sig));
-            },
-            on_browse_alt: move |_| {
-                spawn(pick_file_into(sig, "Certificate File", CERT_EXTENSIONS));
-            },
-            // Named rather than left as the bare "..." the single-dialog platforms show. Beside a
-            // button that says File, an ellipsis reads as "more" rather than as the other kind.
-            primary_label: "Folder\u{2026}",
-            alt_label: "File\u{2026}",
-        }
-    };
-}
-
 /// Row for a pool of inputs that may each be a file or a folder — the trust anchor, CA and
 /// end entity lists on the Validate view, and the revocation artifacts beside them.
 ///
-/// Thin wrapper over the shared [`PathListRow`], supplying the native pickers. The platform split
-/// is [`PathRow`]'s: macOS offers files and folders in one dialog, so one Add button does both;
+/// Thin wrapper over the shared [`PathListRow`], supplying the native pickers. macOS offers files
+/// and folders in one dialog, so one Add button does both;
 /// everywhere else the two dialogs are separate and so are the buttons. Either way a typed path of
 /// either kind works, because the run decides from the path rather than from which button produced
 /// it.
@@ -842,13 +773,6 @@ fn PoolRow(
         }
     };
 }
-
-/// Extensions offered when picking a certificate file as a trust anchor or CA input. Both fan a
-/// file out into every certificate it holds, so this is the bundle list. Only the platforms that
-/// need a separate file dialog filter by extension; the combined macOS dialog does not, since a
-/// folder has no extension to match.
-#[cfg(not(target_os = "macos"))]
-const CERT_EXTENSIONS: &[&str] = TA_BUNDLE_EXTENSIONS;
 
 /// Extensions suggested for the trust anchor and CA pools: the bundle list plus the CBOR stores
 /// this app itself exports, which those pools read as readily as they read a certificate.
@@ -1007,7 +931,6 @@ fn UriCheckView() -> Element {
 enum View {
     Validate,
     Generate,
-    Cleanup,
     Inspect,
     CheckUris,
     Settings,
@@ -1030,7 +953,6 @@ const VIEWS: &[(View, &str)] = &[
     (View::Settings, "Settings"),
     (View::CheckUris, "Check URIs"),
     (View::Generate, "Generate"),
-    (View::Cleanup, "Cleanup"),
     (View::Inspect, "Inspect"),
     (View::Help, "Help"),
 ];
@@ -1161,6 +1083,136 @@ fn StoreHint(selection: usize) -> Element {
 /// reports nothing, which reads as the app failing rather than as the form being incomplete. The
 /// button says what is missing instead. `nothing_to_do` names the sentence; an empty one leaves the
 /// button enabled, which is what every view that always has something to do passes.
+/// Saves exported certificates where the user says, reporting what happened through the Inspect
+/// view's own notes.
+///
+/// Prompted rather than written to a configured folder, and opening where the last save went, which
+/// is what every other export in this application does. One certificate is saved as itself; several
+/// are saved as a zip, which is also what the browser hands over — so the same button produces the
+/// same artifact in either frontend.
+///
+/// A function rather than a closure because two handlers need it, and a closure capturing the notes
+/// signal cannot be moved into both.
+async fn save_certificates(
+    mut notes: Signal<Vec<ResultLine>>,
+    archive_name: String,
+    files: Vec<(String, Vec<u8>)>,
+) {
+    let (suggested, extensions, bytes) = match files.len() {
+        0 => return,
+        1 => (
+            files[0].0.clone(),
+            ["der", "crt", "cer"].as_slice(),
+            files[0].1.clone(),
+        ),
+        _ => match zip_files(&archive_name, &files) {
+            Ok(zipped) => (
+                format!("{archive_name}-certificates.zip"),
+                ["zip"].as_slice(),
+                zipped,
+            ),
+            Err(e) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: format!("Failed to build the archive: {e}"),
+                });
+                return;
+            }
+        },
+    };
+
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .set_file_name(&suggested)
+        .add_filter("export", extensions)
+        .save_file()
+        .await
+    else {
+        // A cancelled dialog is a decision, not a failure, and saying so would be noise.
+        return;
+    };
+
+    let path = handle.path().to_path_buf();
+    match std::fs::write(&path, &bytes) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                remember_dialog_dir(DialogPurpose::Save, parent);
+            }
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {} certificate(s) to {}", files.len(), path.display()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to write {}: {e}", path.display()),
+        }),
+    }
+}
+
+/// Saves one of the Inspect tables' summaries where the user says, opening where the last save
+/// went. The same prompt the certificates get, because a summary is an export like any other.
+async fn save_document(mut notes: Signal<Vec<ResultLine>>, suggested: String, body: String) {
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .set_file_name(&suggested)
+        .add_filter("export", &["csv"])
+        .save_file()
+        .await
+    else {
+        return;
+    };
+    let path = handle.path().to_path_buf();
+    match std::fs::write(&path, body.as_bytes()) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                remember_dialog_dir(DialogPurpose::Save, parent);
+            }
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {}", path.display()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to write {}: {e}", path.display()),
+        }),
+    }
+}
+
+/// Writes an edited store where the user says: a folder, and the two halves under the names they
+/// are read back by.
+///
+/// Prompted, and never writing back over what was opened unless that is the folder chosen. The
+/// pair is one artifact, so one prompt covers both.
+async fn save_store_files(mut notes: Signal<Vec<ResultLine>>, store: EditedStore) {
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .pick_folder()
+        .await
+    else {
+        return;
+    };
+    let dir = handle.path().to_path_buf();
+    let ta = dir.join("ta.cbor");
+    let ca = dir.join("ca.cbor");
+
+    for (path, bytes) in [(&ta, &store.ta_cbor), (&ca, &store.ca_cbor)] {
+        if let Err(e) = std::fs::write(path, bytes) {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: format!("Failed to write {}: {e}", path.display()),
+            });
+            return;
+        }
+    }
+    remember_dialog_dir(DialogPurpose::Save, &dir);
+    notes.write().push(ResultLine {
+        class: "ok",
+        text: format!("Wrote {} to {}", store.summary(), dir.display()),
+    });
+}
+
 #[component]
 fn RunButton(
     running: bool,
@@ -1170,7 +1222,7 @@ fn RunButton(
 ) -> Element {
     let idle = !nothing_to_do.is_empty();
     rsx! {
-        div { style: "text-align:center",
+        div { class: "center-row",
             button {
                 r#type: "button",
                 class: "run-button",
@@ -1446,7 +1498,12 @@ pub(crate) fn App() -> Element {
     let s_download_folder =
         use_signal(|| saved_or_default(sa.download_folder.clone(), default_download_folder));
     let s_ca_folder = use_signal(|| saved_or_default(sa.ca_folder.clone(), default_ca_folder));
-    let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
+    // The Generate form's own, like the time of interest an inspection carries: it governs whether
+    // that build grows the graph by following AIA and SIA, and nothing else reads it. Not seeded
+    // from the saved arguments and not written back to them -- chasing reaches the network and
+    // takes as long as the repositories do, so it is asked for per build rather than left set from
+    // whenever it was last used.
+    let s_chase_while_building = use_signal(|| false);
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
@@ -1504,27 +1561,8 @@ pub(crate) fn App() -> Element {
     // the form knows; it is held here because the sidebar that navigates away from the form is here.
     let mut s_settings_dirty = use_signal(|| false);
     let s_crl_folder = use_signal(|| saved_or_default(sa.crl_folder.clone(), default_crl_folder));
-    let s_cleanup = use_signal(|| sa.cleanup);
-    let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
-    let s_report_only = use_signal(|| sa.report_only);
-    let s_list_partial_paths = use_signal(|| sa.list_partial_paths);
-    let s_list_buffers = use_signal(|| sa.list_buffers);
-    let s_list_aia_and_sia = use_signal(|| sa.list_aia_and_sia);
-    let s_list_name_constraints = use_signal(|| sa.list_name_constraints);
-    let s_list_trust_anchors = use_signal(|| sa.list_trust_anchors);
-    let s_dump_cert_at_index = use_signal(|| {
-        sa.dump_cert_at_index
-            .map(|u| u.to_string())
-            .unwrap_or_default()
-    });
     let s_list_partial_paths_for_target =
         use_signal(|| sa.list_partial_paths_for_target.clone().unwrap_or_default());
-    let s_list_partial_paths_for_leaf_ca = use_signal(|| {
-        sa.list_partial_paths_for_leaf_ca
-            .map(|u| u.to_string())
-            .unwrap_or_default()
-    });
-    let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
 
     // run state: the validation run executes on a worker thread so the WebView stays responsive;
     // results and log output flow back over channels and are applied to signals on the UI side only
@@ -1567,8 +1605,8 @@ pub(crate) fn App() -> Element {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
             // The Validate view's pools. Passed alongside the singular arguments rather than
-            // instead of them, because those still have rows on Generate, Cleanup and Inspect
-            // and are the same arguments; an input named twice is carried once, since `push`
+            // instead of them, because those still have rows on Generate and Inspect and are
+            // the same arguments; an input named twice is carried once, since `push`
             // deduplicates on both the anchor and the certificate side.
             ta_inputs: pool(s_ta_inputs),
             // Set by the store selector alone. As a checkbox this could be combined with any other
@@ -1599,7 +1637,6 @@ pub(crate) fn App() -> Element {
             // tab called Generate has already said it. The checkbox that used to set this could be
             // left off while pressing that button, which ran and did nothing.
             generate: s_view() == View::Generate,
-            chase_aia_and_sia: s_chase_aia_and_sia(),
             cbor_ta_store: false,
             validate_all: s_validate_all(),
             check_uris_when_validating: s_check_uris(),
@@ -1621,18 +1658,28 @@ pub(crate) fn App() -> Element {
             keep_crl_entries_in_memory: false,
             crl_in_memory: s_crl_in_memory(),
             no_revocation_cache: !s_reuse_rev_cache(),
-            cleanup: s_cleanup(),
-            ta_cleanup: s_ta_cleanup(),
-            report_only: s_report_only(),
-            list_partial_paths: s_list_partial_paths(),
-            list_buffers: s_list_buffers(),
-            list_aia_and_sia: s_list_aia_and_sia(),
-            list_name_constraints: s_list_name_constraints(),
-            list_trust_anchors: s_list_trust_anchors(),
-            dump_cert_at_index: usize_or_none(s_dump_cert_at_index),
+            // Folder cleanup is a command line action; the GUI marks rows in the Inspect tables
+            // and writes a new store instead of pruning the folders it was given.
+            cleanup: false,
+            ta_cleanup: false,
+            report_only: false,
+            // The listing switches are command line arguments this application no longer sets:
+            // Inspect reports the whole store and the view selects within it, so there is nothing
+            // here to turn on or off. The flags remain for the command line, which still has them.
+            list_partial_paths: false,
+            list_buffers: false,
+            list_aia_and_sia: false,
+            list_name_constraints: false,
+            list_trust_anchors: false,
+            dump_cert_at_index: None,
             list_partial_paths_for_target: path_or_none(s_list_partial_paths_for_target),
-            list_partial_paths_for_leaf_ca: usize_or_none(s_list_partial_paths_for_leaf_ca),
-            mozilla_csv: path_or_none(s_mozilla_csv),
+            // A leaf CA is a row in the report, so asking about one is selecting it rather than
+            // naming an index in advance.
+            list_partial_paths_for_leaf_ca: None,
+            // A CCADB export is converted once, which is a command line errand: `--mozilla-csv`
+            // writes the certificates it holds into a folder. The built Web PKI store the providers
+            // ship is what this application offers instead.
+            mozilla_csv: None,
             check_uris: None,
             issuer: None,
             no_auto_discover: false,
@@ -1680,6 +1727,208 @@ pub(crate) fn App() -> Element {
                 }
             }
             s_peeking.set(false);
+        });
+    };
+
+    // Inspect does not validate, so it has no result to send to the Results view and nothing to
+    // say through the run log. It answers with a report the view renders in place.
+    // The time an inspection asks about. Its own value rather than the one the other views share,
+    // because it belongs to the operation: it decides which of the store's certificates are usable
+    // and nothing else. Seeded from the shared value so the view opens on the time in play.
+    let s_inspect_toi = use_signal(|| get_now_as_unix_epoch().to_string());
+    let mut s_inspected = use_signal(|| None::<Inspected>);
+    // What is marked for removal. Cleared whenever a new report arrives, since a position means
+    // something else once a different store is under it.
+    let mut s_inspect_edits = use_signal(StagedEdits::default);
+    let mut s_inspect_notes = use_signal(Vec::<ResultLine>::new);
+    let mut s_inspect_running = use_signal(|| false);
+
+    let run_inspect = move |_| {
+        s_inspect_running.set(true);
+        s_inspect_notes.write().clear();
+
+        let args = match current_args() {
+            Ok(mut args) => {
+                // An inspection reads exactly one setting, so it takes its own rather than the one
+                // the other views share: nothing else in parsing, indexing or path discovery
+                // consults the settings at all.
+                args.time_of_interest = s_inspect_toi()
+                    .parse::<u64>()
+                    .unwrap_or_else(|_| get_now_as_unix_epoch());
+                // A named store and a named CBOR file compose rather than displacing each other.
+                // `current_args` fills the singular arguments from the store when there is one, so
+                // the files go in as inputs, where both loaders merge them -- and carry a store
+                // that names the same anchor once, since each pushes through a deduplicating path.
+                if let Some(path) = path_or_none(s_ta_cbor) {
+                    args.ta_inputs.push(path);
+                }
+                if let Some(path) = path_or_none(s_cbor) {
+                    args.ca_inputs.push(path);
+                }
+                args
+            }
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                s_inspect_running.set(false);
+                return;
+            }
+        };
+
+        match inspect_args(&args) {
+            Ok(inspected) => {
+                s_inspect_edits.write().clear();
+                s_inspected.set(Some(inspected));
+            }
+            Err(e) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: e.to_string(),
+                });
+                s_inspected.set(None);
+            }
+        }
+        s_inspect_running.set(false);
+    };
+
+    // Certificates the reader asked for, written where this application already puts what a run
+    // hands back. The lookup is the shared one; only the disposal is this frontend's.
+    // Generation shares the report the Inspect view renders: a store you just built is the store
+    // you are looking at, and switching tabs should not lose it.
+    let mut s_generate_running = use_signal(|| false);
+    let run_generate = move |_| {
+        s_generate_running.set(true);
+        s_inspect_notes.write().clear();
+
+        let args = match current_args() {
+            Ok(mut args) => {
+                // This build's own choice, not the Validate view's: the two share the argument but
+                // not the control, so a chase asked for here does not turn dynamic building on for
+                // a validation run.
+                args.dynamic_build = s_chase_while_building();
+                args
+            }
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                s_generate_running.set(false);
+                return;
+            }
+        };
+
+        spawn(async move {
+            match generate_and_report(&args).await {
+                Ok(inspected) => {
+                    s_inspect_notes.write().push(ResultLine {
+                        class: "ok",
+                        text: format!(
+                            "Built {} — save it to write the store",
+                            inspected.report.summary()
+                        ),
+                    });
+                    s_inspect_edits.write().clear();
+                    s_inspected.set(Some(inspected));
+                }
+                Err(msg) => {
+                    s_inspect_notes.write().push(ResultLine {
+                        class: "err",
+                        text: msg,
+                    });
+                    s_inspected.set(None);
+                }
+            }
+            s_generate_running.set(false);
+        });
+    };
+
+    let toggle_inspect_cert = move |index: usize| s_inspect_edits.write().toggle_cert(index);
+    let toggle_inspect_anchor = move |index: usize| s_inspect_edits.write().toggle_anchor(index);
+
+    // Applying the marks yields a new store rather than changing what was opened, so this asks
+    // where the two halves go. A folder rather than two prompts: the pair is one artifact and the
+    // names it is read back under are fixed.
+    let save_inspected_store = move |_| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let toi = s_inspect_toi()
+            .parse::<u64>()
+            .unwrap_or_else(|_| get_now_as_unix_epoch());
+        let written = apply_edits(inspected, &s_inspect_edits(), toi);
+        drop(held);
+
+        match written {
+            Ok(store) => {
+                spawn(async move {
+                    save_store_files(s_inspect_notes, store).await;
+                });
+            }
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+            }
+        }
+    };
+
+    let mark_unusable = move |_| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let candidates = cleanup_candidates(
+            inspected,
+            s_inspect_toi()
+                .parse::<u64>()
+                .unwrap_or_else(|_| get_now_as_unix_epoch()),
+        );
+        drop(held);
+        let mut edits = s_inspect_edits.write();
+        for index in candidates {
+            if !edits.cert_removed(index) {
+                edits.toggle_cert(index);
+            }
+        }
+    };
+    let clear_marks = move |_| s_inspect_edits.write().clear();
+
+    let export_certificates = move |indices: Vec<usize>| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = certificate_bytes(&inspected.certs, &indices);
+        drop(held);
+        let name = stamped_export_name(&s_export_name(), now_as_unix_epoch());
+        spawn(async move {
+            save_certificates(s_inspect_notes, name, files).await;
+        });
+    };
+
+    let export_anchor_certificates = move |indices: Vec<usize>| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = anchor_bytes(&inspected.anchors, &indices);
+        drop(held);
+        let name = stamped_export_name(&s_export_name(), now_as_unix_epoch());
+        spawn(async move {
+            save_certificates(s_inspect_notes, name, files).await;
+        });
+    };
+
+    // An exported table goes into the download folder, which is where this application already
+    // puts what a run hands back.
+    let export_inspected = move |(name, body): (String, String)| {
+        spawn(async move {
+            save_document(s_inspect_notes, name, body).await;
         });
     };
 
@@ -2358,64 +2607,35 @@ pub(crate) fn App() -> Element {
                         // a parenthesised "(output)" used to say which row was which. The group
                         // names carry that; they are not the tab's own name repeated back, which is
                         // what the boxes removed from the other views were doing.
+                        // Pools rather than single paths: a store is built out of whatever a
+                        // reader has -- a folder here, a bundle there, an InstallRoot stream, an
+                        // existing store to start from -- and the run tells them apart by the path
+                        // and then by the bytes. Which pool something lands in decides which half
+                        // of the store it becomes, except a stream, which carries both.
                         fieldset {
                             legend { "Inputs" }
                             div { class: "controls",
-                                // Named for what they hold rather than for the shape they take:
-                                // a folder, a certificate, a bundle and a store are all accepted
-                                // and told apart from the path and then the bytes, so "Folder or
-                                // File" spent the label on the one distinction that does not
-                                // matter.
-                                PathRow {
-                                    label: "Trust anchors",
-                                    name: "ta-folder",
-                                    sig: s_ta_folder,
-                                }
-                                PathRow {
-                                    label: "CA certificates",
-                                    name: "ca-folder",
-                                    sig: s_ca_folder,
-                                }
-                                // An input in the sense that matters here: it fills the CA folder
-                                // above, which generation then reads.
-                                FileRow {
-                                    label: "Mozilla CSV",
-                                    name: "mozilla-csv",
-                                    sig: s_mozilla_csv,
-                                    filter_name: "CSV file",
-                                    extensions: ["csv"].as_slice(),
-                                }
+                            PoolRow {
+                                label: "Trust Anchors",
+                                name: "ta",
+                                sig: s_ta_inputs,
+                                filter_name: "Trust anchor, bundle or CBOR store",
+                                extensions: TA_POOL_EXTENSIONS,
+                                contents: plural(s_pool_counts().trust_anchors, "trust anchor"),
                             }
-                        }
-                        fieldset {
-                            legend { "Output" }
-                            div { class: "controls",
-                                // A trust store is a pair, so the two parts get a row each and
-                                // naming one is how you ask for it. This replaces a single row
-                                // whose label followed a "CBOR TA store" checkbox: the path
-                                // carried over when that flipped, so a filename chosen for one
-                                // part silently became the destination for the other.
-                                //
-                                // Both named is the ordinary case, not an ambiguity -- generation
-                                // runs once per part. The command line makes the same store in two
-                                // invocations; this view combines them.
-                                FileRow {
-                                    label: "Trust anchor store",
-                                    name: "ta-cbor",
-                                    sig: s_ta_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                    extensions: ["cbor", "pki", "ta"].as_slice(),
-                                }
-                                FileRow {
-                                    label: "CA store",
-                                    name: "cbor",
-                                    sig: s_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized PKI",
-                                    extensions: ["cbor", "pki"].as_slice(),
-                                }
+                            PoolRow {
+                                label: "CA Certificates",
+                                name: "ca",
+                                sig: s_ca_inputs,
+                                filter_name: "Certificate, bundle or CBOR store",
+                                // The same list the anchor pool uses: the shapes are identical, and
+                                // which pool a file lands in is what decides its role.
+                                extensions: TA_POOL_EXTENSIONS,
+                                contents: plural(
+                                    s_pool_counts().ca_certificates,
+                                    "CA certificate",
+                                ),
                             }
-                            p { class: "hint",
-                                "A trust store is a pair: the trust anchor part holds the roots, the CA part holds intermediate CA certificates together with the partial paths found for them. Name one to write that part, or both to write the whole store."
                             }
                         }
                         fieldset {
@@ -2427,8 +2647,8 @@ pub(crate) fn App() -> Element {
                                 div { class: "field check-group",
                                     CheckboxCell {
                                         label: "Follow AIA and SIA URIs while building",
-                                        name: "chase-aia-and-sia",
-                                        sig: s_chase_aia_and_sia,
+                                        name: "chase-while-building",
+                                        sig: s_chase_while_building,
                                     }
                                 }
                                 // Beside the option it serves: this is where chasing puts what it
@@ -2438,148 +2658,100 @@ pub(crate) fn App() -> Element {
                             }
                         }
                         RunButton {
-                            running: s_running(),
-                            onrun: run_command,
-                            label: match (s_cbor().is_empty(), s_ta_cbor().is_empty()) {
-                                (false, false) => "Generate both parts of the store",
-                                (false, true) => "Generate the CA store",
-                                _ => "Generate the trust anchor store",
-                            },
-                            nothing_to_do: match s_cbor().is_empty() && s_ta_cbor().is_empty() {
-                                true => "Name a store to write",
+                            running: s_generate_running(),
+                            onrun: run_generate,
+                            label: "Generate the store".to_string(),
+                            nothing_to_do: match s_ca_folder().is_empty() {
+                                true => "Name a folder of CA certificates",
                                 false => "",
                             },
                         }
-                    },
-                    View::Cleanup => rsx! {
-                        // One grid for the whole view. Each `.controls` is a separate CSS grid
-                        // that measures its own label column, so splitting the rows across three of
-                        // them left three columns of different widths and no two labels lining up.
-                        // The group box used to hide that; without it there is nothing to hide it.
-                        div { class: "controls",
-                            FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                            FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                            FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            // Labelled like every other row rather than floating in the grid's
-                            // first column, which is where an unlabelled field lands.
-                            div { class: "visible label-cell",
-                                label { "Actions: " }
-                            }
-                            // Report Only modifies the two actions rather than being one, so it
-                            // is unavailable while neither is chosen. Disabled rather than
-                            // hidden, and the signal is left alone: the choice comes back with
-                            // the control.
-                            div { class: "field check-group",
-                                CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
-                                CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
-                                CheckboxCell {
-                                    label: "Report Only",
-                                    name: "report-only",
-                                    sig: s_report_only,
-                                    disabled: !s_cleanup() && !s_ta_cleanup(),
-                                }
-                            }
+                        for note in s_inspect_notes() {
+                            p { class: "{note.class}", "{note.text}" }
                         }
-                        // The only view that removes material, and it had nothing to say about
-                        // what it removes or what decides. The time of interest is named
-                        // because it is the criterion rather than a filter on the report: a
-                        // wrong value here does not produce a wrong answer to run again, it
-                        // moves certificates that were fine.
-                        p { class: "hint",
-                            if s_report_only() {
-                                "Lists the certificates a run could not use — unparseable, not valid at the time of interest, self-signed, or not a CA — without touching anything. The time of interest is what decides."
-                            } else if s_error_folder().is_empty() {
-                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. No Error Folder is set, so they are deleted rather than moved. The time of interest is what decides. Check Report Only to see what would go first."
-                            } else {
-                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. They are moved to the Error Folder rather than deleted. The time of interest is what decides. Check Report Only to see what would go first."
+                        // The same tables an inspection produces: what was built is described
+                        // before it is written, and saving is the same errand from either view.
+                        if let Some(report) = s_inspected.read().as_ref().map(|i| i.report.clone()) {
+                            InspectReportView {
+                                report,
+                                edits: s_inspect_edits(),
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_cert: toggle_inspect_cert,
+                                on_toggle_anchor: toggle_inspect_anchor,
+                                on_save: save_inspected_store,
                             }
-                        }
-                        RunButton {
-                            running: s_running(),
-                            onrun: run_command,
-                            label: "Clean up the store",
-                            // Both actions off is a legal run that removes nothing, which reads as
-                            // "the folders were already clean" rather than as nothing being asked.
-                            nothing_to_do: match !s_cleanup() && !s_ta_cleanup() {
-                                true => "Choose Cleanup or TA Cleanup",
-                                false => "",
-                            },
                         }
                     },
                     View::Inspect => rsx! {
                         p { class: "hint",
-                            "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
+                            "Reports what a store holds, without validating anything. Every certificate the store carries and every partial path over them is listed; select a row to see its detail and what it joins to."
                         }
                         div { class: "controls",
                             StoreRow { sig: s_store, status: s_store_export }
                             StoreHint { selection: s_store() }
                             StoreStatusRow { status: s_store_export }
-                            if !stores::has_ca_store(s_store()) {
-                                FileRow {
-                                    label: "CA CBOR",
-                                    name: "cbor",
-                                    sig: s_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized PKI",
-                                    extensions: ["cbor", "pki"].as_slice(),
-                                }
-                            }
-                            PathRow {
-                                label: "TA Folder or File",
-                                name: "ta-folder",
-                                sig: s_ta_folder,
-                            }
-                            if s_store() == stores::CUSTOM {
-                                FileRow {
-                                    label: "TA CBOR",
-                                    name: "ta-cbor",
-                                    sig: s_ta_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                    extensions: ["cbor", "pki", "ta"].as_slice(),
-                                }
-                            }
-                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            // One group rather than the previous three-then-two, which was a wrap
-                            // rather than a grouping: all five list the store as a whole, and
-                            // splitting them implied a distinction that does not exist.
-                            div { class: "visible label-cell",
-                                label { "Items to list: " }
-                            }
-                            div { class: "field check-group",
-                                CheckboxCell { label: "Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
-                                CheckboxCell { label: "Buffers", name: "list-buffers", sig: s_list_buffers }
-                                CheckboxCell { label: "SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
-                                CheckboxCell { label: "Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
-                                CheckboxCell { label: "Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
-                            }
-                            TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
+                            // Both halves always shown, as the browser shows them: they are the
+                            // other way to name a store, and hiding them until the selector is on
+                            // Custom leaves that arm to be discovered. A named store wins over
+                            // them -- `current_args` takes the selector's bytes first and falls
+                            // back to these.
                             FileRow {
-                                label: "List Partial Paths for Target",
-                                name: "list-partial-paths-for-target",
-                                sig: s_list_partial_paths_for_target,
-                                filter_name: "Certificate File",
-                                extensions: SINGLE_CERT_EXTENSIONS,
+                                label: "TA CBOR",
+                                name: "ta-cbor",
+                                sig: s_ta_cbor,
+                                filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                extensions: ["cbor", "pki", "ta"].as_slice(),
                             }
-                            TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
+                            FileRow {
+                                label: "CA CBOR",
+                                name: "cbor",
+                                sig: s_cbor,
+                                filter_name: "PITTv3 CBOR-serialized PKI",
+                                extensions: ["cbor", "pki"].as_slice(),
+                            }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
+                        }
+                        // The same group box the Validate view puts a target in, so the certificate
+                        // being asked about is named the same way wherever it is supplied. A CA
+                        // certificate is accepted too: what comes back is the paths that could
+                        // certify it, whatever it is.
+                        fieldset {
+                            legend { "End Entity Certificate" }
+                            div { class: "controls",
+                                FileRow {
+                                    label: "Partial Paths for Target",
+                                    name: "list-partial-paths-for-target",
+                                    sig: s_list_partial_paths_for_target,
+                                    filter_name: "Certificate File",
+                                    extensions: SINGLE_CERT_EXTENSIONS,
+                                }
+                            }
                         }
                         RunButton {
-                            running: s_running(),
-                            onrun: run_command,
+                            running: s_inspect_running(),
+                            onrun: run_inspect,
                             label: "Inspect the store",
-                            // Every control on this view is optional, so an untouched form is a
-                            // legal run that lists nothing -- which reads as the store being empty
-                            // rather than as nothing having been asked for.
-                            nothing_to_do: if s_list_partial_paths() || s_list_buffers()
-                                || s_list_aia_and_sia() || s_list_name_constraints()
-                                || s_list_trust_anchors() || !s_dump_cert_at_index().is_empty()
-                                || !s_list_partial_paths_for_target().is_empty()
-                                || !s_list_partial_paths_for_leaf_ca().is_empty()
-                            {
-                                ""
-                            } else {
-                                "Choose something to list"
-                            },
+                        }
+                        for note in s_inspect_notes() {
+                            p { class: "{note.class}", "{note.text}" }
+                        }
+                        if let Some(report) = s_inspected.read().as_ref().map(|i| i.report.clone()) {
+                            InspectReportView {
+                                report,
+                                edits: s_inspect_edits(),
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                                on_toggle_cert: toggle_inspect_cert,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_anchor: toggle_inspect_anchor,
+                                on_save: save_inspected_store,
+                            }
                         }
                     },
                     View::CheckUris => rsx! {
@@ -2626,10 +2798,9 @@ pub(crate) fn App() -> Element {
                                     // Named as a group because the distinction is the point:
                                     // everything here is material this application fetched or
                                     // computed, so losing it costs a refetch or a rebuild. The
-                                    // Cleanup view acts on the CA and trust anchor folders, which
-                                    // the user assembled and which may not be recoverable -- which
-                                    // is why that view has an error folder and a dry run and these
-                                    // buttons do not.
+                                    // folders a user assembled are not pruned from here at all --
+                                    // Inspect marks rows and writes a new store, and `--cleanup`
+                                    // on the command line is what still prunes a folder in place.
                                     div { class: "visible label-cell",
                                         label { "Caches and downloads: " }
                                     }
@@ -2928,7 +3099,7 @@ pub(crate) fn App() -> Element {
                             }
                             if !s_running() && s_report().is_none() {
                                 p { class: "hint",
-                                    "No results yet: run something from Validate, Generate, Cleanup or Inspect."
+                                    "No results yet: run something from Validate or Generate."
                                 }
                             }
                             if !s_log().is_empty() {
@@ -2965,10 +3136,10 @@ pub(crate) fn App() -> Element {
                                         "A time of interest of 0 disables validity period checks."
                                     }
                                     li {
-                                        "Cleanup moves certificates to the error folder rather than "
-                                        "deleting them whenever one is named, which it is by "
-                                        "default. Report Only says what would go without touching "
-                                        "anything."
+                                        "The Remove unusable buttons above move certificates to the "
+                                        "error folder rather than deleting them whenever one is "
+                                        "named, which it is by default. To prune a store rather "
+                                        "than a folder, mark rows on Inspect and save a new one."
                                     }
                                     li {
                                         "Folders this application writes to live under ~/.pittv3, "
@@ -3060,8 +3231,12 @@ mod tooltip_coverage {
         }
         // Guards against the scan silently matching nothing -- a renamed component or a change in
         // how rows are written would otherwise turn this test into an assertion about nothing.
+        //
+        // A floor rather than a count: which rows exist is the views' business and moves whenever
+        // one is added or retired, so a number tracking that would fail for the wrong reason. This
+        // asks only that the scan still finds rows to check.
         assert!(
-            checked >= 10,
+            checked >= 5,
             "only {checked} rows were checked; the scan has stopped finding them"
         );
     }

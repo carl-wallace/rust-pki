@@ -47,7 +47,6 @@
 //!
 //! GENERATION:
 //!   -g, --generate           Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and map containing set of partial certification paths should be generated and saved to location indicated by cbor parameter
-//!   -a, --chase-aia-and-sia  Flag that indicates whether AIA and SIA URIs should be consulted when performing generate action
 //!       --cbor-ta-store      Flag that indicates generated CBOR file will contain only trust anchors  (so no need for partial paths and no need to exclude self-signed certificates). The anchors are read from the ca_folder input, which may name a single file, and the result is the form ta_cbor takes
 //!
 //! VALIDATION:
@@ -108,8 +107,6 @@
 //!
 //! ```text
 //! GENERATION:
-//!     -a, --chase-aia-and-sia    Flag that indicates whether AIA and SIA URIs should be consulted when
-//!                                performing generate action
 //! VALIDATION:
 //!     -y, --dynamic-build
 //!             Process AIA and SIA during path validation, as appropriate. Either ca_folder or
@@ -133,6 +130,7 @@ use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
 use crate::graph_cache;
+use crate::inspect::{InspectReport, Inspected};
 use crate::prepared_graph::PreparedGraph;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
@@ -272,6 +270,232 @@ pub async fn options_std_retaining(
     (report, kept)
 }
 
+/// Why assembling a store for a diagnostic command did not work.
+///
+/// Two variants because the command line answers the two differently and always has:
+/// [`Failed`](InspectError::Failed) is a run that could not start and is reported as a failed
+/// report, while [`Reported`](InspectError::Reported) has already been explained to the user and
+/// leaves an empty report behind. A caller that is not the command line can treat both as a
+/// message.
+#[cfg(feature = "std")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InspectError {
+    /// The run could not start: a required argument is missing, or a named store will not parse.
+    Failed(String),
+    /// Something the user needs told, after which the run stops without a result.
+    Reported(String),
+}
+
+#[cfg(feature = "std")]
+impl core::fmt::Display for InspectError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InspectError::Failed(msg) => write!(f, "{msg}"),
+            InspectError::Reported(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+/// A store assembled from the arguments a diagnostic command names, ready to be described or
+/// listed.
+#[cfg(feature = "std")]
+pub struct Assembled {
+    /// The environment, with the anchors registered.
+    pub pe: PkiEnvironment,
+    /// The settings the run was assembled under, carrying the time of interest that decided which
+    /// certificates are usable.
+    pub cps: CertificationPathSettings,
+    /// The certificate pool and the partial paths over it.
+    pub cert_source: CertSource,
+    /// The anchors, read before the store was moved into the environment.
+    pub anchors: Vec<TaRow>,
+    /// The anchor store itself, for a caller that needs an anchor's bytes.
+    pub anchor_source: TaSource,
+    /// Where certificates handed back are written, defaulting to the working directory.
+    pub download_folder: String,
+}
+
+/// Assembles the store a diagnostic command names: the CBOR pool, the anchors from wherever the
+/// arguments point, and the partial paths rediscovered against those anchors.
+///
+/// Shared by the command line's listings and by [`inspect_args`], so the store a listing describes
+/// and the store a report describes are assembled the same way rather than twice.
+#[cfg(feature = "std")]
+// certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+pub fn assemble_for_diagnostics(
+    args: &Pittv3Args,
+) -> core::result::Result<Assembled, InspectError> {
+    // No store is a legitimate thing to inspect: a folder of certificates is material, and asking
+    // what it holds is the same question asked of a smaller pool. A store is one way to supply the
+    // material, not a precondition for having any.
+
+    let download_folder = match &args.download_folder {
+        Some(download_folder) => download_folder.clone(),
+        None => "./".to_string(),
+    };
+
+    let mut cps = CertificationPathSettings::new();
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
+
+    let mut pe = PkiEnvironment::default();
+
+    let mut cert_source = match &args.cbor {
+        Some(cbor_file) => {
+            let cbor = read_cbor(&args.cbor);
+            if cbor.is_empty() {
+                return Err(InspectError::Reported(format!(
+                    "Failed to read CBOR data from the file located at {cbor_file}"
+                )));
+            }
+            match CertSource::new_from_cbor(cbor.as_slice()) {
+                Ok(cbor_data) => cbor_data,
+                Err(e) => {
+                    return Err(InspectError::Failed(format!(
+                        "failed to parse CBOR file at {cbor_file}: {e}"
+                    )))
+                }
+            }
+        }
+        None => CertSource::new(),
+    };
+    if let Err(e) = cert_source.initialize(&cps) {
+        error!("Failed to populate cert vector with: {e:?}");
+    }
+
+    pe.populate_5280_pki_environment();
+
+    #[cfg(feature = "sha1_sig")]
+    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
+
+    // CA material named alongside the store, merged into the same pool — the counterpart of the
+    // anchors `load_trust_anchors` merges below, and the same loader validation uses. Without it
+    // this assembly composed one half of a store and refused the other: a trust anchor folder was
+    // folded in, a CA folder was not.
+    let added_cas = load_ca_inputs(
+        &pe,
+        args.ca_folder
+            .iter()
+            .chain(args.ca_inputs.iter())
+            .map(String::as_str),
+        &mut cert_source,
+        cps.get_time_of_interest(),
+    );
+    if added_cas.certs > 0 {
+        if let Err(e) = cert_source.initialize(&cps) {
+            error!("Failed to populate cert vector with: {e:?}");
+        }
+    }
+
+    let mut anchors = vec![];
+    let mut anchor_source = TaSource::new();
+
+    #[cfg(feature = "webpki")]
+    if args.webpki_tas {
+        // the TAs read from webpki-roots do not assert a validity do turn off this check
+        cps.set_enforce_trust_anchor_validity(false);
+
+        match TaSource::new_from_webpki() {
+            Ok(ta_store) => {
+                anchors.extend(ta_store.ta_rows());
+                pe.add_trust_anchor_source(Box::new(ta_store));
+            }
+            Err(e) => {
+                error!("Failed to initialize TA store from webpki-roots: {e:?}. Continuing...");
+            }
+        };
+    }
+
+    let ta_store = match load_trust_anchors(&pe, args, None) {
+        Ok(ta_store) => ta_store,
+        Err(msg) => {
+            return Err(InspectError::Reported(format!(
+                "Failed to load trust anchors: {msg}"
+            )))
+        }
+    };
+
+    // Partial paths are recomputed against whatever anchors were supplied, since the set of
+    // paths that terminate at an anchor depends on them; a store loaded with none keeps the
+    // paths it was serialized with.
+    let ta_store_added = ta_store.is_some();
+    // Cloned before the move rather than rebuilt afterwards: registering hands the store to the
+    // environment, and a caller exporting an anchor's bytes needs the store the rows came from.
+    if let Some(ta_store) = ta_store {
+        anchors.extend(ta_store.ta_rows());
+        anchor_source = ta_store.clone();
+        pe.add_trust_anchor_source(Box::new(ta_store));
+    }
+    #[cfg(feature = "webpki")]
+    let ta_store_added = ta_store_added || args.webpki_tas;
+    // Rediscovered when either half changed: the paths a store was serialized with describe the
+    // material it was serialized from, and merging anchors or certificates makes it a different
+    // pool.
+    // Also when no store was named: a pool built entirely from folders carries no paths of its own,
+    // so the only ones it will ever have are the ones found here.
+    if ta_store_added || added_cas.certs > 0 || args.cbor.is_none() {
+        cert_source.clear_paths();
+        cert_source.find_all_partial_paths(&pe, &cps);
+    }
+
+    Ok(Assembled {
+        pe,
+        cps,
+        cert_source,
+        anchors,
+        anchor_source,
+        download_folder,
+    })
+}
+
+/// Reports what the store a diagnostic command names holds, as rows.
+///
+/// The same assembly the command line's listings run on, described rather than printed. The
+/// certificates handed back follow the same two arguments the listings do -- `--dump-cert-at-index`
+/// for one and `--list-buffers` for the pool -- so a caller rendering this report offers the same
+/// bytes the command line writes into the download folder.
+#[cfg(feature = "std")]
+pub fn inspect_args(args: &Pittv3Args) -> core::result::Result<Inspected, InspectError> {
+    let assembled = assemble_for_diagnostics(args)?;
+    let source = &assembled.cert_source;
+
+    let certs = source.cert_rows();
+    let paths = source.path_rows();
+
+    let mut target_paths = None;
+    if let Some(cert_filename) = &args.list_partial_paths_for_target {
+        let bytes = match get_file_as_byte_vec_pem(Path::new(cert_filename)) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return Err(InspectError::Reported(format!(
+                    "Failed to read file at {cert_filename}"
+                )))
+            }
+        };
+        match parse_cert(bytes.as_slice(), cert_filename.as_str()) {
+            Ok(target) => {
+                target_paths =
+                    Some(source.paths_for_target(&target, assembled.cps.get_time_of_interest()))
+            }
+            Err(e) => {
+                return Err(InspectError::Reported(format!(
+                    "Failed to parse {cert_filename} as a certificate: {e:?}"
+                )))
+            }
+        }
+    }
+
+    Ok(Inspected {
+        report: InspectReport {
+            anchors: assembled.anchors,
+            certs,
+            paths,
+            target_paths,
+        },
+        certs: assembled.cert_source,
+        anchors: assembled.anchor_source,
+    })
+}
+
 /// The dispatcher itself. Every action other than validation returns a report and writes nothing to
 /// `kept`, which is why "nothing was retained" needs no code in those branches: the slot the caller
 /// declared simply stays empty.
@@ -381,83 +605,23 @@ async fn options_std_inner(
         || args.list_aia_and_sia
         || args.list_name_constraints
     {
-        let cbor_file: &String = if let Some(cbor) = &args.cbor {
-            cbor
-        } else {
-            return ValidationReport::failed("--cbor is required when using a diagnostic command");
-        };
-
-        let download_folder = if let Some(download_folder) = &args.download_folder {
-            download_folder.clone()
-        } else {
-            "./".to_string()
-        };
-
-        let mut cps = CertificationPathSettings::new();
-        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
-
-        let mut pe = PkiEnvironment::default();
-
-        let cbor = read_cbor(&args.cbor);
-        if cbor.is_empty() {
-            println!("Failed to read CBOR data from the file located at {cbor_file}");
-            return ValidationReport::default();
-        }
-
-        let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
-            Ok(cbor_data) => cbor_data,
-            Err(e) => {
-                return ValidationReport::failed(format!(
-                    "failed to parse CBOR file at {cbor_file}: {e}"
-                ));
-            }
-        };
-        let r = cert_source.initialize(&cps);
-        if let Err(e) = r {
-            error!("Failed to populate cert vector with: {e:?}");
-        }
-
-        pe.populate_5280_pki_environment();
-
-        #[cfg(feature = "sha1_sig")]
-        pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
-
-        #[cfg(feature = "webpki")]
-        if args.webpki_tas {
-            // the TAs read from webpki-roots do not assert a validity do turn off this check
-            cps.set_enforce_trust_anchor_validity(false);
-
-            match TaSource::new_from_webpki() {
-                Ok(ta_store) => {
-                    pe.add_trust_anchor_source(Box::new(ta_store));
-                }
-                Err(e) => {
-                    error!("Failed to initialize TA store from webpki-roots: {e:?}. Continuing...");
-                }
-            };
-        }
-
-        let ta_store = match load_trust_anchors(&pe, args, None) {
-            Ok(ta_store) => ta_store,
-            Err(msg) => {
-                println!("Failed to load trust anchors: {msg}");
+        // `pe` and `cps` carry the fetch below, which only a build with `remote` performs.
+        #[cfg_attr(not(feature = "remote"), allow(unused_variables))]
+        let Assembled {
+            pe,
+            cps,
+            cert_source,
+            anchors: _anchors,
+            anchor_source: _anchor_source,
+            download_folder,
+        } = match assemble_for_diagnostics(args) {
+            Ok(assembled) => assembled,
+            Err(InspectError::Failed(msg)) => return ValidationReport::failed(msg),
+            Err(InspectError::Reported(msg)) => {
+                println!("{msg}");
                 return ValidationReport::default();
             }
         };
-
-        // Partial paths are recomputed against whatever anchors were supplied, since the set of
-        // paths that terminate at an anchor depends on them; a store loaded with none keeps the
-        // paths it was serialized with.
-        let ta_store_added = ta_store.is_some();
-        if let Some(ta_store) = ta_store {
-            pe.add_trust_anchor_source(Box::new(ta_store));
-        }
-        #[cfg(feature = "webpki")]
-        let ta_store_added = ta_store_added || args.webpki_tas;
-        if ta_store_added {
-            cert_source.clear_paths();
-            cert_source.find_all_partial_paths(&pe, &cps);
-        }
 
         if let Some(index) = args.dump_cert_at_index {
             if index >= cert_source.num_certs() {
@@ -731,9 +895,10 @@ async fn options_std_inner(
 /// and/or validation of certificate(s) indicated by the end-entity-file option and/or end-entity-folder option.
 ///
 /// If the `generate` option is present, a fresh CBOR file is generated using materials from
-/// locations indicated by `ta-folder` and `ca-folder` options. These locations may be augmented if
-/// chase-aia-and-sia is enabled and either `download-folder` or `ca-folder` is specified. Download actions
-/// will be governed by the `last-modified-map` option and/or `blocklist` option.
+/// locations indicated by `ta-folder` and `ca-folder` options. These locations may be augmented when
+/// `dynamic-build` is set — which is what leaves AIA and SIA retrieval enabled for the build — and
+/// either `download-folder` or `ca-folder` is specified. Download actions will be governed by the
+/// `last-modified-map` option and/or `blocklist` option.
 ///
 /// If `end-entity-file` or `end-entity-folder` options are present, path building and validation actions
 /// are performed for any .der, .cer, or .crt files indicated by the end entity options. Folders are

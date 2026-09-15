@@ -18,8 +18,17 @@ body {
 }
 
 form {
+  /* A readable measure for rows of labels and fields. Content that needs the room -- the Inspect
+     tables -- says so for itself rather than being held to this. */
   max-width: 900px;
   margin: 0 auto;
+}
+
+/* The Inspect report is the exception: its tables carry a column per fact and are the reason the
+   shell grows at all, so they take whatever width the shell has. */
+.inspect-report {
+  max-width: 100%;
+  width: 100%;
 }
 
 fieldset {
@@ -418,7 +427,12 @@ button[type="submit"] {
 .app-shell {
   display: flex;
   gap: 1rem;
-  max-width: 1100px;
+  /* Grows with the window rather than sitting at a fixed measure: a form reads best narrow, but a
+     table of a store's certificates has columns to show and there is no reason to leave the window
+     empty either side of it. The ceiling is generous rather than absent, so a very wide monitor
+     does not stretch a row of labels across a metre of glass. */
+  width: 100%;
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -644,4 +658,130 @@ button[type="submit"] {
   display: flex;
   justify-content: center;
   margin: 0.5rem 0;
+}
+
+/* Inspect's tables. A store is read by scanning a column, so the rows are dense and the header
+   stays put while the body scrolls; wide content scrolls inside its own box rather than pushing
+   the page sideways. Selection is marked by a background and a left edge, because a background
+   alone is a colour and not everyone can see it. */
+.table-scroll {
+  overflow-x: auto;
+  max-height: 24rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+table.rows {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+table.rows th,
+table.rows td {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+table.rows thead th {
+  position: sticky;
+  top: 0;
+  background: Canvas;
+}
+
+table.rows tbody tr {
+  cursor: pointer;
+}
+
+table.rows tbody tr:hover {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+table.rows tbody tr.selected {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  box-shadow: inset 3px 0 0 currentColor;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.inspect-summary {
+  font-weight: 600;
+}
+
+.panel.detail dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.panel.detail dt {
+  font-weight: 600;
+}
+
+.panel.detail dd {
+  margin: 0;
+}
+
+.path-row {
+  margin: 0.15rem 0;
+}
+
+/* A row whose content is centered: the run button on every view, and any single-control row that
+   should sit under the form rather than beside it. Here rather than in one frontend's stylesheet
+   because both render the same components. */
+/* Both forms: the run button's own div, and a controls row asked to centre. The second has to name
+   `.controls` too -- that class lays the row out as a grid, and an equally specific selector later
+   in the cascade would win instead. */
+.center-row,
+.controls.center-row {
+  display: flex;
+  justify-content: center;
+}
+
+.controls.center-row button {
+  margin-left: 0;
+}
+
+/* A row or a path marked for removal. Struck through rather than coloured or dimmed: colour is not
+   available to every reader and dimming is itself a contrast change that can fail a ratio. The
+   action button beside a marked row reads "Restore", so the state is also in words. */
+table.rows tbody tr.removed td,
+.path-row.removed {
+  text-decoration: line-through;
+}
+
+table.rows tbody tr.removed {
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+/* Names are the widest thing in a row and the least useful at full length here -- the detail pane
+   carries the whole distinguished name. Truncating them keeps the table inside the window, which
+   is what keeps the row's action reachable without scrolling sideways to find it. */
+table.rows td.name {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A row of buttons, centred and sized to their labels. The `.controls` grid stretches whatever it
+   holds across its `1fr` track, which is right for a field and wrong for a button. */
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+
+.button-row .hint {
+  grid-column: auto;
+  flex-basis: 100%;
+  text-align: center;
 }

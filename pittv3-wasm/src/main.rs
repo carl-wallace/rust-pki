@@ -15,16 +15,20 @@ use certval::{
     CertFile, CertSource, CertVector, CertificationPathSettings, PkiEnvironment, RevocationCache,
     TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
+use pittv3_gui_lib::export::zip_files;
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
+use pittv3_gui_lib::gui_inspect::InspectReportView;
 use pittv3_gui_lib::gui_results::ResultsView;
-use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
+use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings, TimeOfInterestRow};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
-use pittv3_gui_lib::validate::certs_in;
+use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
+use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
+use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{
@@ -103,6 +107,7 @@ enum View {
     Results,
     Settings,
     CheckUris,
+    Inspect,
     Hackathon,
     Help,
 }
@@ -117,6 +122,7 @@ const VIEWS: &[(View, &str)] = &[
     (View::Results, "Results"),
     (View::Settings, "Settings"),
     (View::CheckUris, "Check URIs"),
+    (View::Inspect, "Inspect"),
     (View::Hackathon, "Hackathon"),
     (View::Help, "Help"),
 ];
@@ -359,6 +365,81 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
     }
 }
 
+/// Hands an edited store to the browser: the two halves in one zip, under the names they are read
+/// back by.
+///
+/// A zip rather than two downloads because the pair is one artifact, and because a page cannot
+/// start two saves. What was opened is untouched either way -- this is bytes leaving, not a file
+/// being rewritten.
+fn deliver_store(mut notes: Signal<Vec<ResultLine>>, archive_name: String, store: EditedStore) {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+
+    let files = vec![
+        ("ta.cbor".to_string(), store.ta_cbor.clone()),
+        ("ca.cbor".to_string(), store.ca_cbor.clone()),
+    ];
+    match zip_files(&archive_name, &files) {
+        Ok(zipped) => {
+            let js = format!(
+                "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-store.zip\"; a.click();",
+                STANDARD.encode(&zipped)
+            );
+            let _ = dioxus::document::eval(&js);
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {}", store.summary()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to build the archive: {e}"),
+        }),
+    }
+}
+
+/// Hands certificates to the browser as they are asked for/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
+///
+/// A function rather than a closure because both export handlers need it, and a closure capturing
+/// the notes signal cannot be moved into both. Delivering at the moment of the click rather than
+/// staging into a second button is what makes this frontend behave as the desktop does, where an
+/// export writes its files and says so.
+fn deliver_certificates(
+    mut notes: Signal<Vec<ResultLine>>,
+    archive_name: String,
+    files: Vec<(String, Vec<u8>)>,
+) {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+
+    let js = match files.len() {
+        0 => return,
+        1 => format!(
+            "const a = document.createElement('a'); a.href = \"data:application/pkix-cert;base64,{}\"; a.download = \"{}\"; a.click();",
+            STANDARD.encode(&files[0].1),
+            files[0].0
+        ),
+        _ => match zip_files(&archive_name, &files) {
+            Ok(zipped) => format!(
+                "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-certificates.zip\"; a.click();",
+                STANDARD.encode(&zipped)
+            ),
+            Err(e) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: format!("Failed to build the archive: {e}"),
+                });
+                return;
+            }
+        },
+    };
+    let _ = dioxus::document::eval(&js);
+    notes.write().push(ResultLine {
+        class: "ok",
+        text: format!("Saved {} certificate(s)", files.len()),
+    });
+}
+
 #[component]
 fn App() -> Element {
     let mut view = use_signal(|| View::Validate);
@@ -414,6 +495,27 @@ fn App() -> Element {
     let mut notes = use_signal(Vec::<ResultLine>::new);
     let mut uploaded_tas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
+
+    // --- Inspect: what to hand back, and what the last inspection found ------------------------
+    // Held here rather than in the view so a report survives a look at another tab, the way a
+    // validation's results do. There is no switch per listing: an inspection describes the whole
+    // store, and which part of it is on screen is a matter of what is selected below.
+    let mut insp_target = use_signal(|| None::<(String, Vec<u8>)>);
+    // The store, when it comes from files rather than the selector. CBOR only: an inspection opens
+    // a store, and a folder of certificates is how one is built rather than something to inspect.
+    let mut insp_ta_cbor = use_signal(|| None::<(String, Vec<u8>)>);
+    let mut insp_ca_cbor = use_signal(|| None::<(String, Vec<u8>)>);
+    // The time an inspection asks about. Its own value rather than the settings', because it
+    // belongs to the operation: it decides which of the store's certificates are usable and
+    // nothing else about a run. None means the moment the inspection is made.
+    let mut insp_toi = use_signal(|| None::<u64>);
+    // What the last inspection found, or None before the first one.
+    let mut insp_inspected = use_signal(|| None::<Inspected>);
+    // What is marked for removal. Cleared whenever a new report arrives, since a position means
+    // something else once a different store is under it.
+    let mut insp_edits = use_signal(StagedEdits::default);
+    let mut insp_notes = use_signal(Vec::<ResultLine>::new);
+    let mut insp_running = use_signal(|| false);
 
     // What an upload actually contributes, which is certificates and not files: since the 08-24
     // fan-out one `.p7c` of cross-certificates carries several, and reporting the file count made
@@ -930,6 +1032,96 @@ fn App() -> Element {
             .collect()
     };
 
+    // hands over the certificates an inspection was asked for. One goes as itself; several go as a
+    // zip, because asking for the whole pool of a real store is thousands of files and a browser
+    // cannot start thousands of downloads.
+
+    // Certificates the reader asked for. The lookup is the shared one; offering them as a download
+    // is this frontend's half.
+    let toggle_insp_cert = move |index: usize| insp_edits.write().toggle_cert(index);
+    let toggle_insp_anchor = move |index: usize| insp_edits.write().toggle_anchor(index);
+
+    // Applying the marks yields a new store rather than changing what was opened. Both halves go
+    // as one zip, because the pair is one artifact and a browser cannot start two downloads.
+    let save_insp_store = move |_| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let toi = insp_toi().unwrap_or_else(now_as_unix_epoch);
+        let written = apply_edits(inspected, &insp_edits(), toi);
+        drop(held);
+
+        match written {
+            Ok(store) => deliver_store(
+                insp_notes,
+                stamped_export_name(&export_name(), now_as_unix_epoch()),
+                store,
+            ),
+            Err(msg) => insp_notes.write().push(ResultLine {
+                class: "err",
+                text: msg,
+            }),
+        }
+    };
+
+    let mark_unusable = move |_| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let candidates =
+            cleanup_candidates(inspected, insp_toi().unwrap_or_else(now_as_unix_epoch));
+        drop(held);
+        let mut edits = insp_edits.write();
+        for index in candidates {
+            if !edits.cert_removed(index) {
+                edits.toggle_cert(index);
+            }
+        }
+    };
+    let clear_marks = move |_| insp_edits.write().clear();
+
+    let export_certificates = move |indices: Vec<usize>| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = certificate_bytes(&inspected.certs, &indices);
+        drop(held);
+        deliver_certificates(
+            insp_notes,
+            stamped_export_name(&export_name(), now_as_unix_epoch()),
+            files,
+        );
+    };
+
+    let export_anchor_certificates = move |indices: Vec<usize>| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = anchor_bytes(&inspected.anchors, &indices);
+        drop(held);
+        deliver_certificates(
+            insp_notes,
+            stamped_export_name(&export_name(), now_as_unix_epoch()),
+            files,
+        );
+    };
+
+    // Hands over a document the Inspect tables produced. A data URL rather than a blob because the
+    // page already offers its certificates that way, and one mechanism is one thing to keep working.
+    let export_inspected = move |(name, body): (String, String)| {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine as _;
+        let js = format!(
+            "const a = document.createElement('a'); a.href = \"data:text/csv;base64,{}\"; a.download = \"{name}\"; a.click();",
+            STANDARD.encode(body.as_bytes())
+        );
+        let _ = dioxus::document::eval(&js);
+    };
+
     // downloads every validated path's artifacts as a zip: the certificates, the revocation data
     // consulted, the responder certificates that make an OCSP response checkable, and a manifest per
     // path. Paths are numbered from one under the export's name.
@@ -1147,6 +1339,66 @@ fn App() -> Element {
     // the selected store's CBOR is fetched on demand (only when rebuilding); a fetch or preparation
     // failure is surfaced as a note and aborts before validation.
     // Rebuilds the prepared environment from the current store selection, uploads and retrieved
+    // An inspection reports through the log, which is where certval writes what a store holds and
+    // where the desktop reads it from too. The run brackets itself with a mark so the view can show
+    // the lines it added rather than every line the tab has accumulated -- and without clearing
+    // them, which would take a validation's log with it.
+    let run_inspect = move |_| async move {
+        insp_running.set(true);
+        insp_notes.write().clear();
+
+        let request = InspectRequest {
+            paths_for_target: insp_target(),
+        };
+
+        let store_bytes = match ensure_store().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                insp_notes.write().push(ResultLine {
+                    class: "err",
+                    text: e,
+                });
+                insp_running.set(false);
+                return;
+            }
+        };
+        let label = catalog()
+            .get(mode())
+            .map(|s| s.label.clone())
+            .unwrap_or_default();
+        let store = store_bytes
+            .as_ref()
+            .map(|(ta, ca)| (label.as_str(), ta.as_slice(), ca.as_slice()));
+        // A named store and a named CBOR file compose rather than displacing each other: the files
+        // go in as inputs, where `assemble` merges a `.cbor` store's anchors and certificates with
+        // whatever the selector supplied.
+        let file_tas: Vec<(String, Vec<u8>)> = insp_ta_cbor().into_iter().collect();
+        let file_cas: Vec<(String, Vec<u8>)> = insp_ca_cbor().into_iter().collect();
+        // The only setting an inspection reads is the time of interest: parsing, indexing and path
+        // discovery consult nothing else, and nothing is validated, so revocation, policy and name
+        // constraint settings have no bearing. Built here rather than taken from the settings so an
+        // inspection cannot quietly depend on one of them later.
+        let mut cps = CertificationPathSettings::new();
+        if let Ok(toi) =
+            TimeOfInterest::from_unix_secs(insp_toi().unwrap_or_else(now_as_unix_epoch))
+        {
+            cps.set_time_of_interest(toi);
+        }
+
+        match inspect(store, &file_tas, &file_cas, &cps, &request) {
+            Ok((inspected, notes)) => {
+                insp_notes.set(notes);
+                insp_edits.write().clear();
+                insp_inspected.set(Some(inspected));
+            }
+            Err(fatal) => {
+                insp_notes.set(fatal);
+                insp_inspected.set(None);
+            }
+        }
+        insp_running.set(false);
+    };
+
     // certificates. Separated out because a retrieving run prepares more than once: what a chase
     // brings back is an input to preparation, so folding it in means preparing again.
     let rebuild_env = move |cps: CertificationPathSettings| async move {
@@ -1547,6 +1799,89 @@ fn App() -> Element {
     let ta_accept = accept(TA_BUNDLE_EXTENSIONS);
     let ca_accept = accept(CERT_BUNDLE_EXTENSIONS);
 
+    // The store selector and the uploads panel are the same question on Validate and on
+    // Inspect -- which trust material is in play -- and the app keeps one answer to it in
+    // `mode` and the upload signals. Built once here and rendered in both views, so choosing a
+    // store on either is choosing it for both, and there is no second control to fall out of
+    // step with the first.
+    let store_controls = rsx! {
+        div { class: "controls",
+            label { r#for: "store", "Trust anchor / CA store: " }
+            select {
+                id: "store",
+                onchange: move |ev| {
+                    let v = ev.value();
+                    let selected = v.parse::<usize>().unwrap_or(NO_STORE);
+                    mode.set(selected);
+                    // "None" means uploaded material is the only trust source, so
+                    // open the panel holding it rather than leaving the user to
+                    // discover they have to expand it. Pushed straight at the DOM
+                    // rather than bound to a signal: `open` is left uncontrolled so
+                    // the browser stays the single owner of the panel's state. A
+                    // controlled `open` has to be re-asserted on every render,
+                    // which fights the user's own toggling — and because the
+                    // `toggle` event fires for programmatic changes too, syncing it
+                    // back from `ontoggle` oscillates instead of settling.
+                    if selected == NO_STORE {
+                        let _ = dioxus::document::eval(
+                            "const d = document.getElementById('uploads-panel'); if (d) d.open = true;",
+                        );
+                    }
+                },
+                for (i, s) in catalog().into_iter().enumerate() {
+                    option { value: "{i}", selected: mode() == i, "{s.label}" }
+                }
+                option { value: "none", selected: mode() == NO_STORE, "None (uploaded trust anchors and CA certificates only)" }
+            }
+            if !store_hint.is_empty() {
+                span { class: "hint", "{store_line}" }
+            }
+            // What asking a service for its stores produced. Shown here rather than
+            // on a tab of its own: it explains the contents of the selector directly
+            // above it, which is the only place it is actionable.
+            if !store_service_status().is_empty() {
+                span { class: "hint", "{store_service_status}" }
+            }
+        }
+    };
+    let uploads_panel = rsx! {
+        details { class: "panel", id: "uploads-panel",
+            summary { "Additional trust anchors and intermediates (certificates or .cbor stores)" }
+            div { class: "controls custom",
+                label { "Trust anchor(s): " }
+                input {
+                    r#type: "file",
+                    multiple: true,
+                    accept: "{ta_accept}",
+                    onchange: move |ev| async move {
+                        let files = read_files(&ev).await;
+                        extend_unique(uploaded_tas, files);
+                    },
+                }
+                label { "Intermediate CA(s): " }
+                input {
+                    r#type: "file",
+                    multiple: true,
+                    accept: "{ca_accept}",
+                    onchange: move |ev| async move {
+                        let files = read_files(&ev).await;
+                        extend_unique(uploaded_cas, files);
+                    },
+                }
+                span { class: "hint",
+                    "{loaded_ta_count} trust anchor(s), {loaded_ca_count} intermediate(s) loaded "
+                    button {
+                        onclick: move |_| {
+                            uploaded_tas.write().clear();
+                            uploaded_cas.write().clear();
+                        },
+                        "Clear"
+                    }
+                }
+            }
+        }
+    };
+
     rsx! {
         style { {PITTV3_CSS} }
         style { {include_str!("../assets/pittv3-wasm.css")} }
@@ -1610,80 +1945,9 @@ fn App() -> Element {
                             }
                         }
 
-                        div { class: "controls",
-                            label { r#for: "store", "Trust anchor / CA store: " }
-                            select {
-                                id: "store",
-                                onchange: move |ev| {
-                                    let v = ev.value();
-                                    let selected = v.parse::<usize>().unwrap_or(NO_STORE);
-                                    mode.set(selected);
-                                    // "None" means uploaded material is the only trust source, so
-                                    // open the panel holding it rather than leaving the user to
-                                    // discover they have to expand it. Pushed straight at the DOM
-                                    // rather than bound to a signal: `open` is left uncontrolled so
-                                    // the browser stays the single owner of the panel's state. A
-                                    // controlled `open` has to be re-asserted on every render,
-                                    // which fights the user's own toggling — and because the
-                                    // `toggle` event fires for programmatic changes too, syncing it
-                                    // back from `ontoggle` oscillates instead of settling.
-                                    if selected == NO_STORE {
-                                        let _ = dioxus::document::eval(
-                                            "const d = document.getElementById('uploads-panel'); if (d) d.open = true;",
-                                        );
-                                    }
-                                },
-                                for (i, s) in catalog().into_iter().enumerate() {
-                                    option { value: "{i}", selected: mode() == i, "{s.label}" }
-                                }
-                                option { value: "none", selected: mode() == NO_STORE, "None (uploaded trust anchors and CA certificates only)" }
-                            }
-                            if !store_hint.is_empty() {
-                                span { class: "hint", "{store_line}" }
-                            }
-                            // What asking a service for its stores produced. Shown here rather than
-                            // on a tab of its own: it explains the contents of the selector directly
-                            // above it, which is the only place it is actionable.
-                            if !store_service_status().is_empty() {
-                                span { class: "hint", "{store_service_status}" }
-                            }
-                        }
+                        {store_controls.clone()}
 
-                        details { class: "panel", id: "uploads-panel",
-                            summary { "Additional trust anchors and intermediates (certificates or .cbor stores)" }
-                            div { class: "controls custom",
-                                label { "Trust anchor(s): " }
-                                input {
-                                    r#type: "file",
-                                    multiple: true,
-                                    accept: "{ta_accept}",
-                                    onchange: move |ev| async move {
-                                        let files = read_files(&ev).await;
-                                        extend_unique(uploaded_tas, files);
-                                    },
-                                }
-                                label { "Intermediate CA(s): " }
-                                input {
-                                    r#type: "file",
-                                    multiple: true,
-                                    accept: "{ca_accept}",
-                                    onchange: move |ev| async move {
-                                        let files = read_files(&ev).await;
-                                        extend_unique(uploaded_cas, files);
-                                    },
-                                }
-                                span { class: "hint",
-                                    "{loaded_ta_count} trust anchor(s), {loaded_ca_count} intermediate(s) loaded "
-                                    button {
-                                        onclick: move |_| {
-                                            uploaded_tas.write().clear();
-                                            uploaded_cas.write().clear();
-                                        },
-                                        "Clear"
-                                    }
-                                }
-                            }
-                        }
+                        {uploads_panel.clone()}
 
                         details { class: "panel", id: "revocation-panel",
                             summary { "Revocation data (CRLs and OCSP responses)" }
@@ -2228,6 +2492,125 @@ fn App() -> Element {
                         }
                         if let Some(report) = uri_report() {
                             UriCheckResults { report }
+                        }
+                    },
+                    View::Inspect => rsx! {
+                        p { class: "hint",
+                            "Reports what a store holds, without validating anything. Every \
+                             certificate the store carries and every partial path over them is \
+                             listed; select a row to see its detail and what it joins to."
+                        }
+
+                        {store_controls.clone()}
+
+                        div { class: "controls",
+                            label { r#for: "insp-ta-cbor", "TA CBOR: " }
+                            input {
+                                id: "insp-ta-cbor",
+                                r#type: "file",
+                                accept: ".cbor,.pki,.ta",
+                                onchange: move |ev| async move {
+                                    insp_ta_cbor.set(read_files(&ev).await.into_iter().next());
+                                },
+                            }
+                            span { class: "hint",
+                                if let Some((name, _)) = insp_ta_cbor() {
+                                    "{name} loaded "
+                                } else {
+                                    "No trust anchor store loaded "
+                                }
+                                button { onclick: move |_| insp_ta_cbor.set(None), "Clear" }
+                            }
+                            label { r#for: "insp-ca-cbor", "CA CBOR: " }
+                            input {
+                                id: "insp-ca-cbor",
+                                r#type: "file",
+                                accept: ".cbor,.pki",
+                                onchange: move |ev| async move {
+                                    insp_ca_cbor.set(read_files(&ev).await.into_iter().next());
+                                },
+                            }
+                            span { class: "hint",
+                                if let Some((name, _)) = insp_ca_cbor() {
+                                    "{name} loaded "
+                                } else {
+                                    "No certificate store loaded "
+                                }
+                                button { onclick: move |_| insp_ca_cbor.set(None), "Clear" }
+                            }
+                            span { class: "hint",
+                                "Used when the selector names no store. An inspection opens a \
+                                 store; a folder of certificates is how one is built, which is \
+                                 Generate's errand."
+                            }
+                        }
+
+                        div { class: "controls",
+                            TimeOfInterestRow {
+                                value: insp_toi(),
+                                onchange: move |v| insp_toi.set(v),
+                            }
+                            span { class: "hint",
+                                "Decides which of the store's certificates are usable: one outside \
+                                 this time is listed, and marked unusable, rather than left out. \
+                                 Empty means the moment the inspection is made. It belongs to this \
+                                 inspection and changes nothing else."
+                            }
+                        }
+
+                        fieldset {
+                            legend { "End Entity Certificate" }
+                            div { class: "controls",
+                                label { r#for: "insp-target", "Partial Paths for Target: " }
+                            input {
+                                id: "insp-target",
+                                r#type: "file",
+                                accept: ".der,.crt,.cer,.pem",
+                                onchange: move |ev| async move {
+                                    insp_target.set(read_files(&ev).await.into_iter().next());
+                                },
+                            }
+                            span { class: "hint",
+                                if let Some((name, _)) = insp_target() {
+                                    "{name} loaded "
+                                } else {
+                                    "No target loaded "
+                                }
+                                button {
+                                    onclick: move |_| insp_target.set(None),
+                                    "Clear"
+                                }
+                                }
+                            }
+                        }
+
+                        div { class: "controls center-row",
+                            button {
+                                disabled: insp_running(),
+                                onclick: run_inspect,
+                                if insp_running() { "Inspecting…" } else { "Inspect the store" }
+                            }
+                        }
+
+                        for note in insp_notes() {
+                            p { class: "{note.class}", "{note.text}" }
+                        }
+
+                        if let Some(report) =
+                            insp_inspected.read().as_ref().map(|i| i.report.clone())
+                        {
+                            InspectReportView {
+                                report,
+                                edits: insp_edits(),
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                                on_toggle_cert: toggle_insp_cert,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_anchor: toggle_insp_anchor,
+                                on_save: save_insp_store,
+                            }
                         }
                     },
                     View::Hackathon => rsx! {

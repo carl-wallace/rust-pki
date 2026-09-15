@@ -20,7 +20,10 @@ body {
 }
 
 .wrap {
-  max-width: 900px;
+  /* Matches the shell: wide enough for a table of a store, capped so a very wide window does not
+     stretch a form across all of it. */
+  width: 100%;
+  max-width: 1800px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -121,16 +124,6 @@ fieldset > .controls {
 
 .controls button {
   margin-left: 0.5rem;
-}
-
-/* A single-control row whose content is centered (e.g. the Validate button). */
-.controls.center-row {
-  display: flex;
-  justify-content: center;
-}
-
-.controls.center-row button {
-  margin-left: 0;
 }
 
 .hint {

@@ -99,9 +99,10 @@ pub fn arg_help(name: &str) -> &'static str {
             "Build a store from the trust anchor and CA inputs and write it to the CBOR output ",
             "named above. Off, nothing is generated and the other controls here do nothing.",
         ),
-        "chase-aia-and-sia" => concat!(
-            "Flag that indicates whether AIA and SIA URIs should be consulted when performing generate ",
-            "action.",
+        "chase-while-building" => concat!(
+            "Follow the AIA and SIA URIs of the certificates gathered so far, adding what they serve, ",
+            "until a pass adds nothing new. Fetched certificates are written to the download folder. ",
+            "Belongs to this build alone: it is not read from the settings and is not kept for the next.",
         ),
         "cbor-ta-store" => concat!(
             "Write a trust anchor store rather than a CA store: only the anchors, with no partial ",

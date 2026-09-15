@@ -312,6 +312,30 @@ fn crl_entries(
     vec![]
 }
 
+/// Packs `files` into a zip under a single folder named `folder`.
+///
+/// For handing over several certificates at once -- an inspection asked to write out a whole
+/// certificate pool produces thousands, and a browser cannot start thousands of downloads. Separate
+/// from [`zip_bundle`], which is not a general archiver: that one writes a run's account of itself,
+/// with a README and a layout the bundle format defines.
+pub fn zip_files(folder: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let mut buf = Cursor::new(Vec::new());
+    {
+        let mut zw = ZipWriter::new(&mut buf);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for (name, bytes) in files {
+            let path = format!("{folder}/{name}");
+            zw.start_file(&path, options)
+                .map_err(|e| format!("Failed to add {path} to the archive: {e}"))?;
+            zw.write_all(bytes)
+                .map_err(|e| format!("Failed to write {path} into the archive: {e}"))?;
+        }
+        zw.finish()
+            .map_err(|e| format!("Failed to finish the archive: {e}"))?;
+    }
+    Ok(buf.into_inner())
+}
+
 /// Packages a run as one archive with two named halves and a run-level file at its root.
 ///
 /// ```text
@@ -1853,5 +1877,31 @@ mod tests {
 
         let no_manifests = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
         assert!(paths_text(&no_manifests, Some(1234)).contains("No certification paths were found"));
+    }
+
+    #[test]
+    fn zip_files_writes_each_file_under_the_named_folder() {
+        let files = vec![
+            ("0.der".to_string(), b"first".to_vec()),
+            ("1.der".to_string(), b"second".to_vec()),
+        ];
+        let bytes = zip_files("certificates", &files).expect("the archive should be written");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("a readable archive");
+        assert_eq!(2, archive.len());
+        let names: Vec<String> = archive.file_names().map(|n| n.to_string()).collect();
+        assert!(
+            names.contains(&"certificates/0.der".to_string()),
+            "{names:?}"
+        );
+        assert!(
+            names.contains(&"certificates/1.der".to_string()),
+            "{names:?}"
+        );
+        let mut entry = archive
+            .by_name("certificates/1.der")
+            .expect("the second file should be there");
+        let mut got = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut got).expect("readable");
+        assert_eq!(b"second".to_vec(), got);
     }
 }

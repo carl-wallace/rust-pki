@@ -30,6 +30,7 @@ use core::str;
 use log::{error, info};
 
 use ciborium::from_reader;
+use ciborium::ser::into_writer;
 
 #[cfg(feature = "webpki")]
 use webpki_roots::TLS_SERVER_ROOTS;
@@ -55,9 +56,11 @@ use crate::{
     pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name,
     source::cert_source::CertFile,
+    source::rows::TaRow,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
-    BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice,
+    BuffersAndPaths, CertVector, CertificationPathBuilderFormats, PDVCertificate,
+    PDVTrustAnchorChoice,
 };
 
 /// `get_subject_public_key_info_from_trust_anchor` returns a reference to the subject public key
@@ -330,18 +333,69 @@ impl TaSource {
         }
     }
 
-    /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs every trust anchor the instance holds -- index, key identifier, subject and the name it
+    /// was read under -- through `log` at info level.
     pub fn log_tas(&self) {
-        for (i, ta) in self.tas.iter().enumerate() {
-            let hex_skid = hex_skid_from_ta(ta);
-            let ta_filename = get_filename_from_ta_metadata(ta);
-            if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
-                let sub = get_leaf_rdn(name);
-                info!("Index: {i:3}; SKID: {hex_skid}; Subject: {sub}; Filename: {ta_filename}");
-            } else {
-                info!("Index: {i:3}; SKID: {hex_skid}; Subject: No Name; Filename: {ta_filename}");
+        for row in self.ta_rows() {
+            info!("{}", row.log_line());
+        }
+    }
+
+    /// Returns a CBOR encoding of the anchors this instance holds, in the form
+    /// [`TaSource::new_from_cbor`] reads and the trust store providers ship.
+    ///
+    /// A trust anchor store carries no partial paths, and not because they are dropped on the way
+    /// out: every buffer in it is explicitly trusted, so there is nothing for a path to be built
+    /// *to*. The field exists because the format is shared with the certificate store, and is
+    /// written empty.
+    pub fn serialize(&self, format: CertificationPathBuilderFormats) -> Result<Vec<u8>> {
+        if CertificationPathBuilderFormats::Cbor != format {
+            error!("Format other than CBOR requested when serializing a trust anchor store. Only CBOR is accepted presently.");
+            return Err(Error::Unrecognized);
+        }
+
+        info!("Serializing {} trust anchor buffers", self.buffers.len());
+
+        let bap = BuffersAndPaths::from_parts(self.buffers.clone(), vec![]);
+        let mut buffer = Vec::new();
+        match into_writer(&bap, &mut buffer) {
+            Ok(_) => Ok(buffer),
+            Err(e) => {
+                error!("Failed to generate CBOR trust anchor store with error: {e:?}");
+                Err(Error::Unrecognized)
             }
         }
+    }
+
+    /// Returns the buffer at a given index, or `None` when the index is out of range.
+    ///
+    /// The counterpart to [`CertSource::buffer_at`](crate::CertSource::buffer_at), and the only way
+    /// to reach an anchor's bytes from outside: the buffer vector is private and
+    /// [`PDVTrustAnchorChoice`] is reachable only for anchors that parsed.
+    pub fn buffer_at(&self, index: usize) -> Option<&CertFile> {
+        self.buffers.get(index)
+    }
+
+    /// Returns one [`TaRow`] per anchor the instance holds.
+    ///
+    /// Its `index` is a position in this list, which is a different space from the certificate
+    /// pool's even though both listings print the word `Index`. A caller showing the two together
+    /// is the one that has to say which is which.
+    pub fn ta_rows(&self) -> Vec<TaRow> {
+        let mut rows = Vec::with_capacity(self.tas.len());
+        for (index, ta) in self.tas.iter().enumerate() {
+            let subject = match get_trust_anchor_name(&ta.decoded_ta) {
+                Ok(name) => Some(get_leaf_rdn(name)),
+                Err(_) => None,
+            };
+            rows.push(TaRow {
+                index,
+                skid: hex_skid_from_ta(ta),
+                subject,
+                filename: get_filename_from_ta_metadata(ta),
+            });
+        }
+        rows
     }
 }
 
@@ -568,6 +622,81 @@ fn get_trust_anchor_test() {
 fn new_from_webpki_converts_all_roots() {
     let src = TaSource::new_from_webpki().unwrap();
     assert_eq!(src.buffers.len(), webpki_roots::TLS_SERVER_ROOTS.len());
+}
+
+// The anchor rows and the anchor listing walk the same vector, so the rows account for every
+// anchor the source holds and each renders the line the listing prints for it.
+#[cfg(feature = "std")]
+#[test]
+fn ta_rows_describe_every_anchor() {
+    use crate::{ta_folder_to_vec, PkiEnvironment};
+    let mut ta_store = TaSource::new();
+    let ta_store_folder = format!(
+        "{}{}",
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/examples/ta_store_with_bad"
+    );
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
+    ta_store.initialize().unwrap();
+
+    let rows = ta_store.ta_rows();
+    assert_eq!(rows.len(), ta_store.len());
+    assert!(!rows.is_empty());
+
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(row.index, i);
+        assert!(!row.skid.is_empty());
+        // The index is padded to three columns, which is what tells this listing's lines from the
+        // certificate listing's when both are read out of one log.
+        assert!(row.log_line().starts_with(&format!("Index: {i:3}; SKID: ")));
+    }
+}
+
+// What is written is what `new_from_cbor` reads: a saved anchor set is a store this same type can
+// open again, which is what makes an edited one an artifact rather than a pile of bytes.
+#[cfg(feature = "std")]
+#[test]
+fn a_serialized_anchor_store_reads_back() {
+    use crate::{ta_folder_to_vec, PkiEnvironment};
+    let mut ta_store = TaSource::new();
+    let ta_store_folder = format!(
+        "{}{}",
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/examples/ta_store_with_bad"
+    );
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
+    ta_store.initialize().unwrap();
+
+    let cbor = ta_store
+        .serialize(CertificationPathBuilderFormats::Cbor)
+        .expect("an anchor store should serialize");
+
+    let mut reopened = TaSource::new_from_cbor(&cbor).expect("and read back");
+    reopened.initialize().unwrap();
+    assert_eq!(ta_store.len(), reopened.len());
+    assert_eq!(
+        ta_store.ta_rows().len(),
+        reopened.ta_rows().len(),
+        "every anchor should survive the round trip"
+    );
 }
 
 // Malformed CBOR must be reported as an error rather than panicking, matching

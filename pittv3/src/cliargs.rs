@@ -132,12 +132,6 @@ pub struct Pittv3CliArgs {
     #[clap(short = 'g', long, help_heading = "GENERATION")]
     pub generate: bool,
 
-    /// Flag that indicates whether AIA and SIA URIs should be consulted when performing generate
-    /// action.
-    #[cfg(feature = "remote")]
-    #[clap(short = 'a', long, help_heading = "GENERATION")]
-    pub chase_aia_and_sia: bool,
-
     /// Flag that indicates generated CBOR file will contain only trust anchors  (so no need for
     /// partial paths and no need to exclude self-signed certificates). The anchors are read from
     /// the ca_folder input, which may name a single file, and the result is the form ta_cbor takes.
@@ -394,8 +388,6 @@ impl From<Pittv3CliArgs> for Pittv3Args {
             ca_inputs: v.ca_inputs,
             #[cfg(feature = "std")]
             generate: v.generate,
-            #[cfg(feature = "remote")]
-            chase_aia_and_sia: v.chase_aia_and_sia,
             #[cfg(feature = "std")]
             cbor_ta_store: v.cbor_ta_store,
             validate_all: v.validate_all,
