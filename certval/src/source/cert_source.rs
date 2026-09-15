@@ -27,6 +27,7 @@
 //!
 
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
 };
@@ -557,6 +558,15 @@ pub struct CertSource {
     /// corresponding element in the certs field should be set to None.
     certs: Vec<Option<PDVCertificate>>,
 
+    /// Why each `None` in `certs` is a `None`, at the same position.
+    ///
+    /// The distinction is drawn while populating and was, until this field, only logged: a buffer
+    /// that does not decode and a certificate outside the time of interest both left a bare `None`
+    /// behind. They are not the same thing to anyone deciding what to do about one -- the first is
+    /// a bad file, the second is an answer to the question as asked, and asking as of another time
+    /// may return it to use. Entries holding a certificate carry `None` here.
+    unusable: Vec<Option<UnusableReason>>,
+
     /// Contains list of buffers referenced by certs field and, optionally, partial paths
     /// relationships between certificates corresponding to those buffers. This field is the target
     /// of serialization/deserialization.
@@ -605,6 +615,7 @@ impl CertSource {
     pub fn new() -> Self {
         Self {
             certs: Vec::new(),
+            unusable: Vec::new(),
             buffers_and_paths: BuffersAndPaths::default(),
             skid_map: BTreeMap::new(),
             name_map: BTreeMap::new(),
@@ -629,6 +640,7 @@ impl CertSource {
         validate_partial_path_indices(&buffers_and_paths)?;
         Ok(Self {
             certs: Vec::new(),
+            unusable: Vec::new(),
             buffers_and_paths,
             skid_map: BTreeMap::new(),
             name_map: BTreeMap::new(),
@@ -708,14 +720,23 @@ impl CertSource {
                 Some(cf) => cf.filename.clone(),
                 None => String::new(),
             };
-            let detail = match self.certs.get(index) {
-                Some(Some(cert)) => Some(CertDetail::from_cert(cert)),
-                _ => None,
+            // A position past the end of `certs` is a buffer added since the last `initialize`,
+            // which is a third thing from a bad file and from one outside the time of interest.
+            let entry = match self.certs.get(index) {
+                Some(Some(cert)) => PoolEntry::Certificate(Box::new(CertDetail::from_cert(cert))),
+                Some(None) => PoolEntry::Unusable(
+                    self.unusable
+                        .get(index)
+                        .copied()
+                        .flatten()
+                        .unwrap_or(UnusableReason::NotParsed),
+                ),
+                None => PoolEntry::Unusable(UnusableReason::NotParsed),
             };
             rows.push(CertRow {
                 index,
                 filename,
-                detail,
+                entry,
             });
         }
         rows
@@ -744,16 +765,6 @@ impl CertSource {
             None => vec![],
         };
 
-        // The key identifier stands in when the pool holds no usable certificate to read a name
-        // from, which is what the listing has always printed in that case.
-        let mut leaf_ca_subject = key.to_string();
-        for c in &leaf_ca_indices {
-            if let Some(Some(cert)) = self.certs.get(*c) {
-                leaf_ca_subject = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
-                break;
-            }
-        }
-
         let mut ta_subject = String::new();
         if let Some(Some(cert)) = indices.first().and_then(|i| self.certs.get(*i)) {
             ta_subject = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
@@ -761,7 +772,9 @@ impl CertSource {
 
         PathRow {
             leaf_ca_skid: key.to_string(),
-            leaf_ca_subject,
+            // The key identifier stands in when the pool holds no usable certificate to read a
+            // name from, which is what the listings have always printed in that case.
+            leaf_ca_subject: self.leaf_ca_label(key),
             leaf_ca_indices,
             ta_subject,
             indices: indices.to_vec(),
@@ -786,12 +799,12 @@ impl CertSource {
     /// collects into `fresh_uris` the ones not already known to the instance.
     pub fn log_all_aia_and_sia(&self, fresh_uris: &mut Vec<String>) {
         for row in self.cert_rows() {
-            let Some(detail) = row.detail else {
+            let Some(detail) = row.detail() else {
                 continue;
             };
-            for uri in detail.aia_and_sia {
-                if !fresh_uris.contains(&uri) {
-                    fresh_uris.push(uri);
+            for uri in &detail.aia_and_sia {
+                if !fresh_uris.contains(uri) {
+                    fresh_uris.push(uri.clone());
                 }
             }
         }
@@ -812,7 +825,7 @@ impl CertSource {
     pub fn log_all_name_constraints(&self) {
         let mut logged_some = false;
         for row in self.cert_rows() {
-            let Some(detail) = &row.detail else {
+            let Some(detail) = row.detail() else {
                 continue;
             };
             // The heading repeats before each half rather than being printed once for the pair:
@@ -889,31 +902,97 @@ impl CertSource {
         info!("{}", message.as_str());
     }
 
-    /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: TimeOfInterest) {
-        if let Err(_e) = valid_at_time(target.decoded().tbs_certificate(), time_of_interest, true) {
+    /// Returns the partial paths that could certify `target`, as rows.
+    ///
+    /// The paths are found by the key the target's issuer is indexed under: the key identifier from
+    /// its authority key identifier extension, or, where the extension carries names instead of a
+    /// key identifier, whatever key identifier the name map leads to. A target naming an issuer this
+    /// source does not hold yields no paths.
+    ///
+    /// Two kinds of stored path are declined rather than returned, both reported through `log` at
+    /// error level because each describes a store that is not what it claims: one naming no
+    /// certificates, and one whose leaf CA carries the target's issuer key identifier under a
+    /// different name. The second abandons the rest of that key's paths, since a key identifier
+    /// shared across names makes the remainder no more trustworthy than the one that failed.
+    pub fn paths_for_target(
+        &self,
+        target: &PDVCertificate,
+        time_of_interest: TimeOfInterest,
+    ) -> Vec<PathRow> {
+        if valid_at_time(target.decoded().tbs_certificate(), time_of_interest, true).is_err() {
             error!(
                 "No paths found because target is not valid at indicated time of interest ({time_of_interest})"
             );
-            return;
+            return vec![];
         }
 
-        let partial_paths = &self.buffers_and_paths.partial_paths;
-
-        if partial_paths.is_empty() {
+        if self.buffers_and_paths.partial_paths.is_empty() {
             if self.certs.is_empty() {
                 info!("No partial paths present");
             }
-            return;
+            return vec![];
         }
 
-        let mut akid_hex = "".to_string();
+        let key = self.issuer_key_for_target(target);
+        if key.is_empty() {
+            let fname = get_filename_from_cert_metadata(target);
+            let issuer = get_leaf_rdn(target.decoded().tbs_certificate().issuer());
+            debug!("Missing AKID in target and failed to find issuer by name - {issuer} ({fname})");
+            return vec![];
+        }
+
+        let mut rows = vec![];
+        for outer in self.buffers_and_paths.partial_paths.iter() {
+            let Some(inner) = outer.get(&key) else {
+                continue;
+            };
+            for v in inner {
+                if v.is_empty() {
+                    let label = self.leaf_ca_label(&key);
+                    error!("Empty partial paths vector for {label}: . Skipping.");
+                    continue;
+                }
+
+                // Accounts for CAs that use the same key identifier under different names. Could
+                // add a name constraints check here too, maybe.
+                let mut mismatched = false;
+                if let Some(Some(ca)) = v.last().and_then(|li| self.certs.get(*li)) {
+                    mismatched = !compare_names(
+                        ca.decoded().tbs_certificate().subject(),
+                        target.decoded().tbs_certificate().issuer(),
+                    );
+                }
+                if mismatched {
+                    error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
+                    break;
+                }
+
+                rows.push(self.path_row(&key, v));
+            }
+        }
+        rows
+    }
+
+    /// Logs info about partial paths and corresponding buffers for a given target
+    pub fn log_paths_for_target(&self, target: &PDVCertificate, time_of_interest: TimeOfInterest) {
+        let rows = self.paths_for_target(target, time_of_interest);
+        self.log_path_rows(&rows);
+    }
+
+    /// The key identifier the issuer of `target` is indexed under, or an empty string when none
+    /// can be established.
+    ///
+    /// Read from the authority key identifier extension where it carries one. Where it carries
+    /// issuer names instead, and where there is no extension at all, the issuer name is looked up
+    /// in the name map and the key identifier of the first certificate found under it is used.
+    fn issuer_key_for_target(&self, target: &PDVCertificate) -> String {
         let mut name_vec = vec![target.decoded().tbs_certificate().issuer()];
         let akid_ext = target.get_extension(&ID_CE_AUTHORITY_KEY_IDENTIFIER);
         if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = akid_ext {
             if let Some(kid) = &akid.key_identifier {
-                akid_hex = buffer_to_hex(kid.as_bytes());
-            } else if let Some(names) = &akid.authority_cert_issuer {
+                return buffer_to_hex(kid.as_bytes());
+            }
+            if let Some(names) = &akid.authority_cert_issuer {
                 for n in names {
                     if let GeneralName::DirectoryName(dn) = n {
                         name_vec.push(dn);
@@ -922,192 +1001,125 @@ impl CertSource {
             }
         }
 
-        if akid_hex.is_empty() {
-            // try to use name map to find AKID
-            for n in name_vec {
-                let name_str = name_to_string(n);
-                if self.name_map.contains_key(&name_str) {
-                    for i in &self.name_map[&name_str] {
-                        if let Some(Some(cert)) = self.certs.get(*i) {
-                            let skid = hex_skid_from_cert(cert);
-                            if !skid.is_empty() {
-                                debug!(
-                                    "Using calculated key identifier in lieu of AKID for {name_str}"
-                                );
-                                akid_hex = skid;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut indices = vec![];
-        let mut counter = 0;
-
-        if !akid_hex.is_empty() {
-            let key = akid_hex;
-            for outer in partial_paths.iter() {
-                if !outer.contains_key(&key) {
-                    continue;
-                }
-                let inner = &outer[&key];
-                let mut label = key.clone();
-                for c in &self.skid_map[&key] {
-                    if let Some(Some(cert)) = self.certs.get(*c) {
-                        label = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
-                        break;
-                    }
-                }
-
-                info!("{label}: ");
-
-                for v in inner {
-                    if v.is_empty() {
-                        error!("Empty partial paths vector for {label}: . Skipping.");
-                        continue;
-                    }
-
-                    // This block accounts for CAs that use different names for same SKID. Could add name constraints check here too, maybe.
-                    let last_index = if let Some(li) = v.last() {
-                        li
-                    } else {
-                        continue;
-                    };
-                    if let Some(Some(ca)) = self.certs.get(*last_index) {
-                        if !compare_names(
-                            ca.decoded().tbs_certificate().subject(),
-                            target.decoded().tbs_certificate().issuer(),
-                        ) {
-                            error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
-                            break;
-                        }
-                    }
-
-                    let mut vlabel = "".to_string();
-                    for ii in v {
-                        if !indices.contains(ii) {
-                            indices.push(*ii);
-                        }
-                    }
-                    for ii in v {
-                        if let Some(Some(cert)) = self.certs.get(*ii) {
-                            vlabel = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
-                            break;
-                        }
-                    }
-                    counter += 1;
-                    info!("\t* TA subject: {vlabel} - {v:?}, ");
-                }
-            }
-        } else {
-            let fname = get_filename_from_cert_metadata(target);
-            let issuer = get_leaf_rdn(target.decoded().tbs_certificate().issuer());
-            debug!("Missing AKID in target and failed to find issuer by name - {issuer} ({fname})");
-        }
-
-        for (i, c) in self.certs.iter().enumerate() {
-            if indices.contains(&i) {
-                if let Some(cert) = c {
+        for n in name_vec {
+            let name_str = name_to_string(n);
+            let Some(candidates) = self.name_map.get(&name_str) else {
+                continue;
+            };
+            for i in candidates {
+                if let Some(Some(cert)) = self.certs.get(*i) {
                     let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
-                    let iss = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
-                    info!(
-                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                        i, skid, iss, sub
-                    );
+                    if !skid.is_empty() {
+                        debug!("Using calculated key identifier in lieu of AKID for {name_str}");
+                        return skid;
+                    }
                 }
             }
         }
+
+        String::new()
+    }
+
+    /// The name a key identifier is labelled by in the listings: the leaf RDN of the first
+    /// certificate found under it, or the key identifier itself when none is held.
+    fn leaf_ca_label(&self, key: &str) -> String {
+        if let Some(candidates) = self.skid_map.get(key) {
+            for c in candidates {
+                if let Some(Some(cert)) = self.certs.get(*c) {
+                    return get_leaf_rdn(cert.decoded().tbs_certificate().subject());
+                }
+            }
+        }
+        key.to_string()
+    }
+
+    /// Logs a set of partial paths the way the per-target and per-leaf-CA listings report one: the
+    /// paths under a label naming their leaf CA, then the certificates they name between them, then
+    /// a count of each.
+    fn log_path_rows(&self, rows: &[PathRow]) {
+        let mut labelled: Option<(usize, &str)> = None;
+        for row in rows {
+            let group = (row.len(), row.leaf_ca_skid.as_str());
+            if labelled != Some(group) {
+                info!("{}: ", row.leaf_ca_subject);
+                labelled = Some(group);
+            }
+            info!("{}", row.log_line());
+        }
+
+        // In order of first appearance, which is the order the paths name them; the listing below
+        // prints them in index order regardless, so this only decides membership.
+        let mut indices = vec![];
+        for row in rows {
+            for i in &row.indices {
+                if !indices.contains(i) {
+                    indices.push(*i);
+                }
+            }
+        }
+
+        for row in self.cert_rows() {
+            if !indices.contains(&row.index) {
+                continue;
+            }
+            if let Some(line) = row.log_line() {
+                info!("{line}");
+            }
+        }
+
         info!(
             "Found {} partial paths featuring {} different intermediate CA certificates",
-            counter,
+            rows.len(),
             indices.len()
         );
     }
 
-    /// Logs info about partial paths and corresponding buffers for a given target
-    pub fn log_paths_for_leaf_ca(&self, target: &PDVCertificate) {
-        let partial_paths = &self.buffers_and_paths.partial_paths;
-
-        if partial_paths.is_empty() {
+    /// Returns the partial paths that terminate at `target`, as rows.
+    ///
+    /// The paths are found by the target's own key identifier: the value of its subject key
+    /// identifier extension, or the calculated one the source would index it under when it carries
+    /// no such extension. Unlike [`CertSource::paths_for_target`], every stored path under that key
+    /// is returned — the caller has named the leaf CA itself, so there is no issuer name to hold
+    /// the paths against.
+    pub fn paths_for_leaf_ca(&self, target: &PDVCertificate) -> Vec<PathRow> {
+        if self.buffers_and_paths.partial_paths.is_empty() {
             if self.certs.is_empty() {
                 info!("No partial paths present");
             }
-            return;
+            return vec![];
         }
 
-        let mut skid_hex = "".to_string();
-        let skid_ext = target.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
-        if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid_ext {
-            skid_hex = buffer_to_hex(skid.0.as_bytes());
+        let mut key = String::new();
+        if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) =
+            target.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER)
+        {
+            key = buffer_to_hex(skid.0.as_bytes());
         }
-
-        if skid_hex.is_empty() {
-            skid_hex = hex_skid_from_cert(target);
+        if key.is_empty() {
+            key = hex_skid_from_cert(target);
         }
-
-        let mut indices = vec![];
-        let mut counter = 0;
-
-        if !skid_hex.is_empty() {
-            let key = skid_hex;
-            for outer in partial_paths.iter() {
-                if !outer.contains_key(&key) {
-                    continue;
-                }
-                let inner = &outer[&key];
-                let mut label = key.clone();
-                for c in &self.skid_map[&key] {
-                    if let Some(Some(cert)) = self.certs.get(*c) {
-                        label = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
-                        break;
-                    }
-                }
-
-                info!("{label}: ");
-
-                for v in inner {
-                    let mut vlabel = "".to_string();
-                    for ii in v {
-                        if !indices.contains(ii) {
-                            indices.push(*ii);
-                        }
-                    }
-                    for ii in v {
-                        if let Some(Some(cert)) = self.certs.get(*ii) {
-                            vlabel = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
-                            break;
-                        }
-                    }
-                    counter += 1;
-                    info!("\t* TA subject: {vlabel} - {v:?}, ");
-                }
-            }
-        } else {
+        if key.is_empty() {
             let fname = get_filename_from_cert_metadata(target);
             error!("Missing SKID in leaf CA and failed to calculate one - {fname}");
+            return vec![];
         }
 
-        for (i, c) in self.certs.iter().enumerate() {
-            if indices.contains(&i) {
-                if let Some(cert) = c {
-                    let skid = hex_skid_from_cert(cert);
-                    let sub = get_leaf_rdn(cert.decoded().tbs_certificate().subject());
-                    let iss = get_leaf_rdn(cert.decoded().tbs_certificate().issuer());
-                    info!(
-                        "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
-                        i, skid, iss, sub
-                    );
-                }
+        let mut rows = vec![];
+        for outer in self.buffers_and_paths.partial_paths.iter() {
+            let Some(inner) = outer.get(&key) else {
+                continue;
+            };
+            for v in inner {
+                rows.push(self.path_row(&key, v));
             }
         }
-        info!(
-            "Found {} partial paths featuring {} different intermediate CA certificates",
-            counter,
-            indices.len()
-        );
+        rows
+    }
+
+    /// Logs info about partial paths and corresponding buffers for a given leaf CA
+    pub fn log_paths_for_leaf_ca(&self, target: &PDVCertificate) {
+        let rows = self.paths_for_leaf_ca(target);
+        self.log_path_rows(&rows);
     }
 
     /// serialize returns a buffer containing a CBOR encoding of the buffers_and_paths
@@ -1225,20 +1237,27 @@ impl CertSource {
                         self.buffers_and_paths.buffers[i].bytes.as_slice(),
                         &cert_file.filename,
                     ) {
-                        Ok(pdvcert) => self.certs.push(Some(pdvcert)),
+                        Ok(pdvcert) => {
+                            self.certs.push(Some(pdvcert));
+                            self.unusable.push(None);
+                        }
                         Err(e) => {
                             error!(
                                 "Failed to parse certificate from {} with {e}. Continuing without it.",
                                 cert_file.filename
                             );
                             self.certs.push(None);
+                            self.unusable.push(Some(UnusableReason::Unparsed));
                         }
                     }
                 } else {
                     self.certs.push(None);
+                    self.unusable
+                        .push(Some(UnusableReason::NotValidAtTimeOfInterest));
                 }
             } else {
                 self.certs.push(None);
+                self.unusable.push(Some(UnusableReason::Unparsed));
             }
         }
         // Whether anything was appended, so a caller knows whether the maps built over `certs` are
@@ -2364,16 +2383,20 @@ fn cert_rows_cover_every_position_including_unusable_ones() {
         rows.iter().map(|r| r.index).collect::<Vec<_>>(),
         vec![0, 1, 2]
     );
-    assert!(rows[0].detail.is_some());
-    assert!(rows[1].detail.is_none());
-    assert!(rows[2].detail.is_some());
+    assert!(rows[0].detail().is_some());
+    assert!(rows[1].detail().is_none());
+    assert!(rows[2].detail().is_some());
+
+    // The reason survives, so a reader can tell a bad file from a certificate the time of
+    // interest simply does not cover.
+    assert_eq!(rows[1].unusable(), Some(UnusableReason::Unparsed));
 
     // The name it was read under survives the failure to parse it, and is the only description an
     // unusable entry has.
     assert_eq!(rows[1].filename, "garbage");
     assert!(rows[1].log_line().is_none());
 
-    let detail = rows[0].detail.as_ref().unwrap();
+    let detail = rows[0].detail().unwrap();
     assert!(detail.is_ca);
     assert!(detail.not_before < detail.not_after);
     assert_eq!(
@@ -2435,6 +2458,134 @@ fn an_unresolvable_leaf_ca_is_labelled_by_its_key_identifier() {
     assert_eq!(rows[0].leaf_ca_subject, "DEADBEEF");
     assert!(rows[0].leaf_ca_indices.is_empty());
     assert_eq!(rows[0].ta_subject, "");
+}
+
+// A certificate the time of interest does not cover is unusable for a different reason than a bad
+// file is, and the difference is what a reader needs: this one is answerable by asking as of
+// another time, and removing it would be removing a certificate that is merely out of scope.
+#[cfg(feature = "std")]
+#[test]
+fn an_entry_outside_the_time_of_interest_says_so() {
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let mut source = CertSource::new();
+    source.buffers_and_paths.buffers.push(CertFile {
+        filename: "0.der".to_string(),
+        bytes: der.to_vec(),
+    });
+
+    let mut cps = CertificationPathSettings::default();
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(4102444800).unwrap());
+    source.initialize(&cps).unwrap();
+
+    let rows = source.cert_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].unusable(),
+        Some(UnusableReason::NotValidAtTimeOfInterest)
+    );
+}
+
+// A buffer added since the last `initialize` is not a bad buffer, and reporting it as one would
+// send a reader looking for a fault in a file that has not been read yet.
+#[cfg(feature = "std")]
+#[test]
+fn a_buffer_not_yet_parsed_says_so() {
+    let mut source = CertSource::new();
+    source.buffers_and_paths.buffers.push(CertFile {
+        filename: "0.der".to_string(),
+        bytes: vec![],
+    });
+
+    let rows = source.cert_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].unusable(), Some(UnusableReason::NotParsed));
+    assert_eq!(rows[0].filename, "0.der");
+}
+
+// A source holding the Trust Anchor root at index 0, with one stored path naming it, and the Good
+// CA certificate it issued as a target for that path.
+#[cfg(all(test, feature = "std"))]
+fn source_with_one_path() -> (CertSource, PDVCertificate, String) {
+    let root = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let good_ca = include_bytes!("../../tests/examples/GoodCACert.crt");
+
+    let mut source = CertSource::new();
+    source.buffers_and_paths.buffers.push(CertFile {
+        filename: "0.der".to_string(),
+        bytes: root.to_vec(),
+    });
+    let cps = CertificationPathSettings::default();
+    source.initialize(&cps).unwrap();
+
+    let skid = hex_skid_from_cert(&source.get_cert_at_index(0).unwrap());
+    let mut outer = BTreeMap::new();
+    outer.insert(skid.clone(), vec![vec![0usize]]);
+    source.buffers_and_paths.partial_paths = vec![outer];
+
+    let target = PDVCertificate::try_from(good_ca.as_slice()).unwrap();
+    (source, target, skid)
+}
+
+// The target's authority key identifier names the root, and the stored path is filed under that
+// key, so the path is the one returned.
+#[cfg(feature = "std")]
+#[test]
+fn paths_for_target_finds_the_paths_under_its_issuer_key() {
+    let (source, target, skid) = source_with_one_path();
+
+    let rows = source.paths_for_target(&target, TimeOfInterest::disabled());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].leaf_ca_skid, skid);
+    assert_eq!(rows[0].indices, vec![0]);
+    assert_eq!(rows[0].leaf_ca_indices, vec![0]);
+}
+
+// A target whose issuer the source does not hold has no key to look paths up under, so it gets
+// none rather than every path in the graph.
+#[cfg(feature = "std")]
+#[test]
+fn paths_for_target_declines_a_target_whose_issuer_is_not_held() {
+    let (mut source, target, _) = source_with_one_path();
+
+    let mut outer = BTreeMap::new();
+    outer.insert("DEADBEEF".to_string(), vec![vec![0usize]]);
+    source.buffers_and_paths.partial_paths = vec![outer];
+
+    assert!(source
+        .paths_for_target(&target, TimeOfInterest::disabled())
+        .is_empty());
+}
+
+// Validity is decided against the time of interest, so a target the caller is asking about as of a
+// time it does not cover yields no paths -- the same answer the listing has always reported, and
+// the reason a "no paths" result is read against the time before it is read against the store.
+#[cfg(feature = "std")]
+#[test]
+fn paths_for_target_declines_a_target_outside_the_time_of_interest() {
+    let (source, target, _) = source_with_one_path();
+
+    // Well past the PKITS fixtures' notAfter.
+    let toi = TimeOfInterest::from_unix_secs(4102444800).unwrap();
+    assert!(source.paths_for_target(&target, toi).is_empty());
+}
+
+// Asking about the leaf CA itself takes its own key identifier rather than its issuer's, so the
+// certificate that terminates the stored path is the one that finds it.
+#[cfg(feature = "std")]
+#[test]
+fn paths_for_leaf_ca_finds_the_paths_under_its_own_key() {
+    let (source, _, skid) = source_with_one_path();
+    let leaf_ca = source.get_cert_at_index(0).unwrap();
+
+    let rows = source.paths_for_leaf_ca(&leaf_ca);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].leaf_ca_skid, skid);
+    assert_eq!(rows[0].indices, vec![0]);
+
+    // The target of the other query is not a leaf CA of any stored path, so it finds none under
+    // its own key even though it finds one under its issuer's.
+    let (_, target, _) = source_with_one_path();
+    assert!(source.paths_for_leaf_ca(&target).is_empty());
 }
 
 // The accessor hands back the stored graph itself, so a caller needing the storage shape neither

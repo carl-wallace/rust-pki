@@ -17,6 +17,7 @@
 //! the same walk of the same state.
 
 use alloc::{
+    boxed::Box,
     format,
     string::{String, ToString},
     vec,
@@ -34,11 +35,10 @@ use crate::{
 
 /// One entry in the certificate pool, including the entries that hold no usable certificate.
 ///
-/// Every position in the pool gets a row, `detail` distinguishing the two cases. An entry is
-/// `None` where the buffer at that index could not be parsed, or held a certificate that was not
-/// valid at the time of interest the source was initialized with. Reporting those positions rather
-/// than skipping them is what lets a reader tell a pool of 41 certificates from a pool of 43 with
-/// two unusable, and tell either from an index that simply does not exist.
+/// Every position in the pool gets a row, its [`PoolEntry`] carrying either the certificate there
+/// or the reason there is none. Reporting the positions that hold nothing usable, rather than
+/// skipping them, is what lets a reader tell a pool of 41 certificates from a pool of 43 with two
+/// unusable, and tell either from an index that simply does not exist.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CertRow {
     /// Position in the pool. This is the value every listing prints and every index-taking
@@ -49,8 +49,41 @@ pub struct CertRow {
     /// index — notionally a filename or a URI. Present whether or not the entry parsed, which is
     /// the only description an unusable entry has.
     pub filename: String,
-    /// The certificate at this index, or `None` where the pool holds no usable one.
-    pub detail: Option<CertDetail>,
+    /// The certificate at this position, or why there is none.
+    pub entry: PoolEntry,
+}
+
+/// What a pool position holds.
+///
+/// An enumeration rather than an `Option` and a reason beside it, so that "usable" and "why not"
+/// cannot both be answered at once or neither be.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PoolEntry {
+    /// The certificate at this position.
+    ///
+    /// Boxed because the detail is two hundred-odd bytes against the reason's one, and a pool is
+    /// read a row at a time: without it every unusable row in a store carries the footprint of a
+    /// certificate it does not hold. The detail already owns eight allocations of its own, so the
+    /// box is not a ninth anyone will notice.
+    Certificate(Box<CertDetail>),
+    /// The buffer at this position yielded no usable certificate.
+    Unusable(UnusableReason),
+}
+
+/// Why a pool position holds no usable certificate.
+///
+/// The source distinguishes these while populating and has until now only logged the distinction.
+/// It is worth keeping: the first is a bad file and the third is a caller who has not finished,
+/// while the second says nothing about the certificate except that the question was asked as of a
+/// time it does not cover — change the time of interest and it may be usable again.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnusableReason {
+    /// The buffer did not decode as a certificate.
+    Unparsed,
+    /// It decoded, but was not valid at the time of interest the source was initialized with.
+    NotValidAtTimeOfInterest,
+    /// The buffer has not been parsed: `initialize` has not run since it was added.
+    NotParsed,
 }
 
 /// What is readable from a pool entry that parsed.
@@ -137,10 +170,26 @@ impl CertDetail {
 }
 
 impl CertRow {
+    /// The certificate at this position, or `None` where there is none.
+    pub fn detail(&self) -> Option<&CertDetail> {
+        match &self.entry {
+            PoolEntry::Certificate(detail) => Some(detail.as_ref()),
+            PoolEntry::Unusable(_) => None,
+        }
+    }
+
+    /// Why this position holds no usable certificate, or `None` where it holds one.
+    pub fn unusable(&self) -> Option<UnusableReason> {
+        match &self.entry {
+            PoolEntry::Certificate(_) => None,
+            PoolEntry::Unusable(reason) => Some(*reason),
+        }
+    }
+
     /// The line `log_certs` prints for this row, or `None` for an entry holding no usable
     /// certificate — which that listing passes over in silence.
     pub fn log_line(&self) -> Option<String> {
-        self.detail.as_ref().map(|d| {
+        self.detail().map(|d| {
             format!(
                 "Index: {}; SKID: {}; Issuer: {}; Subject: {}",
                 self.index, d.skid, d.issuer, d.subject
@@ -257,24 +306,30 @@ mod tests {
         let row = CertRow {
             index: 7,
             filename: "7.der".to_string(),
-            detail: Some(detail()),
+            entry: PoolEntry::Certificate(Box::new(detail())),
         };
         assert_eq!(
             row.log_line().unwrap(),
             "Index: 7; SKID: AABB; Issuer: CN=Some CA; Subject: CN=Another CA"
         );
+        assert!(row.detail().is_some());
+        assert!(row.unusable().is_none());
     }
 
     // An entry the pool could not use is passed over by `log_certs` rather than printed as a gap,
-    // which is why the row reports the absence instead of rendering a line for it.
+    // which is why the row reports the absence instead of rendering a line for it -- and reports
+    // which absence it is, since a bad file and a certificate outside the time of interest call
+    // for different things from whoever is looking.
     #[test]
-    fn an_unusable_row_renders_no_line() {
+    fn an_unusable_row_renders_no_line_but_keeps_its_reason() {
         let row = CertRow {
             index: 1,
             filename: "garbage".to_string(),
-            detail: None,
+            entry: PoolEntry::Unusable(UnusableReason::Unparsed),
         };
         assert!(row.log_line().is_none());
+        assert!(row.detail().is_none());
+        assert_eq!(row.unusable(), Some(UnusableReason::Unparsed));
     }
 
     // The anchor listing pads its index to three columns; the certificate listing does not. Both
