@@ -74,6 +74,27 @@ come from the same `api/stores` answer as the rest of its description. A statica
 asks, gets no answer, and carries on with the stores in `resources/`; nothing about deploying to a
 static host changes.
 
+The **Generate** tab builds a store rather than validating against one. Its material is what is
+loaded on the tab — trust anchors and intermediates, including `.cbor` stores, which is how an
+existing store serves as a starting point here just as naming one does in the desktop's input
+pools. A store this application ships is deliberately not offered as a starting point, as it is not
+on the desktop: what goes into a store somebody is about to hand out should be material they chose.
+The run finds every partial path over that pool and describes what it built; **nothing is written
+until Save as a new store is pressed**, which is the desktop's arrangement as well. Saving hands
+back the two halves under the names the other frontends read them by (`ta.cbor` and `ca.cbor`) as
+one zip, since a page cannot start two downloads.
+
+The certificates that reach the store are the ones the command line keeps when it reads a folder:
+one that does not parse, is outside the time of interest the tab asks about, is self-signed, or does
+not assert `cA` is left out, and the run reports how many certificates it imported out of how many
+candidates. Those exclusions arrive as marks on the report rather than as a silent drop — the
+command line applies the same screen while reading the folder, where there is nothing left to show —
+so they can be cleared for a store of everything. The report, the marks and the time of interest are
+shared with the Inspect tab rather than copied, which is how the desktop arranges the same two
+views. Generating from material already loaded needs nothing, so the tab is available on a
+statically hosted copy too; the checkbox that follows AIA and SIA URIs before building is retrieval,
+so it needs a service and is unavailable without one.
+
 Provider archives from the [IETF Hackathon PQC Certificate repo](https://github.com/IETF-Hackathon/pqc-certificates)
 in the artifacts_certs_r5.zip format can be validated wholesale: `*_ta.der` entries form a
 self-contained trust anchor store and are each validated as self-signed targets, `*_ee.der`

@@ -889,15 +889,10 @@ fn UriCheckView() -> Element {
                 filter_name: "Certificate File",
                 extensions: SINGLE_CERT_EXTENSIONS,
             }
-            div { class: "visible label-cell",
-                label { "Issuer discovery: " }
-            }
-            div { class: "field check-group",
-                CheckboxCell {
-                    label: "Attempt auto-discovery if issuer not specified",
-                    name: "uri-auto",
-                    sig: s_auto,
-                }
+            CheckboxRow {
+                label: "Issuer discovery",
+                name: "uri-auto",
+                sig: s_auto,
             }
         }
         div { class: "tool-actions",
@@ -2641,15 +2636,16 @@ pub(crate) fn App() -> Element {
                         fieldset {
                             legend { "Options" }
                             div { class: "controls",
-                                div { class: "visible label-cell",
-                                    label { "Chase SIA and AIA: " }
-                                }
-                                div { class: "field check-group",
-                                    CheckboxCell {
-                                        label: "Follow AIA and SIA URIs while building",
-                                        name: "chase-while-building",
-                                        sig: s_chase_while_building,
-                                    }
+                                // One label. `CheckboxRow` puts the name in the grid's label
+                                // column and carries the explanation as the tooltip, which is what
+                                // every box on the Validate view does; the hand-rolled label-cell
+                                // and `CheckboxCell` this replaced named the setting twice, once in
+                                // each column. `CheckboxCell` is for several boxes sharing one
+                                // field, and there is only ever one here.
+                                CheckboxRow {
+                                    label: "Chase SIA and AIA",
+                                    name: "chase-while-building",
+                                    sig: s_chase_while_building,
                                 }
                                 // Beside the option it serves: this is where chasing puts what it
                                 // fetches, and it means nothing when nothing is being chased.
@@ -2690,30 +2686,39 @@ pub(crate) fn App() -> Element {
                         p { class: "hint",
                             "Reports what a store holds, without validating anything. Every certificate the store carries and every partial path over them is listed; select a row to see its detail and what it joins to."
                         }
-                        div { class: "controls",
-                            StoreRow { sig: s_store, status: s_store_export }
-                            StoreHint { selection: s_store() }
-                            StoreStatusRow { status: s_store_export }
-                            // Both halves always shown, as the browser shows them: they are the
-                            // other way to name a store, and hiding them until the selector is on
-                            // Custom leaves that arm to be discovered. A named store wins over
-                            // them -- `current_args` takes the selector's bytes first and falls
-                            // back to these.
-                            FileRow {
-                                label: "TA CBOR",
-                                name: "ta-cbor",
-                                sig: s_ta_cbor,
-                                filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                extensions: ["cbor", "pki", "ta"].as_slice(),
+                        // Boxed for the reason the target below is: this is what the inspection is
+                        // *of*, and it sat as loose rows above a group box, which read as preamble
+                        // to the target rather than as the other half of the question. The same box
+                        // the Validate view puts a store in, and untitled for the same reason --
+                        // naming it here and nowhere else would make one view's store a labelled
+                        // thing and the other's not. The two CBOR rows belong inside it because
+                        // they *are* a store, named as files rather than chosen from the list.
+                        div { class: "panel",
+                            div { class: "controls",
+                                StoreRow { sig: s_store, status: s_store_export }
+                                StoreHint { selection: s_store() }
+                                StoreStatusRow { status: s_store_export }
+                                // Both halves always shown, as the browser shows them: they are the
+                                // other way to name a store, and hiding them until the selector is
+                                // on Custom leaves that arm to be discovered. A named store wins
+                                // over them -- `current_args` takes the selector's bytes first and
+                                // falls back to these.
+                                FileRow {
+                                    label: "TA CBOR",
+                                    name: "ta-cbor",
+                                    sig: s_ta_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                    extensions: ["cbor", "pki", "ta"].as_slice(),
+                                }
+                                FileRow {
+                                    label: "CA CBOR",
+                                    name: "cbor",
+                                    sig: s_cbor,
+                                    filter_name: "PITTv3 CBOR-serialized PKI",
+                                    extensions: ["cbor", "pki"].as_slice(),
+                                }
+                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
                             }
-                            FileRow {
-                                label: "CA CBOR",
-                                name: "cbor",
-                                sig: s_cbor,
-                                filter_name: "PITTv3 CBOR-serialized PKI",
-                                extensions: ["cbor", "pki"].as_slice(),
-                            }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
                         }
                         // The same group box the Validate view puts a target in, so the certificate
                         // being asked about is named the same way wherever it is supplied. A CA
