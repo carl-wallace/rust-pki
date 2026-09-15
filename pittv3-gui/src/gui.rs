@@ -21,7 +21,9 @@ use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
 
 use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
-use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
+use pittv3_lib::edit::{
+    apply_edits, cleanup_candidates, generate_and_report, EditedStore, StagedEdits,
+};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes, Inspected};
 use pittv3_lib::options_std::inspect_args;
 // Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
@@ -263,21 +265,6 @@ async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
     }
 }
 
-/// Presents a selection dialog that accepts either a file or a folder and assigns the selection,
-/// if any, to `sig`. macOS only: `rfd` implements the combined dialog for that platform alone, so
-/// other platforms offer the two dialogs as separate buttons instead (see [`PathRow`]).
-#[cfg(target_os = "macos")]
-async fn pick_file_or_folder_into(mut sig: Signal<String>) {
-    let picked = AsyncFileDialog::new()
-        .set_directory(dialog_dir(DialogPurpose::Open))
-        .pick_file_or_folder()
-        .await;
-    if let Some(picked) = picked {
-        remember_pick(DialogPurpose::Open, picked.path());
-        sig.set(picked.path().to_string_lossy().to_string());
-    }
-}
-
 /// Asks where to put an export and writes it there, reporting either outcome into the run log.
 ///
 /// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
@@ -409,8 +396,8 @@ fn extend_pool(mut sig: Signal<Vec<String>>, picked: Vec<String>) {
 }
 
 /// Presents a multi-select dialog accepting files and folders together and appends what was chosen
-/// to the pool in `sig`. macOS only, as with [`pick_file_or_folder_into`]: `rfd` implements the
-/// combined dialog for that platform alone.
+/// to the pool in `sig`. macOS only: `rfd` implements the combined dialog for that platform alone,
+/// so other platforms offer the two dialogs as separate buttons instead.
 #[cfg(target_os = "macos")]
 async fn pick_files_or_folders_into(sig: Signal<Vec<String>>) {
     let picked = AsyncFileDialog::new()
@@ -730,59 +717,11 @@ fn FolderRow(
     }
 }
 
-/// Row for an input that accepts either a folder of certificates or a single certificate
-/// file, which is what the trust anchor and CA inputs take.
-///
-/// macOS can offer both in one dialog, so there the `...` button does; every other platform has to
-/// choose a dialog kind up front, so the row carries a second button. The distinction is only about
-/// how the path is chosen — a typed or pasted path of either kind works everywhere, because the run
-/// decides from the path itself rather than from which button produced it.
-#[component]
-fn PathRow(
-    label: String,
-    name: String,
-    sig: Signal<String>,
-    #[props(default)] title: String,
-) -> Element {
-    #[cfg(target_os = "macos")]
-    return rsx! {
-        BrowseRow {
-            label,
-            name,
-            sig,
-            title,
-            on_browse: move |_| {
-                spawn(pick_file_or_folder_into(sig));
-            },
-        }
-    };
-
-    #[cfg(not(target_os = "macos"))]
-    return rsx! {
-        BrowseRow {
-            label,
-            name,
-            sig,
-            title,
-            on_browse: move |_| {
-                spawn(pick_folder_into(sig));
-            },
-            on_browse_alt: move |_| {
-                spawn(pick_file_into(sig, "Certificate File", CERT_EXTENSIONS));
-            },
-            // Named rather than left as the bare "..." the single-dialog platforms show. Beside a
-            // button that says File, an ellipsis reads as "more" rather than as the other kind.
-            primary_label: "Folder\u{2026}",
-            alt_label: "File\u{2026}",
-        }
-    };
-}
-
 /// Row for a pool of inputs that may each be a file or a folder — the trust anchor, CA and
 /// end entity lists on the Validate view, and the revocation artifacts beside them.
 ///
-/// Thin wrapper over the shared [`PathListRow`], supplying the native pickers. The platform split
-/// is [`PathRow`]'s: macOS offers files and folders in one dialog, so one Add button does both;
+/// Thin wrapper over the shared [`PathListRow`], supplying the native pickers. macOS offers files
+/// and folders in one dialog, so one Add button does both;
 /// everywhere else the two dialogs are separate and so are the buttons. Either way a typed path of
 /// either kind works, because the run decides from the path rather than from which button produced
 /// it.
@@ -1569,7 +1508,12 @@ pub(crate) fn App() -> Element {
     let s_download_folder =
         use_signal(|| saved_or_default(sa.download_folder.clone(), default_download_folder));
     let s_ca_folder = use_signal(|| saved_or_default(sa.ca_folder.clone(), default_ca_folder));
-    let s_chase_aia_and_sia = use_signal(|| sa.chase_aia_and_sia);
+    // The Generate form's own, like the time of interest an inspection carries: it governs whether
+    // that build grows the graph by following AIA and SIA, and nothing else reads it. Not seeded
+    // from the saved arguments and not written back to them -- chasing reaches the network and
+    // takes as long as the repositories do, so it is asked for per build rather than left set from
+    // whenever it was last used.
+    let s_chase_aia_and_sia = use_signal(|| false);
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
@@ -1629,7 +1573,6 @@ pub(crate) fn App() -> Element {
     let s_crl_folder = use_signal(|| saved_or_default(sa.crl_folder.clone(), default_crl_folder));
     let s_list_partial_paths_for_target =
         use_signal(|| sa.list_partial_paths_for_target.clone().unwrap_or_default());
-    let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
 
     // run state: the validation run executes on a worker thread so the WebView stays responsive;
     // results and log output flow back over channels and are applied to signals on the UI side only
@@ -1744,7 +1687,10 @@ pub(crate) fn App() -> Element {
             // A leaf CA is a row in the report, so asking about one is selecting it rather than
             // naming an index in advance.
             list_partial_paths_for_leaf_ca: None,
-            mozilla_csv: path_or_none(s_mozilla_csv),
+            // A CCADB export is converted once, which is a command line errand: `--mozilla-csv`
+            // writes the certificates it holds into a folder. The built Web PKI store the providers
+            // ship is what this application offers instead.
+            mozilla_csv: None,
             check_uris: None,
             issuer: None,
             no_auto_discover: false,
@@ -1860,6 +1806,50 @@ pub(crate) fn App() -> Element {
 
     // Certificates the reader asked for, written where this application already puts what a run
     // hands back. The lookup is the shared one; only the disposal is this frontend's.
+    // Generation shares the report the Inspect view renders: a store you just built is the store
+    // you are looking at, and switching tabs should not lose it.
+    let mut s_generate_running = use_signal(|| false);
+    let run_generate = move |_| {
+        s_generate_running.set(true);
+        s_inspect_notes.write().clear();
+
+        let args = match current_args() {
+            Ok(args) => args,
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                s_generate_running.set(false);
+                return;
+            }
+        };
+
+        spawn(async move {
+            match generate_and_report(&args).await {
+                Ok(inspected) => {
+                    s_inspect_notes.write().push(ResultLine {
+                        class: "ok",
+                        text: format!(
+                            "Built {} — save it to write the store",
+                            inspected.report.summary()
+                        ),
+                    });
+                    s_inspect_edits.write().clear();
+                    s_inspected.set(Some(inspected));
+                }
+                Err(msg) => {
+                    s_inspect_notes.write().push(ResultLine {
+                        class: "err",
+                        text: msg,
+                    });
+                    s_inspected.set(None);
+                }
+            }
+            s_generate_running.set(false);
+        });
+    };
+
     let toggle_inspect_cert = move |index: usize| s_inspect_edits.write().toggle_cert(index);
     let toggle_inspect_anchor = move |index: usize| s_inspect_edits.write().toggle_anchor(index);
 
@@ -2622,64 +2612,35 @@ pub(crate) fn App() -> Element {
                         // a parenthesised "(output)" used to say which row was which. The group
                         // names carry that; they are not the tab's own name repeated back, which is
                         // what the boxes removed from the other views were doing.
+                        // Pools rather than single paths: a store is built out of whatever a
+                        // reader has -- a folder here, a bundle there, an InstallRoot stream, an
+                        // existing store to start from -- and the run tells them apart by the path
+                        // and then by the bytes. Which pool something lands in decides which half
+                        // of the store it becomes, except a stream, which carries both.
                         fieldset {
                             legend { "Inputs" }
                             div { class: "controls",
-                                // Named for what they hold rather than for the shape they take:
-                                // a folder, a certificate, a bundle and a store are all accepted
-                                // and told apart from the path and then the bytes, so "Folder or
-                                // File" spent the label on the one distinction that does not
-                                // matter.
-                                PathRow {
-                                    label: "Trust anchors",
-                                    name: "ta-folder",
-                                    sig: s_ta_folder,
-                                }
-                                PathRow {
-                                    label: "CA certificates",
-                                    name: "ca-folder",
-                                    sig: s_ca_folder,
-                                }
-                                // An input in the sense that matters here: it fills the CA folder
-                                // above, which generation then reads.
-                                FileRow {
-                                    label: "Mozilla CSV",
-                                    name: "mozilla-csv",
-                                    sig: s_mozilla_csv,
-                                    filter_name: "CSV file",
-                                    extensions: ["csv"].as_slice(),
-                                }
+                            PoolRow {
+                                label: "Trust Anchors",
+                                name: "ta",
+                                sig: s_ta_inputs,
+                                filter_name: "Trust anchor, bundle or CBOR store",
+                                extensions: TA_POOL_EXTENSIONS,
+                                contents: plural(s_pool_counts().trust_anchors, "trust anchor"),
                             }
-                        }
-                        fieldset {
-                            legend { "Output" }
-                            div { class: "controls",
-                                // A trust store is a pair, so the two parts get a row each and
-                                // naming one is how you ask for it. This replaces a single row
-                                // whose label followed a "CBOR TA store" checkbox: the path
-                                // carried over when that flipped, so a filename chosen for one
-                                // part silently became the destination for the other.
-                                //
-                                // Both named is the ordinary case, not an ambiguity -- generation
-                                // runs once per part. The command line makes the same store in two
-                                // invocations; this view combines them.
-                                FileRow {
-                                    label: "Trust anchor store",
-                                    name: "ta-cbor",
-                                    sig: s_ta_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                    extensions: ["cbor", "pki", "ta"].as_slice(),
-                                }
-                                FileRow {
-                                    label: "CA store",
-                                    name: "cbor",
-                                    sig: s_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized PKI",
-                                    extensions: ["cbor", "pki"].as_slice(),
-                                }
+                            PoolRow {
+                                label: "CA Certificates",
+                                name: "ca",
+                                sig: s_ca_inputs,
+                                filter_name: "Certificate, bundle or CBOR store",
+                                // The same list the anchor pool uses: the shapes are identical, and
+                                // which pool a file lands in is what decides its role.
+                                extensions: TA_POOL_EXTENSIONS,
+                                contents: plural(
+                                    s_pool_counts().ca_certificates,
+                                    "CA certificate",
+                                ),
                             }
-                            p { class: "hint",
-                                "A trust store is a pair: the trust anchor part holds the roots, the CA part holds intermediate CA certificates together with the partial paths found for them. Name one to write that part, or both to write the whole store."
                             }
                         }
                         fieldset {
@@ -2702,17 +2663,32 @@ pub(crate) fn App() -> Element {
                             }
                         }
                         RunButton {
-                            running: s_running(),
-                            onrun: run_command,
-                            label: match (s_cbor().is_empty(), s_ta_cbor().is_empty()) {
-                                (false, false) => "Generate both parts of the store",
-                                (false, true) => "Generate the CA store",
-                                _ => "Generate the trust anchor store",
-                            },
-                            nothing_to_do: match s_cbor().is_empty() && s_ta_cbor().is_empty() {
-                                true => "Name a store to write",
+                            running: s_generate_running(),
+                            onrun: run_generate,
+                            label: "Generate the store".to_string(),
+                            nothing_to_do: match s_ca_folder().is_empty() {
+                                true => "Name a folder of CA certificates",
                                 false => "",
                             },
+                        }
+                        for note in s_inspect_notes() {
+                            p { class: "{note.class}", "{note.text}" }
+                        }
+                        // The same tables an inspection produces: what was built is described
+                        // before it is written, and saving is the same errand from either view.
+                        if let Some(report) = s_inspected.read().as_ref().map(|i| i.report.clone()) {
+                            InspectReportView {
+                                report,
+                                edits: s_inspect_edits(),
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_cert: toggle_inspect_cert,
+                                on_toggle_anchor: toggle_inspect_anchor,
+                                on_save: save_inspected_store,
+                            }
                         }
                     },
                     View::Inspect => rsx! {

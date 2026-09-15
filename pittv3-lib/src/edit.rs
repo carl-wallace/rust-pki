@@ -28,6 +28,17 @@ use certval::{
 
 use crate::inspect::Inspected;
 
+// Generation reads material from paths, so it is a std-only errand. Marking and applying marks are
+// not: the browser edits a store it already holds.
+#[cfg(feature = "std")]
+use crate::args::Pittv3Args;
+#[cfg(feature = "std")]
+use crate::inspect::InspectReport;
+#[cfg(feature = "std")]
+use crate::std_utils::{load_ca_inputs, load_trust_anchors};
+#[cfg(feature = "std")]
+use certval::{build_graph_from, read_settings, CertFile};
+
 /// What a reader has marked for removal, by position.
 ///
 /// Two sets because the two index spaces are unrelated: anchor 3 and certificate 3 are different
@@ -102,6 +113,98 @@ impl StagedEdits {
         }
         format!("{} marked for removal", parts.join(" and "))
     }
+}
+
+/// Builds a store from the material the arguments name, and reports what it holds — without
+/// writing anything.
+///
+/// Gated on `std` because gathering reads paths; the rest of this module is not.
+///
+/// The generation the command line performs stops one step earlier here: [`build_graph`] returns
+/// the store's bytes and `generate` merely writes them afterwards, so a caller that wants to look
+/// before it writes takes the bytes and describes them. Chasing AIA and SIA happens inside the
+/// build, from the settings, so a chased store is described the same way an unchased one is.
+///
+/// The anchors are read the way every other entry point reads them and carried alongside the
+/// certificates, so what comes back is the pair a store is — written only when [`apply_edits`] is
+/// asked for it.
+#[cfg(feature = "std")]
+#[cfg(feature = "std")]
+pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String> {
+    // Built here rather than asked of the caller: neither frontend depends on certval, and this is
+    // the same setup `generate` does before building.
+    let mut cps = read_settings(&args.settings)
+        .map_err(|e| format!("failed to parse settings file: {e:?}"))?;
+    if let Ok(toi) = TimeOfInterest::from_unix_secs(args.time_of_interest) {
+        cps.set_time_of_interest(toi);
+    }
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    // The chase is the form's own control and governs whether the graph grows while it is built.
+    cps.set_retrieve_from_aia_sia_http(args.chase_aia_and_sia);
+    #[cfg(feature = "remote")]
+    if let Some(download_folder) = &args.download_folder {
+        cps.set_download_folder(download_folder.to_string());
+    }
+
+    let cps = &mut cps;
+    let pe = &mut pe;
+
+    // The anchors first: the graph is built against them, and an InstallRoot stream named here
+    // carries intermediates as well, which the third argument collects for the CA side.
+    let mut ca_material: Vec<CertFile> = vec![];
+    let ta_source =
+        load_trust_anchors(pe, args, Some(&mut ca_material))?.unwrap_or_else(TaSource::new);
+    let anchors = ta_source.ta_rows();
+    pe.add_trust_anchor_source(Box::new(ta_source.clone()));
+
+    // Everything the caller contributed, whatever shape it arrived in: a folder, a certificate, a
+    // bundle, an InstallRoot stream or an existing store. `load_ca_inputs` tells each apart by the
+    // path and then by the bytes, so a pile of mixed material is one pool by the time it is built.
+    let mut cert_store = CertSource::new();
+    let added = load_ca_inputs(
+        pe,
+        args.ca_folder
+            .iter()
+            .chain(args.ca_inputs.iter())
+            .map(String::as_str),
+        &mut cert_store,
+        cps.get_time_of_interest(),
+    );
+
+    // An InstallRoot stream named as a trust anchor input carries intermediates too; they were
+    // collected above and belong on this side.
+    for cf in ca_material {
+        cert_store.push(cf);
+    }
+
+    if cert_store.len() == 0 {
+        return Err(match added.certs {
+            0 => "No certificates were contributed, so there is no store to build".to_string(),
+            _ => "The certificates contributed yielded nothing usable".to_string(),
+        });
+    }
+
+    let ca_cbor = build_graph_from(pe, cps, cert_store)
+        .await
+        .map_err(|e| format!("Failed to build the store: {e:?}"))?;
+
+    let mut certs = CertSource::new_from_cbor(&ca_cbor)
+        .map_err(|e| format!("the store just built will not read back: {e:?}"))?;
+    certs
+        .initialize(cps)
+        .map_err(|e| format!("the store just built will not load: {e:?}"))?;
+
+    Ok(Inspected {
+        report: InspectReport {
+            anchors,
+            certs: certs.cert_rows(),
+            paths: certs.path_rows(),
+            target_paths: None,
+        },
+        certs,
+        anchors: ta_source,
+    })
 }
 
 /// The pool positions the command line's `--cleanup` would remove, as the rule it applies.
