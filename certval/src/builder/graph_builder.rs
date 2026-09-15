@@ -121,10 +121,10 @@ pub async fn build_graph_from(
     cps: &CertificationPathSettings,
     mut cert_store: CertSource,
 ) -> Result<Vec<u8>> {
-    let collect_tas = cps.get_cbor_ta_store();
-
+    // Both of these serve the chase alone -- the path discovery below asks `cps` for itself -- so
+    // in a build without `remote` there is nothing to bind them for.
     #[cfg(feature = "remote")]
-    let chasing = cps.get_retrieve_from_aia_sia_http() && !collect_tas;
+    let chasing = cps.get_retrieve_from_aia_sia_http() && !cps.get_cbor_ta_store();
 
     #[cfg(feature = "remote")]
     let download_folder = match cps.get_download_folder() {
@@ -138,6 +138,7 @@ pub async fn build_graph_from(
         }
     };
 
+    #[cfg(feature = "remote")]
     let toi = cps.get_time_of_interest();
 
     #[cfg(feature = "remote")]

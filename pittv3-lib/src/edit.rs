@@ -120,7 +120,7 @@ impl StagedEdits {
 ///
 /// Gated on `std` because gathering reads paths; the rest of this module is not.
 ///
-/// The generation the command line performs stops one step earlier here: [`build_graph`] returns
+/// The generation the command line performs stops one step earlier here: [`build_graph`](certval::build_graph) returns
 /// the store's bytes and `generate` merely writes them afterwards, so a caller that wants to look
 /// before it writes takes the bytes and describes them. Chasing AIA and SIA happens inside the
 /// build, from the settings, so a chased store is described the same way an unchased one is.
@@ -140,8 +140,10 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
     }
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    // The chase is the form's own control and governs whether the graph grows while it is built.
-    cps.set_retrieve_from_aia_sia_http(args.chase_aia_and_sia);
+    // `dynamic_build` is what decides whether a build grows the graph, here as on the command
+    // line: `options_std` turns retrieval off when it is absent, and this is the same rule stated
+    // the other way round.
+    cps.set_retrieve_from_aia_sia_http(args.dynamic_build);
     #[cfg(feature = "remote")]
     if let Some(download_folder) = &args.download_folder {
         cps.set_download_folder(download_folder.to_string());

@@ -1513,7 +1513,7 @@ pub(crate) fn App() -> Element {
     // from the saved arguments and not written back to them -- chasing reaches the network and
     // takes as long as the repositories do, so it is asked for per build rather than left set from
     // whenever it was last used.
-    let s_chase_aia_and_sia = use_signal(|| false);
+    let s_chase_while_building = use_signal(|| false);
     let s_validate_all = use_signal(|| sa.validate_all);
     let s_check_uris = use_signal(|| sa.check_uris_when_validating);
     // Held in the browser's polarity, not the argument's. `Pittv3Args` carries the CLI's
@@ -1647,7 +1647,6 @@ pub(crate) fn App() -> Element {
             // tab called Generate has already said it. The checkbox that used to set this could be
             // left off while pressing that button, which ran and did nothing.
             generate: s_view() == View::Generate,
-            chase_aia_and_sia: s_chase_aia_and_sia(),
             cbor_ta_store: false,
             validate_all: s_validate_all(),
             check_uris_when_validating: s_check_uris(),
@@ -1814,7 +1813,13 @@ pub(crate) fn App() -> Element {
         s_inspect_notes.write().clear();
 
         let args = match current_args() {
-            Ok(args) => args,
+            Ok(mut args) => {
+                // This build's own choice, not the Validate view's: the two share the argument but
+                // not the control, so a chase asked for here does not turn dynamic building on for
+                // a validation run.
+                args.dynamic_build = s_chase_while_building();
+                args
+            }
             Err(msg) => {
                 s_inspect_notes.write().push(ResultLine {
                     class: "err",
@@ -2652,8 +2657,8 @@ pub(crate) fn App() -> Element {
                                 div { class: "field check-group",
                                     CheckboxCell {
                                         label: "Follow AIA and SIA URIs while building",
-                                        name: "chase-aia-and-sia",
-                                        sig: s_chase_aia_and_sia,
+                                        name: "chase-while-building",
+                                        sig: s_chase_while_building,
                                     }
                                 }
                                 // Beside the option it serves: this is where chasing puts what it

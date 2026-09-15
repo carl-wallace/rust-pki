@@ -47,7 +47,6 @@
 //!
 //! GENERATION:
 //!   -g, --generate           Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and map containing set of partial certification paths should be generated and saved to location indicated by cbor parameter
-//!   -a, --chase-aia-and-sia  Flag that indicates whether AIA and SIA URIs should be consulted when performing generate action
 //!       --cbor-ta-store      Flag that indicates generated CBOR file will contain only trust anchors  (so no need for partial paths and no need to exclude self-signed certificates). The anchors are read from the ca_folder input, which may name a single file, and the result is the form ta_cbor takes
 //!
 //! VALIDATION:
@@ -108,8 +107,6 @@
 //!
 //! ```text
 //! GENERATION:
-//!     -a, --chase-aia-and-sia    Flag that indicates whether AIA and SIA URIs should be consulted when
-//!                                performing generate action
 //! VALIDATION:
 //!     -y, --dynamic-build
 //!             Process AIA and SIA during path validation, as appropriate. Either ca_folder or
@@ -896,9 +893,10 @@ async fn options_std_inner(
 /// and/or validation of certificate(s) indicated by the end-entity-file option and/or end-entity-folder option.
 ///
 /// If the `generate` option is present, a fresh CBOR file is generated using materials from
-/// locations indicated by `ta-folder` and `ca-folder` options. These locations may be augmented if
-/// chase-aia-and-sia is enabled and either `download-folder` or `ca-folder` is specified. Download actions
-/// will be governed by the `last-modified-map` option and/or `blocklist` option.
+/// locations indicated by `ta-folder` and `ca-folder` options. These locations may be augmented when
+/// `dynamic-build` is set — which is what leaves AIA and SIA retrieval enabled for the build — and
+/// either `download-folder` or `ca-folder` is specified. Download actions will be governed by the
+/// `last-modified-map` option and/or `blocklist` option.
 ///
 /// If `end-entity-file` or `end-entity-folder` options are present, path building and validation actions
 /// are performed for any .der, .cer, or .crt files indicated by the end entity options. Folders are
