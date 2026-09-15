@@ -16,6 +16,7 @@
 //! directly.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
@@ -27,6 +28,10 @@ use web_time::Instant;
 const MAX_LINES: usize = 20_000;
 
 static BUFFER: RwLock<VecDeque<String>> = RwLock::new(VecDeque::new());
+/// Every line ever captured, including the ones the bound has since discarded. `BUFFER`'s indices
+/// shift when it overflows, so a position in it does not keep its meaning; this count does, which is
+/// what lets [`since`] name a moment rather than a slot.
+static WRITTEN: AtomicUsize = AtomicUsize::new(0);
 static START: OnceLock<Instant> = OnceLock::new();
 static LOGGER: BufferLogger = BufferLogger;
 
@@ -60,15 +65,21 @@ impl Log for BufferLogger {
         }
 
         // The download half.
-        if let Ok(mut buffer) = BUFFER.write() {
-            if buffer.len() == MAX_LINES {
-                buffer.pop_front();
-            }
-            buffer.push_back(line);
-        }
+        append(line);
     }
 
     fn flush(&self) {}
+}
+
+/// Adds one line to the buffer, discarding the oldest when the bound is reached, and counts it.
+fn append(line: String) {
+    WRITTEN.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut buffer) = BUFFER.write() {
+        if buffer.len() == MAX_LINES {
+            buffer.pop_front();
+        }
+        buffer.push_back(line);
+    }
 }
 
 /// Claims the `log` global and starts capturing at `level`.
@@ -111,6 +122,39 @@ pub fn len() -> usize {
     BUFFER.read().map(|b| b.len()).unwrap_or(0)
 }
 
+/// A moment in the log, to be handed back to [`since`].
+///
+/// A count of everything ever captured rather than a position in the buffer: the buffer discards its
+/// oldest lines past a bound, so a position stops meaning what it meant, while a count does not.
+pub fn mark() -> usize {
+    WRITTEN.load(Ordering::Relaxed)
+}
+
+/// The lines captured since `mark`, as a single document.
+///
+/// For a view whose output *is* the log — an inspection reports what a store holds by logging it —
+/// so it can show what its own run produced without clearing what came before it or claiming earlier
+/// runs as its own.
+///
+/// A run long enough to overflow the buffer has had the start of its own output discarded; what
+/// survives is returned, since the alternative is to report nothing for the longest runs, which are
+/// the ones most worth reading.
+pub fn since(mark: usize) -> String {
+    match BUFFER.read() {
+        Ok(buffer) => {
+            let new = WRITTEN.load(Ordering::Relaxed).saturating_sub(mark);
+            let from = buffer.len().saturating_sub(new);
+            let mut out = String::new();
+            for line in buffer.iter().skip(from) {
+                out.push_str(line);
+                out.push('\n');
+            }
+            out
+        }
+        Err(_) => String::new(),
+    }
+}
+
 /// Discards what has been captured, so a run can be exported without the runs before it.
 pub fn clear() {
     if let Ok(mut buffer) = BUFFER.write() {
@@ -121,17 +165,19 @@ pub fn clear() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// The buffer is one static shared by the whole process, and the harness runs tests on parallel
+    /// threads, so a test that fills it and a test that reads it back would otherwise see each
+    /// other's lines. Every test that touches the buffer takes this first.
+    static SERIALIZE: Mutex<()> = Mutex::new(());
 
     #[test]
     fn oldest_lines_go_first_and_the_bound_holds() {
+        let _serialized = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
         clear();
         for i in 0..(MAX_LINES + 10) {
-            if let Ok(mut b) = BUFFER.write() {
-                if b.len() == MAX_LINES {
-                    b.pop_front();
-                }
-                b.push_back(format!("line {i}"));
-            }
+            append(format!("line {i}"));
         }
         assert_eq!(MAX_LINES, len(), "the bound holds");
         let text = contents();
@@ -145,5 +191,41 @@ mod tests {
         );
         clear();
         assert_eq!(0, len());
+    }
+
+    #[test]
+    fn since_reports_only_what_came_after_the_mark() {
+        let _serialized = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
+        clear();
+        append("before".to_string());
+        let start = mark();
+        append("after one".to_string());
+        append("after two".to_string());
+
+        let text = since(start);
+        assert!(!text.contains("before"), "{text}");
+        assert!(
+            text.contains("after one") && text.contains("after two"),
+            "{text}"
+        );
+        assert_eq!(2, text.lines().count());
+
+        // A run that overflows the buffer has had the start of its own output discarded. What is
+        // still held is reported; reporting nothing would blank the longest runs.
+        let overflowing = mark();
+        for i in 0..(MAX_LINES + 10) {
+            append(format!("flood {i}"));
+        }
+        let text = since(overflowing);
+        assert_eq!(MAX_LINES, text.lines().count());
+        assert!(
+            text.contains(&format!("flood {}", MAX_LINES + 9)),
+            "the end of the run should survive"
+        );
+        assert!(
+            !text.contains("after two"),
+            "lines from before the mark should not reappear"
+        );
+        clear();
     }
 }

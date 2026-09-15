@@ -687,7 +687,8 @@ impl CertSource {
         self.certs.get(index).cloned().flatten()
     }
 
-    /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs every certificate the instance holds -- index, key identifier, issuer and subject --
+    /// through `log` at info level.
     pub fn log_certs(&self) {
         if self.certs.is_empty() {
             info!("No certificates present");
@@ -706,7 +707,8 @@ impl CertSource {
         }
     }
 
-    /// Log AIA and SIA details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs every AIA and SIA URI the certificates carry, through `log` at info level, and
+    /// collects into `fresh_uris` the ones not already known to the instance.
     pub fn log_all_aia_and_sia(&self, fresh_uris: &mut Vec<String>) {
         for c in self.certs.iter().flatten() {
             collect_uris_from_aia_and_sia(c, fresh_uris);
@@ -723,7 +725,8 @@ impl CertSource {
         }
     }
 
-    /// Log AIA and SIA details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs the permitted and excluded subtrees of every certificate that constrains names,
+    /// through `log` at info level.
     pub fn log_all_name_constraints(&self) {
         let mut logged_some = false;
         for (i, c) in self.certs.iter().enumerate() {
@@ -757,7 +760,8 @@ impl CertSource {
         }
     }
 
-    /// Log partial path details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs every partial path the instance holds, grouped by the leaf CA it terminates at,
+    /// through `log` at info level.
     pub fn log_partial_paths(&self) {
         let partial_paths = &self.buffers_and_paths.partial_paths;
 

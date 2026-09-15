@@ -126,6 +126,92 @@ pub fn prepare_validation(
 ) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
 
+    let Assembled {
+        mut pe,
+        ta_store,
+        mut cert_source,
+        uploaded,
+    } = assemble(store, tas, cas, cps, &mut out)?;
+
+    // --- prepare the environment ---
+    // The graph and the paths built over it re-present the same CA signatures many times;
+    // caching them is sound because a hit means this exact signature already verified under
+    // this exact key.
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
+    pe.add_trust_anchor_source(Box::new(ta_store));
+    // Registered empty and always, rather than only when the frontend has CRLs: the source is
+    // shared by clone, so a frontend that retrieves one later adds it to the same contents this
+    // environment already consults. An empty source answers with no candidates, which is what the
+    // checker saw before it existed.
+    let crls = MemoryCrlSource::new();
+    pe.add_crl_source(Box::new(crls.clone()));
+    // The revocation checker consults the status cache before anything else and writes back to it
+    // whenever a CRL or an OCSP response determines a status. Both ends iterate the registered
+    // caches, so with none registered the first check always answers "not determined" and every
+    // determination is discarded -- the same certificate is re-derived on each run and, when the
+    // frontend retrieves, re-fetched for. Only Valid and revoked verdicts are cached, and each is
+    // served only until the nextUpdate of the data behind it, so an undetermined status never
+    // suppresses a retry and a stale one is never reused. The cache belongs to this environment and
+    // is discarded with it, which is what keeps it honest when the time of interest changes: that
+    // is a settings change, and a settings change rebuilds the environment.
+    #[cfg(feature = "revocation")]
+    // `None` declines the cache outright, which is not the same as passing an empty one: with no
+    // cache registered every path derives every certificate's status from revocation data of its
+    // own, so each path accounts for itself. That matters for an export -- a path whose certificates
+    // were answered from cache carries a status and no evidence, because the evidence was obtained
+    // while validating a different path -- and it is the only way to make a run reach a responder
+    // twice on purpose.
+    if let Some(rev_cache) = rev_cache {
+        pe.add_revocation_cache(Box::new(rev_cache.clone()));
+    }
+    // Nothing to register for OCSP -- certval has no source for it -- so this is simply carried
+    // and consulted when a path is built. See validate_target.
+    let ocsp = OcspResponses::new();
+    // The baked store ships with precomputed partial paths, so discovery runs only when uploads
+    // change the merged set. It rebuilds the whole merged pool's paths — but ONCE, cached by the
+    // caller across runs. The TA source must be registered first (discovery consults it).
+    if uploaded {
+        cert_source.find_all_partial_paths(&pe, cps);
+    }
+    pe.add_certificate_source(Box::new(cert_source));
+
+    Ok((PreparedValidation { pe, crls, ocsp }, out))
+}
+
+/// The trust material a run stands on: one merged trust-anchor source and one merged certificate
+/// source, parsed and initialized, with the environment that screened them.
+///
+/// Handed back before anything is registered, because the two callers want it at exactly that
+/// moment and then diverge. Validation registers both sources and keeps only the environment;
+/// an inspection registers the anchors, because partial-path discovery consults them, and keeps the
+/// certificate source in hand, because what it reports is read through methods inherent to
+/// [`CertSource`] rather than through anything the environment exposes.
+struct Assembled {
+    /// Populated for RFC 5280 processing and carrying a signature cache. Neither source is
+    /// registered on it yet.
+    pe: PkiEnvironment,
+    /// The baked store's anchors plus any uploaded ones.
+    ta_store: TaSource,
+    /// The baked store's certificates plus any uploaded ones. Partial paths are whatever the store
+    /// shipped; discovery has not run.
+    cert_source: CertSource,
+    /// Whether anything was uploaded alongside the store. A baked store ships with its partial
+    /// paths already discovered, so the search runs again only when an upload has changed the
+    /// merged pool.
+    uploaded: bool,
+}
+
+/// Builds the sources from a baked store and any uploads, appending a note per input it could not
+/// read. Fails only where the result would not be usable by either caller: a store that will not
+/// parse, and no trust anchors at all.
+fn assemble(
+    store: Option<(&str, &[u8], &[u8])>,
+    tas: &[(String, Vec<u8>)],
+    cas: &[(String, Vec<u8>)],
+    cps: &CertificationPathSettings,
+    out: &mut Vec<ResultLine>,
+    // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+) -> core::result::Result<Assembled, Vec<ResultLine>> {
     // Built here rather than after the inputs: reading an InstallRoot stream screens its CA
     // message for self-signed certificates, which needs signature verification.
     let mut pe = PkiEnvironment::default();
@@ -264,49 +350,179 @@ pub fn prepare_validation(
         ))),
     }
 
-    // --- prepare the environment ---
-    // The graph and the paths built over it re-present the same CA signatures many times;
-    // caching them is sound because a hit means this exact signature already verified under
-    // this exact key.
-    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
-    pe.add_trust_anchor_source(Box::new(ta_store));
-    // Registered empty and always, rather than only when the frontend has CRLs: the source is
-    // shared by clone, so a frontend that retrieves one later adds it to the same contents this
-    // environment already consults. An empty source answers with no candidates, which is what the
-    // checker saw before it existed.
-    let crls = MemoryCrlSource::new();
-    pe.add_crl_source(Box::new(crls.clone()));
-    // The revocation checker consults the status cache before anything else and writes back to it
-    // whenever a CRL or an OCSP response determines a status. Both ends iterate the registered
-    // caches, so with none registered the first check always answers "not determined" and every
-    // determination is discarded -- the same certificate is re-derived on each run and, when the
-    // frontend retrieves, re-fetched for. Only Valid and revoked verdicts are cached, and each is
-    // served only until the nextUpdate of the data behind it, so an undetermined status never
-    // suppresses a retry and a stale one is never reused. The cache belongs to this environment and
-    // is discarded with it, which is what keeps it honest when the time of interest changes: that
-    // is a settings change, and a settings change rebuilds the environment.
-    #[cfg(feature = "revocation")]
-    // `None` declines the cache outright, which is not the same as passing an empty one: with no
-    // cache registered every path derives every certificate's status from revocation data of its
-    // own, so each path accounts for itself. That matters for an export -- a path whose certificates
-    // were answered from cache carries a status and no evidence, because the evidence was obtained
-    // while validating a different path -- and it is the only way to make a run reach a responder
-    // twice on purpose.
-    if let Some(rev_cache) = rev_cache {
-        pe.add_revocation_cache(Box::new(rev_cache.clone()));
+    Ok(Assembled {
+        pe,
+        ta_store,
+        cert_source,
+        uploaded: !tas.is_empty() || !cas.is_empty(),
+    })
+}
+
+/// What an inspection was asked to report, one field per thing the Inspect view offers.
+///
+/// Every field is optional and an empty request is legal, which is why [`is_empty`](Self::is_empty)
+/// exists: a run that was asked for nothing reports nothing, and nothing is indistinguishable from
+/// an empty store once it reaches the screen.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InspectRequest {
+    /// Every trust anchor: index, key identifier, subject and the name it was read under.
+    pub trust_anchors: bool,
+    /// Every AIA and SIA URI the certificates carry. Reports them; retrieving them is a separate
+    /// errand the frontend already has its own control for.
+    pub aia_and_sia: bool,
+    /// The permitted and excluded subtrees of every certificate that constrains names.
+    pub name_constraints: bool,
+    /// Every certificate in the pool: index, key identifier, issuer and subject.
+    pub buffers: bool,
+    /// Every partial path, grouped by the leaf CA it terminates at.
+    pub partial_paths: bool,
+    /// Hand back the certificate at this index. Out of range is reported rather than ignored, since
+    /// an index is typed and a silent nothing reads as the store being short.
+    pub dump_cert_at_index: Option<usize>,
+    /// Hand back every certificate in the pool. Separate from `buffers` because listing the pool and
+    /// carrying several thousand certificates out of it are different sizes of answer to the same
+    /// question -- the command line splits them the same way, on whether a download folder was named.
+    pub export_buffers: bool,
+    /// Report the partial paths that reach this certificate, as `(name, bytes)` of an upload.
+    pub paths_for_target: Option<(String, Vec<u8>)>,
+    /// Report the partial paths that terminate at the CA at this index.
+    pub paths_for_leaf_ca: Option<usize>,
+}
+
+impl InspectRequest {
+    /// Whether the request asks for nothing at all.
+    pub fn is_empty(&self) -> bool {
+        !self.trust_anchors
+            && !self.aia_and_sia
+            && !self.name_constraints
+            && !self.buffers
+            && !self.partial_paths
+            && !self.export_buffers
+            && self.dump_cert_at_index.is_none()
+            && self.paths_for_target.is_none()
+            && self.paths_for_leaf_ca.is_none()
     }
-    // Nothing to register for OCSP -- certval has no source for it -- so this is simply carried
-    // and consulted when a path is built. See validate_target.
-    let ocsp = OcspResponses::new();
-    // The baked store ships with precomputed partial paths, so discovery runs only when uploads
-    // change the merged set. It rebuilds the whole merged pool's paths — but ONCE, cached by the
-    // caller across runs. The TA source must be registered first (discovery consults it).
-    if !tas.is_empty() || !cas.is_empty() {
+}
+
+/// What an inspection produced besides its report.
+#[derive(Clone, Debug, Default)]
+pub struct InspectOutcome {
+    /// Certificates the request asked to be handed back, as `(name, DER)`. The desktop writes these
+    /// into the download folder; a browser offers them as a download.
+    pub certificates: Vec<(String, Vec<u8>)>,
+    /// How many certificates the pool holds, so a caller can say what an index is being measured
+    /// against without asking a second time.
+    pub num_certs: usize,
+    /// How many trust anchors the merged store holds.
+    pub num_anchors: usize,
+}
+
+/// Reports what a store holds, without validating anything.
+///
+/// The report itself goes through `log` at info level, which is where certval writes it and where
+/// both frontends already collect it -- the desktop through log4rs into its log pane, the browser
+/// through its own capture. Nothing is returned for it here, deliberately: a second channel would be
+/// a second rendering of the same listing, and the frontends already disagree often enough without
+/// one. What comes back is only what a log line cannot carry -- the certificates asked for by
+/// index, and the two counts an index is judged against.
+///
+/// The order the listings run in, and the conditions on each, follow `options_std` so that the same
+/// request reports the same thing whichever frontend asked. What differs is the assembly before them
+/// and the disposal of bytes after: paths on disk there, uploads and downloads here.
+pub fn inspect(
+    store: Option<(&str, &[u8], &[u8])>,
+    tas: &[(String, Vec<u8>)],
+    cas: &[(String, Vec<u8>)],
+    cps: &CertificationPathSettings,
+    request: &InspectRequest,
+    // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+) -> core::result::Result<(InspectOutcome, Vec<ResultLine>), Vec<ResultLine>> {
+    let mut out = vec![];
+    let Assembled {
+        mut pe,
+        ta_store,
+        mut cert_source,
+        uploaded,
+    } = assemble(store, tas, cas, cps, &mut out)?;
+
+    let mut outcome = InspectOutcome {
+        num_anchors: ta_store.len(),
+        ..Default::default()
+    };
+
+    // Before the anchors are registered, because registering moves them and the listing is a method
+    // on the source rather than something the environment exposes. First here as on the command
+    // line, where it is the one listing that runs without a certificate pool at all.
+    if request.trust_anchors {
+        ta_store.log_tas();
+    }
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    // A baked store ships with its partial paths already discovered; an upload changes the merged
+    // pool, so they are discovered again over the whole of it. Anything that reports a path needs
+    // this to have happened, and it is cheap to have done when nothing asks.
+    if uploaded {
         cert_source.find_all_partial_paths(&pe, cps);
     }
-    pe.add_certificate_source(Box::new(cert_source));
+    outcome.num_certs = cert_source.num_certs();
 
-    Ok((PreparedValidation { pe, crls, ocsp }, out))
+    if let Some(index) = request.dump_cert_at_index {
+        match cert_source.get_buffers().get(index) {
+            Some(cf) => outcome
+                .certificates
+                .push((format!("{index}.der"), cf.bytes.clone())),
+            None => out.push(err(format!(
+                "There is no certificate at index {index}: the store holds {}, so the last index is {}",
+                outcome.num_certs,
+                outcome.num_certs.saturating_sub(1)
+            ))),
+        }
+    }
+
+    if request.aia_and_sia {
+        // Collected rather than consulted: certval hands back the URIs it has not seen before, and
+        // fetching them is the frontend's own errand through its own retrieval.
+        let mut fresh_uris = vec![];
+        cert_source.log_all_aia_and_sia(&mut fresh_uris);
+    }
+    if request.name_constraints {
+        cert_source.log_all_name_constraints();
+    }
+    if request.buffers {
+        cert_source.log_certs();
+    }
+    if request.export_buffers {
+        for (i, cf) in cert_source.get_buffers().iter().enumerate() {
+            outcome
+                .certificates
+                .push((format!("{i}.der"), cf.bytes.clone()));
+        }
+    }
+    if request.partial_paths {
+        cert_source.log_partial_paths();
+    }
+    if let Some((name, bytes)) = &request.paths_for_target {
+        // maybe_pem rather than certs_in: this asks about one certificate, so a bundle has no
+        // reading here that is not a guess at which member was meant.
+        match maybe_pem(bytes).and_then(|der| parse_cert(&der, name)) {
+            Ok(target) => cert_source.log_paths_for_target(&target, cps.get_time_of_interest()),
+            Err(e) => out.push(err(format!(
+                "Failed to parse {name} as a certificate: {e:?}"
+            ))),
+        }
+    }
+    if let Some(index) = request.paths_for_leaf_ca {
+        match cert_source.get_cert_at_index(index) {
+            Some(leaf) => cert_source.log_paths_for_leaf_ca(&leaf),
+            None => out.push(err(format!(
+                "There is no CA at index {index}: the store holds {}, so the last index is {}",
+                outcome.num_certs,
+                outcome.num_certs.saturating_sub(1)
+            ))),
+        }
+    }
+
+    Ok((outcome, out))
 }
 
 /// Validates every certificate in `ees` against an environment prepared by [`prepare_validation`].
@@ -825,4 +1041,317 @@ pub fn validate_hackathon_zip(
         }
     }
     (reports, out)
+}
+
+#[cfg(test)]
+mod inspect_tests {
+    use super::*;
+    use std::sync::{Mutex, Once, OnceLock};
+
+    use log::{Level, LevelFilter, Log, Metadata, Record};
+
+    /// A store the command line already inspects in its own tests: two DoD CA certificates and the
+    /// three partial paths found over them, under the one anchor those paths terminate at. Taken as
+    /// a *baked* store rather than as uploads on purpose — a store carries the partial paths it was
+    /// generated with, so listing them exercises the listing itself rather than a rediscovery, and
+    /// rediscovery verifies signatures, which needs a crypto backend this crate cannot switch on
+    /// (`rsa` is certval's feature and has no passthrough here).
+    const CA_STORE: &[u8] = include_bytes!("../../pittv3/tests/examples/pitt_focused.cbor");
+    const ANCHOR: &[u8] = include_bytes!("../../pittv3/tests/examples/ta_store_one/root3.der");
+    /// Issued by DOD EMAIL CA-59, which is one of the two certificates in the store above, so asking
+    /// for the paths that reach it is a question with an answer.
+    const TARGET: &[u8] =
+        include_bytes!("../../pittv3/tests/examples/end_entities/from_email_CA_59.der");
+    /// 2022-01-01, when the anchor, both CA certificates and the end entity were all current.
+    /// Without a pin these tests would measure the calendar: a certificate outside the window is
+    /// dropped as the store is parsed.
+    const WHEN: u64 = 1640995200;
+
+    fn settings() -> CertificationPathSettings {
+        let mut cps = CertificationPathSettings::default();
+        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(WHEN).unwrap());
+        cps
+    }
+
+    /// The anchor in the shape a store's trust-anchor half takes, built here rather than committed
+    /// as a second fixture: it is a serialized `CertSource` holding the anchors, which is what the
+    /// graph cache writes beside a graph and what `TaSource::new_from_cbor` reads.
+    fn anchor_store() -> Vec<u8> {
+        let mut source = CertSource::new();
+        source.push(CertFile {
+            filename: "root3.der".to_string(),
+            bytes: ANCHOR.to_vec(),
+        });
+        source
+            .serialize(CertificationPathBuilderFormats::Cbor)
+            .expect("an anchor should serialize")
+    }
+
+    fn inspect_store(
+        request: &InspectRequest,
+    ) -> core::result::Result<(InspectOutcome, Vec<ResultLine>), Vec<ResultLine>> {
+        let ta = anchor_store();
+        inspect(
+            Some(("pitt_focused", &ta, CA_STORE)),
+            &[],
+            &[],
+            &settings(),
+            request,
+        )
+    }
+
+    fn inspected(request: &InspectRequest) -> (InspectOutcome, Vec<ResultLine>) {
+        inspect_store(request).expect("the baked store should assemble")
+    }
+
+    // --- capturing what a listing wrote -------------------------------------------------------
+    //
+    // The listings report through `log` and return nothing, which is what lets both frontends
+    // render them the same way — and also what would let the whole feature list nothing without a
+    // single count assertion noticing. So the tests that care take the `log` global and read it
+    // back. One logger for the process, since `log` permits one, and a lock around the tests that
+    // use it, since the buffer is shared and the harness runs them on parallel threads.
+
+    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static CAPTURE: Mutex<()> = Mutex::new(());
+    static INSTALL: Once = Once::new();
+    static INSTALLED: OnceLock<bool> = OnceLock::new();
+    static LOGGER: Capture = Capture;
+
+    struct Capture;
+
+    impl Log for Capture {
+        fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &Record<'_>) {
+            if record.level() <= Level::Info {
+                if let Ok(mut lines) = LINES.lock() {
+                    lines.push(format!("{}", record.args()));
+                }
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    /// Runs `f` with the log captured and returns what it wrote, or `None` when another logger in
+    /// the same test binary already owns the global. `None` rather than a failure so a test says
+    /// what it found rather than asserting against a capture that was never installed.
+    fn captured(f: impl FnOnce()) -> Option<Vec<String>> {
+        let guard = CAPTURE.lock().unwrap_or_else(|e| e.into_inner());
+        INSTALL.call_once(|| {
+            let claimed = log::set_logger(&LOGGER).is_ok();
+            log::set_max_level(LevelFilter::Info);
+            let _ = INSTALLED.set(claimed);
+        });
+        LINES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        f();
+        let lines = LINES.lock().unwrap_or_else(|e| e.into_inner()).split_off(0);
+        drop(guard);
+        match INSTALLED.get() {
+            Some(true) => Some(lines),
+            _ => None,
+        }
+    }
+
+    // --- the material ---------------------------------------------------------------------------
+
+    #[test]
+    fn an_inspection_needs_trust_anchors() {
+        let request = InspectRequest {
+            buffers: true,
+            ..Default::default()
+        };
+        assert!(
+            inspect(None, &[], &[], &settings(), &request).is_err(),
+            "an inspection with no anchors anywhere should refuse rather than report an empty store"
+        );
+    }
+
+    #[test]
+    fn the_counts_describe_the_store_that_was_assembled() {
+        let (outcome, _notes) = inspected(&InspectRequest::default());
+        assert_eq!(1, outcome.num_anchors);
+        assert_eq!(2, outcome.num_certs);
+        assert!(
+            outcome.certificates.is_empty(),
+            "nothing was asked for, so nothing should have been handed back"
+        );
+    }
+
+    #[test]
+    fn an_empty_request_is_recognizable_as_one() {
+        assert!(InspectRequest::default().is_empty());
+        assert!(!InspectRequest {
+            partial_paths: true,
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!InspectRequest {
+            paths_for_leaf_ca: Some(0),
+            ..Default::default()
+        }
+        .is_empty());
+    }
+
+    // --- certificates handed back -----------------------------------------------------------------
+
+    #[test]
+    fn a_certificate_can_be_taken_out_by_index() {
+        let (outcome, notes) = inspected(&InspectRequest {
+            dump_cert_at_index: Some(1),
+            ..Default::default()
+        });
+        assert_eq!(1, outcome.certificates.len());
+        assert_eq!("1.der", outcome.certificates[0].0);
+        let (all, _) = inspected(&InspectRequest {
+            export_buffers: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            all.certificates[1].1, outcome.certificates[0].1,
+            "the bytes handed back should be the certificate at that index, not another one"
+        );
+        assert!(notes.iter().all(|n| n.class != "err"), "{notes:?}");
+    }
+
+    #[test]
+    fn an_index_past_the_end_is_reported_rather_than_ignored() {
+        let (outcome, notes) = inspected(&InspectRequest {
+            dump_cert_at_index: Some(99),
+            ..Default::default()
+        });
+        assert!(outcome.certificates.is_empty());
+        let complaint = notes
+            .iter()
+            .find(|n| n.class == "err")
+            .expect("an index past the end should be said out loud");
+        assert!(
+            complaint.text.contains("99") && complaint.text.contains("holds 2"),
+            "the complaint should name the index and what it was measured against: {}",
+            complaint.text
+        );
+    }
+
+    #[test]
+    fn a_leaf_ca_index_past_the_end_is_reported_rather_than_ignored() {
+        let (_outcome, notes) = inspected(&InspectRequest {
+            paths_for_leaf_ca: Some(99),
+            ..Default::default()
+        });
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.class == "err" && n.text.contains("99")),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn every_certificate_can_be_taken_out_at_once() {
+        let (outcome, _notes) = inspected(&InspectRequest {
+            export_buffers: true,
+            ..Default::default()
+        });
+        assert_eq!(outcome.num_certs, outcome.certificates.len());
+        assert_eq!(
+            vec!["0.der".to_string(), "1.der".to_string()],
+            outcome
+                .certificates
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_target_that_is_not_a_certificate_is_named_rather_than_listing_nothing() {
+        let (_outcome, notes) = inspected(&InspectRequest {
+            paths_for_target: Some(("junk.der".to_string(), b"not a certificate".to_vec())),
+            ..Default::default()
+        });
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.class == "err" && n.text.contains("junk.der")),
+            "a target that will not parse should be said out loud: {notes:?}"
+        );
+    }
+
+    // --- what reached the log -----------------------------------------------------------------
+
+    #[test]
+    fn asking_for_the_trust_anchors_lists_them() {
+        let Some(lines) = captured(|| {
+            inspected(&InspectRequest {
+                trust_anchors: true,
+                ..Default::default()
+            });
+        }) else {
+            return;
+        };
+        assert!(
+            lines.iter().any(|l| l.contains("SKID")),
+            "the anchor should have been listed: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn asking_for_the_partial_paths_lists_the_ones_the_store_carries() {
+        let Some(lines) = captured(|| {
+            inspected(&InspectRequest {
+                partial_paths: true,
+                ..Default::default()
+            });
+        }) else {
+            return;
+        };
+        assert!(
+            lines.iter().any(|l| l.contains("certificates yielded")),
+            "the store's partial paths should have been listed: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|l| l.contains("No partial paths")),
+            "the store carries three partial paths and the listing reported none: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn each_listing_is_its_own_switch() {
+        // Every count assertion above passes just as well against a view that wired one control to
+        // two listings, or to none. This is what says a switch that was not thrown stayed off.
+        let Some(quiet) = captured(|| {
+            inspected(&InspectRequest::default());
+        }) else {
+            return;
+        };
+        assert!(
+            !quiet.iter().any(|l| l.contains("certificates yielded")),
+            "a request that asked for nothing listed partial paths anyway: {quiet:?}"
+        );
+        assert!(
+            !quiet.iter().any(|l| l.contains("SKID")),
+            "a request that asked for nothing listed trust anchors anyway: {quiet:?}"
+        );
+    }
+
+    #[test]
+    fn a_target_is_listed_against_the_paths_that_reach_it() {
+        let Some(lines) = captured(|| {
+            let (_outcome, notes) = inspected(&InspectRequest {
+                paths_for_target: Some(("from_email_CA_59.der".to_string(), TARGET.to_vec())),
+                ..Default::default()
+            });
+            assert!(
+                notes.iter().all(|n| n.class != "err"),
+                "a real target should not have been refused: {notes:?}"
+            );
+        }) else {
+            return;
+        };
+        assert!(
+            !lines.is_empty(),
+            "asking about a target the store can reach should have reported something"
+        );
+    }
 }

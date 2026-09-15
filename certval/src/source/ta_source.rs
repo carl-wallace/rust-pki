@@ -330,7 +330,8 @@ impl TaSource {
         }
     }
 
-    /// Log certificate details to PkiEnvironment's logging mechanism at debug level.
+    /// Logs every trust anchor the instance holds -- index, key identifier, subject and the name it
+    /// was read under -- through `log` at info level.
     pub fn log_tas(&self) {
         for (i, ta) in self.tas.iter().enumerate() {
             let hex_skid = hex_skid_from_ta(ta);
