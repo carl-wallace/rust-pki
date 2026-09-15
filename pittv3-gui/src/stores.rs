@@ -89,9 +89,10 @@ pub(crate) struct BuiltInStore {
 /// given, which is how the app behaved before there were built-in stores.
 pub(crate) const CUSTOM: usize = 0;
 
-/// Stores available for selection in the UI. The first three match what the browser frontend
-/// offers, deliberately: the same product should not present a different trust catalogue
-/// depending on which frontend it is wearing.
+/// Stores available for selection in the UI. Every store the browser frontend offers appears
+/// here too, deliberately: the same product should not present a different trust catalogue
+/// depending on which frontend it is wearing. This list is the longer of the two — the browser
+/// ships a subset, since each store it offers is bytes it has to download.
 pub(crate) const STORES: &[BuiltInStore] = &[
     BuiltInStore {
         label: "U.S. DoD (NIPR production)",
@@ -99,6 +100,18 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         source: StoreSource::Provider(certval_stores_nipr::provider),
         pki: "the DoD production PKI on NIPRNet",
         note: "",
+    },
+    // The operational-test environment, which the department calls JITC and the provider names
+    // OM_NIPR -- the same environment under two names, and the store carries CAs spelled both
+    // ways. Its own entry beside production rather than folded into it: the JITC roots anchor
+    // nothing the production roots anchor, so combining them would offer a trust set nobody
+    // operates.
+    BuiltInStore {
+        label: "U.S. DoD (NIPR operational test, JITC)",
+        env: "OM_NIPR",
+        source: StoreSource::Provider(certval_stores_nipr::provider),
+        pki: "the DoD operational-test PKI on NIPRNet, also known as JITC",
+        note: "Test material: not for judging production certificates.",
     },
     // MOZILLA_ALL rather than MOZILLA_TLS: the intermediate store hangs off the combined
     // environment only, because a large share of the CCADB intermediates chain solely to

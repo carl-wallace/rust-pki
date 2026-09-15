@@ -60,6 +60,14 @@ fn builtins() -> Vec<Builtin> {
             label: "U.S. DoD (NIPR production)",
             provider: certval_stores_nipr::provider,
         },
+        // The operational-test environment, called JITC by the department and OM_NIPR by the
+        // provider. A separate trust set from production, not a variant of it.
+        Builtin {
+            env: "OM_NIPR",
+            id: "dod_nipr_om",
+            label: "U.S. DoD (NIPR operational test, JITC)",
+            provider: certval_stores_nipr::provider,
+        },
         // MOZILLA_ALL rather than MOZILLA_TLS: the intermediate store hangs off the combined
         // environment only, because a large share of the CCADB intermediates chain solely to
         // email-only roots and would be unanchored under the TLS-scoped anchor set.

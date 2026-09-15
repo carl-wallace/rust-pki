@@ -71,6 +71,15 @@ pub const STORES: &[Store] = &[
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_PROD"),
         collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_PROD"),
     },
+    // The operational-test environment, JITC to the department and OM_NIPR to the provider.
+    Store {
+        id: "dod_nipr_om",
+        label: "U.S. DoD (JITC)",
+        ta_url: "resources/dod_nipr_om_ta.cbor",
+        ca_url: Some("resources/dod_nipr_om_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_OM"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_OM"),
+    },
     Store {
         id: "dod_eca",
         label: "U.S. DoD (ECA)",

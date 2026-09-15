@@ -58,8 +58,9 @@ pub struct ServiceConfig {
     /// stores, and replaces one where both name the same store.
     pub stores_dir: Option<PathBuf>,
     /// Offers the stores generated from the trust store providers when the service was built, so a
-    /// deployment that configures nothing still has DoD NIPR, the Mozilla set, the U.S. Federal PKI
-    /// and the Purebred development environment to validate against. On by default: the flexibility
+    /// deployment that configures nothing still has DoD NIPR and its JITC operational-test
+    /// counterpart, the Mozilla set, the U.S. Federal PKI and the Purebred development environment
+    /// to validate against. On by default: the flexibility
     /// is in [`stores_dir`](Self::stores_dir), and requiring it before the service can do anything
     /// buys nothing. Turn it off to serve a chosen catalogue and only that. Has no effect on a
     /// build without the `builtin-stores` feature, which carries no such material at all.

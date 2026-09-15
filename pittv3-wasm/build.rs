@@ -117,6 +117,16 @@ fn artifacts() -> Vec<Artifact> {
             ta: "dod_nipr_prod_ta.cbor",
             ca: Some("dod_nipr_prod_ca.cbor"),
         },
+        // The operational-test environment, called JITC by the department and
+        // OM_NIPR by the provider. A separate trust set from production: its
+        // roots anchor nothing the production DoD roots anchor.
+        Artifact {
+            provider: certval_stores_nipr::provider(),
+            env: "OM_NIPR",
+            id: "dod_nipr_om",
+            ta: "dod_nipr_om_ta.cbor",
+            ca: Some("dod_nipr_om_ca.cbor"),
+        },
         // The External Certification Authority program: vendor CAs issuing to
         // people and systems outside the department that interoperate with it.
         // A separate trust set from NIPR rather than a part of it -- its two
