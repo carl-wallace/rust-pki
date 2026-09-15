@@ -18,14 +18,16 @@ use certval::{
 use pittv3_gui_lib::export::zip_files;
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
+use pittv3_gui_lib::gui_inspect::InspectReportView;
 use pittv3_gui_lib::gui_results::ResultsView;
-use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings};
+use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings, TimeOfInterestRow};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
-use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest};
+use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
+use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_lib::uri_check::{
@@ -362,6 +364,48 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
     }
 }
 
+/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
+///
+/// A function rather than a closure because both export handlers need it, and a closure capturing
+/// the notes signal cannot be moved into both. Delivering at the moment of the click rather than
+/// staging into a second button is what makes this frontend behave as the desktop does, where an
+/// export writes its files and says so.
+fn deliver_certificates(
+    mut notes: Signal<Vec<ResultLine>>,
+    archive_name: String,
+    files: Vec<(String, Vec<u8>)>,
+) {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+
+    let js = match files.len() {
+        0 => return,
+        1 => format!(
+            "const a = document.createElement('a'); a.href = \"data:application/pkix-cert;base64,{}\"; a.download = \"{}\"; a.click();",
+            STANDARD.encode(&files[0].1),
+            files[0].0
+        ),
+        _ => match zip_files(&archive_name, &files) {
+            Ok(zipped) => format!(
+                "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-certificates.zip\"; a.click();",
+                STANDARD.encode(&zipped)
+            ),
+            Err(e) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: format!("Failed to build the archive: {e}"),
+                });
+                return;
+            }
+        },
+    };
+    let _ = dioxus::document::eval(&js);
+    notes.write().push(ResultLine {
+        class: "ok",
+        text: format!("Saved {} certificate(s)", files.len()),
+    });
+}
+
 #[component]
 fn App() -> Element {
     let mut view = use_signal(|| View::Validate);
@@ -418,40 +462,19 @@ fn App() -> Element {
     let mut uploaded_tas = use_signal(Vec::<(String, Vec<u8>)>::new);
     let mut uploaded_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
 
-    // --- Inspect: what to list, and what the last inspection said -------------------------------
-    // Held here rather than in the view so a listing survives a look at another tab, the way a
-    // validation's results do. Every one is optional; an inspection that was asked for nothing
-    // reports nothing, which is indistinguishable from an empty store once it is on the screen, so
-    // the button says so instead of running.
-    let mut insp_trust_anchors = use_signal(|| false);
-    let mut insp_aia_and_sia = use_signal(|| false);
-    let mut insp_name_constraints = use_signal(|| false);
-    let mut insp_buffers = use_signal(|| false);
-    let mut insp_partial_paths = use_signal(|| false);
-    let mut insp_export_buffers = use_signal(|| false);
-    let mut insp_dump_index = use_signal(String::new);
-    let mut insp_leaf_index = use_signal(String::new);
+    // --- Inspect: what to hand back, and what the last inspection found ------------------------
+    // Held here rather than in the view so a report survives a look at another tab, the way a
+    // validation's results do. There is no switch per listing: an inspection describes the whole
+    // store, and which part of it is on screen is a matter of what is selected below.
     let mut insp_target = use_signal(|| None::<(String, Vec<u8>)>);
-    // What the last inspection wrote to the log, and the notes it returned beside it.
-    let mut insp_output = use_signal(String::new);
+    // The time an inspection asks about. Its own value rather than the settings', because it
+    // belongs to the operation: it decides which of the store's certificates are usable and
+    // nothing else about a run. None means the moment the inspection is made.
+    let mut insp_toi = use_signal(|| None::<u64>);
+    // What the last inspection found, or None before the first one.
+    let mut insp_inspected = use_signal(|| None::<Inspected>);
     let mut insp_notes = use_signal(Vec::<ResultLine>::new);
     let mut insp_running = use_signal(|| false);
-    // Certificates the last inspection was asked to hand back, offered as a download.
-    let mut insp_files = use_signal(Vec::<(String, Vec<u8>)>::new);
-    // The button reads this rather than the request, which is built only when a run starts. An
-    // inspection asked for nothing lists nothing, and nothing on the screen reads as an empty store
-    // rather than as an unasked question.
-    let inspect_request_empty = move || {
-        !insp_trust_anchors()
-            && !insp_aia_and_sia()
-            && !insp_name_constraints()
-            && !insp_buffers()
-            && !insp_partial_paths()
-            && !insp_export_buffers()
-            && insp_dump_index().trim().parse::<usize>().is_err()
-            && insp_leaf_index().trim().parse::<usize>().is_err()
-            && insp_target().is_none()
-    };
 
     // What an upload actually contributes, which is certificates and not files: since the 08-24
     // fan-out one `.p7c` of cross-certificates carries several, and reporting the file count made
@@ -971,34 +994,46 @@ fn App() -> Element {
     // hands over the certificates an inspection was asked for. One goes as itself; several go as a
     // zip, because asking for the whole pool of a real store is thousands of files and a browser
     // cannot start thousands of downloads.
-    let save_inspected = move |_| {
+
+    // Certificates the reader asked for. The lookup is the shared one; offering them as a download
+    // is this frontend's half.
+    let export_certificates = move |indices: Vec<usize>| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = certificate_bytes(&inspected.certs, &indices);
+        drop(held);
+        deliver_certificates(
+            insp_notes,
+            stamped_export_name(&export_name(), now_as_unix_epoch()),
+            files,
+        );
+    };
+
+    let export_anchor_certificates = move |indices: Vec<usize>| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = anchor_bytes(&inspected.anchors, &indices);
+        drop(held);
+        deliver_certificates(
+            insp_notes,
+            stamped_export_name(&export_name(), now_as_unix_epoch()),
+            files,
+        );
+    };
+
+    // Hands over a document the Inspect tables produced. A data URL rather than a blob because the
+    // page already offers its certificates that way, and one mechanism is one thing to keep working.
+    let export_inspected = move |(name, body): (String, String)| {
         use base64::engine::general_purpose::STANDARD;
         use base64::Engine as _;
-        let files = insp_files();
-        let js = match files.len() {
-            0 => return,
-            1 => format!(
-                "const a = document.createElement('a'); a.href = \"data:application/pkix-cert;base64,{}\"; a.download = \"{}\"; a.click();",
-                STANDARD.encode(&files[0].1),
-                files[0].0
-            ),
-            _ => {
-                let name = stamped_export_name(&export_name(), now_as_unix_epoch());
-                match zip_files(&name, &files) {
-                    Ok(zipped) => format!(
-                        "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{name}-certificates.zip\"; a.click();",
-                        STANDARD.encode(&zipped)
-                    ),
-                    Err(e) => {
-                        insp_notes.write().push(ResultLine {
-                            class: "err",
-                            text: format!("Failed to build the archive: {e}"),
-                        });
-                        return;
-                    }
-                }
-            }
-        };
+        let js = format!(
+            "const a = document.createElement('a'); a.href = \"data:text/csv;base64,{}\"; a.download = \"{name}\"; a.click();",
+            STANDARD.encode(body.as_bytes())
+        );
         let _ = dioxus::document::eval(&js);
     };
 
@@ -1225,22 +1260,10 @@ fn App() -> Element {
     // them, which would take a validation's log with it.
     let run_inspect = move |_| async move {
         insp_running.set(true);
-        insp_output.set(String::new());
         insp_notes.write().clear();
-        insp_files.write().clear();
 
         let request = InspectRequest {
-            trust_anchors: insp_trust_anchors(),
-            aia_and_sia: insp_aia_and_sia(),
-            name_constraints: insp_name_constraints(),
-            buffers: insp_buffers(),
-            partial_paths: insp_partial_paths(),
-            export_buffers: insp_export_buffers(),
-            // A field that is not a number is left as no request rather than refused: the control
-            // is a free-text box, and half-typed is the ordinary state of one.
-            dump_cert_at_index: insp_dump_index().trim().parse::<usize>().ok(),
             paths_for_target: insp_target(),
-            paths_for_leaf_ca: insp_leaf_index().trim().parse::<usize>().ok(),
         };
 
         let store_bytes = match ensure_store().await {
@@ -1261,22 +1284,26 @@ fn App() -> Element {
         let store = store_bytes
             .as_ref()
             .map(|(ta, ca)| (label.as_str(), ta.as_slice(), ca.as_slice()));
-        // Revocation plays no part in an inspection -- nothing is validated -- so the run is told it
-        // has no revocation data rather than being handed the uploads, which would only move the
-        // settings it reports itself under.
-        let cps = run_settings(&settings(), tier(), false);
+        // The only setting an inspection reads is the time of interest: parsing, indexing and path
+        // discovery consult nothing else, and nothing is validated, so revocation, policy and name
+        // constraint settings have no bearing. Built here rather than taken from the settings so an
+        // inspection cannot quietly depend on one of them later.
+        let mut cps = CertificationPathSettings::new();
+        if let Ok(toi) =
+            TimeOfInterest::from_unix_secs(insp_toi().unwrap_or_else(now_as_unix_epoch))
+        {
+            cps.set_time_of_interest(toi);
+        }
 
-        let mark = log_capture::mark();
-        let outcome = inspect(store, &uploaded_tas(), &uploaded_cas(), &cps, &request);
-        insp_output.set(log_capture::since(mark));
-        log_tick += 1;
-
-        match outcome {
-            Ok((outcome, notes)) => {
+        match inspect(store, &uploaded_tas(), &uploaded_cas(), &cps, &request) {
+            Ok((inspected, notes)) => {
                 insp_notes.set(notes);
-                insp_files.set(outcome.certificates);
+                insp_inspected.set(Some(inspected));
             }
-            Err(fatal) => insp_notes.set(fatal),
+            Err(fatal) => {
+                insp_notes.set(fatal);
+                insp_inspected.set(None);
+            }
         }
         insp_running.set(false);
     };
@@ -2378,9 +2405,9 @@ fn App() -> Element {
                     },
                     View::Inspect => rsx! {
                         p { class: "hint",
-                            "Reports what a store holds, without validating anything. The checkboxes \
-                             list the store as a whole; the fields below them ask about one \
-                             certificate or one CA, and each is answered on its own."
+                            "Reports what a store holds, without validating anything. Every \
+                             certificate the store carries and every partial path over them is \
+                             listed; select a row to see its detail and what it joins to."
                         }
 
                         {store_controls.clone()}
@@ -2388,132 +2415,49 @@ fn App() -> Element {
                         {uploads_panel.clone()}
 
                         div { class: "controls",
-                            label { "Items to list: " }
-                            div { class: "field check-group",
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_partial_paths(),
-                                        onchange: move |ev| insp_partial_paths.set(ev.checked()),
-                                    }
-                                    " Partial paths"
-                                }
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_buffers(),
-                                        onchange: move |ev| insp_buffers.set(ev.checked()),
-                                    }
-                                    " Certificates"
-                                }
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_aia_and_sia(),
-                                        onchange: move |ev| insp_aia_and_sia.set(ev.checked()),
-                                    }
-                                    " SIA and AIA"
-                                }
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_name_constraints(),
-                                        onchange: move |ev| insp_name_constraints.set(ev.checked()),
-                                    }
-                                    " Name constraints"
-                                }
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_trust_anchors(),
-                                        onchange: move |ev| insp_trust_anchors.set(ev.checked()),
-                                    }
-                                    " Trust anchors"
-                                }
+                            TimeOfInterestRow {
+                                value: insp_toi(),
+                                onchange: move |v| insp_toi.set(v),
                             }
                             span { class: "hint",
-                                "SIA and AIA reports the URIs the certificates carry. Retrieving them \
-                                 is a separate errand -- choose a retrieval tier on Validate, or use \
-                                 Check URIs to ask what one of them serves."
+                                "Decides which of the store's certificates are usable: one outside \
+                                 this time is listed, and marked unusable, rather than left out. \
+                                 Empty means the moment the inspection is made. It belongs to this \
+                                 inspection and changes nothing else."
                             }
                         }
 
-                        div { class: "controls",
-                            label { "Hand back: " }
-                            div { class: "field check-group",
-                                label {
-                                    input {
-                                        r#type: "checkbox",
-                                        checked: insp_export_buffers(),
-                                        onchange: move |ev| insp_export_buffers.set(ev.checked()),
-                                    }
-                                    " Every certificate in the store"
-                                }
-                            }
-                            label { r#for: "insp-dump", "The certificate at index: " }
+                        fieldset {
+                            legend { "End Entity Certificate" }
+                            div { class: "controls",
+                                label { r#for: "insp-target", "Partial Paths for Target: " }
                             input {
-                                id: "insp-dump",
-                                r#type: "text",
-                                value: "{insp_dump_index}",
-                                oninput: move |ev| insp_dump_index.set(ev.value()),
+                                id: "insp-target",
+                                r#type: "file",
+                                accept: ".der,.crt,.cer,.pem",
+                                onchange: move |ev| async move {
+                                    insp_target.set(read_files(&ev).await.into_iter().next());
+                                },
                             }
                             span { class: "hint",
-                                "Writes certificates out rather than describing them. One is saved as \
-                                 itself; several are saved as a zip."
-                            }
-                        }
-
-                        details { class: "panel", id: "inspect-one-panel",
-                            summary { "Ask about one certificate or one CA" }
-                            div { class: "controls custom",
-                                label { r#for: "insp-leaf", "Partial paths for the leaf CA at index: " }
-                                input {
-                                    id: "insp-leaf",
-                                    r#type: "text",
-                                    value: "{insp_leaf_index}",
-                                    oninput: move |ev| insp_leaf_index.set(ev.value()),
+                                if let Some((name, _)) = insp_target() {
+                                    "{name} loaded "
+                                } else {
+                                    "No target loaded "
                                 }
-                                label { r#for: "insp-target", "Partial paths for a target: " }
-                                input {
-                                    id: "insp-target",
-                                    r#type: "file",
-                                    accept: ".der,.crt,.cer,.pem",
-                                    onchange: move |ev| async move {
-                                        insp_target.set(read_files(&ev).await.into_iter().next());
-                                    },
+                                button {
+                                    onclick: move |_| insp_target.set(None),
+                                    "Clear"
                                 }
-                                span { class: "hint",
-                                    if let Some((name, _)) = insp_target() {
-                                        "{name} loaded "
-                                    } else {
-                                        "No target loaded "
-                                    }
-                                    button {
-                                        onclick: move |_| insp_target.set(None),
-                                        "Clear"
-                                    }
-                                }
-                                span { class: "hint",
-                                    "An index is a position in the certificate pool, which the \
-                                     certificate listing above numbers."
                                 }
                             }
                         }
 
-                        div { class: "controls",
+                        div { class: "controls center-row",
                             button {
-                                disabled: insp_running() || inspect_request_empty(),
+                                disabled: insp_running(),
                                 onclick: run_inspect,
                                 if insp_running() { "Inspecting…" } else { "Inspect the store" }
-                            }
-                            if inspect_request_empty() {
-                                span { class: "hint", "Choose something to list." }
-                            }
-                            if !insp_files().is_empty() {
-                                button {
-                                    onclick: save_inspected,
-                                    "Save {insp_files().len()} certificate(s)"
-                                }
                             }
                         }
 
@@ -2521,11 +2465,15 @@ fn App() -> Element {
                             p { class: "{note.class}", "{note.text}" }
                         }
 
-                        // The same class the Results view gives its run log: an inspection's report
-                        // is the same kind of text, and giving it a style of its own would say the
-                        // two came from different places when they come from the same buffer.
-                        if !insp_output().is_empty() {
-                            pre { class: "log-stream", "{insp_output}" }
+                        if let Some(report) =
+                            insp_inspected.read().as_ref().map(|i| i.report.clone())
+                        {
+                            InspectReportView {
+                                report,
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                            }
                         }
                     },
                     View::Hackathon => rsx! {

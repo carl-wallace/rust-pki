@@ -339,6 +339,15 @@ impl TaSource {
         }
     }
 
+    /// Returns the buffer at a given index, or `None` when the index is out of range.
+    ///
+    /// The counterpart to [`CertSource::buffer_at`](crate::CertSource::buffer_at), and the only way
+    /// to reach an anchor's bytes from outside: the buffer vector is private and
+    /// [`PDVTrustAnchorChoice`] is reachable only for anchors that parsed.
+    pub fn buffer_at(&self, index: usize) -> Option<&CertFile> {
+        self.buffers.get(index)
+    }
+
     /// Returns one [`TaRow`] per anchor the instance holds.
     ///
     /// Its `index` is a position in this list, which is a different space from the certificate

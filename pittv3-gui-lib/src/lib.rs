@@ -7,6 +7,9 @@
 pub mod export;
 pub mod gui_end_entity;
 pub mod gui_help;
+// The Inspect report, rendered. One component both frontends use: a store holds the same thing
+// whichever application opened it.
+pub mod gui_inspect;
 pub mod gui_results;
 pub mod gui_rows;
 pub mod gui_settings;

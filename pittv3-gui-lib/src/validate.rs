@@ -358,77 +358,33 @@ fn assemble(
     })
 }
 
-/// What an inspection was asked to report, one field per thing the Inspect view offers.
+/// What an inspection was asked besides "describe this store".
 ///
-/// Every field is optional and an empty request is legal, which is why [`is_empty`](Self::is_empty)
-/// exists: a run that was asked for nothing reports nothing, and nothing is indistinguishable from
-/// an empty store once it reaches the screen.
+/// One field, because everything else a view asks about is in the report already and is reached by
+/// filtering or selecting it. A target is the exception: it is not in the store, so it has to
+/// arrive with the request. Certificates are handed over by the tables themselves, from the source
+/// the report came with, rather than by asking for them in advance.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InspectRequest {
-    /// Every trust anchor: index, key identifier, subject and the name it was read under.
-    pub trust_anchors: bool,
-    /// Every AIA and SIA URI the certificates carry. Reports them; retrieving them is a separate
-    /// errand the frontend already has its own control for.
-    pub aia_and_sia: bool,
-    /// The permitted and excluded subtrees of every certificate that constrains names.
-    pub name_constraints: bool,
-    /// Every certificate in the pool: index, key identifier, issuer and subject.
-    pub buffers: bool,
-    /// Every partial path, grouped by the leaf CA it terminates at.
-    pub partial_paths: bool,
-    /// Hand back the certificate at this index. Out of range is reported rather than ignored, since
-    /// an index is typed and a silent nothing reads as the store being short.
-    pub dump_cert_at_index: Option<usize>,
-    /// Hand back every certificate in the pool. Separate from `buffers` because listing the pool and
-    /// carrying several thousand certificates out of it are different sizes of answer to the same
-    /// question -- the command line splits them the same way, on whether a download folder was named.
-    pub export_buffers: bool,
-    /// Report the partial paths that reach this certificate, as `(name, bytes)` of an upload.
+    /// Also report the partial paths that could certify this certificate, as `(name, bytes)` of an
+    /// upload.
     pub paths_for_target: Option<(String, Vec<u8>)>,
-    /// Report the partial paths that terminate at the CA at this index.
-    pub paths_for_leaf_ca: Option<usize>,
 }
 
-impl InspectRequest {
-    /// Whether the request asks for nothing at all.
-    pub fn is_empty(&self) -> bool {
-        !self.trust_anchors
-            && !self.aia_and_sia
-            && !self.name_constraints
-            && !self.buffers
-            && !self.partial_paths
-            && !self.export_buffers
-            && self.dump_cert_at_index.is_none()
-            && self.paths_for_target.is_none()
-            && self.paths_for_leaf_ca.is_none()
-    }
-}
-
-/// What an inspection produced besides its report.
-#[derive(Clone, Debug, Default)]
-pub struct InspectOutcome {
-    /// Certificates the request asked to be handed back, as `(name, DER)`. The desktop writes these
-    /// into the download folder; a browser offers them as a download.
-    pub certificates: Vec<(String, Vec<u8>)>,
-    /// How many certificates the pool holds, so a caller can say what an index is being measured
-    /// against without asking a second time.
-    pub num_certs: usize,
-    /// How many trust anchors the merged store holds.
-    pub num_anchors: usize,
-}
+/// Re-exported so callers taking the inspection API from this module keep getting the type it
+/// returns. It lives one layer down because the desktop and the command line produce one too, from
+/// paths rather than from bytes.
+pub use pittv3_lib::inspect::{unix_secs_as_date, InspectReport, Inspected};
 
 /// Reports what a store holds, without validating anything.
 ///
-/// The report itself goes through `log` at info level, which is where certval writes it and where
-/// both frontends already collect it -- the desktop through log4rs into its log pane, the browser
-/// through its own capture. Nothing is returned for it here, deliberately: a second channel would be
-/// a second rendering of the same listing, and the frontends already disagree often enough without
-/// one. What comes back is only what a log line cannot carry -- the certificates asked for by
-/// index, and the two counts an index is judged against.
+/// The report is rows: the anchors, every position in the certificate pool, and every partial path
+/// over it. They join on index, so a view can follow a path to the certificates it names and a
+/// certificate to the paths that carry it. `certval` renders the same rows as text for the command
+/// line, which is what keeps the two accounts of a store from drifting apart.
 ///
-/// The order the listings run in, and the conditions on each, follow `options_std` so that the same
-/// request reports the same thing whichever frontend asked. What differs is the assembly before them
-/// and the disposal of bytes after: paths on disk there, uploads and downloads here.
+/// The assembly before the rows is this crate's own: a baked store, plus whatever the caller
+/// uploaded, merged into one pool whose partial paths are rediscovered when an upload changed it.
 pub fn inspect(
     store: Option<(&str, &[u8], &[u8])>,
     tas: &[(String, Vec<u8>)],
@@ -436,7 +392,7 @@ pub fn inspect(
     cps: &CertificationPathSettings,
     request: &InspectRequest,
     // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
-) -> core::result::Result<(InspectOutcome, Vec<ResultLine>), Vec<ResultLine>> {
+) -> core::result::Result<(Inspected, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
     let Assembled {
         mut pe,
@@ -445,84 +401,51 @@ pub fn inspect(
         uploaded,
     } = assemble(store, tas, cas, cps, &mut out)?;
 
-    let mut outcome = InspectOutcome {
-        num_anchors: ta_store.len(),
-        ..Default::default()
-    };
-
-    // Before the anchors are registered, because registering moves them and the listing is a method
-    // on the source rather than something the environment exposes. First here as on the command
-    // line, where it is the one listing that runs without a certificate pool at all.
-    if request.trust_anchors {
-        ta_store.log_tas();
-    }
+    // Before the anchors are registered, because registering moves them and the rows are a method
+    // on the source rather than something the environment exposes.
+    let anchors = ta_store.ta_rows();
+    // Kept as well as registered: registering hands the store to the environment, and a caller
+    // exporting an anchor's bytes needs the store its rows were read from.
+    let anchor_source = ta_store.clone();
     pe.add_trust_anchor_source(Box::new(ta_store));
 
     // A baked store ships with its partial paths already discovered; an upload changes the merged
-    // pool, so they are discovered again over the whole of it. Anything that reports a path needs
-    // this to have happened, and it is cheap to have done when nothing asks.
+    // pool, so they are discovered again over the whole of it.
     if uploaded {
         cert_source.find_all_partial_paths(&pe, cps);
     }
-    outcome.num_certs = cert_source.num_certs();
 
-    if let Some(index) = request.dump_cert_at_index {
-        match cert_source.get_buffers().get(index) {
-            Some(cf) => outcome
-                .certificates
-                .push((format!("{index}.der"), cf.bytes.clone())),
-            None => out.push(err(format!(
-                "There is no certificate at index {index}: the store holds {}, so the last index is {}",
-                outcome.num_certs,
-                outcome.num_certs.saturating_sub(1)
-            ))),
-        }
-    }
+    let certs = cert_source.cert_rows();
+    let paths = cert_source.path_rows();
 
-    if request.aia_and_sia {
-        // Collected rather than consulted: certval hands back the URIs it has not seen before, and
-        // fetching them is the frontend's own errand through its own retrieval.
-        let mut fresh_uris = vec![];
-        cert_source.log_all_aia_and_sia(&mut fresh_uris);
-    }
-    if request.name_constraints {
-        cert_source.log_all_name_constraints();
-    }
-    if request.buffers {
-        cert_source.log_certs();
-    }
-    if request.export_buffers {
-        for (i, cf) in cert_source.get_buffers().iter().enumerate() {
-            outcome
-                .certificates
-                .push((format!("{i}.der"), cf.bytes.clone()));
-        }
-    }
-    if request.partial_paths {
-        cert_source.log_partial_paths();
-    }
+    let mut target_paths = None;
     if let Some((name, bytes)) = &request.paths_for_target {
         // maybe_pem rather than certs_in: this asks about one certificate, so a bundle has no
         // reading here that is not a guess at which member was meant.
         match maybe_pem(bytes).and_then(|der| parse_cert(&der, name)) {
-            Ok(target) => cert_source.log_paths_for_target(&target, cps.get_time_of_interest()),
+            Ok(target) => {
+                target_paths =
+                    Some(cert_source.paths_for_target(&target, cps.get_time_of_interest()))
+            }
             Err(e) => out.push(err(format!(
                 "Failed to parse {name} as a certificate: {e:?}"
             ))),
         }
     }
-    if let Some(index) = request.paths_for_leaf_ca {
-        match cert_source.get_cert_at_index(index) {
-            Some(leaf) => cert_source.log_paths_for_leaf_ca(&leaf),
-            None => out.push(err(format!(
-                "There is no CA at index {index}: the store holds {}, so the last index is {}",
-                outcome.num_certs,
-                outcome.num_certs.saturating_sub(1)
-            ))),
-        }
-    }
 
-    Ok((outcome, out))
+    Ok((
+        Inspected {
+            report: InspectReport {
+                anchors,
+                certs,
+                paths,
+                target_paths,
+            },
+            certs: cert_source,
+            anchors: anchor_source,
+        },
+        out,
+    ))
 }
 
 /// Validates every certificate in `ees` against an environment prepared by [`prepare_validation`].
@@ -1046,9 +969,6 @@ pub fn validate_hackathon_zip(
 #[cfg(test)]
 mod inspect_tests {
     use super::*;
-    use std::sync::{Mutex, Once, OnceLock};
-
-    use log::{Level, LevelFilter, Log, Metadata, Record};
 
     /// A store the command line already inspects in its own tests: two DoD CA certificates and the
     /// three partial paths found over them, under the one anchor those paths terminate at. Taken as
@@ -1089,7 +1009,7 @@ mod inspect_tests {
 
     fn inspect_store(
         request: &InspectRequest,
-    ) -> core::result::Result<(InspectOutcome, Vec<ResultLine>), Vec<ResultLine>> {
+    ) -> core::result::Result<(Inspected, Vec<ResultLine>), Vec<ResultLine>> {
         let ta = anchor_store();
         inspect(
             Some(("pitt_focused", &ta, CA_STORE)),
@@ -1100,173 +1020,107 @@ mod inspect_tests {
         )
     }
 
-    fn inspected(request: &InspectRequest) -> (InspectOutcome, Vec<ResultLine>) {
-        inspect_store(request).expect("the baked store should assemble")
-    }
-
-    // --- capturing what a listing wrote -------------------------------------------------------
-    //
-    // The listings report through `log` and return nothing, which is what lets both frontends
-    // render them the same way — and also what would let the whole feature list nothing without a
-    // single count assertion noticing. So the tests that care take the `log` global and read it
-    // back. One logger for the process, since `log` permits one, and a lock around the tests that
-    // use it, since the buffer is shared and the harness runs them on parallel threads.
-
-    static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    static CAPTURE: Mutex<()> = Mutex::new(());
-    static INSTALL: Once = Once::new();
-    static INSTALLED: OnceLock<bool> = OnceLock::new();
-    static LOGGER: Capture = Capture;
-
-    struct Capture;
-
-    impl Log for Capture {
-        fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-            true
-        }
-        fn log(&self, record: &Record<'_>) {
-            if record.level() <= Level::Info {
-                if let Ok(mut lines) = LINES.lock() {
-                    lines.push(format!("{}", record.args()));
-                }
-            }
-        }
-        fn flush(&self) {}
-    }
-
-    /// Runs `f` with the log captured and returns what it wrote, or `None` when another logger in
-    /// the same test binary already owns the global. `None` rather than a failure so a test says
-    /// what it found rather than asserting against a capture that was never installed.
-    fn captured(f: impl FnOnce()) -> Option<Vec<String>> {
-        let guard = CAPTURE.lock().unwrap_or_else(|e| e.into_inner());
-        INSTALL.call_once(|| {
-            let claimed = log::set_logger(&LOGGER).is_ok();
-            log::set_max_level(LevelFilter::Info);
-            let _ = INSTALLED.set(claimed);
-        });
-        LINES.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        f();
-        let lines = LINES.lock().unwrap_or_else(|e| e.into_inner()).split_off(0);
-        drop(guard);
-        match INSTALLED.get() {
-            Some(true) => Some(lines),
-            _ => None,
-        }
+    fn inspected(request: &InspectRequest) -> (InspectReport, Vec<ResultLine>) {
+        let (inspected, notes) = inspect_store(request).expect("the baked store should assemble");
+        (inspected.report, notes)
     }
 
     // --- the material ---------------------------------------------------------------------------
 
     #[test]
     fn an_inspection_needs_trust_anchors() {
-        let request = InspectRequest {
-            buffers: true,
-            ..Default::default()
-        };
         assert!(
-            inspect(None, &[], &[], &settings(), &request).is_err(),
+            inspect(None, &[], &[], &settings(), &InspectRequest::default()).is_err(),
             "an inspection with no anchors anywhere should refuse rather than report an empty store"
         );
     }
 
     #[test]
-    fn the_counts_describe_the_store_that_was_assembled() {
-        let (outcome, _notes) = inspected(&InspectRequest::default());
-        assert_eq!(1, outcome.num_anchors);
-        assert_eq!(2, outcome.num_certs);
+    fn the_report_describes_the_store_that_was_assembled() {
+        let (report, _notes) = inspected(&InspectRequest::default());
+        assert_eq!(1, report.anchors.len());
+        assert_eq!(2, report.certs.len());
+        assert_eq!(2, report.usable());
+        assert_eq!(0, report.unusable());
         assert!(
-            outcome.certificates.is_empty(),
-            "nothing was asked for, so nothing should have been handed back"
+            report.target_paths.is_none(),
+            "no target was supplied, which is not the same as a target with no paths"
         );
     }
 
+    // Asking for nothing is no longer a thing a caller can do: the report describes the store
+    // whatever the request said, so the view has no empty state of its own to explain.
     #[test]
-    fn an_empty_request_is_recognizable_as_one() {
-        assert!(InspectRequest::default().is_empty());
-        assert!(!InspectRequest {
-            partial_paths: true,
-            ..Default::default()
+    fn a_report_arrives_whether_or_not_anything_was_asked_for() {
+        let (report, _notes) = inspected(&InspectRequest::default());
+        assert!(!report.certs.is_empty());
+        assert!(
+            !report.paths.is_empty(),
+            "the baked store carries partial paths and the report claimed none"
+        );
+    }
+
+    // --- the rows join on index -------------------------------------------------------------
+
+    #[test]
+    fn every_pool_position_gets_a_row_at_its_own_index() {
+        let (report, _notes) = inspected(&InspectRequest::default());
+        for (i, row) in report.certs.iter().enumerate() {
+            assert_eq!(i, row.index);
         }
-        .is_empty());
-        assert!(!InspectRequest {
-            paths_for_leaf_ca: Some(0),
-            ..Default::default()
+    }
+
+    #[test]
+    fn a_partial_path_names_positions_that_are_in_the_pool() {
+        let (report, _notes) = inspected(&InspectRequest::default());
+        for path in &report.paths {
+            assert!(!path.is_empty(), "a stored path named no certificates");
+            for i in &path.indices {
+                assert!(
+                    *i < report.certs.len(),
+                    "path {:?} names index {i}, past the {} the pool holds",
+                    path.indices,
+                    report.certs.len()
+                );
+            }
+            assert!(
+                !path.leaf_ca_skid.is_empty(),
+                "a path should name the leaf CA it terminates at"
+            );
         }
-        .is_empty());
     }
 
-    // --- certificates handed back -----------------------------------------------------------------
+    // --- asking about a target ------------------------------------------------------------------
 
     #[test]
-    fn a_certificate_can_be_taken_out_by_index() {
-        let (outcome, notes) = inspected(&InspectRequest {
-            dump_cert_at_index: Some(1),
-            ..Default::default()
-        });
-        assert_eq!(1, outcome.certificates.len());
-        assert_eq!("1.der", outcome.certificates[0].0);
-        let (all, _) = inspected(&InspectRequest {
-            export_buffers: true,
-            ..Default::default()
-        });
-        assert_eq!(
-            all.certificates[1].1, outcome.certificates[0].1,
-            "the bytes handed back should be the certificate at that index, not another one"
-        );
-        assert!(notes.iter().all(|n| n.class != "err"), "{notes:?}");
-    }
-
-    #[test]
-    fn an_index_past_the_end_is_reported_rather_than_ignored() {
-        let (outcome, notes) = inspected(&InspectRequest {
-            dump_cert_at_index: Some(99),
-            ..Default::default()
-        });
-        assert!(outcome.certificates.is_empty());
-        let complaint = notes
-            .iter()
-            .find(|n| n.class == "err")
-            .expect("an index past the end should be said out loud");
-        assert!(
-            complaint.text.contains("99") && complaint.text.contains("holds 2"),
-            "the complaint should name the index and what it was measured against: {}",
-            complaint.text
-        );
-    }
-
-    #[test]
-    fn a_leaf_ca_index_past_the_end_is_reported_rather_than_ignored() {
-        let (_outcome, notes) = inspected(&InspectRequest {
-            paths_for_leaf_ca: Some(99),
+    fn a_target_is_answered_with_the_paths_that_reach_it() {
+        let (report, notes) = inspected(&InspectRequest {
+            paths_for_target: Some(("from_email_CA_59.der".to_string(), TARGET.to_vec())),
             ..Default::default()
         });
         assert!(
-            notes
-                .iter()
-                .any(|n| n.class == "err" && n.text.contains("99")),
-            "{notes:?}"
+            notes.iter().all(|n| n.class != "err"),
+            "a real target should not have been refused: {notes:?}"
         );
+        let found = report
+            .target_paths
+            .expect("a target was supplied, so the question should have been answered");
+        assert!(
+            !found.is_empty(),
+            "the store can reach this target and reported no paths to it"
+        );
+        for path in &found {
+            assert!(
+                report.paths.iter().any(|p| p.indices == path.indices),
+                "a path to the target should be one of the store's own: {:?}",
+                path.indices
+            );
+        }
     }
 
     #[test]
-    fn every_certificate_can_be_taken_out_at_once() {
-        let (outcome, _notes) = inspected(&InspectRequest {
-            export_buffers: true,
-            ..Default::default()
-        });
-        assert_eq!(outcome.num_certs, outcome.certificates.len());
-        assert_eq!(
-            vec!["0.der".to_string(), "1.der".to_string()],
-            outcome
-                .certificates
-                .iter()
-                .map(|(name, _)| name.clone())
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn a_target_that_is_not_a_certificate_is_named_rather_than_listing_nothing() {
-        let (_outcome, notes) = inspected(&InspectRequest {
+    fn a_target_that_is_not_a_certificate_is_named_rather_than_answered() {
+        let (report, notes) = inspected(&InspectRequest {
             paths_for_target: Some(("junk.der".to_string(), b"not a certificate".to_vec())),
             ..Default::default()
         });
@@ -1276,82 +1130,27 @@ mod inspect_tests {
                 .any(|n| n.class == "err" && n.text.contains("junk.der")),
             "a target that will not parse should be said out loud: {notes:?}"
         );
-    }
-
-    // --- what reached the log -----------------------------------------------------------------
-
-    #[test]
-    fn asking_for_the_trust_anchors_lists_them() {
-        let Some(lines) = captured(|| {
-            inspected(&InspectRequest {
-                trust_anchors: true,
-                ..Default::default()
-            });
-        }) else {
-            return;
-        };
         assert!(
-            lines.iter().any(|l| l.contains("SKID")),
-            "the anchor should have been listed: {lines:?}"
+            report.target_paths.is_none(),
+            "a target that never parsed was not asked about, so it has no answer"
         );
     }
 
+    // A leaf CA is already a row, so asking about one is filtering the report rather than a second
+    // request -- which is what removed the index field this once needed.
     #[test]
-    fn asking_for_the_partial_paths_lists_the_ones_the_store_carries() {
-        let Some(lines) = captured(|| {
-            inspected(&InspectRequest {
-                partial_paths: true,
-                ..Default::default()
-            });
-        }) else {
-            return;
-        };
-        assert!(
-            lines.iter().any(|l| l.contains("certificates yielded")),
-            "the store's partial paths should have been listed: {lines:?}"
-        );
-        assert!(
-            !lines.iter().any(|l| l.contains("No partial paths")),
-            "the store carries three partial paths and the listing reported none: {lines:?}"
-        );
-    }
-
-    #[test]
-    fn each_listing_is_its_own_switch() {
-        // Every count assertion above passes just as well against a view that wired one control to
-        // two listings, or to none. This is what says a switch that was not thrown stayed off.
-        let Some(quiet) = captured(|| {
-            inspected(&InspectRequest::default());
-        }) else {
-            return;
-        };
-        assert!(
-            !quiet.iter().any(|l| l.contains("certificates yielded")),
-            "a request that asked for nothing listed partial paths anyway: {quiet:?}"
-        );
-        assert!(
-            !quiet.iter().any(|l| l.contains("SKID")),
-            "a request that asked for nothing listed trust anchors anyway: {quiet:?}"
-        );
-    }
-
-    #[test]
-    fn a_target_is_listed_against_the_paths_that_reach_it() {
-        let Some(lines) = captured(|| {
-            let (_outcome, notes) = inspected(&InspectRequest {
-                paths_for_target: Some(("from_email_CA_59.der".to_string(), TARGET.to_vec())),
-                ..Default::default()
-            });
-            assert!(
-                notes.iter().all(|n| n.class != "err"),
-                "a real target should not have been refused: {notes:?}"
-            );
-        }) else {
-            return;
-        };
-        assert!(
-            !lines.is_empty(),
-            "asking about a target the store can reach should have reported something"
-        );
+    fn the_paths_for_a_leaf_ca_are_reached_by_filtering_the_report() {
+        let (report, _notes) = inspected(&InspectRequest::default());
+        let leaf = report.paths[0].clone();
+        let index = leaf.leaf_ca_indices[0];
+        let mine: Vec<_> = report
+            .paths
+            .iter()
+            .filter(|p| p.leaf_ca_indices.contains(&index))
+            .collect();
+        assert!(!mine.is_empty());
+        for path in mine {
+            assert_eq!(path.leaf_ca_skid, leaf.leaf_ca_skid);
+        }
     }
 }

@@ -11,7 +11,10 @@ pub mod args;
 pub mod der_or_pem;
 #[cfg(feature = "std")]
 pub mod graph_cache;
+// What a store holds, as rows, and the text form of it. Ungated: a report is a projection of
+// material already loaded, so every build that can load a store can describe one.
 pub mod help;
+pub mod inspect;
 #[cfg(feature = "installroot")]
 pub mod installroot;
 pub mod no_std_utils;

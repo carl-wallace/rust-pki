@@ -21,6 +21,8 @@ use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
 
 use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
+use pittv3_lib::inspect::{anchor_bytes, certificate_bytes, Inspected};
+use pittv3_lib::options_std::inspect_args;
 // Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
 #[cfg(not(target_os = "macos"))]
 use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
@@ -29,16 +31,16 @@ use std::sync::Mutex;
 
 use crate::save::{self, RetainedArtifacts};
 use pittv3_gui_lib::export::{
-    pool_includes_ca_store, pool_includes_ta_store, stamped_export_name, RunInputs,
+    pool_includes_ca_store, pool_includes_ta_store, stamped_export_name, zip_files, RunInputs,
     DEFAULT_EXPORT_NAME,
 };
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
 use pittv3_gui_lib::gui_help::HelpView;
+use pittv3_gui_lib::gui_inspect::InspectReportView;
+use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
-use pittv3_gui_lib::gui_rows::{
-    BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TextRow, TimeRow,
-};
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TimeRow};
 use pittv3_gui_lib::gui_settings::EditSettingsFile;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
@@ -704,14 +706,6 @@ fn spawn_pool_count(
     });
 }
 
-/// Returns the value of `sig` as a usize, or None if the value is empty or cannot be parsed
-fn usize_or_none(sig: Signal<String>) -> Option<usize> {
-    match string_or_none(sig) {
-        Some(v) => v.parse::<usize>().ok(),
-        None => None,
-    }
-}
-
 /// Table row with a labeled text input and a folder selection dialog. Thin wrapper over the shared
 /// [`BrowseRow`] supplying the native picker, which is the only part of the row that is not
 /// portable.
@@ -1161,6 +1155,103 @@ fn StoreHint(selection: usize) -> Element {
 /// reports nothing, which reads as the app failing rather than as the form being incomplete. The
 /// button says what is missing instead. `nothing_to_do` names the sentence; an empty one leaves the
 /// button enabled, which is what every view that always has something to do passes.
+/// Saves exported certificates where the user says, reporting what happened through the Inspect
+/// view's own notes.
+///
+/// Prompted rather than written to a configured folder, and opening where the last save went, which
+/// is what every other export in this application does. One certificate is saved as itself; several
+/// are saved as a zip, which is also what the browser hands over — so the same button produces the
+/// same artifact in either frontend.
+///
+/// A function rather than a closure because two handlers need it, and a closure capturing the notes
+/// signal cannot be moved into both.
+async fn save_certificates(
+    mut notes: Signal<Vec<ResultLine>>,
+    archive_name: String,
+    files: Vec<(String, Vec<u8>)>,
+) {
+    let (suggested, extensions, bytes) = match files.len() {
+        0 => return,
+        1 => (
+            files[0].0.clone(),
+            ["der", "crt", "cer"].as_slice(),
+            files[0].1.clone(),
+        ),
+        _ => match zip_files(&archive_name, &files) {
+            Ok(zipped) => (
+                format!("{archive_name}-certificates.zip"),
+                ["zip"].as_slice(),
+                zipped,
+            ),
+            Err(e) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: format!("Failed to build the archive: {e}"),
+                });
+                return;
+            }
+        },
+    };
+
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .set_file_name(&suggested)
+        .add_filter("export", extensions)
+        .save_file()
+        .await
+    else {
+        // A cancelled dialog is a decision, not a failure, and saying so would be noise.
+        return;
+    };
+
+    let path = handle.path().to_path_buf();
+    match std::fs::write(&path, &bytes) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                remember_dialog_dir(DialogPurpose::Save, parent);
+            }
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {} certificate(s) to {}", files.len(), path.display()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to write {}: {e}", path.display()),
+        }),
+    }
+}
+
+/// Saves one of the Inspect tables' summaries where the user says, opening where the last save
+/// went. The same prompt the certificates get, because a summary is an export like any other.
+async fn save_document(mut notes: Signal<Vec<ResultLine>>, suggested: String, body: String) {
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .set_file_name(&suggested)
+        .add_filter("export", &["csv"])
+        .save_file()
+        .await
+    else {
+        return;
+    };
+    let path = handle.path().to_path_buf();
+    match std::fs::write(&path, body.as_bytes()) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                remember_dialog_dir(DialogPurpose::Save, parent);
+            }
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {}", path.display()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to write {}: {e}", path.display()),
+        }),
+    }
+}
+
 #[component]
 fn RunButton(
     running: bool,
@@ -1170,7 +1261,7 @@ fn RunButton(
 ) -> Element {
     let idle = !nothing_to_do.is_empty();
     rsx! {
-        div { style: "text-align:center",
+        div { class: "center-row",
             button {
                 r#type: "button",
                 class: "run-button",
@@ -1507,23 +1598,8 @@ pub(crate) fn App() -> Element {
     let s_cleanup = use_signal(|| sa.cleanup);
     let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
     let s_report_only = use_signal(|| sa.report_only);
-    let s_list_partial_paths = use_signal(|| sa.list_partial_paths);
-    let s_list_buffers = use_signal(|| sa.list_buffers);
-    let s_list_aia_and_sia = use_signal(|| sa.list_aia_and_sia);
-    let s_list_name_constraints = use_signal(|| sa.list_name_constraints);
-    let s_list_trust_anchors = use_signal(|| sa.list_trust_anchors);
-    let s_dump_cert_at_index = use_signal(|| {
-        sa.dump_cert_at_index
-            .map(|u| u.to_string())
-            .unwrap_or_default()
-    });
     let s_list_partial_paths_for_target =
         use_signal(|| sa.list_partial_paths_for_target.clone().unwrap_or_default());
-    let s_list_partial_paths_for_leaf_ca = use_signal(|| {
-        sa.list_partial_paths_for_leaf_ca
-            .map(|u| u.to_string())
-            .unwrap_or_default()
-    });
     let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
 
     // run state: the validation run executes on a worker thread so the WebView stays responsive;
@@ -1624,14 +1700,19 @@ pub(crate) fn App() -> Element {
             cleanup: s_cleanup(),
             ta_cleanup: s_ta_cleanup(),
             report_only: s_report_only(),
-            list_partial_paths: s_list_partial_paths(),
-            list_buffers: s_list_buffers(),
-            list_aia_and_sia: s_list_aia_and_sia(),
-            list_name_constraints: s_list_name_constraints(),
-            list_trust_anchors: s_list_trust_anchors(),
-            dump_cert_at_index: usize_or_none(s_dump_cert_at_index),
+            // The listing switches are command line arguments this application no longer sets:
+            // Inspect reports the whole store and the view selects within it, so there is nothing
+            // here to turn on or off. The flags remain for the command line, which still has them.
+            list_partial_paths: false,
+            list_buffers: false,
+            list_aia_and_sia: false,
+            list_name_constraints: false,
+            list_trust_anchors: false,
+            dump_cert_at_index: None,
             list_partial_paths_for_target: path_or_none(s_list_partial_paths_for_target),
-            list_partial_paths_for_leaf_ca: usize_or_none(s_list_partial_paths_for_leaf_ca),
+            // A leaf CA is a row in the report, so asking about one is selecting it rather than
+            // naming an index in advance.
+            list_partial_paths_for_leaf_ca: None,
             mozilla_csv: path_or_none(s_mozilla_csv),
             check_uris: None,
             issuer: None,
@@ -1680,6 +1761,91 @@ pub(crate) fn App() -> Element {
                 }
             }
             s_peeking.set(false);
+        });
+    };
+
+    // Inspect does not validate, so it has no result to send to the Results view and nothing to
+    // say through the run log. It answers with a report the view renders in place.
+    // The time an inspection asks about. Its own value rather than the one the other views share,
+    // because it belongs to the operation: it decides which of the store's certificates are usable
+    // and nothing else. Seeded from the shared value so the view opens on the time in play.
+    let s_inspect_toi = use_signal(|| get_now_as_unix_epoch().to_string());
+    let mut s_inspected = use_signal(|| None::<Inspected>);
+    let mut s_inspect_notes = use_signal(Vec::<ResultLine>::new);
+    let mut s_inspect_running = use_signal(|| false);
+
+    let run_inspect = move |_| {
+        s_inspect_running.set(true);
+        s_inspect_notes.write().clear();
+
+        let args = match current_args() {
+            Ok(mut args) => {
+                // An inspection reads exactly one setting, so it takes its own rather than the one
+                // the other views share: nothing else in parsing, indexing or path discovery
+                // consults the settings at all.
+                args.time_of_interest = s_inspect_toi()
+                    .parse::<u64>()
+                    .unwrap_or_else(|_| get_now_as_unix_epoch());
+                args
+            }
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                s_inspect_running.set(false);
+                return;
+            }
+        };
+
+        match inspect_args(&args) {
+            Ok(inspected) => {
+                s_inspected.set(Some(inspected));
+            }
+            Err(e) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: e.to_string(),
+                });
+                s_inspected.set(None);
+            }
+        }
+        s_inspect_running.set(false);
+    };
+
+    // Certificates the reader asked for, written where this application already puts what a run
+    // hands back. The lookup is the shared one; only the disposal is this frontend's.
+    let export_certificates = move |indices: Vec<usize>| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = certificate_bytes(&inspected.certs, &indices);
+        drop(held);
+        let name = stamped_export_name(&s_export_name(), now_as_unix_epoch());
+        spawn(async move {
+            save_certificates(s_inspect_notes, name, files).await;
+        });
+    };
+
+    let export_anchor_certificates = move |indices: Vec<usize>| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let files = anchor_bytes(&inspected.anchors, &indices);
+        drop(held);
+        let name = stamped_export_name(&s_export_name(), now_as_unix_epoch());
+        spawn(async move {
+            save_certificates(s_inspect_notes, name, files).await;
+        });
+    };
+
+    // An exported table goes into the download folder, which is where this application already
+    // puts what a run hands back.
+    let export_inspected = move |(name, body): (String, String)| {
+        spawn(async move {
+            save_document(s_inspect_notes, name, body).await;
         });
     };
 
@@ -2509,7 +2675,7 @@ pub(crate) fn App() -> Element {
                     },
                     View::Inspect => rsx! {
                         p { class: "hint",
-                            "Reports what a store holds, without validating anything. The checkboxes list the store as a whole; the fields below them ask about one certificate or one CA, and each runs on its own when filled in."
+                            "Reports what a store holds, without validating anything. Every certificate the store carries and every partial path over them is listed; select a row to see its detail and what it joins to."
                         }
                         div { class: "controls",
                             StoreRow { sig: s_store, status: s_store_export }
@@ -2529,6 +2695,14 @@ pub(crate) fn App() -> Element {
                                 name: "ta-folder",
                                 sig: s_ta_folder,
                             }
+                            // The CA counterpart of the row above. Anchors named beside a store
+                            // have always been merged into it; certificates named beside one were
+                            // not, so the view composed half a store and refused the other half.
+                            PathRow {
+                                label: "CA Folder or File",
+                                name: "ca-folder",
+                                sig: s_ca_folder,
+                            }
                             if s_store() == stores::CUSTOM {
                                 FileRow {
                                     label: "TA CBOR",
@@ -2538,48 +2712,39 @@ pub(crate) fn App() -> Element {
                                     extensions: ["cbor", "pki", "ta"].as_slice(),
                                 }
                             }
-                            FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            // One group rather than the previous three-then-two, which was a wrap
-                            // rather than a grouping: all five list the store as a whole, and
-                            // splitting them implied a distinction that does not exist.
-                            div { class: "visible label-cell",
-                                label { "Items to list: " }
+                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
+                        }
+                        // The same group box the Validate view puts a target in, so the certificate
+                        // being asked about is named the same way wherever it is supplied. A CA
+                        // certificate is accepted too: what comes back is the paths that could
+                        // certify it, whatever it is.
+                        fieldset {
+                            legend { "End Entity Certificate" }
+                            div { class: "controls",
+                                FileRow {
+                                    label: "Partial Paths for Target",
+                                    name: "list-partial-paths-for-target",
+                                    sig: s_list_partial_paths_for_target,
+                                    filter_name: "Certificate File",
+                                    extensions: SINGLE_CERT_EXTENSIONS,
+                                }
                             }
-                            div { class: "field check-group",
-                                CheckboxCell { label: "Partial Paths", name: "list-partial-paths", sig: s_list_partial_paths }
-                                CheckboxCell { label: "Buffers", name: "list-buffers", sig: s_list_buffers }
-                                CheckboxCell { label: "SIA and AIA", name: "list-aia-and-sia", sig: s_list_aia_and_sia }
-                                CheckboxCell { label: "Name Constraints", name: "list-name-constraints", sig: s_list_name_constraints }
-                                CheckboxCell { label: "Trust Anchors", name: "list-trust-anchors", sig: s_list_trust_anchors }
-                            }
-                            TextRow { label: "Dump Certificate At Index", name: "dump-cert-at-index", sig: s_dump_cert_at_index }
-                            FileRow {
-                                label: "List Partial Paths for Target",
-                                name: "list-partial-paths-for-target",
-                                sig: s_list_partial_paths_for_target,
-                                filter_name: "Certificate File",
-                                extensions: SINGLE_CERT_EXTENSIONS,
-                            }
-                            TextRow { label: "List Partial Paths for Leaf CA", name: "list-partial-paths-for-leaf-ca", sig: s_list_partial_paths_for_leaf_ca }
                         }
                         RunButton {
-                            running: s_running(),
-                            onrun: run_command,
+                            running: s_inspect_running(),
+                            onrun: run_inspect,
                             label: "Inspect the store",
-                            // Every control on this view is optional, so an untouched form is a
-                            // legal run that lists nothing -- which reads as the store being empty
-                            // rather than as nothing having been asked for.
-                            nothing_to_do: if s_list_partial_paths() || s_list_buffers()
-                                || s_list_aia_and_sia() || s_list_name_constraints()
-                                || s_list_trust_anchors() || !s_dump_cert_at_index().is_empty()
-                                || !s_list_partial_paths_for_target().is_empty()
-                                || !s_list_partial_paths_for_leaf_ca().is_empty()
-                            {
-                                ""
-                            } else {
-                                "Choose something to list"
-                            },
+                        }
+                        for note in s_inspect_notes() {
+                            p { class: "{note.class}", "{note.text}" }
+                        }
+                        if let Some(report) = s_inspected.read().as_ref().map(|i| i.report.clone()) {
+                            InspectReportView {
+                                report,
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                            }
                         }
                     },
                     View::CheckUris => rsx! {
@@ -3060,8 +3225,12 @@ mod tooltip_coverage {
         }
         // Guards against the scan silently matching nothing -- a renamed component or a change in
         // how rows are written would otherwise turn this test into an assertion about nothing.
+        //
+        // A floor rather than a count: which rows exist is the views' business and moves whenever
+        // one is added or retired, so a number tracking that would fail for the wrong reason. This
+        // asks only that the scan still finds rows to check.
         assert!(
-            checked >= 10,
+            checked >= 5,
             "only {checked} rows were checked; the scan has stopped finding them"
         );
     }

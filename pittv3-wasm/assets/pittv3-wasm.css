@@ -123,16 +123,6 @@ fieldset > .controls {
   margin-left: 0.5rem;
 }
 
-/* A single-control row whose content is centered (e.g. the Validate button). */
-.controls.center-row {
-  display: flex;
-  justify-content: center;
-}
-
-.controls.center-row button {
-  margin-left: 0;
-}
-
 .hint {
   color: var(--muted);
   grid-column: 2;

@@ -1185,6 +1185,17 @@ impl CertSource {
         self.find_all_partial_paths_internal(pe, cps, 0);
     }
 
+    /// Returns the buffer at a given index, or `None` when the index is out of range.
+    ///
+    /// Borrowed, and available for every position rather than only the ones that parsed. Both
+    /// matter: [`CertSource::get_buffers`] clones the whole vector to answer about one, and
+    /// [`CertSource::get_cert_at_index`] answers with nothing for a position whose buffer did not
+    /// parse -- which is the position whose bytes are most worth having, since a file that will not
+    /// parse here is one to examine somewhere else.
+    pub fn buffer_at(&self, index: usize) -> Option<&CertFile> {
+        self.buffers_and_paths.buffers.get(index)
+    }
+
     /// Return list of buffers
     pub fn get_buffers(&self) -> Vec<CertFile> {
         self.buffers_and_paths.buffers.clone()
@@ -2586,6 +2597,33 @@ fn paths_for_leaf_ca_finds_the_paths_under_its_own_key() {
     // its own key even though it finds one under its issuer's.
     let (_, target, _) = source_with_one_path();
     assert!(source.paths_for_leaf_ca(&target).is_empty());
+}
+
+// The bytes of every position are reachable, including the one that did not parse -- which is the
+// position `get_cert_at_index` answers `None` for and the one a reader most wants to take away.
+#[cfg(feature = "std")]
+#[test]
+fn buffer_at_reaches_every_position_including_the_unusable_one() {
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let garbage = vec![0x30, 0x03, 0x02, 0x01, 0x00];
+    let mut source = CertSource::new();
+    for (name, bytes) in [("good-0", der.to_vec()), ("garbage", garbage.clone())] {
+        source.buffers_and_paths.buffers.push(CertFile {
+            filename: name.to_string(),
+            bytes,
+        });
+    }
+    let cps = CertificationPathSettings::default();
+    source.initialize(&cps).unwrap();
+
+    assert_eq!(source.buffer_at(0).unwrap().bytes, der.to_vec());
+    assert_eq!(source.buffer_at(1).unwrap().bytes, garbage);
+    assert_eq!(source.buffer_at(1).unwrap().filename, "garbage");
+    assert!(
+        source.get_cert_at_index(1).is_none(),
+        "the parsed accessor has nothing for this position, which is why the buffer one exists"
+    );
+    assert!(source.buffer_at(2).is_none());
 }
 
 // The accessor hands back the stored graph itself, so a caller needing the storage shape neither
