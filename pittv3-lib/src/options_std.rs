@@ -380,7 +380,29 @@ pub fn assemble_for_diagnostics(
         &mut cert_source,
         cps.get_time_of_interest(),
     );
-    if added_cas.certs > 0 {
+
+    // The Windows stores, read as validation reads them: after the path-shaped inputs, because
+    // adopting a CBOR store's graph replaces the source wholesale, and including the writable
+    // store, so the pool described is the one a run would start from. Without this the anchor half
+    // of a CAPI selection was assembled (`load_trust_anchors` reads `capi_ta_stores`) and the
+    // intermediate half was not.
+    #[cfg(all(windows, feature = "capi"))]
+    let added_capi = {
+        let specs: Vec<String> = args
+            .capi_ca_stores
+            .iter()
+            .chain(args.capi_ca_store_rw.iter())
+            .cloned()
+            .collect();
+        load_capi_ca_stores(&specs, &mut cert_source).map_err(|msg| {
+            InspectError::Reported(format!("Failed to read CA certificates from CAPI: {msg}"))
+        })?
+    };
+    #[cfg(not(all(windows, feature = "capi")))]
+    let added_capi = 0;
+
+    let added_cas = added_cas.certs + added_capi;
+    if added_cas > 0 {
         if let Err(e) = cert_source.initialize(&cps) {
             error!("Failed to populate cert vector with: {e:?}");
         }
@@ -432,7 +454,7 @@ pub fn assemble_for_diagnostics(
     // pool.
     // Also when no store was named: a pool built entirely from folders carries no paths of its own,
     // so the only ones it will ever have are the ones found here.
-    if ta_store_added || added_cas.certs > 0 || args.cbor.is_none() {
+    if ta_store_added || added_cas > 0 || args.cbor.is_none() {
         cert_source.clear_paths();
         cert_source.find_all_partial_paths(&pe, &cps);
     }

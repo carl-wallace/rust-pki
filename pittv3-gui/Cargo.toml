@@ -50,7 +50,8 @@ log = "0.4.33"
 log4rs = "1.4.0"
 # common-controls-v6 is what lets a message dialog label its own buttons on Windows; without it
 # rfd falls back to OK/Cancel there, and a prompt whose answer is "Discard changes" would be left
-# asking the reader to agree with a statement. No effect on macOS or Linux.
+# asking the reader to agree with a statement. No effect on macOS or Linux. On Windows it needs the
+# application manifest that build.rs embeds, or the exe will not load (TaskDialogIndirect).
 rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 anyhow = "1.0.100"
 # Already in the tree through the desktop stack; named here to decode the window icon, which tao
