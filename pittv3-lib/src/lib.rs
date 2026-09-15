@@ -9,11 +9,15 @@ pub mod args;
 // Available in every build: it is the decode every entry point taking caller bytes has to do, and a
 // build that cannot do it is one where a PEM file fails in a way that looks like something else.
 pub mod der_or_pem;
+// Editing a store: what a reader marked for removal, and the new store that results. Ungated: the
+// marks are plain data and applying them is parsing and serializing, which every build can do --
+// and the browser, which has no std, is a frontend that edits.
+pub mod edit;
 #[cfg(feature = "std")]
 pub mod graph_cache;
+pub mod help;
 // What a store holds, as rows, and the text form of it. Ungated: a report is a projection of
 // material already loaded, so every build that can load a store can describe one.
-pub mod help;
 pub mod inspect;
 #[cfg(feature = "installroot")]
 pub mod installroot;

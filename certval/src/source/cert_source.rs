@@ -491,6 +491,19 @@ impl BuffersAndPaths {
         }
     }
 
+    /// Builds a pair from its parts.
+    ///
+    /// Crate-private, and the only way to make one with contents from outside this module:
+    /// `readonly` leaves the fields readable everywhere and writable here, which is what keeps the
+    /// indices in `partial_paths` meaningful as positions in `buffers`. A caller outside certval
+    /// assembles a store through a source, which maintains the pairing.
+    pub(crate) fn from_parts(buffers: Vec<CertFile>, partial_paths: PartialPaths) -> Self {
+        BuffersAndPaths {
+            buffers,
+            partial_paths,
+        }
+    }
+
     /// Consumes the instance, returning its buffers and its partial paths.
     ///
     /// The fields are readable from anywhere but writable only inside certval, and that also means

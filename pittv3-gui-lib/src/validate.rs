@@ -1096,7 +1096,6 @@ mod inspect_tests {
     fn a_target_is_answered_with_the_paths_that_reach_it() {
         let (report, notes) = inspected(&InspectRequest {
             paths_for_target: Some(("from_email_CA_59.der".to_string(), TARGET.to_vec())),
-            ..Default::default()
         });
         assert!(
             notes.iter().all(|n| n.class != "err"),
@@ -1122,7 +1121,6 @@ mod inspect_tests {
     fn a_target_that_is_not_a_certificate_is_named_rather_than_answered() {
         let (report, notes) = inspected(&InspectRequest {
             paths_for_target: Some(("junk.der".to_string(), b"not a certificate".to_vec())),
-            ..Default::default()
         });
         assert!(
             notes

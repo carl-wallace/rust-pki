@@ -328,14 +328,9 @@ pub struct Assembled {
 pub fn assemble_for_diagnostics(
     args: &Pittv3Args,
 ) -> core::result::Result<Assembled, InspectError> {
-    let cbor_file: &String = match &args.cbor {
-        Some(cbor) => cbor,
-        None => {
-            return Err(InspectError::Failed(
-                "--cbor is required when using a diagnostic command".to_string(),
-            ))
-        }
-    };
+    // No store is a legitimate thing to inspect: a folder of certificates is material, and asking
+    // what it holds is the same question asked of a smaller pool. A store is one way to supply the
+    // material, not a precondition for having any.
 
     let download_folder = match &args.download_folder {
         Some(download_folder) => download_folder.clone(),
@@ -347,20 +342,24 @@ pub fn assemble_for_diagnostics(
 
     let mut pe = PkiEnvironment::default();
 
-    let cbor = read_cbor(&args.cbor);
-    if cbor.is_empty() {
-        return Err(InspectError::Reported(format!(
-            "Failed to read CBOR data from the file located at {cbor_file}"
-        )));
-    }
-
-    let mut cert_source = match CertSource::new_from_cbor(cbor.as_slice()) {
-        Ok(cbor_data) => cbor_data,
-        Err(e) => {
-            return Err(InspectError::Failed(format!(
-                "failed to parse CBOR file at {cbor_file}: {e}"
-            )))
+    let mut cert_source = match &args.cbor {
+        Some(cbor_file) => {
+            let cbor = read_cbor(&args.cbor);
+            if cbor.is_empty() {
+                return Err(InspectError::Reported(format!(
+                    "Failed to read CBOR data from the file located at {cbor_file}"
+                )));
+            }
+            match CertSource::new_from_cbor(cbor.as_slice()) {
+                Ok(cbor_data) => cbor_data,
+                Err(e) => {
+                    return Err(InspectError::Failed(format!(
+                        "failed to parse CBOR file at {cbor_file}: {e}"
+                    )))
+                }
+            }
         }
+        None => CertSource::new(),
     };
     if let Err(e) = cert_source.initialize(&cps) {
         error!("Failed to populate cert vector with: {e:?}");
@@ -434,7 +433,9 @@ pub fn assemble_for_diagnostics(
     // Rediscovered when either half changed: the paths a store was serialized with describe the
     // material it was serialized from, and merging anchors or certificates makes it a different
     // pool.
-    if ta_store_added || added_cas.certs > 0 {
+    // Also when no store was named: a pool built entirely from folders carries no paths of its own,
+    // so the only ones it will ever have are the ones found here.
+    if ta_store_added || added_cas.certs > 0 || args.cbor.is_none() {
         cert_source.clear_paths();
         cert_source.find_all_partial_paths(&pe, &cps);
     }

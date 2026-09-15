@@ -21,6 +21,7 @@ use log4rs::encode::pattern::PatternEncoder;
 use rfd::AsyncFileDialog;
 
 use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
+use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes, Inspected};
 use pittv3_lib::options_std::inspect_args;
 // Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
@@ -1001,7 +1002,6 @@ fn UriCheckView() -> Element {
 enum View {
     Validate,
     Generate,
-    Cleanup,
     Inspect,
     CheckUris,
     Settings,
@@ -1024,7 +1024,6 @@ const VIEWS: &[(View, &str)] = &[
     (View::Settings, "Settings"),
     (View::CheckUris, "Check URIs"),
     (View::Generate, "Generate"),
-    (View::Cleanup, "Cleanup"),
     (View::Inspect, "Inspect"),
     (View::Help, "Help"),
 ];
@@ -1250,6 +1249,39 @@ async fn save_document(mut notes: Signal<Vec<ResultLine>>, suggested: String, bo
             text: format!("Failed to write {}: {e}", path.display()),
         }),
     }
+}
+
+/// Writes an edited store where the user says: a folder, and the two halves under the names they
+/// are read back by.
+///
+/// Prompted, and never writing back over what was opened unless that is the folder chosen. The
+/// pair is one artifact, so one prompt covers both.
+async fn save_store_files(mut notes: Signal<Vec<ResultLine>>, store: EditedStore) {
+    let Some(handle) = AsyncFileDialog::new()
+        .set_directory(dialog_dir(DialogPurpose::Save))
+        .pick_folder()
+        .await
+    else {
+        return;
+    };
+    let dir = handle.path().to_path_buf();
+    let ta = dir.join("ta.cbor");
+    let ca = dir.join("ca.cbor");
+
+    for (path, bytes) in [(&ta, &store.ta_cbor), (&ca, &store.ca_cbor)] {
+        if let Err(e) = std::fs::write(path, bytes) {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: format!("Failed to write {}: {e}", path.display()),
+            });
+            return;
+        }
+    }
+    remember_dialog_dir(DialogPurpose::Save, &dir);
+    notes.write().push(ResultLine {
+        class: "ok",
+        text: format!("Wrote {} to {}", store.summary(), dir.display()),
+    });
 }
 
 #[component]
@@ -1595,9 +1627,6 @@ pub(crate) fn App() -> Element {
     // the form knows; it is held here because the sidebar that navigates away from the form is here.
     let mut s_settings_dirty = use_signal(|| false);
     let s_crl_folder = use_signal(|| saved_or_default(sa.crl_folder.clone(), default_crl_folder));
-    let s_cleanup = use_signal(|| sa.cleanup);
-    let s_ta_cleanup = use_signal(|| sa.ta_cleanup);
-    let s_report_only = use_signal(|| sa.report_only);
     let s_list_partial_paths_for_target =
         use_signal(|| sa.list_partial_paths_for_target.clone().unwrap_or_default());
     let s_mozilla_csv = use_signal(|| sa.mozilla_csv.clone().unwrap_or_default());
@@ -1643,8 +1672,8 @@ pub(crate) fn App() -> Element {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
             // The Validate view's pools. Passed alongside the singular arguments rather than
-            // instead of them, because those still have rows on Generate, Cleanup and Inspect
-            // and are the same arguments; an input named twice is carried once, since `push`
+            // instead of them, because those still have rows on Generate and Inspect and are
+            // the same arguments; an input named twice is carried once, since `push`
             // deduplicates on both the anchor and the certificate side.
             ta_inputs: pool(s_ta_inputs),
             // Set by the store selector alone. As a checkbox this could be combined with any other
@@ -1697,9 +1726,11 @@ pub(crate) fn App() -> Element {
             keep_crl_entries_in_memory: false,
             crl_in_memory: s_crl_in_memory(),
             no_revocation_cache: !s_reuse_rev_cache(),
-            cleanup: s_cleanup(),
-            ta_cleanup: s_ta_cleanup(),
-            report_only: s_report_only(),
+            // Folder cleanup is a command line action; the GUI marks rows in the Inspect tables
+            // and writes a new store instead of pruning the folders it was given.
+            cleanup: false,
+            ta_cleanup: false,
+            report_only: false,
             // The listing switches are command line arguments this application no longer sets:
             // Inspect reports the whole store and the view selects within it, so there is nothing
             // here to turn on or off. The flags remain for the command line, which still has them.
@@ -1771,6 +1802,9 @@ pub(crate) fn App() -> Element {
     // and nothing else. Seeded from the shared value so the view opens on the time in play.
     let s_inspect_toi = use_signal(|| get_now_as_unix_epoch().to_string());
     let mut s_inspected = use_signal(|| None::<Inspected>);
+    // What is marked for removal. Cleared whenever a new report arrives, since a position means
+    // something else once a different store is under it.
+    let mut s_inspect_edits = use_signal(StagedEdits::default);
     let mut s_inspect_notes = use_signal(Vec::<ResultLine>::new);
     let mut s_inspect_running = use_signal(|| false);
 
@@ -1786,6 +1820,16 @@ pub(crate) fn App() -> Element {
                 args.time_of_interest = s_inspect_toi()
                     .parse::<u64>()
                     .unwrap_or_else(|_| get_now_as_unix_epoch());
+                // A named store and a named CBOR file compose rather than displacing each other.
+                // `current_args` fills the singular arguments from the store when there is one, so
+                // the files go in as inputs, where both loaders merge them -- and carry a store
+                // that names the same anchor once, since each pushes through a deduplicating path.
+                if let Some(path) = path_or_none(s_ta_cbor) {
+                    args.ta_inputs.push(path);
+                }
+                if let Some(path) = path_or_none(s_cbor) {
+                    args.ca_inputs.push(path);
+                }
                 args
             }
             Err(msg) => {
@@ -1800,6 +1844,7 @@ pub(crate) fn App() -> Element {
 
         match inspect_args(&args) {
             Ok(inspected) => {
+                s_inspect_edits.write().clear();
                 s_inspected.set(Some(inspected));
             }
             Err(e) => {
@@ -1815,6 +1860,59 @@ pub(crate) fn App() -> Element {
 
     // Certificates the reader asked for, written where this application already puts what a run
     // hands back. The lookup is the shared one; only the disposal is this frontend's.
+    let toggle_inspect_cert = move |index: usize| s_inspect_edits.write().toggle_cert(index);
+    let toggle_inspect_anchor = move |index: usize| s_inspect_edits.write().toggle_anchor(index);
+
+    // Applying the marks yields a new store rather than changing what was opened, so this asks
+    // where the two halves go. A folder rather than two prompts: the pair is one artifact and the
+    // names it is read back under are fixed.
+    let save_inspected_store = move |_| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let toi = s_inspect_toi()
+            .parse::<u64>()
+            .unwrap_or_else(|_| get_now_as_unix_epoch());
+        let written = apply_edits(inspected, &s_inspect_edits(), toi);
+        drop(held);
+
+        match written {
+            Ok(store) => {
+                spawn(async move {
+                    save_store_files(s_inspect_notes, store).await;
+                });
+            }
+            Err(msg) => {
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+            }
+        }
+    };
+
+    let mark_unusable = move |_| {
+        let held = s_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let candidates = cleanup_candidates(
+            inspected,
+            s_inspect_toi()
+                .parse::<u64>()
+                .unwrap_or_else(|_| get_now_as_unix_epoch()),
+        );
+        drop(held);
+        let mut edits = s_inspect_edits.write();
+        for index in candidates {
+            if !edits.cert_removed(index) {
+                edits.toggle_cert(index);
+            }
+        }
+    };
+    let clear_marks = move |_| s_inspect_edits.write().clear();
+
     let export_certificates = move |indices: Vec<usize>| {
         let held = s_inspected.read();
         let Some(inspected) = held.as_ref() else {
@@ -2617,62 +2715,6 @@ pub(crate) fn App() -> Element {
                             },
                         }
                     },
-                    View::Cleanup => rsx! {
-                        // One grid for the whole view. Each `.controls` is a separate CSS grid
-                        // that measures its own label column, so splitting the rows across three of
-                        // them left three columns of different widths and no two labels lining up.
-                        // The group box used to hide that; without it there is nothing to hide it.
-                        div { class: "controls",
-                            FolderRow { label: "CA Folder", name: "ca-folder", sig: s_ca_folder }
-                            FolderRow { label: "TA Folder", name: "ta-folder", sig: s_ta_folder }
-                            FolderRow { label: "Error Folder", name: "error-folder", sig: s_error_folder }
-                            TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
-                            // Labelled like every other row rather than floating in the grid's
-                            // first column, which is where an unlabelled field lands.
-                            div { class: "visible label-cell",
-                                label { "Actions: " }
-                            }
-                            // Report Only modifies the two actions rather than being one, so it
-                            // is unavailable while neither is chosen. Disabled rather than
-                            // hidden, and the signal is left alone: the choice comes back with
-                            // the control.
-                            div { class: "field check-group",
-                                CheckboxCell { label: "Cleanup", name: "cleanup", sig: s_cleanup }
-                                CheckboxCell { label: "TA Cleanup", name: "ta-cleanup", sig: s_ta_cleanup }
-                                CheckboxCell {
-                                    label: "Report Only",
-                                    name: "report-only",
-                                    sig: s_report_only,
-                                    disabled: !s_cleanup() && !s_ta_cleanup(),
-                                }
-                            }
-                        }
-                        // The only view that removes material, and it had nothing to say about
-                        // what it removes or what decides. The time of interest is named
-                        // because it is the criterion rather than a filter on the report: a
-                        // wrong value here does not produce a wrong answer to run again, it
-                        // moves certificates that were fine.
-                        p { class: "hint",
-                            if s_report_only() {
-                                "Lists the certificates a run could not use — unparseable, not valid at the time of interest, self-signed, or not a CA — without touching anything. The time of interest is what decides."
-                            } else if s_error_folder().is_empty() {
-                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. No Error Folder is set, so they are deleted rather than moved. The time of interest is what decides. Check Report Only to see what would go first."
-                            } else {
-                                "Removes the certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. They are moved to the Error Folder rather than deleted. The time of interest is what decides. Check Report Only to see what would go first."
-                            }
-                        }
-                        RunButton {
-                            running: s_running(),
-                            onrun: run_command,
-                            label: "Clean up the store",
-                            // Both actions off is a legal run that removes nothing, which reads as
-                            // "the folders were already clean" rather than as nothing being asked.
-                            nothing_to_do: match !s_cleanup() && !s_ta_cleanup() {
-                                true => "Choose Cleanup or TA Cleanup",
-                                false => "",
-                            },
-                        }
-                    },
                     View::Inspect => rsx! {
                         p { class: "hint",
                             "Reports what a store holds, without validating anything. Every certificate the store carries and every partial path over them is listed; select a row to see its detail and what it joins to."
@@ -2681,36 +2723,24 @@ pub(crate) fn App() -> Element {
                             StoreRow { sig: s_store, status: s_store_export }
                             StoreHint { selection: s_store() }
                             StoreStatusRow { status: s_store_export }
-                            if !stores::has_ca_store(s_store()) {
-                                FileRow {
-                                    label: "CA CBOR",
-                                    name: "cbor",
-                                    sig: s_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized PKI",
-                                    extensions: ["cbor", "pki"].as_slice(),
-                                }
+                            // Both halves always shown, as the browser shows them: they are the
+                            // other way to name a store, and hiding them until the selector is on
+                            // Custom leaves that arm to be discovered. A named store wins over
+                            // them -- `current_args` takes the selector's bytes first and falls
+                            // back to these.
+                            FileRow {
+                                label: "TA CBOR",
+                                name: "ta-cbor",
+                                sig: s_ta_cbor,
+                                filter_name: "PITTv3 CBOR-serialized trust anchor store",
+                                extensions: ["cbor", "pki", "ta"].as_slice(),
                             }
-                            PathRow {
-                                label: "TA Folder or File",
-                                name: "ta-folder",
-                                sig: s_ta_folder,
-                            }
-                            // The CA counterpart of the row above. Anchors named beside a store
-                            // have always been merged into it; certificates named beside one were
-                            // not, so the view composed half a store and refused the other half.
-                            PathRow {
-                                label: "CA Folder or File",
-                                name: "ca-folder",
-                                sig: s_ca_folder,
-                            }
-                            if s_store() == stores::CUSTOM {
-                                FileRow {
-                                    label: "TA CBOR",
-                                    name: "ta-cbor",
-                                    sig: s_ta_cbor,
-                                    filter_name: "PITTv3 CBOR-serialized trust anchor store",
-                                    extensions: ["cbor", "pki", "ta"].as_slice(),
-                                }
+                            FileRow {
+                                label: "CA CBOR",
+                                name: "cbor",
+                                sig: s_cbor,
+                                filter_name: "PITTv3 CBOR-serialized PKI",
+                                extensions: ["cbor", "pki"].as_slice(),
                             }
                             TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
                         }
@@ -2741,9 +2771,15 @@ pub(crate) fn App() -> Element {
                         if let Some(report) = s_inspected.read().as_ref().map(|i| i.report.clone()) {
                             InspectReportView {
                                 report,
+                                edits: s_inspect_edits(),
                                 on_export: export_inspected,
                                 on_export_certs: export_certificates,
                                 on_export_anchors: export_anchor_certificates,
+                                on_toggle_cert: toggle_inspect_cert,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_anchor: toggle_inspect_anchor,
+                                on_save: save_inspected_store,
                             }
                         }
                     },
@@ -2791,10 +2827,9 @@ pub(crate) fn App() -> Element {
                                     // Named as a group because the distinction is the point:
                                     // everything here is material this application fetched or
                                     // computed, so losing it costs a refetch or a rebuild. The
-                                    // Cleanup view acts on the CA and trust anchor folders, which
-                                    // the user assembled and which may not be recoverable -- which
-                                    // is why that view has an error folder and a dry run and these
-                                    // buttons do not.
+                                    // folders a user assembled are not pruned from here at all --
+                                    // Inspect marks rows and writes a new store, and `--cleanup`
+                                    // on the command line is what still prunes a folder in place.
                                     div { class: "visible label-cell",
                                         label { "Caches and downloads: " }
                                     }
@@ -3093,7 +3128,7 @@ pub(crate) fn App() -> Element {
                             }
                             if !s_running() && s_report().is_none() {
                                 p { class: "hint",
-                                    "No results yet: run something from Validate, Generate, Cleanup or Inspect."
+                                    "No results yet: run something from Validate or Generate."
                                 }
                             }
                             if !s_log().is_empty() {
@@ -3130,10 +3165,10 @@ pub(crate) fn App() -> Element {
                                         "A time of interest of 0 disables validity period checks."
                                     }
                                     li {
-                                        "Cleanup moves certificates to the error folder rather than "
-                                        "deleting them whenever one is named, which it is by "
-                                        "default. Report Only says what would go without touching "
-                                        "anything."
+                                        "The Remove unusable buttons above move certificates to the "
+                                        "error folder rather than deleting them whenever one is "
+                                        "named, which it is by default. To prune a store rather "
+                                        "than a folder, mark rows on Inspect and save a new one."
                                     }
                                     li {
                                         "Folders this application writes to live under ~/.pittv3, "

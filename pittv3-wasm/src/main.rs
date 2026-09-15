@@ -27,6 +27,7 @@ use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
+use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
@@ -364,7 +365,40 @@ fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Ve
     }
 }
 
-/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
+/// Hands an edited store to the browser: the two halves in one zip, under the names they are read
+/// back by.
+///
+/// A zip rather than two downloads because the pair is one artifact, and because a page cannot
+/// start two saves. What was opened is untouched either way -- this is bytes leaving, not a file
+/// being rewritten.
+fn deliver_store(mut notes: Signal<Vec<ResultLine>>, archive_name: String, store: EditedStore) {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+
+    let files = vec![
+        ("ta.cbor".to_string(), store.ta_cbor.clone()),
+        ("ca.cbor".to_string(), store.ca_cbor.clone()),
+    ];
+    match zip_files(&archive_name, &files) {
+        Ok(zipped) => {
+            let js = format!(
+                "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-store.zip\"; a.click();",
+                STANDARD.encode(&zipped)
+            );
+            let _ = dioxus::document::eval(&js);
+            notes.write().push(ResultLine {
+                class: "ok",
+                text: format!("Saved {}", store.summary()),
+            });
+        }
+        Err(e) => notes.write().push(ResultLine {
+            class: "err",
+            text: format!("Failed to build the archive: {e}"),
+        }),
+    }
+}
+
+/// Hands certificates to the browser as they are asked for/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
 ///
 /// A function rather than a closure because both export handlers need it, and a closure capturing
 /// the notes signal cannot be moved into both. Delivering at the moment of the click rather than
@@ -467,12 +501,19 @@ fn App() -> Element {
     // validation's results do. There is no switch per listing: an inspection describes the whole
     // store, and which part of it is on screen is a matter of what is selected below.
     let mut insp_target = use_signal(|| None::<(String, Vec<u8>)>);
+    // The store, when it comes from files rather than the selector. CBOR only: an inspection opens
+    // a store, and a folder of certificates is how one is built rather than something to inspect.
+    let mut insp_ta_cbor = use_signal(|| None::<(String, Vec<u8>)>);
+    let mut insp_ca_cbor = use_signal(|| None::<(String, Vec<u8>)>);
     // The time an inspection asks about. Its own value rather than the settings', because it
     // belongs to the operation: it decides which of the store's certificates are usable and
     // nothing else about a run. None means the moment the inspection is made.
     let mut insp_toi = use_signal(|| None::<u64>);
     // What the last inspection found, or None before the first one.
     let mut insp_inspected = use_signal(|| None::<Inspected>);
+    // What is marked for removal. Cleared whenever a new report arrives, since a position means
+    // something else once a different store is under it.
+    let mut insp_edits = use_signal(StagedEdits::default);
     let mut insp_notes = use_signal(Vec::<ResultLine>::new);
     let mut insp_running = use_signal(|| false);
 
@@ -997,6 +1038,50 @@ fn App() -> Element {
 
     // Certificates the reader asked for. The lookup is the shared one; offering them as a download
     // is this frontend's half.
+    let toggle_insp_cert = move |index: usize| insp_edits.write().toggle_cert(index);
+    let toggle_insp_anchor = move |index: usize| insp_edits.write().toggle_anchor(index);
+
+    // Applying the marks yields a new store rather than changing what was opened. Both halves go
+    // as one zip, because the pair is one artifact and a browser cannot start two downloads.
+    let save_insp_store = move |_| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let toi = insp_toi().unwrap_or_else(now_as_unix_epoch);
+        let written = apply_edits(inspected, &insp_edits(), toi);
+        drop(held);
+
+        match written {
+            Ok(store) => deliver_store(
+                insp_notes,
+                stamped_export_name(&export_name(), now_as_unix_epoch()),
+                store,
+            ),
+            Err(msg) => insp_notes.write().push(ResultLine {
+                class: "err",
+                text: msg,
+            }),
+        }
+    };
+
+    let mark_unusable = move |_| {
+        let held = insp_inspected.read();
+        let Some(inspected) = held.as_ref() else {
+            return;
+        };
+        let candidates =
+            cleanup_candidates(inspected, insp_toi().unwrap_or_else(now_as_unix_epoch));
+        drop(held);
+        let mut edits = insp_edits.write();
+        for index in candidates {
+            if !edits.cert_removed(index) {
+                edits.toggle_cert(index);
+            }
+        }
+    };
+    let clear_marks = move |_| insp_edits.write().clear();
+
     let export_certificates = move |indices: Vec<usize>| {
         let held = insp_inspected.read();
         let Some(inspected) = held.as_ref() else {
@@ -1284,6 +1369,11 @@ fn App() -> Element {
         let store = store_bytes
             .as_ref()
             .map(|(ta, ca)| (label.as_str(), ta.as_slice(), ca.as_slice()));
+        // A named store and a named CBOR file compose rather than displacing each other: the files
+        // go in as inputs, where `assemble` merges a `.cbor` store's anchors and certificates with
+        // whatever the selector supplied.
+        let file_tas: Vec<(String, Vec<u8>)> = insp_ta_cbor().into_iter().collect();
+        let file_cas: Vec<(String, Vec<u8>)> = insp_ca_cbor().into_iter().collect();
         // The only setting an inspection reads is the time of interest: parsing, indexing and path
         // discovery consult nothing else, and nothing is validated, so revocation, policy and name
         // constraint settings have no bearing. Built here rather than taken from the settings so an
@@ -1295,9 +1385,10 @@ fn App() -> Element {
             cps.set_time_of_interest(toi);
         }
 
-        match inspect(store, &uploaded_tas(), &uploaded_cas(), &cps, &request) {
+        match inspect(store, &file_tas, &file_cas, &cps, &request) {
             Ok((inspected, notes)) => {
                 insp_notes.set(notes);
+                insp_edits.write().clear();
                 insp_inspected.set(Some(inspected));
             }
             Err(fatal) => {
@@ -2412,7 +2503,47 @@ fn App() -> Element {
 
                         {store_controls.clone()}
 
-                        {uploads_panel.clone()}
+                        div { class: "controls",
+                            label { r#for: "insp-ta-cbor", "TA CBOR: " }
+                            input {
+                                id: "insp-ta-cbor",
+                                r#type: "file",
+                                accept: ".cbor,.pki,.ta",
+                                onchange: move |ev| async move {
+                                    insp_ta_cbor.set(read_files(&ev).await.into_iter().next());
+                                },
+                            }
+                            span { class: "hint",
+                                if let Some((name, _)) = insp_ta_cbor() {
+                                    "{name} loaded "
+                                } else {
+                                    "No trust anchor store loaded "
+                                }
+                                button { onclick: move |_| insp_ta_cbor.set(None), "Clear" }
+                            }
+                            label { r#for: "insp-ca-cbor", "CA CBOR: " }
+                            input {
+                                id: "insp-ca-cbor",
+                                r#type: "file",
+                                accept: ".cbor,.pki",
+                                onchange: move |ev| async move {
+                                    insp_ca_cbor.set(read_files(&ev).await.into_iter().next());
+                                },
+                            }
+                            span { class: "hint",
+                                if let Some((name, _)) = insp_ca_cbor() {
+                                    "{name} loaded "
+                                } else {
+                                    "No certificate store loaded "
+                                }
+                                button { onclick: move |_| insp_ca_cbor.set(None), "Clear" }
+                            }
+                            span { class: "hint",
+                                "Used when the selector names no store. An inspection opens a \
+                                 store; a folder of certificates is how one is built, which is \
+                                 Generate's errand."
+                            }
+                        }
 
                         div { class: "controls",
                             TimeOfInterestRow {
@@ -2470,9 +2601,15 @@ fn App() -> Element {
                         {
                             InspectReportView {
                                 report,
+                                edits: insp_edits(),
                                 on_export: export_inspected,
                                 on_export_certs: export_certificates,
                                 on_export_anchors: export_anchor_certificates,
+                                on_toggle_cert: toggle_insp_cert,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_anchor: toggle_insp_anchor,
+                                on_save: save_insp_store,
                             }
                         }
                     },

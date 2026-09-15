@@ -13,6 +13,7 @@
 use dioxus::prelude::*;
 
 use certval::{CertRow, PathRow};
+use pittv3_lib::edit::StagedEdits;
 use pittv3_lib::inspect::{
     anchors_as_csv, certs_as_csv, paths_as_csv, unix_secs_as_date, unusable_text, InspectReport,
 };
@@ -57,9 +58,21 @@ fn matches_cert(row: &CertRow, needle: &str) -> bool {
 #[component]
 pub fn InspectReportView(
     report: InspectReport,
+    /// What is marked for removal. Held by the frontend rather than here, because saving is the
+    /// frontend's errand and it needs the marks to do it.
+    edits: StagedEdits,
     on_export: EventHandler<(String, String)>,
     on_export_certs: EventHandler<Vec<usize>>,
     on_export_anchors: EventHandler<Vec<usize>>,
+    on_toggle_cert: EventHandler<usize>,
+    on_toggle_anchor: EventHandler<usize>,
+    /// Mark everything the cleanup rule names — unparseable, outside the time of interest,
+    /// self-signed, or not a CA.
+    on_mark_unusable: EventHandler<()>,
+    /// Discard every mark, leaving the store as it was read.
+    on_clear_marks: EventHandler<()>,
+    /// Write what is on screen, marks applied, as a new store.
+    on_save: EventHandler<()>,
 ) -> Element {
     let mut filter = use_signal(String::new);
     let mut cert_selected = use_signal(|| None::<usize>);
@@ -130,6 +143,10 @@ pub fn InspectReportView(
         None => report.paths.iter().collect(),
     };
 
+    // A path loses its meaning if any certificate in it goes, so marking one certificate shows what
+    // else would go with it -- before anything is written.
+    let doomed = |path: &PathRow| path.indices.iter().any(|i| edits.cert_removed(*i));
+
     // What the certificates button hands over: the rows the table is showing, which is what the
     // filter above them says the reader means.
     let shown_indices: Vec<usize> = certs.iter().map(|r| r.index).collect();
@@ -161,7 +178,33 @@ pub fn InspectReportView(
     };
 
     rsx! {
+        div { class: "inspect-report",
+
         p { class: "inspect-summary", "{report.summary()}" }
+
+        div { class: "button-row",
+            button {
+                onclick: move |_| on_save.call(()),
+                "Save as a new store"
+            }
+            // The rule the command line's cleanup applies, as a selection rather than a separate
+            // errand: it marks, and nothing is written until you say so, which is what report-only
+            // used to be for.
+            button {
+                onclick: move |_| on_mark_unusable.call(()),
+                "Mark what a cleanup would remove"
+            }
+            if !edits.is_empty() {
+                button {
+                    onclick: move |_| on_clear_marks.call(()),
+                    "Clear marks"
+                }
+            }
+            span { class: "hint",
+                "{edits.summary()}. Saving writes a new trust anchor store and certificate store; \
+                 what was opened is left alone."
+            }
+        }
 
         div { class: "controls",
             label { r#for: "insp-filter", "Narrow to: " }
@@ -184,7 +227,7 @@ pub fn InspectReportView(
                     }
                 }
                 for path in found.iter() {
-                    p { class: "path-row",
+                    p { class: if doomed(path) { "path-row removed" } else { "path-row" },
                         "{path.ta_subject} → {path.leaf_ca_subject} "
                         span { class: "hint", "{path.indices:?}" }
                     }
@@ -194,7 +237,7 @@ pub fn InspectReportView(
 
         details { class: "panel", open: true,
             summary { "All Certificates ({certs.len()})" }
-            div { class: "controls",
+            div { class: "button-row",
                 button { onclick: export_certs, "Export certificates summary" }
                 button {
                     onclick: move |_| on_export_certs.call(shown_indices.clone()),
@@ -205,6 +248,7 @@ pub fn InspectReportView(
                 table { class: "rows",
                     thead {
                         tr {
+                            th { "Edit" }
                             th { "Index" }
                             th { "Subject" }
                             th { "Issuer" }
@@ -215,7 +259,12 @@ pub fn InspectReportView(
                     tbody {
                         for row in certs.iter().take(ROW_CAP) {
                             tr {
-                                class: if cert_selected() == Some(row.index) { "selected" } else { "" },
+                                class: match (cert_selected() == Some(row.index), edits.cert_removed(row.index)) {
+                                    (true, true) => "selected removed",
+                                    (true, false) => "selected",
+                                    (false, true) => "removed",
+                                    (false, false) => "",
+                                },
                                 onclick: {
                                     let index = row.index;
                                     move |_| {
@@ -226,14 +275,29 @@ pub fn InspectReportView(
                                         });
                                     }
                                 },
-                                td { "{row.index}" }
+                                // First rather than last: it is the only thing in the row you act
+                                // on, and a wide store scrolls the far side of the table out of
+                                // view.
                                 td {
+                                    button {
+                                        onclick: {
+                                            let index = row.index;
+                                            move |ev: Event<MouseData>| {
+                                                ev.stop_propagation();
+                                                on_toggle_cert.call(index);
+                                            }
+                                        },
+                                        if edits.cert_removed(row.index) { "Restore" } else { "Remove" }
+                                    }
+                                }
+                                td { "{row.index}" }
+                                td { class: "name",
                                     match row.detail() {
                                         Some(d) => d.subject.clone(),
                                         None => row.filename.clone(),
                                     }
                                 }
-                                td {
+                                td { class: "name",
                                     match row.detail() {
                                         Some(d) => d.issuer.clone(),
                                         None => String::new(),
@@ -303,7 +367,7 @@ pub fn InspectReportView(
                 } else {
                     p { "{unusable_text(row)}" }
                 }
-                div { class: "controls",
+                div { class: "button-row",
                     button {
                         onclick: {
                             let index = row.index;
@@ -317,7 +381,7 @@ pub fn InspectReportView(
                     p { class: "hint", "None." }
                 }
                 for path in report.paths.iter().filter(|p| p.indices.contains(&row.index)) {
-                    p { class: "path-row",
+                    p { class: if doomed(path) { "path-row removed" } else { "path-row" },
                         "{path.ta_subject} → {path.leaf_ca_subject} "
                         span { class: "hint", "{path.indices:?}" }
                     }
@@ -337,7 +401,7 @@ pub fn InspectReportView(
                      for each certification."
                 }
             }
-            div { class: "controls",
+            div { class: "button-row",
                 button { onclick: export_paths, "Export partial paths summary" }
             }
             div { class: "table-scroll",
@@ -364,7 +428,7 @@ pub fn InspectReportView(
                                         });
                                     }
                                 },
-                                td { "{subject}" }
+                                td { class: "name", "{subject}" }
                                 td { class: "mono", "{skid}" }
                                 td { "{indices.len()}" }
                                 td { "{count}" }
@@ -398,7 +462,7 @@ pub fn InspectReportView(
                         }
                     }
                 }
-                div { class: "controls",
+                div { class: "button-row",
                     button {
                         onclick: {
                             let carrying: Vec<usize> = report
@@ -415,7 +479,10 @@ pub fn InspectReportView(
                 h3 { "Partial paths to this CA ({shown_paths.len()})" }
                 for path in shown_paths.iter() {
                     div { class: "path-detail",
-                        p { class: "path-row", "From {path.ta_subject}, {path.len()} certificate(s)" }
+                        p {
+                            class: if doomed(path) { "path-row removed" } else { "path-row" },
+                            "From {path.ta_subject}, {path.len()} certificate(s)"
+                        }
                         ol {
                             for i in path.indices.iter() {
                                 li {
@@ -434,7 +501,7 @@ pub fn InspectReportView(
 
         details { class: "panel",
             summary { "Trust Anchors ({report.anchors.len()})" }
-            div { class: "controls",
+            div { class: "button-row",
                 button { onclick: export_anchors, "Export trust anchors summary" }
                 button {
                     onclick: move |_| on_export_anchors.call(anchor_indices.clone()),
@@ -445,6 +512,7 @@ pub fn InspectReportView(
                 table { class: "rows",
                     thead {
                         tr {
+                            th { "Edit" }
                             th { "Index" }
                             th { "Subject" }
                             th { "Key identifier" }
@@ -454,6 +522,16 @@ pub fn InspectReportView(
                     tbody {
                         for anchor in report.anchors.iter() {
                             tr {
+                                class: if edits.anchor_removed(anchor.index) { "removed" } else { "" },
+                                td {
+                                    button {
+                                        onclick: {
+                                            let index = anchor.index;
+                                            move |_| on_toggle_anchor.call(index)
+                                        },
+                                        if edits.anchor_removed(anchor.index) { "Restore" } else { "Remove" }
+                                    }
+                                }
                                 td { "{anchor.index}" }
                                 td {
                                     match &anchor.subject {
@@ -468,6 +546,7 @@ pub fn InspectReportView(
                     }
                 }
             }
+        }
         }
     }
 }
