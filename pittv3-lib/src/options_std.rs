@@ -605,6 +605,8 @@ async fn options_std_inner(
         || args.list_aia_and_sia
         || args.list_name_constraints
     {
+        // `pe` and `cps` carry the fetch below, which only a build with `remote` performs.
+        #[cfg_attr(not(feature = "remote"), allow(unused_variables))]
         let Assembled {
             pe,
             cps,

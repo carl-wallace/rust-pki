@@ -142,7 +142,8 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
     pe.populate_5280_pki_environment();
     // `dynamic_build` is what decides whether a build grows the graph, here as on the command
     // line: `options_std` turns retrieval off when it is absent, and this is the same rule stated
-    // the other way round.
+    // the other way round. The argument exists only where retrieval does.
+    #[cfg(feature = "remote")]
     cps.set_retrieve_from_aia_sia_http(args.dynamic_build);
     #[cfg(feature = "remote")]
     if let Some(download_folder) = &args.download_folder {

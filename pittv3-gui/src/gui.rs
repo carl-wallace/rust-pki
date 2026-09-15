@@ -26,9 +26,6 @@ use pittv3_lib::edit::{
 };
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes, Inspected};
 use pittv3_lib::options_std::inspect_args;
-// Only the platforms with a separate file dialog have a list to feed; see CERT_EXTENSIONS.
-#[cfg(not(target_os = "macos"))]
-use pittv3_lib::der_or_pem::TA_BUNDLE_EXTENSIONS;
 
 use std::sync::Mutex;
 
@@ -776,13 +773,6 @@ fn PoolRow(
         }
     };
 }
-
-/// Extensions offered when picking a certificate file as a trust anchor or CA input. Both fan a
-/// file out into every certificate it holds, so this is the bundle list. Only the platforms that
-/// need a separate file dialog filter by extension; the combined macOS dialog does not, since a
-/// folder has no extension to match.
-#[cfg(not(target_os = "macos"))]
-const CERT_EXTENSIONS: &[&str] = TA_BUNDLE_EXTENSIONS;
 
 /// Extensions suggested for the trust anchor and CA pools: the bundle list plus the CBOR stores
 /// this app itself exports, which those pools read as readily as they read a certificate.
