@@ -55,6 +55,7 @@ use crate::{
     pdv_extension::*,
     pdv_trust_anchor::get_trust_anchor_name,
     source::cert_source::CertFile,
+    source::rows::TaRow,
     util::error::*,
     util::pdv_utilities::{get_leaf_rdn, name_to_string},
     BuffersAndPaths, CertVector, PDVCertificate, PDVTrustAnchorChoice,
@@ -333,16 +334,31 @@ impl TaSource {
     /// Logs every trust anchor the instance holds -- index, key identifier, subject and the name it
     /// was read under -- through `log` at info level.
     pub fn log_tas(&self) {
-        for (i, ta) in self.tas.iter().enumerate() {
-            let hex_skid = hex_skid_from_ta(ta);
-            let ta_filename = get_filename_from_ta_metadata(ta);
-            if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
-                let sub = get_leaf_rdn(name);
-                info!("Index: {i:3}; SKID: {hex_skid}; Subject: {sub}; Filename: {ta_filename}");
-            } else {
-                info!("Index: {i:3}; SKID: {hex_skid}; Subject: No Name; Filename: {ta_filename}");
-            }
+        for row in self.ta_rows() {
+            info!("{}", row.log_line());
         }
+    }
+
+    /// Returns one [`TaRow`] per anchor the instance holds.
+    ///
+    /// Its `index` is a position in this list, which is a different space from the certificate
+    /// pool's even though both listings print the word `Index`. A caller showing the two together
+    /// is the one that has to say which is which.
+    pub fn ta_rows(&self) -> Vec<TaRow> {
+        let mut rows = Vec::with_capacity(self.tas.len());
+        for (index, ta) in self.tas.iter().enumerate() {
+            let subject = match get_trust_anchor_name(&ta.decoded_ta) {
+                Ok(name) => Some(get_leaf_rdn(name)),
+                Err(_) => None,
+            };
+            rows.push(TaRow {
+                index,
+                skid: hex_skid_from_ta(ta),
+                subject,
+                filename: get_filename_from_ta_metadata(ta),
+            });
+        }
+        rows
     }
 }
 
@@ -569,6 +585,43 @@ fn get_trust_anchor_test() {
 fn new_from_webpki_converts_all_roots() {
     let src = TaSource::new_from_webpki().unwrap();
     assert_eq!(src.buffers.len(), webpki_roots::TLS_SERVER_ROOTS.len());
+}
+
+// The anchor rows and the anchor listing walk the same vector, so the rows account for every
+// anchor the source holds and each renders the line the listing prints for it.
+#[cfg(feature = "std")]
+#[test]
+fn ta_rows_describe_every_anchor() {
+    use crate::{ta_folder_to_vec, PkiEnvironment};
+    let mut ta_store = TaSource::new();
+    let ta_store_folder = format!(
+        "{}{}",
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/examples/ta_store_with_bad"
+    );
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    ta_folder_to_vec(
+        &pe,
+        &ta_store_folder,
+        &mut ta_store,
+        crate::TimeOfInterest::disabled(),
+    )
+    .unwrap();
+    ta_store.initialize().unwrap();
+
+    let rows = ta_store.ta_rows();
+    assert_eq!(rows.len(), ta_store.len());
+    assert!(!rows.is_empty());
+
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(row.index, i);
+        assert!(!row.skid.is_empty());
+        // The index is padded to three columns, which is what tells this listing's lines from the
+        // certificate listing's when both are read out of one log.
+        assert!(row.log_line().starts_with(&format!("Index: {i:3}; SKID: ")));
+    }
 }
 
 // Malformed CBOR must be reported as an error rather than panicking, matching

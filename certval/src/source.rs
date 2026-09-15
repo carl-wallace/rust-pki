@@ -3,6 +3,10 @@
 pub mod cert_source;
 pub mod ta_source;
 
+// Row views over the two sources above. Ungated and free of I/O: a row is a projection of state
+// already held, so every build that can hold a source can present one.
+pub mod rows;
+
 // Adapters that read Microsoft CryptoAPI system stores into the two sources above. Gated on the
 // target as well as the feature so that enabling `capi` in a workspace that also builds for other
 // platforms is not an error there -- it simply contributes nothing.
@@ -25,7 +29,7 @@ pub mod revocation_cache;
 // would withhold it from them. A consumer taking certval with default features off still gets it.
 pub mod memory_crl_source;
 
-pub use crate::{source::cert_source::*, source::ta_source::*};
+pub use crate::{source::cert_source::*, source::rows::*, source::ta_source::*};
 
 #[cfg(all(windows, feature = "capi"))]
 pub use crate::source::capi_source::*;
