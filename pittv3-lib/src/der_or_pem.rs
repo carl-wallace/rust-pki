@@ -143,7 +143,11 @@ mod tests {
         slop.push(b'\n');
         assert_eq!(slop.len(), der.len() + 1);
 
-        assert_eq!(maybe_pem(&slop).unwrap(), der, "maybe_pem trims the newline");
+        assert_eq!(
+            maybe_pem(&slop).unwrap(),
+            der,
+            "maybe_pem trims the newline"
+        );
         assert_eq!(
             certs_in(&slop).unwrap(),
             vec![der.clone()],
