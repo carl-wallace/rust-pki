@@ -16,8 +16,8 @@
 //! DER-only parse be the first thing a file meets, the expansion of a container included.
 
 use certval::{
-    certs_from_signed_data, decode_bare_base64, decode_pem_to_der, decode_pem_to_ders, Error,
-    Result,
+    certs_from_signed_data, decode_bare_base64, decode_pem_to_der, decode_pem_to_ders,
+    trim_to_outer_der_sequence, Error, Result,
 };
 
 // Re-exported so a caller has one place for both halves of "what is a certificate file": which
@@ -35,7 +35,12 @@ pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTE
 /// three.
 pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
     if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA2) {
-        return Ok(bytes.to_vec());
+        // Trimmed, not handed back as read. A file holding a certificate followed by a newline is
+        // DER plus slop, and every parse downstream refuses the whole buffer with `TrailingData`.
+        // The desktop never saw it because it reads files through certval's `decode_pem_to_der`,
+        // which trims on the way out; recognizing DER by its leading tag here skipped that. The
+        // `0xA2` case is left alone by the trim, which only acts on a SEQUENCE.
+        return Ok(trim_to_outer_der_sequence(bytes.to_vec()));
     }
     // Tolerate non-standard PEM: decode_pem_to_der accepts wrapping widths other than 64. Armor
     // is tested here (0x2D = '-') rather than delegated, since that decoder returns unknown bytes
@@ -43,7 +48,11 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
     if bytes.first() == Some(&0x2D) {
         return decode_pem_to_der(bytes);
     }
-    decode_bare_base64(bytes).ok_or(Error::Unrecognized)
+    // Trimmed for the same reason as the DER branch: base64 encodes whatever the file held,
+    // trailing bytes included, so decoding it does not make them go away.
+    decode_bare_base64(bytes)
+        .map(trim_to_outer_der_sequence)
+        .ok_or(Error::Unrecognized)
 }
 
 /// Returns every certificate a caller's buffer carries, in DER, whatever container it arrived in.
@@ -64,6 +73,12 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
 /// the more forgiving decoder, which matters because some DoD and FPKI tools wrap base64 at a width
 /// strict RFC 7468 rejects.
 pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    // Trimmed before anything reads it, rather than in the bare-DER branch below, because the
+    // container check comes first and parses strictly: a `.p7c` with a trailing newline would fail
+    // it, fall through, and be handed back whole as though the message were a certificate. That is
+    // the quiet failure this function exists to prevent, arriving by a different route.
+    let trimmed = trim_to_outer_der_sequence(bytes.to_vec());
+    let bytes = trimmed.as_slice();
     if let Some(certs) = certs_from_signed_data(bytes) {
         return Ok(certs);
     }
@@ -112,6 +127,59 @@ mod tests {
             "DER passes through unchanged"
         );
         assert_eq!(maybe_pem(&pem).unwrap(), der, "PEM decodes to the same DER");
+    }
+
+    /// A certificate followed by a newline is still that certificate.
+    ///
+    /// Found 2026-09-15 on a DoD OM ID CA-80 end entity certificate whose file carried one trailing
+    /// `0x0A`: the browser refused it while the desktop took it, because the desktop reads files
+    /// through certval's `decode_pem_to_der`, which trims, and the browser reaches these functions
+    /// with bytes that had only their leading tag checked. The extra byte is not cosmetic --
+    /// `Certificate::from_der` rejects the entire buffer with `TrailingData`.
+    #[test]
+    fn a_trailing_newline_does_not_make_a_certificate_unreadable() {
+        let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
+        let mut slop = der.clone();
+        slop.push(b'\n');
+        assert_eq!(slop.len(), der.len() + 1);
+
+        assert_eq!(
+            maybe_pem(&slop).unwrap(),
+            der,
+            "maybe_pem trims the newline"
+        );
+        assert_eq!(
+            certs_in(&slop).unwrap(),
+            vec![der.clone()],
+            "certs_in trims the newline"
+        );
+
+        // The same file base64-encoded with the byte inside the encoding, which is how it arrives
+        // when a tool re-wraps a file it read whole.
+        let b64 = base64ct::Base64::encode_string(&slop);
+        assert_eq!(
+            maybe_pem(b64.as_bytes()).unwrap(),
+            der,
+            "a bare-base64 file carrying the same slop reduces to the same DER"
+        );
+    }
+
+    /// A container with trailing bytes is still a container, not a certificate.
+    ///
+    /// The failure this guards is quieter than an outright refusal: `certs_from_signed_data` parses
+    /// strictly, so an untrimmed `.p7c` fails that check, falls through to the bare-DER branch, and
+    /// is handed back whole -- six certificates arriving as one object that is not a certificate.
+    #[test]
+    fn a_trailing_newline_does_not_turn_a_container_into_a_certificate() {
+        let p7c = include_bytes!("../../certval/tests/examples/caCertsIssuedTofbcag4.p7c");
+        let mut slop = p7c.to_vec();
+        slop.push(b'\n');
+        assert_eq!(
+            certs_in(&slop).unwrap(),
+            certs_in(p7c).unwrap(),
+            "the container still expands to its six certificates"
+        );
+        assert_eq!(6, certs_in(&slop).unwrap().len());
     }
 
     /// The reason `certs_in` exists rather than callers using `maybe_pem`: a `.p7c` passes

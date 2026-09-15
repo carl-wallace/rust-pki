@@ -1222,7 +1222,13 @@ pub fn decode_pem_to_ders(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
 /// Truncates `der` to the encoded length of its outer DER SEQUENCE when the buffer carries spurious
 /// trailing bytes. Returns `der` unchanged when it does not begin with a definite-length SEQUENCE or
 /// the encoded length is not shorter than the buffer, so conforming DER is never altered.
-pub(crate) fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
+///
+/// Public because a caller holding bytes rather than a path needs the same treatment a file gets:
+/// [`decode_pem_to_der`] applies this on the way out, so anything that recognizes DER by its leading
+/// tag and skips that decoder skips this too. A certificate followed by a newline is the common
+/// case, and it is fatal rather than cosmetic — `Certificate::from_der` refuses the whole buffer
+/// with `TrailingData` rather than ignoring the extra byte.
+pub fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
     // 0x30 = universal, constructed, SEQUENCE — the outer tag of a cert, CRL, or TrustAnchorChoice.
     if der.first() != Some(&0x30) || der.len() < 2 {
         return der;

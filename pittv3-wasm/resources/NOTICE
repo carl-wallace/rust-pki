@@ -71,6 +71,21 @@ crate generates them from the DoD InstallRoot stream it carries, so the set is
 what the department publishes rather than what someone collected.
 
 
+dod_nipr_om_ta.cbor, dod_nipr_om_ca.cbor — U.S. DoD PKI (JITC)
+---------------------------------------------------------------
+
+Generated from certval_stores_nipr (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: the four operational-test DoD
+roots (DoD JITC Root CA 3, 4, 5 and 6) and the 53 intermediate CAs beneath
+them, with one partial path each. The department calls this environment JITC
+and the provider crate names it OM_NIPR; they are the same environment, and
+the intermediate set carries CAs spelled both ways. The certificates are
+public artifacts of the U.S. Department of Defense PKI and are the works of
+the CAs that issued them, generated from the DoD InstallRoot stream that crate
+carries. Test material: a path validating against these anchors says nothing
+about a production certificate.
+
+
 dod_eca_ta.cbor, dod_eca_ca.cbor — U.S. DoD ECA program
 ---------------------------------------------------------
 
