@@ -1013,8 +1013,8 @@ async fn generate_and_validate(
         cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
     }
 
-    // Keyed here, on the settings as read, because what follows adjusts them for the run — turning
-    // off AIA/SIA retrieval, and anchor validity for webpki anchors — and a caller outside a run
+    // Keyed here, on the settings as read, because what follows adjusts them for the run — setting
+    // AIA/SIA retrieval from the dynamic-build flag, and anchor validity for webpki anchors — and a caller outside a run
     // has no way to reproduce those adjustments. Both are covered by the key anyway: chasing runs
     // are not cached at all, and webpki_tas is hashed in its own right.
     //
@@ -1022,10 +1022,11 @@ async fn generate_and_validate(
     // the same graph, so a run that finds neither files both under the same name.
     let graph_fingerprint = graph_cache::saved_graph_fingerprint(args, &cps);
 
+    // `dynamic_build` is the control and this setting follows it in both directions, so the two
+    // cannot disagree: the flag decides whether a run retrieves, and the setting carries that
+    // decision to everything downstream that reads it. Same assignment `edit.rs` makes.
     #[cfg(feature = "remote")]
-    if !args.dynamic_build {
-        cps.set_retrieve_from_aia_sia_http(false);
-    }
+    cps.set_retrieve_from_aia_sia_http(args.dynamic_build);
 
     let mut pe = PkiEnvironment::default();
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));

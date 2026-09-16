@@ -49,9 +49,9 @@ use pittv3_gui_lib::gui_utils::{
     ChannelAppender, DialogPurpose,
 };
 use pittv3_gui_lib::settings_store::{
-    default_ca_folder, default_crl_folder, default_download_folder, default_error_folder,
-    default_log_config_path, default_log_file, default_settings_path, expand_tilde,
-    saved_or_default,
+    common_settings, default_ca_folder, default_crl_folder, default_download_folder,
+    default_error_folder, default_log_config_path, default_log_file, default_settings_path,
+    expand_tilde, save_common_settings, saved_or_default, CommonSettings,
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
@@ -303,6 +303,77 @@ async fn confirm_delete_settings(path: &str) -> bool {
         .show()
         .await
         == rfd::MessageDialogResult::Yes
+}
+
+/// Writes the Validate view's settings-backed controls through to the settings file.
+///
+/// Those controls edit certification path settings, not arguments, so the file is where their value
+/// belongs — a run reads the file, and a run is the only reader that matters. Writing it here is
+/// what keeps the box on Validate and the row on the settings form as one value instead of two that
+/// have to be kept in step.
+///
+/// Called when leaving the view and when starting a run rather than on every click: the settings
+/// form owns the file and has its own save protocol, so a write while it holds unsaved edits would
+/// take edits it has not seen. `dirty` is that protocol's answer, and the write is skipped when it
+/// is true. `reload_token` asks the form to re-read what was just written, so a change made here is
+/// on screen when the user arrives there.
+///
+/// The settings the file already holds and this does not name survive: [`save_common_settings`]
+/// reads before it writes, and reports whether anything changed so an unchanged view does not ask
+/// the form to re-read.
+fn commit_cps_edits(
+    settings_path: String,
+    dirty: bool,
+    edited: CommonSettings,
+    mut reload_token: Signal<usize>,
+) {
+    if dirty || settings_path.is_empty() {
+        return;
+    }
+    match save_common_settings(&settings_path, edited) {
+        Ok(true) => reload_token += 1,
+        Ok(false) => {}
+        Err(e) => error!("Failed to save settings from the Validate view: {e}"),
+    }
+}
+
+/// Reads the Common Settings rows back from the settings file.
+///
+/// The other half of [`commit_cps_edits`]: the settings form owns the file and writes it on its own
+/// Save, so the rows on Validate have to re-read rather than keep what they were seeded with at
+/// mount. Called on arriving at the view, which is the moment before those values are looked at.
+fn reseed_common_settings(
+    settings_path: String,
+    mut retrieve_from_aia_sia_http: Signal<bool>,
+    mut chase_seed: Signal<bool>,
+    mut time_of_interest: Signal<String>,
+) {
+    if settings_path.is_empty() {
+        return;
+    }
+    let current = common_settings(&settings_path);
+    // Only when the file names it: an absent setting leaves the box as it is rather than replacing
+    // a choice made on this view with certval's default.
+    if let Some(retrieve) = current.retrieve_from_aia_sia_http {
+        retrieve_from_aia_sia_http.set(retrieve);
+        chase_seed.set(retrieve);
+    }
+    time_of_interest.set(match current.time_of_interest {
+        Some(secs) => secs.to_string(),
+        None => String::new(),
+    });
+}
+
+/// The time of interest to commit, or `None` when the row is blank.
+///
+/// Blank is how the row says *now*, which is not a value to store: writing it would turn "whenever
+/// this was read" into a fixed instant that every later run, the command line included, would then
+/// judge against.
+fn edited_toi(current: &str) -> Option<u64> {
+    match current.trim().is_empty() {
+        true => None,
+        false => current.trim().parse().ok(),
+    }
 }
 
 /// Whether it is all right to do something that discards the settings form's edits: either there
@@ -1433,7 +1504,29 @@ pub(crate) fn App() -> Element {
     // The same, for the graph export in the Advanced group
     let mut s_graph_export = use_signal(String::new);
     let s_ta_cbor = use_signal(|| saved_or_empty(&sa.ta_cbor));
-    let s_time_of_interest = use_signal(|| get_now_as_unix_epoch().to_string());
+    // The Common Settings rows are certification path settings, so the settings file is where their
+    // value lives: each row and its counterpart on the settings form are two renderings of one
+    // setting rather than two stores to keep in step. Read once at mount, written back by
+    // `commit_cps_edits`. The path is resolved the same way `s_settings` resolves it, below.
+    //
+    // Time of interest is seeded from the file only when the file names it. certval's default for
+    // that setting under `std` is *now*, a different answer every time it is asked, so taking the
+    // default here and writing it back would pin the time of interest to whenever the application
+    // happened to start -- and every later run, the command line included, would judge against it.
+    let seeded = use_hook(|| {
+        common_settings(&saved_or_default(
+            sa.settings.clone(),
+            default_settings_path,
+        ))
+    });
+    // Blank when the file names no time of interest, and blank means *now* -- resolved when a run
+    // starts rather than when the window opened. Prefilling it with the current instant made every
+    // run judge against whenever the application had been launched, which is a past "now" that
+    // drifts further off the longer the window stays open.
+    let s_time_of_interest = use_signal(|| match seeded.time_of_interest {
+        Some(secs) => secs.to_string(),
+        None => String::new(),
+    });
 
     // What those pools hold, kept current beside them. Recounted whenever a pool changes and
     // whenever the time of interest does, because loading drops material not valid at that time and
@@ -1535,7 +1628,17 @@ pub(crate) fn App() -> Element {
         rev_cache_for_toggle.clear();
     });
     let s_validate_self_signed = use_signal(|| sa.validate_self_signed);
-    let s_dynamic_build = use_signal(|| sa.dynamic_build);
+    // certval's default for the setting when the file does not name it, which is what the settings
+    // form shows for the same absent key -- two renderings of one value have to agree even when
+    // there is no value. The saved arguments carry a `dynamic_build` too, but it is the last value
+    // a run used rather than a preference, and this view no longer sets that argument.
+    let s_dynamic_build = use_signal(|| seeded.retrieve_from_aia_sia_http.unwrap_or(true));
+    // What the box opened with, so a value the user never touched is left out of the settings file
+    // rather than written as though it had been chosen. A checkbox has no blank to say that with,
+    // which is why this exists and the time of interest row needs no counterpart.
+    let s_chase_seed = use_signal(|| seeded.retrieve_from_aia_sia_http.unwrap_or(true));
+    // What the time of interest row opened with, so a value the user never touched is left out of
+    // the file entirely rather than written as though it had been chosen.
     // No control: the run always builds from what earlier runs downloaded. The toggle that used to
     // sit here was really "I do not trust what has piled up in that folder", and the Cleanup and
     // Purge buttons answer that directly -- the folder gets fixed instead of routed around. The CLI
@@ -1935,6 +2038,18 @@ pub(crate) fn App() -> Element {
             if s_running() {
                 return;
             }
+            // The run is the other moment the view's settings-backed controls become the answer, so
+            // the file records what this run was asked to do rather than only the arguments doing.
+            commit_cps_edits(
+                s_settings(),
+                s_settings_dirty(),
+                CommonSettings {
+                    retrieve_from_aia_sia_http: (s_dynamic_build() != s_chase_seed())
+                        .then_some(s_dynamic_build()),
+                    time_of_interest: edited_toi(&s_time_of_interest()),
+                },
+                s_settings_gen,
+            );
             let args = match current_args() {
                 Ok(args) => args,
                 Err(msg) => {
@@ -2270,6 +2385,31 @@ pub(crate) fn App() -> Element {
             // again while already there is not a departure and must not prompt.
             on_select: move |i: usize| {
                 let to = VIEWS[i].0;
+                // Arriving at the view, so the rows show what the settings form last saved rather
+                // than what they were seeded with at mount. The counterpart of the commit below:
+                // the file is the value, and this view holds a rendering of it.
+                if to == View::Validate && s_view() != View::Validate {
+                    reseed_common_settings(
+                        s_settings(),
+                        s_dynamic_build,
+                        s_chase_seed,
+                        s_time_of_interest,
+                    );
+                }
+                // Before the move, so the settings form re-reads a file that already holds what
+                // Validate was showing rather than arriving with the old value on screen.
+                if s_view() == View::Validate && to != View::Validate {
+                    commit_cps_edits(
+                        s_settings(),
+                        s_settings_dirty(),
+                        CommonSettings {
+                            retrieve_from_aia_sia_http: (s_dynamic_build() != s_chase_seed())
+                                .then_some(s_dynamic_build()),
+                            time_of_interest: edited_toi(&s_time_of_interest()),
+                        },
+                        s_settings_gen,
+                    );
+                }
                 let leaving_dirty =
                     s_view() == View::Settings && to != View::Settings && s_settings_dirty();
                 match leaving_dirty {
@@ -2451,12 +2591,40 @@ pub(crate) fn App() -> Element {
                                         }
                                     }
                                 }
-                                // Time of interest is not here: it is a certification path setting,
-                                // the settings form already edits it, and `options_std` honors the
-                                // setting over the argument -- so a field here would have been the
-                                // one that loses. The download and CA folders are likewise already
-                                // rows on the settings form's Folders tab, and a run now reads them
-                                // from there when the arguments do not carry them.
+                                // Settings that change from one run to the next, put where they are
+                                // used. Boxed away from the switches below because these two are
+                                // certification path settings rather than arguments: the rows here
+                                // and the rows on the settings form edit one value, and
+                                // `commit_cps_edits` writes it to the settings file on leaving this
+                                // view and on running. That is what lets a time of interest sit
+                                // here at all -- `options_std` honors the setting over the
+                                // argument, so a field backed by the argument would have been the
+                                // one that loses.
+                                //
+                                // The download and CA folders are not here: they are already rows
+                                // on the settings form's Folders tab, and a run reads them from
+                                // there when the arguments do not carry them.
+                                fieldset {
+                                    legend { "Common Settings" }
+                                    div { class: "controls",
+                                        CheckboxRow {
+                                            // Named for the mechanism, which is what the log and the
+                                            // settings form both call it; "dynamic build" is the
+                                            // same capability seen from the other end, and the gloss
+                                            // goes when the argument is renamed to match certval.
+                                            label: "Chase SIA/AIA (i.e., dynamic build)",
+                                            name: "dynamic-build",
+                                            sig: s_dynamic_build,
+                                            title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view. This is the same setting as Retrieve from HTTP AIA and SIA on the Settings view.",
+                                        }
+                                        TimeRow {
+                                            label: "Time of Interest",
+                                            name: "time-of-interest",
+                                            sig: s_time_of_interest,
+                                            title: "The instant every certificate and revocation artifact is judged against. Blank means run time, resolved when the run starts, and Now clears the box to get back to it. Pin an instant with the picker or by typing an epoch; a time pinned here is the same setting as Time of Interest on the Settings view and is written there, while blank leaves that setting unset.",
+                                        }
+                                    }
+                                }
                                 // One grid, not three: `max-content` is measured per grid, so a
                                 // checkbox in a grid of its own lands at whatever x its own label
                                 // happens to need and none of them line up.
@@ -2472,12 +2640,6 @@ pub(crate) fn App() -> Element {
                                         name: "check-uris-when-validating",
                                         sig: s_check_uris,
                                         title: "Runs the URI checker over every certificate on each path and appends the results to that path's log. Each certificate is checked once per run. Retrieves from the repositories the certificates name, so it needs network access.",
-                                    }
-                                    CheckboxRow {
-                                        label: "Dynamic Build",
-                                        name: "dynamic-build",
-                                        sig: s_dynamic_build,
-                                        title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view.",
                                     }
 
                                     // Label and hint are the browser's, verbatim: the same setting
@@ -2643,9 +2805,10 @@ pub(crate) fn App() -> Element {
                                 // each column. `CheckboxCell` is for several boxes sharing one
                                 // field, and there is only ever one here.
                                 CheckboxRow {
-                                    label: "Chase SIA and AIA",
+                                    label: "Chase SIA/AIA (this build only)",
                                     name: "chase-while-building",
                                     sig: s_chase_while_building,
+                                    title: "Follow AIA and SIA URIs while building this store, to reach issuers the inputs do not hold. Asked for per build rather than remembered, so it starts off every time and does not change what a validation run does.",
                                 }
                                 // Beside the option it serves: this is where chasing puts what it
                                 // fetches, and it means nothing when nothing is being chased.
@@ -2820,7 +2983,9 @@ pub(crate) fn App() -> Element {
                                                 let m = cleanup_certificate_folder(
                                                     &s_download_folder(),
                                                     &s_error_folder(),
-                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                    s_time_of_interest()
+                                                        .parse()
+                                                        .unwrap_or_else(|_| get_now_as_unix_epoch()),
                                                 );
                                                 s_folder_status
                                                     .set(format!("Removed {} downloaded certificate(s).", m.removed));
@@ -2851,7 +3016,9 @@ pub(crate) fn App() -> Element {
                                             onclick: move |_| {
                                                 let m = cleanup_crls(
                                                     &s_crl_folder(),
-                                                    s_time_of_interest().parse().unwrap_or(0),
+                                                    s_time_of_interest()
+                                                        .parse()
+                                                        .unwrap_or_else(|_| get_now_as_unix_epoch()),
                                                 );
                                                 s_folder_status.set(format!("Removed {} CRL(s).", m.removed));
                                             },
@@ -3212,7 +3379,7 @@ mod tooltip_coverage {
     #[test]
     fn every_row_relying_on_arg_help_has_an_entry() {
         let src = include_str!("gui.rs");
-        let mut checked = 0;
+        let mut found = 0;
         for component in TOOLTIP_ROWS {
             let pattern = format!("{component} {{");
             let mut from = 0;
@@ -3220,14 +3387,14 @@ mod tooltip_coverage {
                 let open = from + offset + pattern.len() - 1;
                 from = open + 1;
                 let block = block(src, open);
+                let Some(name) = literal_name(block) else {
+                    continue;
+                };
+                found += 1;
                 // A row that states its own text never reaches the fallback.
                 if block.contains("title:") {
                     continue;
                 }
-                let Some(name) = literal_name(block) else {
-                    continue;
-                };
-                checked += 1;
                 assert!(
                     !arg_help(name).is_empty(),
                     "{component} {name:?} gives no title and has no arg_help entry, so its tooltip is empty"
@@ -3237,12 +3404,17 @@ mod tooltip_coverage {
         // Guards against the scan silently matching nothing -- a renamed component or a change in
         // how rows are written would otherwise turn this test into an assertion about nothing.
         //
-        // A floor rather than a count: which rows exist is the views' business and moves whenever
-        // one is added or retired, so a number tracking that would fail for the wrong reason. This
-        // asks only that the scan still finds rows to check.
+        // Counts every row the scan reaches rather than only those falling back to `arg_help`,
+        // which is what the guard is actually about. Counting the fallback population instead made
+        // the floor fall every time a row was given a title of its own -- writing a tooltip is an
+        // improvement, and it should not walk this test toward failing.
+        //
+        // A floor rather than an exact count: which rows exist is the views' business and moves
+        // whenever one is added or retired, so a number tracking that would fail for the wrong
+        // reason. This asks only that the scan still finds rows.
         assert!(
-            checked >= 5,
-            "only {checked} rows were checked; the scan has stopped finding them"
+            found >= 5,
+            "only {found} rows were found; the scan has stopped finding them"
         );
     }
 }

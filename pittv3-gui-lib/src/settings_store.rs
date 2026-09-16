@@ -15,6 +15,100 @@
 //! This module is Dioxus-free.
 
 use certval::CertificationPathSettings;
+#[cfg(feature = "std")]
+use certval::{TimeOfInterest, PS_RETRIEVE_FROM_AIA_SIA_HTTP, PS_TIME_OF_INTEREST};
+
+/// The settings a frontend may offer beside a run rather than only on the settings form.
+///
+/// These are certification path settings, so the settings file is where their value lives and a row
+/// next to the run button is a second rendering of one value rather than a second store. Read with
+/// [`common_settings`] and written with [`save_common_settings`], which is what keeps the two
+/// renderings from disagreeing.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommonSettings {
+    /// Whether a run follows AIA and SIA URIs to fetch issuers its inputs do not hold, or `None`
+    /// when the file does not name it
+    ///
+    /// Unresolved for the same reason as [`Self::time_of_interest`]: certval's default is `true`,
+    /// and a caller seeding a control has to be able to tell "the file asks for retrieval" from
+    /// "nobody has chosen", or a frontend whose own default is off would come up on.
+    pub retrieve_from_aia_sia_http: Option<bool>,
+    /// The instant a run judges against, as a Unix epoch, or `None` for run time
+    ///
+    /// Deliberately not resolved to certval's default. That default under `std` is *now*, a
+    /// different answer every time it is asked, so a caller seeding a form field has to be able to
+    /// tell "the file says this instant" from "nobody has chosen one" — writing the latter back
+    /// would pin the time of interest to whenever the application happened to start.
+    ///
+    /// Unlike [`Self::retrieve_from_aia_sia_http`], `None` is a value the control can express — an
+    /// empty box — so [`save_common_settings`] takes it as authoritative and *removes* the setting.
+    /// Treating it as "leave this alone" would make a cleared box impossible to act on: the file
+    /// would keep the old instant and the next read would put it straight back.
+    pub time_of_interest: Option<u64>,
+}
+
+/// The [`CommonSettings`] held by the settings file at `path`.
+#[cfg(feature = "std")]
+pub fn common_settings(path: &str) -> CommonSettings {
+    let cps = FileSettingsStore::new(path).load();
+    CommonSettings {
+        retrieve_from_aia_sia_http: cps
+            .0
+            .contains_key(PS_RETRIEVE_FROM_AIA_SIA_HTTP)
+            .then(|| cps.get_retrieve_from_aia_sia_http()),
+        time_of_interest: cps
+            .0
+            .contains_key(PS_TIME_OF_INTEREST)
+            .then(|| cps.get_time_of_interest().as_unix_secs()),
+    }
+}
+
+/// Writes `edited` to the settings file at `path`, leaving every other setting as it was.
+///
+/// Read-modify-write, because [`CertificationPathSettings`] is a map and this owns two of its keys;
+/// everything the caller does not name survives the round trip.
+///
+/// The two fields treat `None` differently, because their controls differ. A checkbox cannot say
+/// "unset", so `retrieve_from_aia_sia_http` of `None` leaves that setting as it is and a box the
+/// user never touched is not written as though it had been chosen. An empty time box *is* how run
+/// time is said, so `time_of_interest` of `None` removes that setting.
+///
+/// Returns whether anything changed, so a caller can skip asking a form to re-read a file that was
+/// not written.
+#[cfg(feature = "std")]
+pub fn save_common_settings(path: &str, edited: CommonSettings) -> Result<bool, String> {
+    let store = FileSettingsStore::new(path);
+    let mut cps = store.load();
+    let mut changed = false;
+
+    if let Some(retrieve) = edited.retrieve_from_aia_sia_http {
+        if !cps.0.contains_key(PS_RETRIEVE_FROM_AIA_SIA_HTTP)
+            || cps.get_retrieve_from_aia_sia_http() != retrieve
+        {
+            cps.set_retrieve_from_aia_sia_http(retrieve);
+            changed = true;
+        }
+    }
+    match edited.time_of_interest {
+        Some(secs) => {
+            let toi = TimeOfInterest::from_unix_secs(secs)
+                .map_err(|e| format!("Unusable time of interest: {e}"))?;
+            if !cps.0.contains_key(PS_TIME_OF_INTEREST) || cps.get_time_of_interest() != toi {
+                cps.set_time_of_interest(toi);
+                changed = true;
+            }
+        }
+        // Removed rather than set to anything: the setting being absent is what run time *is*, and
+        // it is the only way a cleared box can survive the next read.
+        None => changed |= cps.0.remove(PS_TIME_OF_INTEREST).is_some(),
+    }
+
+    match changed {
+        true => store.save(&cps).map(|()| true),
+        false => Ok(false),
+    }
+}
 
 /// Where a frontend keeps its settings between runs.
 ///
@@ -227,6 +321,79 @@ impl SettingsStore for FileSettingsStore {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+
+    /// A scratch settings path that no other test shares.
+    fn scratch(name: &str) -> String {
+        std::env::temp_dir()
+            .join(format!("pittv3-common-settings-{name}.json"))
+            .to_string_lossy()
+            .to_string()
+    }
+
+    /// The two rows offered beside a run are the same value the settings form edits, so writing one
+    /// has to leave the rest of the file alone. `PS_CERTIFICATES` stands in for the settings the
+    /// form does not surface: round-tripping through the map is what keeps them.
+    #[test]
+    fn saving_the_common_settings_leaves_every_other_setting_alone() {
+        let path = scratch("preserves");
+        let _ = std::fs::remove_file(&path);
+        let store = FileSettingsStore::new(&path);
+
+        let mut cps = CertificationPathSettings::new();
+        cps.set_retrieve_from_aia_sia_http(false);
+        cps.set_enforce_trust_anchor_constraints(true);
+        store.save(&cps).expect("save");
+
+        assert!(save_common_settings(
+            &path,
+            CommonSettings {
+                retrieve_from_aia_sia_http: Some(true),
+                time_of_interest: Some(1_648_039_783),
+            }
+        )
+        .expect("commit"));
+
+        let after = store.load();
+        assert!(after.get_retrieve_from_aia_sia_http());
+        assert_eq!(after.get_time_of_interest().as_unix_secs(), 1_648_039_783);
+        assert!(
+            after.get_enforce_trust_anchor_constraints(),
+            "a setting the caller did not name survives the round trip"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A time of interest the user never chose is left out of the file rather than written. certval
+    /// resolves an absent one to *now*, so writing what a form happened to open with would pin every
+    /// later run -- the command line included -- to whenever the application started.
+    #[test]
+    fn an_untouched_time_of_interest_is_not_written() {
+        let path = scratch("untouched");
+        let _ = std::fs::remove_file(&path);
+        let store = FileSettingsStore::new(&path);
+        store.save(&CertificationPathSettings::new()).expect("save");
+
+        assert_eq!(common_settings(&path).time_of_interest, None);
+        assert_eq!(common_settings(&path).retrieve_from_aia_sia_http, None);
+
+        // Nothing chosen on either row: nothing to write, and the file gains neither key. An
+        // absent retrieval setting matters as much as an absent time -- certval resolves it to
+        // `true`, so writing the resolved value would put a fresh install on the network.
+        assert!(!save_common_settings(
+            &path,
+            CommonSettings {
+                retrieve_from_aia_sia_http: None,
+                time_of_interest: None,
+            }
+        )
+        .expect("commit"));
+
+        assert!(!store.load().0.contains_key(PS_TIME_OF_INTEREST));
+        assert!(!store.load().0.contains_key(PS_RETRIEVE_FROM_AIA_SIA_HTTP));
+        assert_eq!(common_settings(&path).time_of_interest, None);
+        assert_eq!(common_settings(&path).retrieve_from_aia_sia_http, None);
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn tilde_expands_only_where_a_shell_would() {

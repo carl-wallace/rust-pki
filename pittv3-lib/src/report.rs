@@ -469,12 +469,11 @@ impl NoPathsContext {
         if material_missing {
             match self.dynamic_build {
                 Some(false) => hints.push(
-                    "Chasing AIA and SIA URIs is off; enabling it lets the builder fetch the \
-                     missing certificates."
+                    "AIA and SIA retrieval is off; enabling it fetches the missing certificates."
                         .to_string(),
                 ),
                 Some(true) => hints.push(
-                    "Chasing AIA and SIA URIs was enabled and still produced no issuer, so the \
+                    "AIA and SIA retrieval was enabled and still produced no issuer, so the \
                      missing certificates are not reachable from the URIs on hand."
                         .to_string(),
                 ),
@@ -1044,7 +1043,7 @@ mod tests {
         .hints();
         assert!(hints[0].contains("No intermediate CA certificates are loaded"));
         assert!(hints[0].contains("CN=Some CA"));
-        assert!(hints[1].contains("Chasing AIA and SIA URIs is off"));
+        assert!(hints[1].contains("AIA and SIA retrieval is off"));
 
         // a populated graph that does not happen to contain the issuer
         let hints = ctx().hints();
@@ -1100,7 +1099,7 @@ mod tests {
         assert!(hints[0].contains("trust store"));
         // the two things that would be wrong to say here
         assert!(!hints[0].contains("intermediate CA certificates"));
-        assert!(hints.iter().all(|h| !h.contains("Chasing AIA and SIA")));
+        assert!(hints.iter().all(|h| !h.contains("AIA and SIA retrieval")));
 
         // an anchor that matches it is a different outcome, and keeps the existing explanation
         let hints = NoPathsContext {

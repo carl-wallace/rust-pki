@@ -175,6 +175,14 @@ pub fn TimeRow(
     #[props(default)] title: String,
 ) -> Element {
     let title = tooltip(title, &name);
+    // The picker's own text while it is being edited, rather than a value derived from the epoch on
+    // every render. Typing a datetime passes through states the epoch box must not be given -- an
+    // incomplete one, and a complete one that is not meant, like the year 0202 on the way to 2026 --
+    // and a `value` bound straight to the epoch would also be re-imposed by any re-render the rest
+    // of the view triggers, wiping an edit in progress. Reseeded from the epoch whenever that
+    // changes from elsewhere: the Now button, or the settings file being read again.
+    let mut draft = use_signal(|| toi_datetime_value(&sig()));
+    use_effect(move || draft.set(toi_datetime_value(&sig())));
     rsx! {
         div { title, class: "visible label-cell",
             label { r#for: name.clone(), "{label}: " }
@@ -184,21 +192,65 @@ pub fn TimeRow(
                 r#type: "text",
                 name,
                 value: "{sig}",
+                // Empty is not "unset", it is *now* -- resolved when the run starts rather than
+                // when this was typed. Saying so in the box is the only place a reader looks.
+                placeholder: "run time",
+                title: "Unix epoch seconds. Leave it blank to judge against now or 0 to disable validity checks, resolved when the run starts.",
                 oninput: move |ev| sig.set(ev.value()),
             }
+            // Clears rather than stamping the current epoch. A button labelled Now that writes the
+            // instant it was pressed leaves a time that was current once and silently is not any
+            // more, and nothing on screen distinguishes it from a time chosen deliberately -- which
+            // is how a run comes to be judged against whenever the button was last touched. Pinning
+            // an instant is what the picker beside this is for, and it should be deliberate.
             button {
                 r#type: "button",
-                onclick: move |_| sig.set(now_as_unix_epoch().to_string()),
+                title: "Clears the box, which is how now is represented: the time is resolved when the run starts rather than being fixed to this moment.",
+                onclick: move |_| sig.set(String::new()),
                 "Now"
             }
-            // Editable human-readable picker mirroring the epoch field (UTC). onchange fires
-            // only on a complete datetime, so it never clobbers a mid-edit epoch value.
+            // Editable human-readable picker mirroring the epoch field (UTC).
             input {
                 r#type: "datetime-local",
-                step: "1",
-                value: toi_datetime_value(&sig()),
-                onchange: move |ev| {
+                // Seconds only once there is a committed time to refine. A `datetime-local` yields
+                // no value at all until every field it shows is filled, so a seconds field on an
+                // empty picker means date and time can both be set and nothing is committed -- the
+                // control stays blank and so does the epoch box.
+                //
+                // Keyed on the epoch rather than on the draft, which is the whole of it: a draft
+                // grows non-empty the instant the first complete value is typed, so keying on it
+                // would add the seconds field mid-edit, leave it blank, and invalidate the value
+                // that had just been entered. The control could never settle. The epoch only
+                // changes once a value has actually been committed, by which point the draft has
+                // been normalised to a full timestamp and the seconds field has something to show.
+                step: if sig().trim().is_empty() { "60" } else { "1" },
+                // The label's tooltip does not reach in here, and this is the one control whose
+                // behaviour is worth a word: it is the element's own, not something the row chose.
+                title: "Fully specify the time or use the date picker.",
+                value: "{draft}",
+                // Every event this control might deliver commits, because which of them it does
+                // deliver varies: the picker widget settles the value at once and fires `change`,
+                // while editing the fields by hand may only ever produce `input`. Committing from
+                // whichever arrives means the epoch box fills as the value becomes complete rather
+                // than waiting for a blur that a user with no reason to click away never gives it.
+                //
+                // `draft` holds what the control shows so that a re-render elsewhere in the view
+                // does not re-impose a normalised value over an edit in progress, and an
+                // incomplete value simply does not parse, so nothing is committed from one.
+                oninput: move |ev| {
+                    draft.set(ev.value());
                     if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                        sig.set(secs.to_string());
+                    }
+                },
+                onchange: move |ev| {
+                    draft.set(ev.value());
+                    if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
+                        sig.set(secs.to_string());
+                    }
+                },
+                onblur: move |_| {
+                    if let Some(secs) = datetime_local_to_epoch(&draft()) {
                         sig.set(secs.to_string());
                     }
                 },
@@ -368,5 +420,51 @@ pub fn PathListRow(
         if entries.is_empty() && !hint.is_empty() {
             span { class: "hint", "{hint}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The picker and the epoch box show one value, so what the picker is handed has to be what it
+    /// hands back. Both directions, at a second that exercises every field.
+    #[test]
+    fn the_picker_value_round_trips_through_an_epoch() {
+        // 2022-03-23T12:49:43Z
+        let secs = 1_648_039_783;
+        let picker = epoch_to_datetime_local(secs);
+        assert_eq!(picker, "2022-03-23T12:49:43");
+        assert_eq!(datetime_local_to_epoch(&picker), Some(secs));
+        assert_eq!(toi_datetime_value(&secs.to_string()), picker);
+    }
+
+    /// A picker that omits the seconds field is the ordinary case -- a user who sets the date and
+    /// the time and leaves seconds alone -- so it has to parse rather than being read as junk.
+    #[test]
+    fn a_picker_value_without_seconds_is_accepted() {
+        assert_eq!(
+            datetime_local_to_epoch("2022-03-23T12:49"),
+            Some(1_648_039_740)
+        );
+    }
+
+    /// Everything a half-filled picker can emit has to be refused, or a mid-edit value would land
+    /// in the epoch box as a time nobody chose.
+    #[test]
+    fn an_incomplete_picker_value_is_refused() {
+        for partial in ["", "2022-03-23", "2022-03-23T", "2022-03", "not a time"] {
+            assert_eq!(datetime_local_to_epoch(partial), None, "{partial}");
+        }
+    }
+
+    /// Blank is *run time*, not a moment, so the picker shows nothing rather than claiming one.
+    /// Same for a disabled (0) time and for an epoch box being typed into.
+    #[test]
+    fn the_picker_is_empty_when_no_time_is_in_effect() {
+        assert_eq!(toi_datetime_value(""), "");
+        assert_eq!(toi_datetime_value("0"), "");
+        assert_eq!(toi_datetime_value("16480"), "1970-01-01T04:34:40");
+        assert_eq!(toi_datetime_value("abc"), "");
     }
 }

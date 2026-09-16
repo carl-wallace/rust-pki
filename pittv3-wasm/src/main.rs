@@ -2211,6 +2211,43 @@ fn App() -> Element {
                             peek_status: peek_status(),
                         }
 
+                        // Settings that change from one run to the next, put where they are used
+                        // so a run does not mean a trip to the Settings view. Boxed away from the
+                        // switches below because these are certification path settings rather than
+                        // run options: the row here and the row on the settings form are two
+                        // renderings of one value, held in the same `settings` signal, so there is
+                        // nothing to keep in step.
+                        //
+                        // Chasing has no row of its own because in this frontend it is not a
+                        // setting to choose. `PS_RETRIEVE_FROM_AIA_SIA_HTTP` has no reader here --
+                        // certval's are `remote`-gated and the browser does not build them -- and
+                        // what actually decides whether AIA and SIA are followed is the retrieval
+                        // tier above. So the box says why chasing cannot happen when it cannot, and
+                        // otherwise says nothing: a control that could not act would be worse, and
+                        // so would repeating what the tier control already shows.
+                        fieldset {
+                            legend { "Common Settings" }
+                            div { class: "controls",
+                                TimeOfInterestRow {
+                                    value: settings().time_of_interest,
+                                    onchange: move |v| {
+                                        settings.write().time_of_interest = v;
+                                        if let Err(e) = persist_settings(&settings()) {
+                                            settings_status.set(e);
+                                        }
+                                    },
+                                }
+                            }
+                            // Only when it cannot happen. That the tier has retrieval on is already
+                            // on screen in the control that decides it, and repeating it under the
+                            // time of interest annotates the wrong field. `capability-notice` sets
+                            // it apart from a field hint, which is what it is: a qualification of
+                            // the box rather than a note about a row in it.
+                            if let Some(why) = chase_blocked_because() {
+                                p { class: "hint capability-notice", "{why}" }
+                            }
+                        }
+
                         // Validate All sits beside the Validate button rather than in Settings: it
                         // chooses how much of a run to do, not what a path must satisfy, and it is
                         // not a CertificationPathSettings value. The desktop app surfaces it the
