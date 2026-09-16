@@ -10,7 +10,16 @@ cryptographic support provided by various [RustCrypto] libraries. It also serves
 
 A change log is available at the root of the `pittv3` project.
 
+PITTv3 is a command line tool, a desktop application and a browser application over one library,
+and this file describes the first of those. The **[PITTv3 User's Guide]** covers all of them, and is
+where the options this section does not walk through are written up.
+
+[PITTv3 User's Guide]: https://github.com/carl-wallace/pittv3-book
+
 ## Using PITTv3
+
+The workflows below are one path through each of the common tasks rather than a reference. The
+guide above is the reference, and `pittv3 --help` lists every option the build you have supports.
 
 **1) Serialize a set intermediate CA certificates and partial certification paths**
 
@@ -21,18 +30,18 @@ To generate a CBOR file for a given PKI:
 - prepare a set of CA certificates in a folder,
 - use the `generate` option, as shown below.
 
-The `chase-aia-and-sia` can be included to download additional certificates. The downloaded
-artifacts may be directed to a location specified by the `download-folder` option for later
-review or to the `ca-folder` for inclusion in CBOR file.
+The `dynamic-build` option can be included to follow AIA and SIA URIs and download additional
+certificates. The downloaded artifacts may be directed to a location specified by the
+`download-folder` option for later review or to the `ca-folder` for inclusion in CBOR file.
 ```text
  pittv3 --cbor example.cbor --ca-folder path/to/ca_folder --ta-folder path/to/ta_folder --generate
 ```
 If intermediate CA certificates are not available but one or more end entity certificates are
 available, the `validate-all` and `dynamic-build` options can be used with the `ta-folder` and
 `download-folder` options to download available intermediate CA certificates relevant to the
-validation of the end entity certificate(s) using URIs read from AIA and SIA extensions. The
-`last-modified-map` and `blocklist` can be used to improve performance of AIA and SIA retrieval
-operations during generation or during dynamic certification path building.
+validation of the end entity certificate(s) using URIs read from AIA and SIA extensions. A
+last-modified map and a URI blocklist are kept in the download folder and used to improve the
+performance of AIA and SIA retrieval, during generation and during dynamic path building alike.
 ```text
  pittv3 -t path/to/ta_folder -e path/to/ee/certificate -d path/to/download/folder -v -y
 ```
@@ -57,8 +66,9 @@ to receive the results using the `results-folder` option.
 ```
 The `dynamic-build` and `download-folder` options can be added to dynamically develop certification paths for validation by
 downloading certificates from location specified in AIA or SIA extensions. Download operations
-can be influenced by the `last-modified-map` and `blocklist` options in [CertificationPathSettings](../certval/validator/path_settings/index.html)
-or the automatically generated files in the folder used to download artifacts. Generation and validation
+can be influenced by the last-modified map and URI blocklist, which are
+[CertificationPathSettings](../certval/validator/path_settings/index.html) values rather than
+command line options and are read from the folder used to download artifacts. Generation and validation
 operations use the `time-of-interest` option to determine if certificates are expired or not yet
 valid. By default, the current time is used. An alternative time of interest can be specified
 by passing the number of seconds since the Unix epoch via the `time-of-interest` option.
