@@ -107,6 +107,7 @@ enum View {
     Results,
     Settings,
     CheckUris,
+    Generate,
     Inspect,
     Hackathon,
     Help,
@@ -122,6 +123,7 @@ const VIEWS: &[(View, &str)] = &[
     (View::Results, "Results"),
     (View::Settings, "Settings"),
     (View::CheckUris, "Check URIs"),
+    (View::Generate, "Generate"),
     (View::Inspect, "Inspect"),
     (View::Hackathon, "Hackathon"),
     (View::Help, "Help"),
@@ -398,7 +400,7 @@ fn deliver_store(mut notes: Signal<Vec<ResultLine>>, archive_name: String, store
     }
 }
 
-/// Hands certificates to the browser as they are asked for/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
+/// Hands certificates to the browser as they are asked for: one saved as itself, several as a zip.
 ///
 /// A function rather than a closure because both export handlers need it, and a closure capturing
 /// the notes signal cannot be moved into both. Delivering at the moment of the click rather than
@@ -516,6 +518,24 @@ fn App() -> Element {
     let mut insp_edits = use_signal(StagedEdits::default);
     let mut insp_notes = use_signal(Vec::<ResultLine>::new);
     let mut insp_running = use_signal(|| false);
+
+    // --- Generate: building a store rather than opening one -------------------------------------
+    // No inputs of its own: the store selector and the uploads panel are the material, read as what
+    // a store is built from rather than what a target is validated against. Only the errand is new.
+    // The time of interest is `insp_toi` for the same reason the report is `insp_inspected` -- the
+    // tables the run produces carry buttons that read it, so a second value here would mean a store
+    // saved again from those tables was built for a different moment than the run that made them.
+    //
+    // Whether to follow the AIA and SIA URIs of the material in hand before the paths are found.
+    // Off by default, and unavailable without a service, because the retrieval is the service's to
+    // make -- generating from the material already loaded needs nothing and is always available.
+    let mut gen_chase = use_signal(|| false);
+    // Only the running flag is this view's own. What a generate run produces is what an inspection
+    // produces -- the same report over the same pool -- so it lands in `insp_inspected`,
+    // `insp_edits` and `insp_notes`, and the tables and their buttons are reached from either view
+    // without a second copy of any of it. The desktop's Generate shares its Inspect state for the
+    // same reason.
+    let mut gen_running = use_signal(|| false);
 
     // What an upload actually contributes, which is certificates and not files: since the 08-24
     // fan-out one `.p7c` of cross-certificates carries several, and reporting the file count made
@@ -692,6 +712,26 @@ fn App() -> Element {
                      serving this page.",
                 ),
             };
+        }
+        None
+    };
+
+    // Why the chase cannot be asked for, or None when it can. Same shape as the two above and for
+    // the same reason, with one difference worth stating: this does not block the run. Generating
+    // from the material in hand is always available, and this governs the one part of a generate
+    // run that leaves the page.
+    let chase_blocked_because = move || -> Option<&'static str> {
+        if !service_present() {
+            return Some(
+                "Following AIA and SIA URIs is retrieval, which the service makes, and no PITTv3 \
+                 service is serving this page. The material loaded below is still built into a store.",
+            );
+        }
+        if !tier().retrieves() {
+            return Some(
+                "Following AIA and SIA URIs is retrieval, which the service makes, so this needs \
+                 retrieval turned on.",
+            );
         }
         None
     };
@@ -1399,6 +1439,117 @@ fn App() -> Element {
         insp_running.set(false);
     };
 
+    // Builds a store out of the material in hand and hands it back, which is what the command
+    // line's `--generate` does over a folder. Every piece of it is already here: the chase a
+    // validation makes when path building comes up short, the assembly an inspection makes, the
+    // screen `--cleanup` applies, and the save the Inspect tab's edited store goes out through.
+    // What the view adds is the errand.
+    let run_generate = move |_| async move {
+        gen_running.set(true);
+        insp_notes.write().clear();
+        // Yield one frame so the busy state paints before path discovery blocks the (single)
+        // thread, for the reason a validation does it: this is the same discovery call, over a pool
+        // a chase may just have enlarged, and a page that cannot repaint reads as a page that hung.
+        #[cfg(target_family = "wasm")]
+        gloo_timers::future::TimeoutFuture::new(16).await;
+
+        let toi = insp_toi().unwrap_or_else(now_as_unix_epoch);
+        // The only setting generation reads, and for the reason an inspection reads only this one:
+        // nothing is validated here, so nothing a path must satisfy has any bearing on what is
+        // built. Built here rather than taken from the settings so it cannot come to depend on one.
+        let mut cps = CertificationPathSettings::new();
+        if let Ok(t) = TimeOfInterest::from_unix_secs(toi) {
+            cps.set_time_of_interest(t);
+        }
+
+        // What a chase brings back is an input to the store being built and nothing more: it joins
+        // this run's pool rather than `chased_cas`, so generating a store does not quietly change
+        // the environment a validation is holding.
+        let mut cas = uploaded_cas();
+        if gen_chase() && chase_blocked_because().is_none() {
+            let mut budget = FetchBudget::new();
+            let mut seeds = uploaded_tas();
+            seeds.extend(cas.clone());
+            let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+            insp_notes.write().extend(chase_notes);
+            cas.extend(found);
+        }
+
+        // No store argument, which is the desktop's arrangement: its Generate view offers two
+        // input pools and no store selector, so a store one starts from is a file one names. The
+        // uploads panel takes a `.cbor` store wherever it takes a certificate, so the same errand
+        // is available here -- what is not available either place is reaching for a store the app
+        // merely ships, which on this tab would quietly fold thousands of certificates a person
+        // never chose into something they are about to hand out.
+        //
+        // Assembled by the call the Inspect tab makes, so a generated store holds what an
+        // inspection of the same material reports it holds.
+        let (inspected, notes) = match inspect(
+            None,
+            &uploaded_tas(),
+            &cas,
+            &cps,
+            &InspectRequest::default(),
+        ) {
+            Ok(pair) => pair,
+            Err(fatal) => {
+                insp_notes.write().extend(fatal);
+                gen_running.set(false);
+                return;
+            }
+        };
+        insp_notes.write().extend(notes);
+
+        // The screen the command line applies while reading a folder -- a certificate that does not
+        // parse, is outside the time asked about, is self-signed or does not assert cA is not
+        // certificate-store material -- as marks rather than as a silent drop, because here it is
+        // being applied to material a person chose rather than to a folder being read. Pre-applied
+        // rather than merely offered, so pressing Save writes the store the command line would have
+        // written over the same material; clearing the marks is one button away for anyone who
+        // wants a store of everything.
+        //
+        // The desktop reaches the same place from the other side: its screen runs inside
+        // `build_graph` as the folder is read, so its report has nothing left to mark.
+        let mut edits = StagedEdits::default();
+        for index in cleanup_candidates(&inspected, toi) {
+            edits.toggle_cert(index);
+        }
+        let screened = edits.certs_removed();
+        // Positions in the pool rather than files chosen: one `.p7c` of cross-certificates is one
+        // file and several candidates, and it is the certificates that are either imported or left
+        // out. The uploads panel counts the same way, for the same reason.
+        let candidates = inspected.report.certs.len();
+
+        insp_notes.write().push(ResultLine {
+            class: "ok",
+            text: match screened {
+                0 => format!(
+                    "Imported {candidates} CA certificate(s) from {candidates} candidate(s)."
+                ),
+                n => format!(
+                    "Imported {} CA certificate(s) from {candidates} candidate(s); {n} left out, \
+                     each one unparseable, outside the time this store was built for, self-signed, \
+                     or not a CA.",
+                    candidates - n
+                ),
+            },
+        });
+        // Nothing is written here, in the desktop's words and for its reason: a run describes what
+        // it built and the store is handed over when it is asked for. A download is the browser's
+        // form of writing, and starting one nobody asked for is worse than a file appearing in a
+        // folder the user named -- which the desktop does not do either.
+        insp_notes.write().push(ResultLine {
+            class: "ok",
+            text: format!(
+                "Built {} \u{2014} save it to write the store",
+                inspected.report.summary()
+            ),
+        });
+        insp_edits.set(edits);
+        insp_inspected.set(Some(inspected));
+        gen_running.set(false);
+    };
+
     // certificates. Separated out because a retrieving run prepares more than once: what a chase
     // brings back is an input to preparation, so folding it in means preparing again.
     let rebuild_env = move |cps: CertificationPathSettings| async move {
@@ -1724,9 +1875,11 @@ fn App() -> Element {
             graph: store_material()
                 .map(|(_, ca)| ca)
                 .or_else(|| pool_includes_ca_store(&uploaded_cas())),
-            // The browser fetches a store and validates against it; there is no separate built
-            // graph here to keep alongside, so this half is the desktop's alone.
-            built_graph: None,
+            // What this run made of those inputs, which is a different fact from the store it was
+            // handed and is why the bundle carries both. Present only when an upload or a chased
+            // certificate widened the pool, since that is when preparation discovers paths rather
+            // than reading the ones a fetched store already carries.
+            built_graph: prepared.built_graph().map(<[u8]>::to_vec),
             settings: Some(cps.clone()),
             end_entities: loaded_ees(),
             anchors_used: retained_paths
@@ -1844,41 +1997,55 @@ fn App() -> Element {
             }
         }
     };
+    // The upload controls themselves, framed by whatever the view needs them framed by. Validate
+    // collapses them, because a selected store is a complete environment and these supplement it.
+    // Generate does not: they are the whole of its material, so there is nothing to collapse them
+    // in favour of and a panel to expand is a step between a reader and the only inputs on the tab.
+    let uploads_controls = rsx! {
+        div { class: "controls custom",
+            label { "Trust anchor(s): " }
+            input {
+                r#type: "file",
+                multiple: true,
+                accept: "{ta_accept}",
+                onchange: move |ev| async move {
+                    let files = read_files(&ev).await;
+                    extend_unique(uploaded_tas, files);
+                },
+            }
+            label { "Intermediate CA(s): " }
+            input {
+                r#type: "file",
+                multiple: true,
+                accept: "{ca_accept}",
+                onchange: move |ev| async move {
+                    let files = read_files(&ev).await;
+                    extend_unique(uploaded_cas, files);
+                },
+            }
+            span { class: "hint",
+                "{loaded_ta_count} trust anchor(s), {loaded_ca_count} intermediate(s) loaded "
+                button {
+                    onclick: move |_| {
+                        uploaded_tas.write().clear();
+                        uploaded_cas.write().clear();
+                    },
+                    "Clear"
+                }
+            }
+        }
+    };
     let uploads_panel = rsx! {
         details { class: "panel", id: "uploads-panel",
             summary { "Additional trust anchors and intermediates (certificates or .cbor stores)" }
-            div { class: "controls custom",
-                label { "Trust anchor(s): " }
-                input {
-                    r#type: "file",
-                    multiple: true,
-                    accept: "{ta_accept}",
-                    onchange: move |ev| async move {
-                        let files = read_files(&ev).await;
-                        extend_unique(uploaded_tas, files);
-                    },
-                }
-                label { "Intermediate CA(s): " }
-                input {
-                    r#type: "file",
-                    multiple: true,
-                    accept: "{ca_accept}",
-                    onchange: move |ev| async move {
-                        let files = read_files(&ev).await;
-                        extend_unique(uploaded_cas, files);
-                    },
-                }
-                span { class: "hint",
-                    "{loaded_ta_count} trust anchor(s), {loaded_ca_count} intermediate(s) loaded "
-                    button {
-                        onclick: move |_| {
-                            uploaded_tas.write().clear();
-                            uploaded_cas.write().clear();
-                        },
-                        "Clear"
-                    }
-                }
-            }
+            {uploads_controls.clone()}
+        }
+    };
+    // Named as the desktop's Generate names the same group, since it holds the same two pools.
+    let uploads_inputs = rsx! {
+        fieldset {
+            legend { "Inputs" }
+            {uploads_controls.clone()}
         }
     };
 
@@ -2494,6 +2661,115 @@ fn App() -> Element {
                             UriCheckResults { report }
                         }
                     },
+                    View::Generate => rsx! {
+                        p { class: "hint",
+                            "Builds a store from the material loaded below: the certificates it "
+                            "carries, with the partial paths found over them, ready to save as the "
+                            "two halves every PITTv3 frontend reads. This is the errand the command "
+                            "line's --generate runs over a folder, and the desktop's Generate view "
+                            "runs over its input pools."
+                        }
+                        p { class: "hint",
+                            "The material is what is loaded here rather than a store this \
+                             application ships: an existing store is a starting point by being \
+                             uploaded, as it is a starting point on the desktop by being named. A \
+                             partial path runs from a certificate to a trust anchor, so at least \
+                             one anchor has to be among it, as the command line requires one too."
+                        }
+
+                        {uploads_inputs.clone()}
+
+                        // One grid for both rows, so they share a label column -- `max-content` is
+                        // measured per grid, so a row in a grid of its own lands at whatever x its
+                        // own label happens to need. The desktop's Validate view says the same
+                        // thing about its checkboxes.
+                        div { class: "controls",
+                            TimeOfInterestRow {
+                                value: insp_toi(),
+                                onchange: move |v| insp_toi.set(v),
+                            }
+                            span { class: "hint",
+                                "Decides which certificates reach the store: one outside this time \
+                                 is left out, as it is left out when the command line reads a \
+                                 folder. Empty means the moment the store is generated. Shared with \
+                                 Inspect, which asks the same question of a store already built, \
+                                 and changes nothing about a validation run."
+                            }
+
+                            // `.label-cell` and `.field` rather than a bare label and input: the
+                            // grid places the two columns by those classes, and a control left to
+                            // auto-placement sits wherever the row happens to leave it.
+                            div { class: "label-cell",
+                                label { r#for: "gen-chase", "Chase SIA and AIA: " }
+                            }
+                            div { class: "field",
+                                input {
+                                    id: "gen-chase",
+                                    r#type: "checkbox",
+                                    checked: gen_chase(),
+                                    disabled: chase_blocked_because().is_some(),
+                                    onchange: move |ev| gen_chase.set(ev.checked()),
+                                }
+                                // The remedy rather than directions to it, as on Check URIs: the
+                                // tier is one signal shared by the whole app, so the tab that needs
+                                // it changed is the tab that offers to change it.
+                                if !tier().retrieves() && service_present() {
+                                    button {
+                                        onclick: move |_| tier.set(Tier::Relayed),
+                                        "Retrieve through the service"
+                                    }
+                                }
+                            }
+                            // Under the control it explains, in the field column, which is where
+                            // every other hint in this application sits.
+                            if let Some(reason) = chase_blocked_because() {
+                                span { class: "hint", "{reason}" }
+                            } else {
+                                span { class: "hint",
+                                    "What the URIs lead to is retrieved through the service and \
+                                     folded into the pool before the paths are found, within this \
+                                     run's retrieval budget."
+                                }
+                            }
+                        }
+
+                        div { class: "controls center-row",
+                            button {
+                                disabled: gen_running(),
+                                onclick: run_generate,
+                                if gen_running() { "Generating\u{2026}" } else { "Generate the store" }
+                            }
+                            span { class: "hint",
+                                "Finding every partial path over a large pool may take a while, \
+                                 and the page cannot repaint while it runs."
+                            }
+                        }
+
+                        for note in insp_notes() {
+                            p { class: "{note.class}", "{note.text}" }
+                        }
+
+                        // The same tables an inspection produces, for the reason the desktop
+                        // renders them here too: what was built is described where it was built,
+                        // and saving it again after marking something is the same errand from
+                        // either view.
+                        if let Some(report) =
+                            insp_inspected.read().as_ref().map(|i| i.report.clone())
+                        {
+                            InspectReportView {
+                                report,
+                                edits: insp_edits(),
+                                on_export: export_inspected,
+                                on_export_certs: export_certificates,
+                                on_export_anchors: export_anchor_certificates,
+                                on_toggle_cert: toggle_insp_cert,
+                                on_mark_unusable: mark_unusable,
+                                on_clear_marks: clear_marks,
+                                on_toggle_anchor: toggle_insp_anchor,
+                                on_save: save_insp_store,
+                            }
+                        }
+                    },
                     View::Inspect => rsx! {
                         p { class: "hint",
                             "Reports what a store holds, without validating anything. Every \
@@ -2679,6 +2955,14 @@ fn App() -> Element {
                                     }
                                     li {
                                         "A time of interest of 0 disables validity period checks."
+                                    }
+                                    li {
+                                        "The Generate view builds a store out of the trust anchors "
+                                        "and intermediates loaded on that view, which may include "
+                                        ".cbor stores to start from. Nothing is written until Save "
+                                        "as a new store is pressed. Following AIA and SIA URIs "
+                                        "first is retrieval, so it needs a service; building from "
+                                        "the material already loaded does not."
                                     }
                                     li {
                                         "The Hackathon view validates provider "

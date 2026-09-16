@@ -62,6 +62,20 @@ pub struct PreparedValidation {
     /// a path's `ocsp_responses` slot, so [`validate_target`] fills those from here each time it
     /// builds a path.
     ocsp: OcspResponses,
+    /// The graph this preparation built, when it built one, as the CBOR a certificate store takes.
+    ///
+    /// Kept because the certificate source is *moved* into `pe` a line after the paths are
+    /// discovered and the environment offers no way back to it, so a run that did the expensive
+    /// work had nothing to show for it afterwards: every browser bundle carried
+    /// `built-graph.cbor`'s absence and replayed by rediscovering what this run already found.
+    ///
+    /// `None` when nothing was uploaded, and that is the honest answer rather than a saving: with
+    /// no uploads the pool is the store as it was fetched, which already carries its partial paths,
+    /// so a graph here would be a second copy of the `ca.cbor` beside it. Discovery runs under the
+    /// same condition, which is what makes this cost nothing where it is `None` and next to nothing
+    /// where it is not -- serializing is a linear walk of the buffers the recursive discovery just
+    /// finished with.
+    built_graph: Option<Vec<u8>>,
 }
 
 impl PreparedValidation {
@@ -81,6 +95,14 @@ impl PreparedValidation {
     /// validation path puts it in front of the checker.
     pub fn ocsp_responses(&self) -> &OcspResponses {
         &self.ocsp
+    }
+
+    /// The graph this preparation built, or `None` when it built none -- see the field.
+    ///
+    /// For an exporter: this is what the run made of its inputs, which is not the same fact as the
+    /// store it was handed, and a bundle is worth more for carrying both.
+    pub fn built_graph(&self) -> Option<&[u8]> {
+        self.built_graph.as_deref()
     }
 }
 
@@ -173,9 +195,30 @@ pub fn prepare_validation(
     if uploaded {
         cert_source.find_all_partial_paths(&pe, cps);
     }
+    // Before the source is registered, because registering moves it -- the same reason the anchor
+    // rows are read before `add_trust_anchor_source` above. Deliberately *not*
+    // `normalize_buffer_labels` first: a label here records where a certificate came from
+    // (`bundle.p7c#3`, `https://.../ca.p7c#0`), the same source is about to answer the run's
+    // reports under those labels, and reducing them to basenames would blur the record and rename
+    // what the tables show. A store built for distribution is the case that wants normalizing, and
+    // that is `apply_edits`, not this.
+    let built_graph = match uploaded {
+        true => cert_source
+            .serialize(CertificationPathBuilderFormats::Cbor)
+            .ok(),
+        false => None,
+    };
     pe.add_certificate_source(Box::new(cert_source));
 
-    Ok((PreparedValidation { pe, crls, ocsp }, out))
+    Ok((
+        PreparedValidation {
+            pe,
+            crls,
+            ocsp,
+            built_graph,
+        },
+        out,
+    ))
 }
 
 /// The trust material a run stands on: one merged trust-anchor source and one merged certificate
@@ -1150,5 +1193,55 @@ mod inspect_tests {
         for path in mine {
             assert_eq!(path.leaf_ca_skid, leaf.leaf_ca_skid);
         }
+    }
+
+    // --- what a preparation keeps ----------------------------------------------------------------
+    //
+    // The graph a run builds used to be discarded one line after it was built: the certificate
+    // source is moved into the environment, which offers no way back to it, so every bundle a
+    // browser exported said no graph had been built and replayed by rediscovering one. These hold
+    // the two halves of the answer -- kept when the run built something, absent when it did not.
+
+    /// Prepares the baked store together with `uploads`, in whichever of the two shapes
+    /// `prepare_validation` takes here: the revocation cache parameter exists only when the feature
+    /// that gives this crate a cache to hold does.
+    fn prepared_with(uploads: &[(String, Vec<u8>)]) -> PreparedValidation {
+        let ta = anchor_store();
+        let store = Some(("pitt_focused", ta.as_slice(), CA_STORE));
+        #[cfg(feature = "revocation")]
+        let prepared = prepare_validation(store, &[], uploads, &settings(), None);
+        #[cfg(not(feature = "revocation"))]
+        let prepared = prepare_validation(store, &[], uploads, &settings());
+        prepared.expect("the baked store should prepare").0
+    }
+
+    #[test]
+    fn a_run_that_built_a_graph_keeps_it() {
+        // Uploaded as a CA input, which is what makes the merged pool differ from the store and so
+        // what makes preparation discover paths over it rather than read the ones it was given.
+        let uploads = vec![("from_email_CA_59.der".to_string(), TARGET.to_vec())];
+        let prepared = prepared_with(&uploads);
+        let bytes = prepared
+            .built_graph()
+            .expect("a preparation that discovered paths should keep the graph it built");
+
+        // Read back through the deserializer a store goes through, since that is the whole claim:
+        // these bytes are a certificate store, not an internal encoding.
+        let read_back = CertSource::new_from_cbor(bytes)
+            .expect("the graph a run built should read back as a certificate store");
+        assert_eq!(
+            3,
+            read_back.get_buffers().len(),
+            "the graph should hold the store's two certificates and the uploaded one"
+        );
+    }
+
+    #[test]
+    fn a_run_over_a_store_alone_builds_no_graph_of_its_own() {
+        assert!(
+            prepared_with(&[]).built_graph().is_none(),
+            "with nothing uploaded the pool is the store as fetched, which carries its own partial \
+             paths -- a graph here would be a second copy of it"
+        );
     }
 }

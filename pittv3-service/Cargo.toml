@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-service"
-version = "0.2.0-pre"
+version = "0.2.0-pre.2"
 description = """
 Web service frontend for the PKI Interoperability Test Tool v3 (PITTv3). It serves the browser
 application, relays the PKI retrievals a browser cannot make itself, and validates certification
