@@ -134,6 +134,7 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
                                 min: "0",
                                 value: display,
                                 placeholder: "run time",
+                                title: "Unix epoch seconds. Leave it blank to judge against now or 0 to disable validity checks, resolved when the run starts.",
                                 oninput: move |ev| {
                                     let v = ev.value();
                                     if v.trim().is_empty() {
@@ -148,13 +149,21 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
                             // nothing says so. Absent already means run time here.
                             button {
                                 r#type: "button",
+                                title: "Clears the box, which is how now is represented: the time is resolved when the run starts rather than being fixed to this moment.",
                                 onclick: move |_| onchange.call(None),
                                 "Now"
                             }
                             // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
                             input {
                                 r#type: "datetime-local",
-                                step: "1",
+                                // Seconds only once there is a value to refine, as in `TimeRow` and
+                                // for the same reason: the control yields nothing at all until every
+                                // field it shows is filled, so a seconds field on an empty picker
+                                // means date and time can both be set and nothing is committed.
+                                // Keyed on the value rather than on anything the control holds
+                                // mid-edit, which only changes when a value has been committed.
+                                step: if picker.is_empty() { "60" } else { "1" },
+                                title: "Fully specify the time or use the date picker.",
                                 value: picker,
                                 onchange: move |ev| {
                                     if let Some(secs) = datetime_local_to_epoch(&ev.value()) {
