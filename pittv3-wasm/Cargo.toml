@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-wasm"
-version = "0.2.0-pre"
+version = "0.2.0-pre.2"
 description = """
 Browser-based frontend for the PKI Interoperability Test Tool v3 (PITTv3) that performs
 certification path validation in a WASM context, including validation of certificates signed
