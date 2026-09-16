@@ -1013,6 +1013,12 @@ pub(crate) fn general_subtree_to_string(gs: &GeneralSubtree) -> String {
 pub fn decode_pem_to_der(bytes: &[u8]) -> Result<Vec<u8>> {
     use base64ct::{Base64, Encoding};
 
+    // A UTF-8 byte order mark ahead of the armor, which Notepad and PowerShell both write. It has
+    // to come off before the armor check below reads the first byte, or the file leaves by the
+    // passthrough at the end and the caller is handed the armor text as though it were an object.
+    // Safe for every input: no DER object begins with one.
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+
     let der = if bytes.first() == Some(&0x2D) {
         match pem_rfc7468::decode_vec(bytes) {
             Ok((_label, der)) => der,
@@ -1302,6 +1308,18 @@ fn decode_pem_to_der_lenient_and_passthrough() {
         .join("\r\n");
     let odd_width = format!("-----BEGIN X-----\r\n{wrapped}\r\n-----END X-----\r\n");
     assert_eq!(decode_pem_to_der(odd_width.as_bytes()).unwrap(), der);
+
+    // a UTF-8 byte order mark ahead of the armor, which Notepad and PowerShell write. Without the
+    // strip it defeats the armor check and the whole file leaves by the passthrough below, so the
+    // caller is handed armor text rather than an object and drops it wherever it parses.
+    let mut bom = alloc::vec![0xEF, 0xBB, 0xBF];
+    bom.extend_from_slice(strict.as_bytes());
+    assert_eq!(decode_pem_to_der(&bom).unwrap(), der);
+
+    // unrecognizable bytes still pass through rather than erroring: this decoder cannot know which
+    // parse the caller is about to run, so it cannot know which error to raise.
+    let junk = b"not an object in any encoding";
+    assert_eq!(decode_pem_to_der(junk).unwrap(), junk.to_vec());
 }
 
 #[test]
@@ -1421,6 +1439,58 @@ fn decode_pem_to_ders_splits_bundle() {
     // a malformed block fails the whole call (caller skips the file)
     let malformed = "-----BEGIN CERTIFICATE-----\n!!!notbase64!!!\n-----END CERTIFICATE-----\n";
     assert!(decode_pem_to_ders(malformed.as_bytes()).is_err());
+}
+
+/// The decoders here are format-level, not certificate-level, and a CRL is the reason it matters:
+/// `crl_source.rs` reads every file in a CRL folder through `get_file_as_byte_vec_pem` and parses
+/// the result with `CertificateList::from_der`. So nothing in the chain may assume the object is a
+/// certificate, and the tolerances have to hold for whatever DER arrives.
+///
+/// This is also why [`decode_pem_to_der`] hands unrecognized bytes back rather than refusing them:
+/// it cannot know which parse the caller is about to run, so it cannot know which error to raise.
+#[test]
+fn a_crl_decodes_in_every_spelling() {
+    use base64ct::{Base64, Encoding};
+
+    // The two on-disk spellings of one Amazon Root CA 1 CRL, which must reduce to the same DER.
+    let from_der = decode_pem_to_der(include_bytes!(
+        "../../tests/examples/pem_crl/AmazonRootCA1.der.crl"
+    ))
+    .unwrap();
+    let from_pem = decode_pem_to_der(include_bytes!(
+        "../../tests/examples/pem_crl/AmazonRootCA1.pem.crl"
+    ))
+    .unwrap();
+    assert_eq!(from_der, from_pem);
+    let der = from_der;
+
+    // The trailing byte an editor or mail client adds, fatal because a strict parse refuses the
+    // whole buffer rather than ignoring it.
+    let mut with_newline = der.clone();
+    with_newline.push(b'\n');
+    assert_eq!(decode_pem_to_der(&with_newline).unwrap(), der);
+
+    // Armored under the label a CRL is published with rather than CERTIFICATE, and at a wrap width
+    // strict RFC 7468 refuses.
+    let b64 = Base64::encode_string(&der);
+    let wrapped = b64
+        .as_bytes()
+        .chunks(65)
+        .map(|c| core::str::from_utf8(c).expect("base64 is ascii"))
+        .collect::<alloc::vec::Vec<_>>()
+        .join("\n");
+    let armored = format!("-----BEGIN X509 CRL-----\n{wrapped}\n-----END X509 CRL-----\n");
+    assert_eq!(decode_pem_to_der(armored.as_bytes()).unwrap(), der);
+
+    // Base64 with no boundaries around it, which is what a paste of the middle of a PEM leaves.
+    assert_eq!(decode_pem_to_der(b64.as_bytes()).unwrap(), der);
+
+    // And a file holding two of them fans out, so a CRL bundle is not one unusable object.
+    let bundle = format!("{armored}{armored}");
+    assert_eq!(
+        decode_pem_to_ders(bundle.as_bytes()).unwrap(),
+        alloc::vec![der.clone(), der]
+    );
 }
 
 #[test]

@@ -34,6 +34,11 @@ pub use certval::{CERT_BUNDLE_EXTENSIONS, SINGLE_CERT_EXTENSIONS, TA_BUNDLE_EXTE
 /// for a file that is base64 with no boundaries at all. A failure means the bytes are none of the
 /// three.
 pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
+    // Stripped here as well as in `decode_pem_to_der`, because the armor check below is this
+    // function's own rather than delegated -- see the comment on that branch. A leading UTF-8 byte
+    // order mark is what Notepad and PowerShell write, and no DER object begins with one.
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+
     if !bytes.is_empty() && matches!(bytes[0], 0x30 | 0xA2) {
         // Trimmed, not handed back as read. A file holding a certificate followed by a newline is
         // DER plus slop, and every parse downstream refuses the whole buffer with `TrailingData`.
