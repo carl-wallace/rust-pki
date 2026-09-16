@@ -30,7 +30,7 @@ use dioxus::prelude::*;
 use certval::{NameConstraintsSettings, OcspNonceSetting};
 use x509_cert::ext::pkix::KeyUsages;
 
-use crate::gui_rows::{datetime_local_to_epoch, epoch_to_datetime_local, now_as_unix_epoch};
+use crate::gui_rows::{datetime_local_to_epoch, epoch_to_datetime_local};
 use crate::gui_settings_model::{RevocationMode, SettingsModel};
 
 #[cfg(feature = "std")]
@@ -143,9 +143,12 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
                                     }
                                 },
                             }
+                            // Clears rather than stamping the current epoch, for the reason
+                            // `TimeRow` gives at length: a stamped "now" stops being now and
+                            // nothing says so. Absent already means run time here.
                             button {
                                 r#type: "button",
-                                onclick: move |_| onchange.call(Some(now_as_unix_epoch())),
+                                onclick: move |_| onchange.call(None),
                                 "Now"
                             }
                             // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch

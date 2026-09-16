@@ -6,8 +6,9 @@
 //! was asked to hand back — and the rendering of that report as a document a reader can keep.
 //!
 //! It lives here rather than in either frontend because both produce one: the desktop and the
-//! command line from paths, through [`options_std`](crate::options_std); the browser from uploaded
-//! bytes, through `pittv3-gui-lib`. The inputs differ because a filesystem and a file input are
+//! command line from paths, through `options_std`; the browser from uploaded bytes, through
+//! `pittv3-gui-lib`. Named rather than linked because that module is `std`-gated, so the link does
+//! not resolve in the build this crate documents without it. The inputs differ because a filesystem and a file input are
 //! different things. What they describe does not, which is why the description is one type.
 
 use alloc::format;
