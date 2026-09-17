@@ -25,6 +25,9 @@ mod window_state;
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 
+use pittv3_gui_lib::gui_utils::read_saved_args;
+use pittv3_gui_lib::settings_store::default_log_config_path;
+
 use crate::gui::App;
 
 /// Window title: the application and the version of this build, from the manifest.
@@ -59,6 +62,16 @@ fn window_icon() -> Option<Icon> {
 }
 
 fn main() {
+    // Before the window, so logging exists for everything the application does rather than from its
+    // first run onward. The same file the Validate view would name, read from the saved arguments.
+    let saved = read_saved_args().unwrap_or_default();
+    logging::init_logging(
+        saved
+            .logging_config
+            .or_else(default_log_config_path)
+            .as_deref(),
+    );
+
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
             Config::new().with_window(

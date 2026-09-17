@@ -10,14 +10,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use home::home_dir;
-use log::{debug, error, LevelFilter};
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
-use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
-use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::config::{Appender, Config, Root};
-use log4rs::encode::pattern::PatternEncoder;
+use log::{debug, error};
 use rfd::AsyncFileDialog;
 
 use pittv3_lib::der_or_pem::SINGLE_CERT_EXTENSIONS;
@@ -46,12 +39,12 @@ use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, last_dialog_dir, read_saved_args, remember_dialog_dir, save_args, set_log_sink,
-    ChannelAppender, DialogPurpose,
+    DialogPurpose,
 };
 use pittv3_gui_lib::settings_store::{
     common_settings, default_ca_folder, default_crl_folder, default_download_folder,
-    default_error_folder, default_log_config_path, default_log_file, default_settings_path,
-    expand_tilde, save_common_settings, saved_or_default, CommonSettings,
+    default_error_folder, default_log_config_path, default_settings_path, expand_tilde,
+    save_common_settings, saved_or_default, CommonSettings,
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
@@ -70,7 +63,6 @@ use pittv3_lib::std_utils::{
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use pittv3_lib::RevocationCache;
 
-use crate::logging;
 use crate::peek;
 use crate::stores;
 use crate::window_state;
@@ -2093,78 +2085,6 @@ pub(crate) fn App() -> Element {
             }
 
             let _ = save_args(&args);
-
-            let mut logging_configured = false;
-
-            if let Some(logging_config) = &args.logging_config {
-                // Written only when absent, so an edited file is never replaced. Without a
-                // destination to substitute there is nothing to write, and the load below fails
-                // through to the built-in configuration.
-                if let Some(log_file) = default_log_file() {
-                    logging::ensure_config_file(logging_config, &log_file);
-                }
-                // `deserializers()` rather than `Default::default()`: the template names the
-                // channel appender that feeds the Results view, and the default registry cannot
-                // resolve it.
-                if let Err(e) = log4rs::init_file(logging_config, logging::deserializers()) {
-                    println!(
-                    "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
-                );
-                } else {
-                    logging_configured = true;
-                }
-            }
-
-            if !logging_configured {
-                // if there's no config, prepare one using stdout plus the channel appender that
-                // streams run output into the Results view (log4rs initialization is one-shot per
-                // process; subsequent attempts fail harmlessly and logging keeps its first shape)
-                let stdout = ConsoleAppender::builder()
-                    .encoder(Box::new(PatternEncoder::new("{m}{n}")))
-                    .build();
-
-                // A file as well, because the other two do not survive the run: an application
-                // launched from the Finder has no stdout to read, and the channel appender feeds a
-                // view that is cleared by the next run. Rolling rather than plain -- 5 MB across
-                // four files, so a session that logs heavily is bounded at 20 MB and needs no
-                // maintenance action of its own. A log4rs file named in the settings replaces all
-                // of this, which is what that setting is for.
-                let file = default_log_file().and_then(|path| {
-                    let roll = FixedWindowRoller::builder()
-                        .build(&format!("{path}.{{}}"), 3)
-                        .ok()?;
-                    let policy = CompoundPolicy::new(
-                        Box::new(SizeTrigger::new(5 * 1024 * 1024)),
-                        Box::new(roll),
-                    );
-                    RollingFileAppender::builder()
-                        .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
-                        .build(&path, Box::new(policy))
-                        .ok()
-                });
-
-                let mut builder = Config::builder()
-                    .appender(Appender::builder().build("stdout", Box::new(stdout)))
-                    .appender(Appender::builder().build("channel", Box::new(ChannelAppender)));
-                let mut root = Root::builder().appender("stdout").appender("channel");
-                if let Some(file) = file {
-                    builder = builder.appender(Appender::builder().build("file", Box::new(file)));
-                    root = root.appender("file");
-                }
-                match builder.build(root.build(LevelFilter::Info)) {
-                    Ok(config) => {
-                        let handle = log4rs::init_config(config);
-                        if let Err(e) = handle {
-                            println!(
-                            "ERROR: failed to configure logging for stdout with {e:?}. Continuing without logging."
-                        );
-                        }
-                    }
-                    Err(e) => {
-                        println!("ERROR: failed to prepare default logging configuration with {e:?}. Continuing without logging");
-                    }
-                }
-            }
 
             debug!("PITTv3 start");
 
