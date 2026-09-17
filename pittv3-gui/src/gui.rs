@@ -2291,25 +2291,23 @@ pub(crate) fn App() -> Element {
                 &s_export_name(),
                 s_run_stamp().unwrap_or_else(now_as_unix_epoch),
             );
-            // The environment halves, from the run's cache where there is one and from the files
-            // the run read where there is not.
+            // The environment halves: the files the run read, as given, and beside them what the
+            // run's cache says it built from them, where it built anything.
             //
             // **The cache is not enough on its own, which is what the first bundles showed.**
             // `fingerprint_for_args` answers `None` for a store used by itself, because such a
             // store already carries its partial paths and nothing needs building -- so the most
             // ordinary run there is produced a bundle with no environment in it at all, and a
-            // command line that would have found no trust anchors. The cache is preferred because
-            // it holds what a built graph actually became; the files are the fallback and are the
-            // same bytes for a store that was only read.
+            // command line that would have found no trust anchors. So the files always fill the
+            // store halves, and the cache fills only the built ones.
             let inputs = match s_run_inputs() {
                 None => RunInputs::default(),
                 Some((args, store)) => {
                     let fingerprint = graph_cache::fingerprint_for_args(&args);
                     RunInputs {
-                        anchors: fingerprint
-                            .as_deref()
-                            .and_then(graph_cache::cached_anchors)
-                            .or_else(|| read_input_file(&args.ta_cbor))
+                        // The store's anchors as given, like `graph` below; what the run
+                        // assembled goes in `built_anchors`, not here.
+                        anchors: read_input_file(&args.ta_cbor)
                             .or_else(|| pool_includes_ta_store(&read_pool(&args.ta_inputs))),
                         // The store as the run read it, always, so it stays comparable -- from
                         // the singular argument, or from whichever pooled input is itself a store.
@@ -2320,6 +2318,8 @@ pub(crate) fn App() -> Element {
                         // a built graph saved under that name looks like a store snapshot and is
                         // not one, and nothing in the file says so.
                         built_graph: fingerprint.as_deref().and_then(graph_cache::cached),
+                        // Cached beside the graph under the same key, so they describe one run.
+                        built_anchors: fingerprint.as_deref().and_then(graph_cache::cached_anchors),
                         // The targets the run was asked about. Supplied here because the run's own
                         // retained state records them per validated path, and a run that found no
                         // paths would otherwise carry no target at all -- which is the certificate

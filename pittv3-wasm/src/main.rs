@@ -1589,9 +1589,13 @@ fn App() -> Element {
     let validate_loaded = move || async move {
         let started = Instant::now();
         run_stamp.set(Some(now_as_unix_epoch()));
-        // each Validate replaces the prior results rather than appending to them
+        // each Validate replaces the prior results rather than appending to them, and the log with
+        // them, as the desktop does: a saved log belongs to the run it is saved beside, and one
+        // carrying every earlier run in the session also grows toward the buffer's cap
         targets.write().clear();
         notes.write().clear();
+        log_capture::clear();
+        log_tick += 1;
         validating.set(true);
         // Yield one frame so the busy state paints before the synchronous parse/validation blocks
         // the (single) thread; on a large store the first parse otherwise reads as a hang.
@@ -1881,6 +1885,8 @@ fn App() -> Element {
             // certificate widened the pool, since that is when preparation discovers paths rather
             // than reading the ones a fetched store already carries.
             built_graph: prepared.built_graph().map(<[u8]>::to_vec),
+            // The anchor half of the same record: the store's anchors plus the uploaded ones.
+            built_anchors: prepared.built_anchors().map(<[u8]>::to_vec),
             settings: Some(cps.clone()),
             end_entities: loaded_ees(),
             anchors_used: retained_paths

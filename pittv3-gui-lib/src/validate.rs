@@ -76,6 +76,14 @@ pub struct PreparedValidation {
     /// where it is not -- serializing is a linear walk of the buffers the recursive discovery just
     /// finished with.
     built_graph: Option<Vec<u8>>,
+    /// The anchors this preparation assembled -- the store's plus any uploaded -- as the CBOR a
+    /// trust anchor store takes, under the same condition as [`Self::built_graph`].
+    ///
+    /// The anchor half of the same record. The graph's partial paths end at these anchors, and the
+    /// trust anchor source is moved into `pe` just as the certificate source is, so without this a
+    /// bundle carried the store's anchors and only those uploaded ones a validated path happened to
+    /// end at. `None` when nothing was uploaded, for the same reason the graph is.
+    built_anchors: Option<Vec<u8>>,
 }
 
 impl PreparedValidation {
@@ -103,6 +111,11 @@ impl PreparedValidation {
     /// store it was handed, and a bundle is worth more for carrying both.
     pub fn built_graph(&self) -> Option<&[u8]> {
         self.built_graph.as_deref()
+    }
+
+    /// The anchors this preparation assembled, or `None` when nothing was uploaded -- see the field.
+    pub fn built_anchors(&self) -> Option<&[u8]> {
+        self.built_anchors.as_deref()
     }
 }
 
@@ -160,6 +173,13 @@ pub fn prepare_validation(
     // caching them is sound because a hit means this exact signature already verified under
     // this exact key.
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
+    // Before the source is registered, which moves it -- see `built_graph` below.
+    let built_anchors = match uploaded {
+        true => ta_store
+            .serialize(CertificationPathBuilderFormats::Cbor)
+            .ok(),
+        false => None,
+    };
     pe.add_trust_anchor_source(Box::new(ta_store));
     // Registered empty and always, rather than only when the frontend has CRLs: the source is
     // shared by clone, so a frontend that retrieves one later adds it to the same contents this
@@ -216,6 +236,7 @@ pub fn prepare_validation(
             crls,
             ocsp,
             built_graph,
+            built_anchors,
         },
         out,
     ))
@@ -1237,7 +1258,28 @@ mod inspect_tests {
     }
 
     #[test]
+    fn a_run_that_built_a_graph_keeps_the_anchors_it_assembled() {
+        let uploads = vec![("from_email_CA_59.der".to_string(), TARGET.to_vec())];
+        let prepared = prepared_with(&uploads);
+        let bytes = prepared
+            .built_anchors()
+            .expect("a preparation over uploads should keep the anchors it assembled");
+        let read_back = TaSource::new_from_cbor(bytes)
+            .expect("the anchors a run assembled should read back as a trust anchor store");
+        let baked = TaSource::new_from_cbor(&anchor_store()).expect("the baked anchors");
+        assert_eq!(
+            baked.get_tas().len(),
+            read_back.get_tas().len(),
+            "with no anchor uploaded, the assembled anchors are the store's"
+        );
+    }
+
+    #[test]
     fn a_run_over_a_store_alone_builds_no_graph_of_its_own() {
+        assert!(
+            prepared_with(&[]).built_anchors().is_none(),
+            "with nothing uploaded the anchors are the store's as fetched"
+        );
         assert!(
             prepared_with(&[]).built_graph().is_none(),
             "with nothing uploaded the pool is the store as fetched, which carries its own partial \
