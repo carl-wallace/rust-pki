@@ -1168,7 +1168,7 @@ async fn save_certificates(
             ["der", "crt", "cer"].as_slice(),
             files[0].1.clone(),
         ),
-        _ => match zip_files(&archive_name, &files) {
+        _ => match zip_files(&archive_name, &files, now_as_unix_epoch()) {
             Ok(zipped) => (
                 format!("{archive_name}-certificates.zip"),
                 ["zip"].as_slice(),
@@ -2207,10 +2207,8 @@ pub(crate) fn App() -> Element {
         let retained = retained.clone();
         move |_: MouseEvent| {
             let retained = retained.clone();
-            let name = stamped_export_name(
-                &s_export_name(),
-                s_run_stamp().unwrap_or_else(now_as_unix_epoch),
-            );
+            let stamp = s_run_stamp().unwrap_or_else(now_as_unix_epoch);
+            let name = stamped_export_name(&s_export_name(), stamp);
             // The environment halves: the files the run read, as given, and beside them what the
             // run's cache says it built from them, where it built anything.
             //
@@ -2253,7 +2251,7 @@ pub(crate) fn App() -> Element {
             };
             let run_ms = s_report().map(|r| r.duration_ms);
             spawn(async move {
-                match save::artifacts_archive(&retained, &name, inputs, run_ms) {
+                match save::artifacts_archive(&retained, &name, inputs, run_ms, stamp) {
                     Ok(None) => s_log
                         .write()
                         .push("No run is held to save. Validate something first.".to_string()),

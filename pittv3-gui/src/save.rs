@@ -127,6 +127,7 @@ pub(crate) fn artifacts_archive(
     name: &str,
     inputs: RunInputs,
     run_ms: Option<u64>,
+    secs: u64,
 ) -> Result<Option<Vec<u8>>, String> {
     let guard = match artifacts.lock() {
         Ok(guard) => guard,
@@ -136,7 +137,7 @@ pub(crate) fn artifacts_archive(
         return Ok(None);
     };
     let inputs = complete_inputs(run, inputs);
-    zip_bundle(name, &entries_for(run), &inputs, run_ms).map(Some)
+    zip_bundle(name, &entries_for(run), &inputs, run_ms, secs).map(Some)
 }
 
 /// The manifests alone -- every path's account of itself, one after another, without the material
@@ -167,7 +168,7 @@ mod tests {
     fn nothing_retained_yields_nothing_to_save() {
         let artifacts: RetainedArtifacts = Arc::new(Mutex::new(None));
         assert!(
-            artifacts_archive(&artifacts, "run", RunInputs::default(), None)
+            artifacts_archive(&artifacts, "run", RunInputs::default(), None, 0)
                 .unwrap()
                 .is_none()
         );
@@ -181,7 +182,7 @@ mod tests {
             graph: Some(b"graph".to_vec()),
             ..Default::default()
         };
-        assert!(artifacts_archive(&artifacts, "run", inputs, Some(1234))
+        assert!(artifacts_archive(&artifacts, "run", inputs, Some(1234), 0)
             .unwrap()
             .is_none());
     }
@@ -221,7 +222,7 @@ mod tests {
             time_of_interest: 1,
             ..Default::default()
         };
-        let zipped = artifacts_archive(&artifacts, "run", inputs, Some(1234))
+        let zipped = artifacts_archive(&artifacts, "run", inputs, Some(1234), 0)
             .unwrap()
             .expect("a run with no paths still has an inputs half");
         assert!(!zipped.is_empty());

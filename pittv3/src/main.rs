@@ -2,14 +2,24 @@
 #![forbid(unsafe_code)] // removed due to issue with Clap derive, clippy::unwrap_used)]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
 
-mod cliargs;
-
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use log::debug;
 
 use pittv3_lib::args::Pittv3Args;
 
-use crate::cliargs::Pittv3CliArgs;
+/// Parses the command line into [`Pittv3Args`].
+///
+/// Built from the command `Pittv3Args` derives, with this binary's name, version and description in
+/// place of the library crate's, which are what the derive reads.
+fn parse_args() -> Pittv3Args {
+    let matches = Pittv3Args::command()
+        .name(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .about(env!("CARGO_PKG_DESCRIPTION"))
+        .long_about(None)
+        .get_matches();
+    Pittv3Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
+}
 
 #[cfg(feature = "std_app")]
 use log::LevelFilter;
@@ -28,7 +38,7 @@ cfg_if! {
         /// Point of entry for PITTv3 application.
         #[tokio::main]
         async fn main() {
-            let args: Pittv3Args = Pittv3CliArgs::parse().into();
+            let args = parse_args();
 
             let mut logging_configured = false;
 
@@ -79,7 +89,7 @@ cfg_if! {
     else if #[cfg(not(feature = "std_app"))] {
         /// Point of entry for PITTv3 application.
         fn main() {
-            let args: Pittv3Args = Pittv3CliArgs::parse().into();
+            let args = parse_args();
 
             debug!("PITTv3 start");
 
