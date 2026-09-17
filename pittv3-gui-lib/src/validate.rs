@@ -891,12 +891,11 @@ fn validate_self_signed(pe: &PkiEnvironment, name: &str, der: &[u8]) -> Vec<Resu
             return out;
         }
     };
-    if is_self_signed(pe, &target) {
-        out.push(ok(format!("{name} is self-signed")));
-    } else {
-        out.push(err(format!(
-            "{name} is not self-signed (bad signature or unsupported algorithm)"
-        )));
+    let outcome = pittv3_lib::self_signed::evaluate(pe, &target);
+    let line = pittv3_lib::self_signed::describe(name, &outcome);
+    match outcome {
+        Ok(true) => out.push(ok(line)),
+        _ => out.push(err(line)),
     }
     out
 }

@@ -725,7 +725,7 @@ mod check_impl {
     }
 
     fn any_self_signed(pe: &PkiEnvironment, certs: &[PDVCertificate]) -> bool {
-        certs.iter().any(|c| is_self_signed(pe, c))
+        certs.iter().any(|c| crate::screens_as_self_signed(pe, c))
     }
 
     /// What the fetched collection turned out to be, relative to the certificate that named it.
@@ -764,7 +764,7 @@ mod check_impl {
                     return CertsVerdict::Correct;
                 }
             } else {
-                let self_signed = is_self_signed(pe, c);
+                let self_signed = crate::screens_as_self_signed(pe, c);
                 if !self_signed && verifies(pe, target, c) {
                     if issuer.is_none() && auto_discover {
                         *issuer = Some(c.clone());
@@ -1082,7 +1082,7 @@ mod remote_impl {
                         elapsed_ms,
                     },
                     Err(e) => {
-                        debug!("OCSP body read failed for {uri}: {e}");
+                        debug!("OCSP body read failed for {uri}: {}", error_chain(&e));
                         FetchOutcome {
                             elapsed_ms,
                             ..Default::default()
@@ -1094,7 +1094,7 @@ mod remote_impl {
                     ..Default::default()
                 },
                 Err(e) => {
-                    debug!("OCSP post failed for {uri}: {e}");
+                    debug!("OCSP post failed for {uri}: {}", error_chain(&e));
                     FetchOutcome {
                         elapsed_ms,
                         ..Default::default()
@@ -1106,11 +1106,24 @@ mod remote_impl {
 
     /// Fetches raw bytes for a URI, returning (success, body). Success is false on any transport
     /// error, non-2xx status, or an HTML error page.
+    /// `e` followed by each error in its source chain. reqwest's own message stops at "error sending
+    /// request"; the cause -- a failed lookup, a refused connection, a timeout -- is in the chain.
+    fn error_chain(e: &dyn std::error::Error) -> String {
+        let mut out = e.to_string();
+        let mut source = e.source();
+        while let Some(cause) = source {
+            out.push_str(": ");
+            out.push_str(&cause.to_string());
+            source = cause.source();
+        }
+        out
+    }
+
     async fn http_get(client: &reqwest::Client, uri: &str) -> (bool, Vec<u8>) {
         let resp = match client.get(uri).timeout(REQUEST_TIMEOUT).send().await {
             Ok(r) => r,
             Err(e) => {
-                debug!("fetch failed for {uri}: {e}");
+                debug!("fetch failed for {uri}: {}", error_chain(&e));
                 return (false, vec![]);
             }
         };
@@ -1129,7 +1142,7 @@ mod remote_impl {
         match resp.bytes().await {
             Ok(b) => (true, b.to_vec()),
             Err(e) => {
-                debug!("body read failed for {uri}: {e}");
+                debug!("body read failed for {uri}: {}", error_chain(&e));
                 (false, vec![])
             }
         }

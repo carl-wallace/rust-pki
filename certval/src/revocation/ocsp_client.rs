@@ -251,7 +251,10 @@ async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8], max_bytes: u64) -> R
     {
         Ok(b) => b,
         Err(e) => {
-            debug!("OCSP request send failed with {e}: {uri_to_check}");
+            debug!(
+                "OCSP request send failed with {}: {uri_to_check}",
+                crate::builder::uri_utils::error_chain(&e)
+            );
             return Err(Error::NetworkError);
         }
     };

@@ -222,11 +222,26 @@ fn add_file_to_vec(
                     continue;
                 }
 
-                if is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
-                    if let Some(s) = path.to_str() {
-                        info!("Ignoring a self-signed object in {s}");
+                match is_self_signed_with_buffer(pe, &cert, buffer.as_slice()) {
+                    Ok(true) => {
+                        info!(
+                            "Ignoring a self-signed object in {}",
+                            path.to_str().unwrap_or("")
+                        );
+                        continue;
                     }
-                    continue;
+                    Ok(false) => {}
+                    // A self-issued certificate whose signature cannot be checked is treated as
+                    // self-signed, so an anchor never enters the pool as an intermediate.
+                    Err(e) => {
+                        if is_self_issued(&cert) {
+                            info!(
+                                "Ignoring a self-issued object with a signature that could not be checked in {}: {e:?}",
+                                path.to_str().unwrap_or("")
+                            );
+                            continue;
+                        }
+                    }
                 }
             } else {
                 unparsed += 1;

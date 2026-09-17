@@ -37,7 +37,6 @@ use rfc5934::message::TampMessage;
 use rfc5934::signed::SignedData;
 use rfc5934::{ContentCollection, TampUpdate, TrustAnchorUpdate};
 
-use certval::util::pdv_utilities::is_self_signed;
 use certval::{parse_cert, CertFile, PkiEnvironment};
 
 /// What one InstallRoot stream contributed, kept apart by the kind of message each came from.
@@ -173,7 +172,7 @@ fn collect_update(
             StreamKind::Ca => {
                 if let Some(bytes) = certificate_der(choice) {
                     let self_signed = parse_cert(bytes.as_slice(), &name)
-                        .map(|cert| is_self_signed(pe, &cert))
+                        .map(|cert| crate::screens_as_self_signed(pe, &cert))
                         .unwrap_or(false);
                     if self_signed {
                         info!("Ignoring a self-signed object in the CA message of {path}");

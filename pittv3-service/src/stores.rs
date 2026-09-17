@@ -52,7 +52,7 @@ pub enum StoreProvenance {
 }
 
 /// One trust store: the trust anchors and the CA certificates as separate CBOR artifacts, which is
-/// the pair `pittv3 -g` writes and the desktop's Export PKI Environment button produces.
+/// the pair `pittv3 -g` writes.
 ///
 /// The halves are [`Bytes`] rather than `Vec<u8>` because serving one is then a reference count
 /// instead of a copy — the Mozilla CA store alone is 6.6 MB — and because a built-in store's halves
@@ -235,8 +235,8 @@ impl StoreCatalog {
     /// Reads every store in `dir`, in whichever of the three layouts the artifact already has --
     /// nothing here asks a deployment to rename what a PITTv3 tool produced:
     ///
-    /// - **`<id>/ta.cbor` and `<id>/ca.cbor` in a subdirectory**, which is what the desktop's
-    ///   Export PKI Environment writes; the directory name is the identifier.
+    /// - **`<id>/ta.cbor` and `<id>/ca.cbor` in a subdirectory**; the directory name is the
+    ///   identifier.
     /// - **`<id>_ta.cbor` and `<id>_ca.cbor`**, which is how the trust store providers name their
     ///   generated artifacts.
     /// - **`<id>.ta.cbor` and `<id>.ca.cbor`**.
@@ -378,7 +378,7 @@ mod tests {
     fn reads_every_layout_a_pittv3_tool_produces() {
         let dir = tempfile::tempdir().unwrap();
 
-        // What Export PKI Environment writes: a folder holding fixed names.
+        // A folder holding fixed names.
         let exported = dir.path().join("my_export");
         fs::create_dir(&exported).unwrap();
         fs::write(exported.join("ta.cbor"), b"ta").unwrap();

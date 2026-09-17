@@ -10,6 +10,9 @@
 
 use dioxus::prelude::*;
 
+use certval::{parse_cert, PkiEnvironment};
+use pittv3_lib::der_or_pem::maybe_pem;
+use pittv3_lib::self_signed;
 use pittv3_lib::uri_check::{UriCheckReport, UriStatus};
 
 /// CSS class selecting the colour for a URI-check result, reusing the validation badge palette so a
@@ -77,5 +80,25 @@ pub fn UriCheckResults(report: UriCheckReport) -> Element {
                 }
             }
         }
+    }
+}
+
+/// Whether `bytes`, DER or PEM, hold a self-signed certificate, or why that could not be evaluated.
+/// Needs no network.
+pub fn check_self_signed(bytes: &[u8]) -> Result<bool, String> {
+    let der = maybe_pem(bytes).map_err(|e| e.to_string())?;
+    let cert = parse_cert(&der, "").map_err(|e| e.to_string())?;
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    self_signed::evaluate(&pe, &cert)
+}
+
+/// One line saying whether the certificate `name` is self-signed. Shown on the Check URIs views,
+/// which already hold a chosen certificate.
+#[component]
+pub fn SelfSignedLine(name: String, bytes: Vec<u8>) -> Element {
+    let text = self_signed::describe(&name, &check_self_signed(&bytes));
+    rsx! {
+        p { class: "results-summary", "{text}" }
     }
 }

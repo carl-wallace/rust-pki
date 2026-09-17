@@ -31,6 +31,7 @@ pub mod pitt_log;
 pub mod prepared_graph;
 pub mod report;
 pub mod retained;
+pub mod self_signed;
 pub mod stats;
 pub mod std_utils;
 pub mod uri_check;
@@ -96,6 +97,18 @@ pub fn run_blocking(args: &Pittv3Args) -> report::ValidationReport {
 }
 
 pub use crate::args::Pittv3Args;
+
+/// Whether a certificate is to be treated as self-signed when screening material: it is, or its
+/// signature cannot be checked and it is self-issued.
+pub(crate) fn screens_as_self_signed(
+    pe: &certval::PkiEnvironment,
+    cert: &certval::PDVCertificate,
+) -> bool {
+    match certval::is_self_signed(pe, cert) {
+        Ok(self_signed) => self_signed,
+        Err(_) => certval::is_self_issued(cert.decoded()),
+    }
+}
 
 /// Re-exported because [`options_std_retaining`](crate::options_std::options_std_retaining) takes
 /// one in its signature: a frontend that owns the revocation status cache across runs has to be

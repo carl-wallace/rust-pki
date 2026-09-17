@@ -427,7 +427,10 @@ async fn fetch_crl(
             crate::builder::uri_utils::read_capped_body(response, max_bytes, uri).await
         }
         Err(e) => {
-            debug!("Failed to fetch CRL from {uri}: {e:?}");
+            debug!(
+                "Failed to fetch CRL from {uri}: {}",
+                crate::builder::uri_utils::error_chain(&e)
+            );
             pe.add_to_blocklist(uri);
             Err(Error::NetworkError)
         }

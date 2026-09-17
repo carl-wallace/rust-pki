@@ -227,7 +227,10 @@ pub fn check_basic_constraints(
             true
         };
 
-        if is_ee && (is_self_issued(cp.target.decoded()) || is_self_signed(pe, &cp.target)) {
+        // A signature that cannot be checked is left for signature verification to report.
+        if is_ee
+            && (is_self_issued(cp.target.decoded()) || is_self_signed(pe, &cp.target) == Ok(true))
+        {
             log_error_for_ca(
                 &cp.target,
                 "End-identity certificate is self-signed or self-issued, but it is forbidden",

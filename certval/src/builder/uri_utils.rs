@@ -20,7 +20,7 @@ cfg_if! {
         use crate::{Error, PkiEnvironment, Result};
         use crate::source::cert_source::CertFile;
         use crate::util::pdv_utilities::{
-            is_self_signed_with_buffer, trim_to_outer_der_sequence, valid_at_time,
+            is_self_issued, is_self_signed_with_buffer, trim_to_outer_der_sequence, valid_at_time,
         };
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
@@ -55,6 +55,20 @@ pub(crate) fn shared_http_client() -> Option<&'static reqwest::Client> {
             }
         })
         .as_ref()
+}
+
+/// `e` followed by each error in its source chain. reqwest's own message stops at "error sending
+/// request"; the cause -- a failed lookup, a refused connection, a timeout -- is in the chain.
+#[cfg(feature = "remote")]
+pub(crate) fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        out.push_str(": ");
+        out.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    out
 }
 
 /// Reads a fetched HTTP response body into memory while enforcing `max_bytes` as it streams, so a
@@ -92,7 +106,7 @@ pub(crate) async fn read_capped_body(
             }
             Ok(None) => break,
             Err(e) => {
-                debug!("Failed to read body from {label} with {e}");
+                debug!("Failed to read body from {label} with {}", error_chain(&e));
                 return Err(Error::NetworkError);
             }
         }
@@ -239,9 +253,20 @@ fn save_cert(
                 return saved;
             }
 
-            if is_self_signed_with_buffer(pe, &cert, bytes) {
-                debug!("Ignoring certificate downloaded from {target} as self-signed");
-                return saved;
+            match is_self_signed_with_buffer(pe, &cert, bytes) {
+                Ok(true) => {
+                    debug!("Ignoring certificate downloaded from {target} as self-signed");
+                    return saved;
+                }
+                Ok(false) => {}
+                // A self-issued certificate whose signature cannot be checked is treated as
+                // self-signed, so an anchor never enters the pool as an intermediate.
+                Err(e) => {
+                    if is_self_issued(&cert) {
+                        debug!("Ignoring certificate downloaded from {target} as self-issued with a signature that could not be checked: {e:?}");
+                        return saved;
+                    }
+                }
             }
 
             // Store what the certificate actually is, not what arrived around it. A certificate
@@ -538,7 +563,7 @@ pub async fn fetch_to_buffer(
                 }
             }
             Err(e) => {
-                error!("Failed to process {target} with {e:?}");
+                error!("Failed to process {target} with {}", error_chain(&e));
                 if !blocklist.contains(target) {
                     blocklist.push(target.clone());
                 }

@@ -156,48 +156,12 @@ pub fn BrowseRow(
     }
 }
 
-/// Labeled checkbox: the box and the text it belongs to, as one field-column item.
-///
-/// Emits no label column of its own, so several of these sit together on one row under a shared
-/// label -- a checkbox states its own name, and giving each one a label column would spread a pair
-/// of related switches across the width of the form.
-#[component]
-pub fn CheckboxCell(
-    label: String,
-    name: String,
-    sig: Signal<bool>,
-    #[props(default)] title: String,
-    /// Whether the control is settable, as on [`CheckboxRow`] and with one difference worth
-    /// stating: a cell is disabled here when another setting makes it *irrelevant* rather than
-    /// when one dictates its value, so the signal is left alone. The value the user last chose
-    /// stays visible and comes back when the control does, and the run ignores it meanwhile.
-    #[props(default)]
-    disabled: bool,
-) -> Element {
-    let title = tooltip(title, &name);
-    rsx! {
-        div { title, class: "visible",
-            label { r#for: name.clone(), "{label}: " }
-            input {
-                r#type: "checkbox",
-                name,
-                checked: sig(),
-                disabled,
-                onchange: move |ev| sig.set(ev.checked()),
-            }
-        }
-    }
-}
-
 /// Grid row pairing a checkbox with the sentence explaining what it changes.
 ///
 /// Emits a `.label-cell` and a `.field` into the surrounding `.controls` grid rather than a
 /// self-contained row, which is what lets several of them share one grid and so one label-column
 /// width: a checkbox per grid lands at a different x in every row, because `max-content` is
 /// measured per grid.
-///
-/// [`CheckboxCell`] remains for the case it was built for — several checkboxes side by side in one
-/// field, where the labels are meant to sit next to their boxes rather than in a column.
 #[component]
 pub fn CheckboxRow(
     label: String,

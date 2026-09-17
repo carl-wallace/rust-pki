@@ -883,11 +883,8 @@ async fn options_std_inner(
                             verify_signature_message_rust_crypto_sha1,
                         );
 
-                        if is_self_signed(&pe, &target_cert) {
-                            println!("{eff} is self-signed");
-                        } else {
-                            println!("{eff} is not self-signed");
-                        }
+                        let outcome = crate::self_signed::evaluate(&pe, &target_cert);
+                        println!("{}", crate::self_signed::describe(eff, &outcome));
                     }
                     // The ASN.1 tag the parse tripped on is already logged by parse_cert; what
                     // is worth saying here is what the user can act on.

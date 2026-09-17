@@ -36,13 +36,13 @@ stores are generated when the crate is built, by the same `serialize_environment
 way and named the same way, a store the browser already ships is recognized as the same material and
 not offered twice.
 
-`--stores <dir>` adds whatever a deployment holds — an export from a desktop run, a store built for
+`--stores <dir>` adds whatever a deployment holds — the environment a saved run used, a store built for
 one community, a graph assembled by chasing — and a store there replaces a built-in of the same
 name, which is how a deployment serves fresher material under a familiar identifier. It is read once
-at startup and never written to. Three layouts are accepted, so nothing has to be renamed after a
-PITTv3 tool produced it: `<id>/ta.cbor` + `<id>/ca.cbor` in a folder (what the desktop's Export PKI
-Environment writes), `<id>_ta.cbor` + `<id>_ca.cbor` (what the trust store providers generate), and
-`<id>.ta.cbor` + `<id>.ca.cbor`. An optional `stores.json` maps identifier to display name. The CA
+at startup and never written to. Three layouts are accepted: `<id>/ta.cbor` + `<id>/ca.cbor` in a
+folder, `<id>_ta.cbor` + `<id>_ca.cbor` (what the trust store providers generate), and
+`<id>.ta.cbor` + `<id>.ca.cbor`. A saved artifacts bundle's `derived/built-ta.cbor` and
+`derived/built-graph.cbor` serve as a store once copied into a folder as `ta.cbor` and `ca.cbor`. An optional `stores.json` maps identifier to display name. The CA
 half is optional; a CA artifact with no trust anchors beside it is skipped.
 
 Two ways to have less than all of that. `--no-builtin-stores` offers only what `--stores` names, for

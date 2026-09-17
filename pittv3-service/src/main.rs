@@ -33,8 +33,8 @@ struct Args {
     client_dir: Option<PathBuf>,
 
     /// Directory of trust stores to offer, read at startup and never written to. Takes a folder
-    /// per store holding `ta.cbor` and `ca.cbor`, as Export PKI Environment writes them, or flat
-    /// `<id>_ta.cbor`/`<id>_ca.cbor` pairs, as the trust store providers generate them. These are
+    /// per store holding `ta.cbor` and `ca.cbor`, or flat `<id>_ta.cbor`/`<id>_ca.cbor` pairs, as
+    /// the trust store providers generate them. These are
     /// offered alongside the built-in stores, and replace one of the same name.
     #[clap(long)]
     stores: Option<PathBuf>,
