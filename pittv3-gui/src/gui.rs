@@ -40,8 +40,8 @@ use pittv3_gui_lib::gui_inspect::InspectReportView;
 use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
-use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TimeRow};
-use pittv3_gui_lib::gui_settings::EditSettingsFile;
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow};
+use pittv3_gui_lib::gui_settings::{EditSettingsFile, TimeOfInterestRow};
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::gui_utils::{
@@ -374,6 +374,11 @@ fn edited_toi(current: &str) -> Option<u64> {
         true => None,
         false => current.trim().parse().ok(),
     }
+}
+
+/// Writes a time-of-interest row's value back to the epoch string the views hold, blank for run time.
+fn set_edited_toi(mut sig: Signal<String>, value: Option<u64>) {
+    sig.set(value.map(|secs| secs.to_string()).unwrap_or_default());
 }
 
 /// Whether it is all right to do something that discards the settings form's edits: either there
@@ -2617,10 +2622,9 @@ pub(crate) fn App() -> Element {
                                             sig: s_dynamic_build,
                                             title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view. This is the same setting as Retrieve from HTTP AIA and SIA on the Settings view.",
                                         }
-                                        TimeRow {
-                                            label: "Time of Interest",
-                                            name: "time-of-interest",
-                                            sig: s_time_of_interest,
+                                        TimeOfInterestRow {
+                                            value: edited_toi(&s_time_of_interest()),
+                                            onchange: move |v| set_edited_toi(s_time_of_interest, v),
                                             title: "The instant every certificate and revocation artifact is judged against. Blank means run time, resolved when the run starts, and Now clears the box to get back to it. Pin an instant with the picker or by typing an epoch; a time pinned here is the same setting as Time of Interest on the Settings view and is written there, while blank leaves that setting unset.",
                                         }
                                     }
@@ -2813,7 +2817,10 @@ pub(crate) fn App() -> Element {
                                 // Beside the option it serves: this is where chasing puts what it
                                 // fetches, and it means nothing when nothing is being chased.
                                 FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                                TimeOfInterestRow {
+                                    value: edited_toi(&s_time_of_interest()),
+                                    onchange: move |v| set_edited_toi(s_time_of_interest, v),
+                                }
                             }
                         }
                         RunButton {
@@ -2880,7 +2887,10 @@ pub(crate) fn App() -> Element {
                                     filter_name: "PITTv3 CBOR-serialized PKI",
                                     extensions: ["cbor", "pki"].as_slice(),
                                 }
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
+                                TimeOfInterestRow {
+                                    value: edited_toi(&s_inspect_toi()),
+                                    onchange: move |v| set_edited_toi(s_inspect_toi, v),
+                                }
                             }
                         }
                         // The same group box the Validate view puts a target in, so the certificate
@@ -3343,7 +3353,6 @@ mod tooltip_coverage {
     const TOOLTIP_ROWS: &[&str] = &[
         "TextRow",
         "BrowseRow",
-        "TimeRow",
         "CheckboxCell",
         "CheckboxRow",
         "PathListRow",

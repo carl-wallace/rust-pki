@@ -113,10 +113,15 @@ fn CapabilityNotice(message: String) -> Element {
 /// mirroring it. An empty value clears the override, which means "the time of the run".
 ///
 /// Public because the time of interest is not only a setting: it decides which of a store's
-/// certificates are usable, so the Inspect view shows it beside the report it governs rather than
-/// leaving a reader to find it on another tab.
+/// certificates are usable, so the views that run against it show it where they are used, in both
+/// frontends. `title` is the label's tooltip, for a view that has more to say about where the value
+/// is kept.
 #[component]
-pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>) -> Element {
+pub fn TimeOfInterestRow(
+    value: Option<u64>,
+    onchange: EventHandler<Option<u64>>,
+    #[props(default)] title: String,
+) -> Element {
     let display = value.map(|v| v.to_string()).unwrap_or_default();
     // Empty while the value is absent or disabled (0), so the picker does not claim a time that is
     // not in effect.
@@ -125,7 +130,7 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
         _ => String::new(),
     };
     rsx! {
-        div { class: "label-cell",
+        div { title, class: "label-cell",
             label { "Time of interest (Unix epoch, 0 disables): " }
         }
         div { class: "field",
@@ -144,9 +149,10 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
                                     }
                                 },
                             }
-                            // Clears rather than stamping the current epoch, for the reason
-                            // `TimeRow` gives at length: a stamped "now" stops being now and
-                            // nothing says so. Absent already means run time here.
+                            // Clears rather than stamping the current epoch. A stamped "now" stops
+                            // being now and nothing on screen distinguishes it from a time chosen
+                            // deliberately; pinning an instant is what the picker is for. Absent
+                            // already means run time here.
                             button {
                                 r#type: "button",
                                 title: "Clears the box, which is how now is represented: the time is resolved when the run starts rather than being fixed to this moment.",
@@ -156,12 +162,13 @@ pub fn TimeOfInterestRow(value: Option<u64>, onchange: EventHandler<Option<u64>>
                             // onchange fires only on a complete datetime, so it never clobbers a mid-edit epoch
                             input {
                                 r#type: "datetime-local",
-                                // Seconds only once there is a value to refine, as in `TimeRow` and
-                                // for the same reason: the control yields nothing at all until every
-                                // field it shows is filled, so a seconds field on an empty picker
-                                // means date and time can both be set and nothing is committed.
-                                // Keyed on the value rather than on anything the control holds
-                                // mid-edit, which only changes when a value has been committed.
+                                // Seconds only once there is a value to refine: the control yields
+                                // nothing at all until every field it shows is filled, so a seconds
+                                // field on an empty picker means date and time can both be set and
+                                // nothing is committed. Keyed on the value rather than on anything
+                                // the control holds mid-edit, which only changes when a value has
+                                // been committed; keyed mid-edit, the seconds field would appear
+                                // blank the instant a value completed and invalidate it.
                                 step: if picker.is_empty() { "60" } else { "1" },
                                 title: "Fully specify the time or use the date picker.",
                                 value: picker,
