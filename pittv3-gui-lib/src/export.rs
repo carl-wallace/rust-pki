@@ -739,8 +739,9 @@ pub struct RunInputs {
     /// [`graph`]: RunInputs::graph
     pub built_graph: Option<Vec<u8>>,
     /// The anchors the run assembled -- the store's plus any supplied -- as a CBOR trust anchor
-    /// store, kept in addition to [`anchors`] for the same reason [`built_graph`] is kept beside
-    /// [`graph`]: `ta.cbor` is the store as given, and this is what the run actually used.
+    /// store, kept in addition to [`anchors`] for the same reason [`built_graph`] is kept beside the
+    /// [`graph`]. `ta.cbor` is the store as given, and this is what the run actually used.
+    ///
     /// [`anchors`]: RunInputs::anchors
     /// [`built_graph`]: RunInputs::built_graph
     /// [`graph`]: RunInputs::graph
