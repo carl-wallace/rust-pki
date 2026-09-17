@@ -138,9 +138,6 @@ use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 use crate::uri_check::UriCheckReports;
 
-#[cfg(feature = "sha1_sig")]
-use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
-
 /// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
 /// was supplied and yielded nothing. `ta_folder_to_vec` returns `Ok(0)` for a folder it emptied —
 /// indistinguishable from no folder at all by the time the environment is queried.
@@ -363,9 +360,6 @@ pub fn assemble_for_diagnostics(
     }
 
     pe.populate_5280_pki_environment();
-
-    #[cfg(feature = "sha1_sig")]
-    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     // CA material named alongside the store, merged into the same pool — the counterpart of the
     // anchors `load_trust_anchors` merges below, and the same loader validation uses. Without it
@@ -878,11 +872,6 @@ async fn options_std_inner(
                         let mut pe = PkiEnvironment::default();
                         pe.populate_5280_pki_environment();
 
-                        #[cfg(feature = "sha1_sig")]
-                        pe.add_verify_signature_message_callback(
-                            verify_signature_message_rust_crypto_sha1,
-                        );
-
                         let outcome = crate::self_signed::evaluate(&pe, &target_cert);
                         println!("{}", crate::self_signed::describe(eff, &outcome));
                     }
@@ -1028,9 +1017,6 @@ async fn generate_and_validate(
     let mut pe = PkiEnvironment::default();
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
     pe.populate_5280_pki_environment();
-
-    #[cfg(feature = "sha1_sig")]
-    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut ta_store_added = false;
     #[cfg(feature = "webpki")]

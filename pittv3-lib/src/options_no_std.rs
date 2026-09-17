@@ -43,9 +43,6 @@ use crate::der_or_pem::maybe_pem;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
-#[cfg(feature = "sha1_sig")]
-use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
-
 /// The `options_std` function provides argument parsing and corresponding actions when `PITTv3` is built
 /// with standard library support (i.e., with `std`, `revocation,std` or `remote` features).
 pub fn options_no_std(args: &Pittv3Args) {
@@ -90,9 +87,6 @@ pub fn options_no_std(args: &Pittv3Args) {
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     pe.add_certificate_source(Box::new(cert_source.clone()));
-
-    #[cfg(feature = "sha1_sig")]
-    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut stats = PathValidationStatsGroup::new();
 

@@ -112,6 +112,8 @@ webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
 capi = ["dep:schannel", "std"]
 rsa = ["dep:rsa", "dep:pkcs1"]
 eddsa = ["dep:ed25519-dalek"]
+# SHA-1 RSA signatures (sha1WithRSAEncryption), for certificates still in service that use them.
+sha1_sig = ["rsa", "sha1/oid"]
 
 [package.metadata.docs.rs]
 all-features = true

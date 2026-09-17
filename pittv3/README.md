@@ -105,21 +105,17 @@ The gates shared with certval enable varying levels of support and are as follow
 - `std` augments the `default-features = false` feature by adding support for obtaining artifacts via the file system and addition of support for multi-threaded use.
 - `revocation,std` augments the `std` feature by adding support for processing CRLs and OCSP responses that are provided by the caller or obtained via the file system.
 - `remote` replaces and augments the `revocation,std` feature by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs
-  expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions. It is part of the default feature set, which is `remote`, `webpki`, `pqc`, `rsa` and `eddsa` — broader than certval's own default of `remote` plus `webpki`, since the binary is meant to be handed whatever certificates a user has.
+  expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions. It is part of the default feature set, which is `remote`, `webpki`, `pqc`, `rsa`, `eddsa` and `sha1_sig` — broader than certval's own default of `remote` plus `webpki`, since the binary is meant to be handed whatever certificates a user has.
 - `pqc` adds support for ML-DSA (FIPS 204), including the hash-ML-DSA-with-SHA-512 variants, and SLH-DSA (FIPS 205), using the [ml-dsa](https://crates.io/crates/ml-dsa) and [slh-dsa](https://crates.io/crates/slh-dsa) implementations, plus composite ML-DSA signatures.
 - `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
 - `rsa` enables use of the RSA algorithm. It is off by default in certval and on by default here.
 - `eddsa` enables use of the Ed25519 algorithm. It is off by default in certval and on by default here.
+- `sha1_sig` enables verification of `sha1WithRSAEncryption` signatures. It is off by default in certval and on by default here.
 
-The first of the two additional gates is `std_app`, which builds certval as `default-features = false` but
+The additional gate is `std_app`, which builds certval as `default-features = false` but
 builds pittv3 with std support so that end entity files can be selected for validation (additional
 work could be done to broaden the capabilities of the app while using certval in no-std but for now
 it's only for selecting end entity files).
-
-The second is `sha1_sig`, which registers an additional signature verification callback covering
-`sha1WithRsaEncryption`, an algorithm the RustCrypto libraries certval builds on do not implement.
-It implies `rsa`, and exists so that legacy material can be examined; it does not make SHA-1 a
-sound signature algorithm.
 
 ## ⚠️ Security Warning
 

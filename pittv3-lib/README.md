@@ -18,7 +18,6 @@ mirror those of the `certval` crate, with two of this crate's own:
 - `pqc` adds ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) support, plus composite ML-DSA
 - `rsa` enables use of the RSA algorithm, which is not enabled by default
 - `eddsa` enables use of the Ed25519 algorithm, which is not enabled by default
-- `sha1_sig` registers a verification callback for `sha1WithRsaEncryption`, which the RustCrypto
-  libraries certval builds on do not implement; it implies `rsa`
+- `sha1_sig` enables verification of `sha1WithRSAEncryption` signatures; it implies `rsa`
 
-`std_app` and `sha1_sig` are this crate's own; the rest are passed through to `certval`.
+`std_app` is this crate's own; the rest are passed through to `certval`.
