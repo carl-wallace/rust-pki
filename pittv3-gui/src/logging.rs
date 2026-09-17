@@ -13,9 +13,17 @@
 use std::fs;
 use std::path::Path;
 
+use log::LevelFilter;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::append::Append;
-use log4rs::config::{Deserialize, Deserializers};
+use log4rs::config::{Appender, Config, Deserialize, Deserializers, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use pittv3_gui_lib::gui_utils::ChannelAppender;
+use pittv3_gui_lib::settings_store::default_log_file;
 
 /// The template written when no configuration file exists, with the log destination substituted.
 const TEMPLATE: &str = include_str!("../assets/log.yaml");
@@ -75,6 +83,83 @@ pub fn ensure_config_file(path: &str, log_file: &str) -> bool {
         return false;
     }
     fs::write(path, TEMPLATE.replace(LOG_FILE_PLACEHOLDER, log_file)).is_ok()
+}
+
+/// Configures logging for the process, from `logging_config` when it names a usable log4rs file and
+/// otherwise from the built-in stdout, Results-view and rolling-file appenders.
+///
+/// Called once, before the window opens, so anything logged before the first run -- a settings save
+/// that fails on leaving a view, say -- has somewhere to go. log4rs can be initialized only once per
+/// process, so a different file chosen in Settings takes effect at the next start.
+pub fn init_logging(logging_config: Option<&str>) {
+    let mut logging_configured = false;
+
+    if let Some(logging_config) = logging_config {
+        // Written only when absent, so an edited file is never replaced. Without a
+        // destination to substitute there is nothing to write, and the load below fails
+        // through to the built-in configuration.
+        if let Some(log_file) = default_log_file() {
+            ensure_config_file(logging_config, &log_file);
+        }
+        // `deserializers()` rather than `Default::default()`: the template names the
+        // channel appender that feeds the Results view, and the default registry cannot
+        // resolve it.
+        if let Err(e) = log4rs::init_file(logging_config, deserializers()) {
+            println!(
+            "ERROR: failed to configure logging using {logging_config} with {e:?}. Continuing without logging."
+        );
+        } else {
+            logging_configured = true;
+        }
+    }
+
+    if !logging_configured {
+        // if there's no config, prepare one using stdout plus the channel appender that
+        // streams run output into the Results view
+        let stdout = ConsoleAppender::builder()
+            .encoder(Box::new(PatternEncoder::new("{m}{n}")))
+            .build();
+
+        // A file as well, because the other two do not survive the run: an application
+        // launched from the Finder has no stdout to read, and the channel appender feeds a
+        // view that is cleared by the next run. Rolling rather than plain -- 5 MB across
+        // four files, so a session that logs heavily is bounded at 20 MB and needs no
+        // maintenance action of its own. A log4rs file named in the settings replaces all
+        // of this, which is what that setting is for.
+        let file = default_log_file().and_then(|path| {
+            let roll = FixedWindowRoller::builder()
+                .build(&format!("{path}.{{}}"), 3)
+                .ok()?;
+            let policy =
+                CompoundPolicy::new(Box::new(SizeTrigger::new(5 * 1024 * 1024)), Box::new(roll));
+            RollingFileAppender::builder()
+                .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
+                .build(&path, Box::new(policy))
+                .ok()
+        });
+
+        let mut builder = Config::builder()
+            .appender(Appender::builder().build("stdout", Box::new(stdout)))
+            .appender(Appender::builder().build("channel", Box::new(ChannelAppender)));
+        let mut root = Root::builder().appender("stdout").appender("channel");
+        if let Some(file) = file {
+            builder = builder.appender(Appender::builder().build("file", Box::new(file)));
+            root = root.appender("file");
+        }
+        match builder.build(root.build(LevelFilter::Info)) {
+            Ok(config) => {
+                let handle = log4rs::init_config(config);
+                if let Err(e) = handle {
+                    println!(
+                    "ERROR: failed to configure logging for stdout with {e:?}. Continuing without logging."
+                );
+                }
+            }
+            Err(e) => {
+                println!("ERROR: failed to prepare default logging configuration with {e:?}. Continuing without logging");
+            }
+        }
+    }
 }
 
 #[cfg(test)]

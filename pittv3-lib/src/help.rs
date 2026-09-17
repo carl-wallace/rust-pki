@@ -4,7 +4,7 @@
 //! **This feeds tooltips and nothing else.** The sole consumer is `tooltip` in
 //! `pittv3-gui-lib/src/gui_rows.rs`, which falls back to [`arg_help`] when a row supplies no title
 //! of its own. `--help` does not come from here: clap builds that from the doc comments on
-//! `Pittv3Args` in `pittv3/src/cliargs.rs`. The two are separate on purpose, because they address
+//! [`Pittv3Args`](crate::args::Pittv3Args), derived under the `clap` feature. The two are separate on purpose, because they address
 //! different readers.
 //!
 //! **So command-line vocabulary here is always wrong.** A tooltip naming `ca_folder`, or a
@@ -22,7 +22,7 @@
 //! CAPI arguments are the case today: the CLI takes any store name and so has to explain the
 //! `Location\Name` syntax, while the GUI offers two Windows stores as selector entries and accepts
 //! no name at all. Text covering both would carry a syntax one of them cannot use, so those entries
-//! read as the control does and the CLI keeps its own fuller wording in `cliargs.rs`.
+//! read as the control does and the CLI keeps its own fuller wording on the field.
 //!
 //! Names are the kebab-case form the frontends already use for their form controls, which is also
 //! the CLI's long-flag spelling. Where a field exists as cfg-gated variants with different wording

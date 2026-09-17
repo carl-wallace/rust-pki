@@ -312,17 +312,43 @@ fn crl_entries(
     vec![]
 }
 
-/// Packs `files` into a zip under a single folder named `folder`.
+/// Entry options for the archives this module writes: deflated, and dated `secs` (Unix epoch, UTC).
+///
+/// The date is set rather than left to the zip library, which without its `time` feature stamps every
+/// entry 1980-01-01 -- the earliest date the format can hold -- and that feature reads a clock the
+/// browser build does not have. A time the format cannot represent falls back to that same default.
+fn zip_options(secs: u64) -> SimpleFileOptions {
+    let modified =
+        x509_cert::der::DateTime::from_unix_duration(core::time::Duration::from_secs(secs))
+            .ok()
+            .and_then(|dt| {
+                zip::DateTime::from_date_and_time(
+                    dt.year(),
+                    dt.month(),
+                    dt.day(),
+                    dt.hour(),
+                    dt.minutes(),
+                    dt.seconds(),
+                )
+                .ok()
+            })
+            .unwrap_or_default();
+    SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .last_modified_time(modified)
+}
+
+/// Packs `files` into a zip under a single folder named `folder`, each entry dated `secs`.
 ///
 /// For handing over several certificates at once -- an inspection asked to write out a whole
 /// certificate pool produces thousands, and a browser cannot start thousands of downloads. Separate
 /// from [`zip_bundle`], which is not a general archiver: that one writes a run's account of itself,
 /// with a README and a layout the bundle format defines.
-pub fn zip_files(folder: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+pub fn zip_files(folder: &str, files: &[(String, Vec<u8>)], secs: u64) -> Result<Vec<u8>, String> {
     let mut buf = Cursor::new(Vec::new());
     {
         let mut zw = ZipWriter::new(&mut buf);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let options = zip_options(secs);
         for (name, bytes) in files {
             let path = format!("{folder}/{name}");
             zw.start_file(&path, options)
@@ -367,11 +393,12 @@ pub fn zip_bundle(
     paths: &[Vec<ExportEntry>],
     inputs: &RunInputs,
     run_ms: Option<u64>,
+    secs: u64,
 ) -> Result<Vec<u8>, String> {
     let mut buf = Cursor::new(Vec::new());
     {
         let mut zw = ZipWriter::new(&mut buf);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let options = zip_options(secs);
 
         let mut add = |path: String, bytes: &[u8]| -> Result<(), String> {
             zw.start_file(&path, options)
@@ -1140,7 +1167,7 @@ mod tests {
             time_of_interest: 1,
             ..Default::default()
         };
-        let names = names_in(zip_bundle("run", &[], &inputs, Some(12)).expect("a bundle"));
+        let names = names_in(zip_bundle("run", &[], &inputs, Some(12), 0).expect("a bundle"));
 
         assert!(
             names.contains(&format!("run/{INPUTS_DIR}/{TA_NAME}")),
@@ -1195,7 +1222,7 @@ mod tests {
             built_graph: Some(b"the-graph".to_vec()),
             ..inputs
         };
-        let names = names_in(zip_bundle("run", &[], &with_graph, Some(12)).expect("a bundle"));
+        let names = names_in(zip_bundle("run", &[], &with_graph, Some(12), 0).expect("a bundle"));
         assert!(
             names.contains(&format!("run/{DERIVED_DIR}/{BUILT_GRAPH_NAME}")),
             "{names:?}"
@@ -1246,6 +1273,41 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// Every entry carries the time it was given, in UTC, rather than the zip library's 1980 default.
+    /// 1789640591 is 2026-09-17T10:23:11Z; the format keeps seconds only to the even second.
+    #[test]
+    fn archive_entries_are_dated_by_the_time_given() {
+        let paths = vec![vec![("0-ta.der".to_string(), b"anchor".to_vec())]];
+        for zipped in [
+            zip_bundle("Run", &paths, &RunInputs::default(), None, 1_789_640_591).unwrap(),
+            zip_files(
+                "certificates",
+                &[("a.der".to_string(), b"a".to_vec())],
+                1_789_640_591,
+            )
+            .unwrap(),
+        ] {
+            let mut archive = zip::ZipArchive::new(Cursor::new(zipped)).unwrap();
+            for i in 0..archive.len() {
+                let entry = archive.by_index(i).unwrap();
+                let t = entry.last_modified().expect("a modification time");
+                assert_eq!(
+                    (
+                        t.year(),
+                        t.month(),
+                        t.day(),
+                        t.hour(),
+                        t.minute(),
+                        t.second()
+                    ),
+                    (2026, 9, 17, 10, 23, 10),
+                    "{}",
+                    entry.name()
+                );
+            }
+        }
     }
 
     /// The name of an artifact is the digest of its own bytes, in full. A reader can check any file
@@ -1346,7 +1408,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            names_in(zip_bundle("MyExport", &paths, &inputs, Some(99)).unwrap()),
+            names_in(zip_bundle("MyExport", &paths, &inputs, Some(99), 0).unwrap()),
             vec![
                 "MyExport/README.txt".to_string(),
                 "MyExport/command.txt".to_string(),
@@ -1380,7 +1442,7 @@ mod tests {
             vec![("1-crl.crl".to_string(), crl)],
         ];
 
-        let names = names_in(zip_bundle("B", &paths, &RunInputs::default(), None).unwrap());
+        let names = names_in(zip_bundle("B", &paths, &RunInputs::default(), None, 0).unwrap());
         let rev: Vec<&String> = names
             .iter()
             .filter(|n| n.starts_with("B/derived/revocation/"))
@@ -1414,7 +1476,7 @@ mod tests {
     #[test]
     fn no_inputs_means_no_inputs_subtree() {
         let paths = vec![vec![(PATH_LOG_NAME.to_string(), b"only".to_vec())]];
-        let names = names_in(zip_bundle("Run", &paths, &RunInputs::default(), None).unwrap());
+        let names = names_in(zip_bundle("Run", &paths, &RunInputs::default(), None, 0).unwrap());
         // Nothing was given and nothing derived, so neither subtree appears -- present and empty
         // would suggest the run had material worth recording that was dropped.
         assert!(!names.iter().any(|n| n.contains("/inputs/")), "{names:?}");
@@ -1973,7 +2035,7 @@ mod tests {
             ("0.der".to_string(), b"first".to_vec()),
             ("1.der".to_string(), b"second".to_vec()),
         ];
-        let bytes = zip_files("certificates", &files).expect("the archive should be written");
+        let bytes = zip_files("certificates", &files, 0).expect("the archive should be written");
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("a readable archive");
         assert_eq!(2, archive.len());
         let names: Vec<String> = archive.file_names().map(|n| n.to_string()).collect();

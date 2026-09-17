@@ -5144,6 +5144,7 @@ dependencies = [
  "bytes",
  "certval 0.2.0-pre",
  "ciborium",
+ "clap",
  "cms",
  "const-oid",
  "csv",

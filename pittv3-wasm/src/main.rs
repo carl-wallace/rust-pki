@@ -381,7 +381,7 @@ fn deliver_store(mut notes: Signal<Vec<ResultLine>>, archive_name: String, store
         ("ta.cbor".to_string(), store.ta_cbor.clone()),
         ("ca.cbor".to_string(), store.ca_cbor.clone()),
     ];
-    match zip_files(&archive_name, &files) {
+    match zip_files(&archive_name, &files, now_as_unix_epoch()) {
         Ok(zipped) => {
             let js = format!(
                 "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-store.zip\"; a.click();",
@@ -421,7 +421,7 @@ fn deliver_certificates(
             STANDARD.encode(&files[0].1),
             files[0].0
         ),
-        _ => match zip_files(&archive_name, &files) {
+        _ => match zip_files(&archive_name, &files, now_as_unix_epoch()) {
             Ok(zipped) => format!(
                 "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{archive_name}-certificates.zip\"; a.click();",
                 STANDARD.encode(&zipped)
@@ -1178,11 +1178,9 @@ fn App() -> Element {
             return;
         };
         let entries = build_entries();
-        let name = stamped_export_name(
-            &export_name(),
-            run_stamp().unwrap_or_else(now_as_unix_epoch),
-        );
-        match zip_bundle(&name, &entries, &inputs, Some(run_ms())) {
+        let stamp = run_stamp().unwrap_or_else(now_as_unix_epoch);
+        let name = stamped_export_name(&export_name(), stamp);
+        match zip_bundle(&name, &entries, &inputs, Some(run_ms()), stamp) {
             Ok(zipped) => {
                 let js = format!(
                     "const a = document.createElement('a'); a.href = \"data:application/zip;base64,{}\"; a.download = \"{name}.zip\"; a.click();",
