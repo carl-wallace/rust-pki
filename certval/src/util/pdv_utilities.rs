@@ -698,6 +698,13 @@ pub(crate) fn has_ip(subtrees: &GeneralSubtrees) -> bool {
 /// i.e., PKIXALG_SHA256_WITH_RSA_ENCRYPTION or PKIXALG_ECDSA_WITH_SHA256, and returns the indicated hash
 /// algorithm.
 pub fn get_hash_alg_from_sig_alg(sig_alg: &ObjectIdentifier) -> Result<AlgorithmIdentifierOwned> {
+    #[cfg(feature = "sha1_sig")]
+    if SHA_1_WITH_RSA_ENCRYPTION == *sig_alg {
+        return Ok(AlgorithmIdentifier {
+            oid: PKIXALG_SHA1,
+            parameters: None,
+        });
+    }
     if PKIXALG_SHA256_WITH_RSA_ENCRYPTION == *sig_alg || PKIXALG_ECDSA_WITH_SHA256 == *sig_alg {
         return Ok(AlgorithmIdentifier {
             oid: PKIXALG_SHA256,
@@ -1623,7 +1630,8 @@ fn not_self_signed_key_type_mismatch() {
     assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(false));
 }
 
-// A self-signed SHA-1 RSA root, which no certval verifier supports.
+// A self-signed SHA-1 RSA root, which no certval verifier supports without `sha1_sig`.
+#[cfg(not(feature = "sha1_sig"))]
 #[test]
 fn self_signed_unsupported_algorithm() {
     let der = include_bytes!("../../tests/examples/self_signed/sha1_rsa_root.cer");
@@ -1635,6 +1643,16 @@ fn self_signed_unsupported_algorithm() {
         Err(Error::Unrecognized)
     );
     assert!(is_self_issued(&cert));
+}
+
+#[cfg(feature = "sha1_sig")]
+#[test]
+fn self_signed_sha1_verified() {
+    let der = include_bytes!("../../tests/examples/self_signed/sha1_rsa_root.cer");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(true));
 }
 
 #[test]

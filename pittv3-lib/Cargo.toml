@@ -41,8 +41,6 @@ reqwest = { version = "0.13.4", optional = true }
 # own. Already present transitively under `remote` (via reqwest); named here so the `std`-without-
 # `remote` build has it too.
 tokio = { version = "1.52.3", default-features = false, features = ["rt"], optional = true }
-rsa = { version = "0.10.0-rc.18", optional = true, features = ["encoding"] }
-sha1 = {version = "0.11.0", default-features = false, features = ["oid"]}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 
 async-recursion = "1.1.1"
@@ -92,8 +90,8 @@ capi = ["certval/capi", "std"]
 # DoD InstallRoot streams as trust anchor and CA inputs. They are RFC 5934 TAMP messages, so
 # reading one is a different job from reading a certificate or a CBOR store.
 installroot = ["dep:rfc5934"]
-sha1_sig = ["rsa"]
-rsa = ["certval/rsa", "dep:rsa"]
+sha1_sig = ["certval/sha1_sig"]
+rsa = ["certval/rsa"]
 eddsa = ["certval/eddsa"]
 # Derives the command line parser on `Pittv3Args`.
 clap = ["dep:clap"]

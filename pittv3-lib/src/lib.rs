@@ -36,9 +36,6 @@ pub mod stats;
 pub mod std_utils;
 pub mod uri_check;
 
-#[cfg(feature = "sha1_sig")]
-pub mod sha1_sig;
-
 /// Runs this build's entry point, for a caller that has an async runtime.
 ///
 /// Choosing the entry point belongs here, not in the binary. The three `options_*` modules gate

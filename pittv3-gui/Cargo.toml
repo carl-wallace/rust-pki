@@ -20,7 +20,7 @@ rust-version = "1.88"
 # Unlike the CLI, the desktop GUI is not feature-gated: it always builds with the most encompassing
 # feature set (i.e., remote, webpki). WASM frontends get their own crate with a trimmed feature set.
 [dependencies]
-pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "webpki"] }
+pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "remote", "rsa", "sha1_sig", "webpki"] }
 pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "remote", "webpki", "gui_desktop"] }
 # The TLS handshake that takes a server's certificates. In process rather than through the service:
 # this crate does not depend on certval and does the handshake itself, so a desktop with a socket

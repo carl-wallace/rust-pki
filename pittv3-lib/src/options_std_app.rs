@@ -55,9 +55,6 @@ use crate::der_or_pem::maybe_pem;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 
-#[cfg(feature = "sha1_sig")]
-use crate::sha1_sig::verify_signature_message_rust_crypto_sha1;
-
 use log::{error, info};
 
 /// `get_file_as_byte_vec` provides support for reading artifacts from file when PITTv3 is built using
@@ -114,9 +111,6 @@ pub fn options_std_app(args: &Pittv3Args) {
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
     pe.add_trust_anchor_source(Box::new(ta_store.clone()));
     pe.add_certificate_source(Box::new(cert_source.clone()));
-
-    #[cfg(feature = "sha1_sig")]
-    pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto_sha1);
 
     let mut stats = PathValidationStatsGroup::new();
 

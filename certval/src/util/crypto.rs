@@ -13,6 +13,9 @@ use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 #[cfg(feature = "eddsa")]
 use const_oid::db::rfc8410::ID_ED_25519;
 
+#[cfg(feature = "sha1_sig")]
+use {const_oid::db::rfc5912::SHA_1_WITH_RSA_ENCRYPTION, sha1::Sha1};
+
 #[cfg(feature = "rsa")]
 use {
     alloc::string::ToString,
@@ -37,6 +40,8 @@ pub fn get_padding_scheme(signature_alg: &AlgorithmIdentifierOwned) -> Result<rs
         PKIXALG_SHA384_WITH_RSA_ENCRYPTION => Ok(rsa::Pkcs1v15Sign::new::<Sha384>()),
         PKIXALG_SHA224_WITH_RSA_ENCRYPTION => Ok(rsa::Pkcs1v15Sign::new::<Sha224>()),
         PKIXALG_SHA512_WITH_RSA_ENCRYPTION => Ok(rsa::Pkcs1v15Sign::new::<Sha512>()),
+        #[cfg(feature = "sha1_sig")]
+        SHA_1_WITH_RSA_ENCRYPTION => Ok(rsa::Pkcs1v15Sign::new::<Sha1>()),
         _ => Err(Error::Unrecognized),
     }
 }
@@ -45,6 +50,10 @@ pub fn get_padding_scheme(signature_alg: &AlgorithmIdentifierOwned) -> Result<rs
 /// [`PKIXALG_SHA256_WITH_RSA_ENCRYPTION`], [`PKIXALG_SHA384_WITH_RSA_ENCRYPTION`] or
 /// [`PKIXALG_SHA512_WITH_RSA_ENCRYPTION`] and false otherwise.
 pub(crate) fn is_rsa(oid: &ObjectIdentifier) -> bool {
+    #[cfg(feature = "sha1_sig")]
+    if *oid == SHA_1_WITH_RSA_ENCRYPTION {
+        return true;
+    }
     *oid == PKIXALG_SHA256_WITH_RSA_ENCRYPTION
         || *oid == PKIXALG_SHA384_WITH_RSA_ENCRYPTION
         || *oid == PKIXALG_SHA224_WITH_RSA_ENCRYPTION
@@ -99,6 +108,8 @@ pub fn calculate_hash_rust_crypto(
             let digest = Sha512::digest(buffer_to_hash).to_vec();
             Ok(digest)
         }
+        #[cfg(feature = "sha1_sig")]
+        PKIXALG_SHA1 => Ok(Sha1::digest(buffer_to_hash).to_vec()),
         _ => Err(Error::Unrecognized),
     }
 }

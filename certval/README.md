@@ -23,6 +23,7 @@ The certval library provides seven feature gates that enable varying levels of s
 - `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
 - `rsa` enables use of the RSA algorithm. RSA support is not enabled by default.
 - `eddsa` enables use of the Ed25519 algorithm. Ed25519 support is not enabled by default.
+- `sha1_sig` enables verification of `sha1WithRSAEncryption` signatures. It implies `rsa` and is not enabled by default.
 
 ## Sample Usage
 
