@@ -23,7 +23,7 @@ use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings, TimeOfInterestRow};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
-use pittv3_gui_lib::gui_uri_check::UriCheckResults;
+use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckResults};
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
@@ -641,6 +641,7 @@ fn App() -> Element {
     let mut uri_auto = use_signal(|| true);
     let mut uri_running = use_signal(|| false);
     let mut uri_report = use_signal(|| None::<UriCheckReport>);
+    let mut uri_self_signed = use_signal(|| false);
     // Whether this run has revocation data of its own. Read when the settings for a run are built,
     // because it is one of the two ways a run can obtain any -- see `run_settings`.
     let have_revocation_uploads =
@@ -2615,6 +2616,9 @@ fn App() -> Element {
                                 "signature verification and OCSP possible; without one those rows "
                                 "report that they could not be checked rather than failing."
                             }
+                            p { class: "hint",
+                                "Check Self-Signed needs no retrieval, so it works without the service."
+                            }
                         }
                         div { class: "controls custom",
                             label { "Certificate: " }
@@ -2624,6 +2628,7 @@ fn App() -> Element {
                                     if let Some((name, bytes)) = read_files(&ev).await.into_iter().next() {
                                         uri_target.set(Some((name, bytes)));
                                         uri_report.set(None);
+                                        uri_self_signed.set(false);
                                     }
                                 },
                             }
@@ -2694,8 +2699,18 @@ fn App() -> Element {
                                 if uri_running() { "Checking\u{2026}" } else { "Check URIs" }
                             }
                             button {
+                                title: match uri_target() {
+                                    Some(_) => "Check whether this certificate's own key verifies its signature",
+                                    None => "Choose a certificate to check.",
+                                },
+                                disabled: uri_target().is_none(),
+                                onclick: move |_| uri_self_signed.set(true),
+                                "Check Self-Signed"
+                            }
+                            button {
                                 onclick: move |_| {
                                     uri_report.set(None);
+                                    uri_self_signed.set(false);
                                     uri_target.set(None);
                                     uri_issuer.set(None);
                                 },
@@ -2715,6 +2730,11 @@ fn App() -> Element {
                                     onclick: move |_| tier.set(Tier::Relayed),
                                     "Retrieve through the service"
                                 }
+                            }
+                        }
+                        if uri_self_signed() {
+                            if let Some((name, bytes)) = uri_target() {
+                                SelfSignedLine { name, bytes }
                             }
                         }
                         if let Some(report) = uri_report() {

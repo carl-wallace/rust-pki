@@ -224,7 +224,11 @@ impl Relay {
                 return Err(FetchError::Timeout(timeout));
             }
             Err(e) => {
-                debug!("Retrieval of {} failed with {e}", request.uri);
+                debug!(
+                    "Retrieval of {} failed with {}",
+                    request.uri,
+                    error_chain(&e)
+                );
                 // A refusal raised by the resolver arrives here wrapped in the client's connection
                 // error; recovering it keeps "we would not go there" distinct from "we went and it
                 // failed", which is the difference between a misdirected certificate and a
@@ -285,6 +289,19 @@ fn redirect_policy(policy: Arc<NetworkPolicy>) -> reqwest::redirect::Policy {
     })
 }
 
+/// `e` followed by each error in its source chain. reqwest's own message stops at "error sending
+/// request"; the cause -- a failed lookup, a refused connection, a timeout -- is in the chain.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        out.push_str(": ");
+        out.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    out
+}
+
 /// Recovers a [`PolicyError`] raised while resolving a name from the client error that carries it.
 /// The client wraps a resolver failure in its own connection error, so the refusal is found by
 /// walking the error's sources rather than by inspecting the outermost error.
@@ -342,7 +359,10 @@ async fn read_capped_body(
             Ok(None) => break,
             Err(e) if e.is_timeout() => return Err(FetchError::Timeout(timeout)),
             Err(e) => {
-                debug!("Failed to read the body from {uri} with {e}");
+                debug!(
+                    "Failed to read the body from {uri} with {}",
+                    error_chain(&e)
+                );
                 return Err(FetchError::Transport(e.to_string()));
             }
         }

@@ -116,10 +116,6 @@ pub fn arg_help(name: &str) -> &'static str {
             "folder, either of which may come from the settings file.",
         ),
         "validate-all" => "Flag that indicates all available certification paths should be validated for each target.",
-        "validate-self-signed" => concat!(
-            "Answer the narrower question of whether the end entity certificate is self-signed, ",
-            "instead of building paths for it.",
-        ),
         "dynamic-build" => concat!(
             "Follow the AIA and SIA URIs of certificates encountered while building paths, to find ",
             "issuers the inputs do not hold. Needs a CA Folder or a Download Folder to put what it ",

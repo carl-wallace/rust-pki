@@ -63,9 +63,14 @@ fn get_rss_params(for_4096: bool) -> crate::Result<Vec<u8>> {
     Ok(params.to_der()?)
 }
 
+/// Whether `oid` is a composite algorithm, whether or not this build can use it.
+pub(crate) fn is_composite(oid: ObjectIdentifier) -> bool {
+    get_domain(oid).is_ok()
+}
+
 /// Takes a composite OID and returns a pair of AlgorithmIdentifiers representing the two algorithms
 /// represented by the composite OID.
-fn is_composite(
+fn composite_components(
     composite_oid: ObjectIdentifier,
 ) -> crate::Result<(AlgorithmIdentifierOwned, AlgorithmIdentifierOwned)> {
     use crate::util::pqc_oids::*;
@@ -440,7 +445,7 @@ pub fn verify_signature_message_composite_rustcrypto(
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> crate::Result<()> {
-    if let Ok((pqc, trad)) = is_composite(signature_alg.oid) {
+    if let Ok((pqc, trad)) = composite_components(signature_alg.oid) {
         let (pqc_spki, trad_spki) =
             split_key(pqc.oid, trad.oid, spki.subject_public_key.raw_bytes())?;
 

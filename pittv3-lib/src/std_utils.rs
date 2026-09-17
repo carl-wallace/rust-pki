@@ -1729,7 +1729,7 @@ pub fn cleanup_certs(
                                 }
                             }
 
-                            if is_self_signed(pe, &tc) {
+                            if crate::screens_as_self_signed(pe, &tc) {
                                 delete_file = true;
                                 error!("Self-signed: {filename}");
                             }

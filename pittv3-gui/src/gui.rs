@@ -33,10 +33,10 @@ use pittv3_gui_lib::gui_inspect::InspectReportView;
 use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
-use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow};
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxRow, PathListRow};
 use pittv3_gui_lib::gui_settings::{EditSettingsFile, TimeOfInterestRow};
 use pittv3_gui_lib::gui_shell::AppShell;
-use pittv3_gui_lib::gui_uri_check::UriCheckResults;
+use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckResults};
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, last_dialog_dir, read_saved_args, remember_dialog_dir, save_args, set_log_sink,
     DialogPurpose,
@@ -188,77 +188,6 @@ fn read_targets(args: &Pittv3Args) -> Vec<(String, Vec<u8>)> {
     out
 }
 
-/// Writes the environment a run over the current inputs validates against, as the two files that
-/// describe it: `ta.cbor`, every anchor the run assembled, and `ca.cbor`, the certificates it
-/// searched together with the partial paths it found among them.
-///
-/// Two files because the anchors sit outside the graph: partial paths terminate at them, but they
-/// live in a `TaSource` that never enters the `CertSource`, so a graph on its own describes paths
-/// to certificates it does not carry. Both come from the run's cache under one key, so they are
-/// necessarily each other's halves — and both are what the validation actually used rather than a
-/// reconstruction, which is the point of exporting them at all. That does mean there has to have
-/// been a run: nothing is cached for inputs nothing has been validated against yet.
-async fn export_environment_into(args: Pittv3Args, mut status: Signal<String>) {
-    let Some(fingerprint) = graph_cache::fingerprint_for_args(&args) else {
-        status.set(
-            "These inputs build no graph to export: a store used on its own already carries its \
-             partial paths, and dynamic build changes the graph as it runs."
-                .to_string(),
-        );
-        return;
-    };
-    let Some(graph) = graph_cache::cached(&fingerprint) else {
-        status.set(
-            "Nothing has been built for these inputs yet — run a validation first, then export."
-                .to_string(),
-        );
-        return;
-    };
-    let anchors = graph_cache::cached_anchors(&fingerprint);
-
-    let folder = AsyncFileDialog::new()
-        .set_directory(dialog_dir(DialogPurpose::Save))
-        .pick_folder()
-        .await;
-    let Some(folder) = folder else {
-        return;
-    };
-
-    remember_pick(DialogPurpose::Save, folder.path());
-    let ca_path = folder.path().join("ca.cbor");
-    if let Err(e) = std::fs::write(&ca_path, &graph) {
-        error!("Failed to write {}: {e}", ca_path.display());
-        status.set(format!("Export failed: {e}"));
-        return;
-    }
-    // Anchors are cached whenever a run loaded any, so their absence means the run had none of its
-    // own — webpki anchors, which certval builds rather than reads, are the case that reaches here.
-    let Some(anchors) = anchors else {
-        status.set(format!(
-            "Wrote the graph to {}. No trust anchor file: this run's anchors are built by certval \
-             rather than read from material that can be written out.",
-            ca_path.display()
-        ));
-        return;
-    };
-    let ta_path = folder.path().join("ta.cbor");
-    match std::fs::write(&ta_path, &anchors) {
-        Ok(()) => status.set(format!(
-            "Wrote ta.cbor and ca.cbor to {}",
-            folder.path().to_string_lossy()
-        )),
-        Err(e) => {
-            error!("Failed to write {}: {e}", ta_path.display());
-            status.set(format!("Export failed: {e}"));
-        }
-    }
-}
-
-/// Asks where to put an export and writes it there, reporting either outcome into the run log.
-///
-/// A save dialog rather than a fixed location: this is the user's own copy of what a run used, and
-/// the desktop's other writes -- the peek folder, a materialized store -- go under the application
-/// home precisely because nobody chose where they should live. Here somebody is choosing.
 /// Confirms an action that cannot be undone by fetching the material again.
 ///
 /// Cleanup is offered without one: what it removes is unusable or refetchable, and asking every
@@ -897,6 +826,9 @@ fn UriCheckView() -> Element {
     let s_auto = use_signal(|| true);
     let mut s_running = use_signal(|| false);
     let mut s_report = use_signal(|| None::<UriCheckReport>);
+    // The target the self-signed check ran against and what it read, shown only while that target
+    // is still the one chosen.
+    let mut s_self_signed = use_signal(|| None::<(String, Result<Vec<u8>, String>)>);
 
     let run_check = move |_| async move {
         let target = s_target();
@@ -978,9 +910,41 @@ fn UriCheckView() -> Element {
             }
             button {
                 r#type: "button",
-                disabled: s_report().is_none(),
-                onclick: move |_| s_report.set(None),
+                disabled: s_target().is_empty(),
+                title: "Check whether the target certificate's own key verifies its signature. Needs no network.",
+                onclick: move |_| {
+                    let path = s_target();
+                    let read = std::fs::read(&path).map_err(|e| e.to_string());
+                    s_self_signed.set(Some((path, read)));
+                },
+                "Check Self-Signed"
+            }
+            button {
+                r#type: "button",
+                disabled: s_report().is_none() && s_self_signed().is_none(),
+                onclick: move |_| {
+                    s_report.set(None);
+                    s_self_signed.set(None);
+                },
                 "Clear Results"
+            }
+        }
+        if let Some((path, read)) = s_self_signed() {
+            if path == s_target() {
+                match read {
+                    Ok(bytes) => rsx! {
+                        SelfSignedLine {
+                            name: std::path::Path::new(&path)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| path.clone()),
+                            bytes,
+                        }
+                    },
+                    Err(e) => rsx! {
+                        p { class: "results-summary", "{path} failed to evaluate with {e}" }
+                    },
+                }
             }
         }
         if let Some(report) = s_report() {
@@ -1499,7 +1463,6 @@ pub(crate) fn App() -> Element {
     // that happened, not something the next run should do.
     let s_store_export = use_signal(String::new);
     // The same, for the graph export in the Advanced group
-    let mut s_graph_export = use_signal(String::new);
     let s_ta_cbor = use_signal(|| saved_or_empty(&sa.ta_cbor));
     // The Common Settings rows are certification path settings, so the settings file is where their
     // value lives: each row and its counterpart on the settings form are two renderings of one
@@ -1624,7 +1587,6 @@ pub(crate) fn App() -> Element {
         let _ = s_reuse_rev_cache();
         rev_cache_for_toggle.clear();
     });
-    let s_validate_self_signed = use_signal(|| sa.validate_self_signed);
     // certval's default for the setting when the file does not name it, which is what the settings
     // form shows for the same absent key -- two renderings of one value have to agree even when
     // there is no value. The saved arguments carry a `dynamic_build` too, but it is the last value
@@ -1735,7 +1697,7 @@ pub(crate) fn App() -> Element {
             cbor_ta_store: false,
             validate_all: s_validate_all(),
             check_uris_when_validating: s_check_uris(),
-            validate_self_signed: s_validate_self_signed(),
+            validate_self_signed: false,
             dynamic_build: s_dynamic_build(),
             use_downloaded_cas: s_use_downloaded_cas(),
             // No singular counterpart: unlike the trust anchor and CA arguments these had rows on
@@ -2622,41 +2584,6 @@ pub(crate) fn App() -> Element {
                                         span { class: "hint", "{s_rev_cache_status}" }
                                     }
                                 }
-                                details { class: "advanced",
-                                    summary { "Advanced" }
-                                    div { class: "controls",
-                                        div { class: "field check-group",
-                                            // "WebPKI TAs" was here. It is an anchor set, so it is
-                                            // an entry in the store selector now — see StoreSource.
-                                            CheckboxCell { label: "Validate Self-Signed", name: "validate-self-signed", sig: s_validate_self_signed }
-                                        }
-                                        // The environment the last run over these inputs used,
-                                        // which exists as files only because it is cached: nothing
-                                        // else writes the assembled anchors and the merged graph
-                                        // out as a pair.
-                                        div { class: "field",
-                                            button {
-                                                r#type: "button",
-                                                title: "Write this run's trust anchors and its certificate graph to a folder, as ta.cbor and ca.cbor",
-                                                onclick: move |_| {
-                                                    match current_args() {
-                                                        Ok(args) => {
-                                                            spawn(export_environment_into(args, s_graph_export));
-                                                        }
-                                                        Err(msg) => {
-                                                            error!("{msg}");
-                                                            s_graph_export.set(msg);
-                                                        }
-                                                    }
-                                                },
-                                                "Export PKI Environment..."
-                                            }
-                                        }
-                                        if !s_graph_export().is_empty() {
-                                            span { class: "hint", "{s_graph_export}" }
-                                        }
-                                    }
-                                }
                             }
                             RunButton {
                                 running: s_running(),
@@ -2720,12 +2647,9 @@ pub(crate) fn App() -> Element {
                         fieldset {
                             legend { "Options" }
                             div { class: "controls",
-                                // One label. `CheckboxRow` puts the name in the grid's label
-                                // column and carries the explanation as the tooltip, which is what
-                                // every box on the Validate view does; the hand-rolled label-cell
-                                // and `CheckboxCell` this replaced named the setting twice, once in
-                                // each column. `CheckboxCell` is for several boxes sharing one
-                                // field, and there is only ever one here.
+                                // `CheckboxRow` puts the name in the grid's label column and
+                                // carries the explanation as the tooltip, as every box on the
+                                // Validate view does.
                                 CheckboxRow {
                                     label: "Chase SIA/AIA (this build only)",
                                     name: "chase-while-building",
@@ -3268,13 +3192,7 @@ mod tooltip_coverage {
     /// The components in `gui_rows` that call `tooltip(title, name)`, i.e. the ones that fall back
     /// to `arg_help`. A component missing from this list is not checked, so keep it in step with
     /// the `tooltip(` call sites in `pittv3-gui-lib/src/gui_rows.rs`.
-    const TOOLTIP_ROWS: &[&str] = &[
-        "TextRow",
-        "BrowseRow",
-        "CheckboxCell",
-        "CheckboxRow",
-        "PathListRow",
-    ];
+    const TOOLTIP_ROWS: &[&str] = &["TextRow", "BrowseRow", "CheckboxRow", "PathListRow"];
 
     /// The text between `{` at `open` and its matching `}`.
     fn block(src: &str, open: usize) -> &str {

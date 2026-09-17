@@ -2049,8 +2049,9 @@ fn get_certificates_test() {
     assert_eq!(r.err(), Some(Error::NotFound));
 
     let v = cert_store.get_certificates().unwrap();
-    // there are 405 certs in the folder, but some fail to parse
-    assert_eq!(399, v.len());
+    // there are 405 certs in the folder, but some fail to parse, and the 16 self-issued ones are
+    // skipped because this environment has no verifier to check their signatures
+    assert_eq!(383, v.len());
 
     let v = cert_store
         .get_encoded_certificates_for_skid(&hex!("A83C099D67F6D847BAA2D0FC18725688406D9595"))
@@ -2068,7 +2069,7 @@ fn get_certificates_test() {
     assert_eq!(r.err(), Some(Error::NotFound));
 
     let v = cert_store.get_encoded_certificates().unwrap();
-    assert_eq!(399, v.len());
+    assert_eq!(383, v.len());
 }
 
 // A dynamic build appends what it fetched to the source it already has and initializes it again,
@@ -2119,7 +2120,7 @@ fn initialize_again_after_appending_test() {
     // certificate at the same index.
     assert_eq!(cert_store.num_certs(), certs_before + 1);
     assert_eq!(cert_store.num_buffers(), cert_store.num_certs());
-    assert_eq!(399 + 1, cert_store.get_certificates().unwrap().len());
+    assert_eq!(383 + 1, cert_store.get_certificates().unwrap().len());
     // And a certificate that was already indexed is still held at one position rather than two.
     assert_eq!(
         cert_store.get_certificates_for_skid(&skid).unwrap().len(),

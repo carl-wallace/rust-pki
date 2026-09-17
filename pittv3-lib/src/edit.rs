@@ -22,8 +22,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use certval::{
-    is_self_signed, CertSource, CertVector, CertificationPathBuilderFormats,
-    CertificationPathSettings, PkiEnvironment, TaSource, TimeOfInterest,
+    CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings,
+    PkiEnvironment, TaSource, TimeOfInterest,
 };
 
 use crate::inspect::Inspected;
@@ -247,7 +247,7 @@ pub fn cleanup_candidates(inspected: &Inspected, time_of_interest: u64) -> Vec<u
 
         // The one condition the row cannot answer: verifying the signature needs the certificate.
         if let Some(Some(cert)) = inspected.certs.certs().get(row.index) {
-            if is_self_signed(&pe, cert) {
+            if crate::screens_as_self_signed(&pe, cert) {
                 doomed = true;
             }
         }

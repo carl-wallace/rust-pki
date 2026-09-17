@@ -51,34 +51,120 @@ use crate::{
     util::error::*, util::pdv_alg_oids::*, TimeOfInterest,
 };
 
-/// `is_self_signed_with_buffer` returns true if the public key in the parsed certificate can be
-/// used to verify the TBSCertificate field as parsed from the encoded certificate object.
+/// `is_self_signed_with_buffer` reports whether the public key in the parsed certificate verifies the
+/// TBSCertificate field as parsed from the encoded certificate object.
+///
+/// Returns `Ok(false)` when the key's algorithm cannot produce the certificate's signature algorithm
+/// or the signature does not verify under the key. Returns an error when the answer is unknown:
+/// [`Error::Unrecognized`] when no verifier in `pe` supports the signature algorithm, and other errors
+/// when `enc_cert` does not decode or the key or signature is malformed.
 pub fn is_self_signed_with_buffer(
     pe: &PkiEnvironment,
     cert: &CertificateInner<Raw>,
     enc_cert: &[u8],
-) -> bool {
-    match DeferDecodeSigned::from_der(enc_cert) {
-        Ok(defer_cert) => pe
-            .verify_signature_message(
-                pe,
-                &defer_cert.tbs_field,
-                cert.signature().raw_bytes(),
-                cert.tbs_certificate().signature(),
-                cert.tbs_certificate().subject_public_key_info(),
-            )
-            .is_ok(),
-        Err(e) => {
-            error!("Failed to defer decode certificate in is_self_signed with: {e}");
-            false
-        }
+) -> Result<bool> {
+    let tbs = cert.tbs_certificate();
+    // Verifiers report a key of the wrong type as an error, which would otherwise read as unknown.
+    if key_alg_matches_signature_alg(
+        &tbs.subject_public_key_info().algorithm.oid,
+        &tbs.signature().oid,
+    ) == Some(false)
+    {
+        return Ok(false);
+    }
+
+    let defer_cert = DeferDecodeSigned::from_der(enc_cert)?;
+    match pe.verify_signature_message(
+        pe,
+        &defer_cert.tbs_field,
+        cert.signature().raw_bytes(),
+        tbs.signature(),
+        tbs.subject_public_key_info(),
+    ) {
+        Ok(()) => Ok(true),
+        Err(Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)) => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
-/// `is_self_signed` returns true if the public key in the certificate can be used to verify the
-/// signature on the certificate.
-pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> bool {
+/// `is_self_signed` reports whether the public key in the certificate verifies the signature on the
+/// certificate. See [`is_self_signed_with_buffer`] for what `Ok(false)` and an error mean.
+pub fn is_self_signed(pe: &PkiEnvironment, cert: &PDVCertificate) -> Result<bool> {
     is_self_signed_with_buffer(pe, cert.as_ref(), cert.as_bytes())
+}
+
+/// Whether a key of algorithm `key_alg` can produce signatures of algorithm `sig_alg`, or `None` when
+/// `sig_alg` is not one this function knows.
+fn key_alg_matches_signature_alg(
+    key_alg: &ObjectIdentifier,
+    sig_alg: &ObjectIdentifier,
+) -> Option<bool> {
+    use const_oid::db::fips204::{
+        ID_HASH_ML_DSA_44_WITH_SHA_512, ID_HASH_ML_DSA_65_WITH_SHA_512,
+        ID_HASH_ML_DSA_87_WITH_SHA_512,
+    };
+    use const_oid::db::fips205::{
+        ID_HASH_SLH_DSA_SHAKE_128_F_WITH_SHAKE_128, ID_HASH_SLH_DSA_SHAKE_128_S_WITH_SHAKE_128,
+        ID_HASH_SLH_DSA_SHAKE_192_F_WITH_SHAKE_256, ID_HASH_SLH_DSA_SHAKE_192_S_WITH_SHAKE_256,
+        ID_HASH_SLH_DSA_SHAKE_256_F_WITH_SHAKE_256, ID_HASH_SLH_DSA_SHAKE_256_S_WITH_SHAKE_256,
+        ID_HASH_SLH_DSA_SHA_2_128_F_WITH_SHA_256, ID_HASH_SLH_DSA_SHA_2_128_S_WITH_SHA_256,
+        ID_HASH_SLH_DSA_SHA_2_192_F_WITH_SHA_512, ID_HASH_SLH_DSA_SHA_2_192_S_WITH_SHA_512,
+        ID_HASH_SLH_DSA_SHA_2_256_F_WITH_SHA_512, ID_HASH_SLH_DSA_SHA_2_256_S_WITH_SHA_512,
+    };
+
+    // A pre-hash signature algorithm is accepted with its own OID or its pure counterpart as the key.
+    let pure = match *sig_alg {
+        SHA_1_WITH_RSA_ENCRYPTION
+        | SHA_224_WITH_RSA_ENCRYPTION
+        | SHA_256_WITH_RSA_ENCRYPTION
+        | SHA_384_WITH_RSA_ENCRYPTION
+        | SHA_512_WITH_RSA_ENCRYPTION
+        | ID_RSASSA_PSS => return Some(*key_alg == RSA_ENCRYPTION || *key_alg == ID_RSASSA_PSS),
+        ECDSA_WITH_SHA_224 | ECDSA_WITH_SHA_256 | ECDSA_WITH_SHA_384 | ECDSA_WITH_SHA_512 => {
+            return Some(*key_alg == ID_EC_PUBLIC_KEY)
+        }
+        ID_HASH_ML_DSA_44_WITH_SHA_512 => ID_ML_DSA_44,
+        ID_HASH_ML_DSA_65_WITH_SHA_512 => ID_ML_DSA_65,
+        ID_HASH_ML_DSA_87_WITH_SHA_512 => ID_ML_DSA_87,
+        ID_HASH_SLH_DSA_SHA_2_128_S_WITH_SHA_256 => ID_SLH_DSA_SHA_2_128_S,
+        ID_HASH_SLH_DSA_SHA_2_128_F_WITH_SHA_256 => ID_SLH_DSA_SHA_2_128_F,
+        ID_HASH_SLH_DSA_SHA_2_192_S_WITH_SHA_512 => ID_SLH_DSA_SHA_2_192_S,
+        ID_HASH_SLH_DSA_SHA_2_192_F_WITH_SHA_512 => ID_SLH_DSA_SHA_2_192_F,
+        ID_HASH_SLH_DSA_SHA_2_256_S_WITH_SHA_512 => ID_SLH_DSA_SHA_2_256_S,
+        ID_HASH_SLH_DSA_SHA_2_256_F_WITH_SHA_512 => ID_SLH_DSA_SHA_2_256_F,
+        ID_HASH_SLH_DSA_SHAKE_128_S_WITH_SHAKE_128 => ID_SLH_DSA_SHAKE_128_S,
+        ID_HASH_SLH_DSA_SHAKE_128_F_WITH_SHAKE_128 => ID_SLH_DSA_SHAKE_128_F,
+        ID_HASH_SLH_DSA_SHAKE_192_S_WITH_SHAKE_256 => ID_SLH_DSA_SHAKE_192_S,
+        ID_HASH_SLH_DSA_SHAKE_192_F_WITH_SHAKE_256 => ID_SLH_DSA_SHAKE_192_F,
+        ID_HASH_SLH_DSA_SHAKE_256_S_WITH_SHAKE_256 => ID_SLH_DSA_SHAKE_256_S,
+        ID_HASH_SLH_DSA_SHAKE_256_F_WITH_SHAKE_256 => ID_SLH_DSA_SHAKE_256_F,
+        // These use one OID for the key and the signature.
+        ID_ED_25519
+        | ID_ED_448
+        | ID_ML_DSA_44
+        | ID_ML_DSA_65
+        | ID_ML_DSA_87
+        | ID_SLH_DSA_SHA_2_128_S
+        | ID_SLH_DSA_SHA_2_128_F
+        | ID_SLH_DSA_SHA_2_192_S
+        | ID_SLH_DSA_SHA_2_192_F
+        | ID_SLH_DSA_SHA_2_256_S
+        | ID_SLH_DSA_SHA_2_256_F
+        | ID_SLH_DSA_SHAKE_128_S
+        | ID_SLH_DSA_SHAKE_128_F
+        | ID_SLH_DSA_SHAKE_192_S
+        | ID_SLH_DSA_SHAKE_192_F
+        | ID_SLH_DSA_SHAKE_256_S
+        | ID_SLH_DSA_SHAKE_256_F => return Some(key_alg == sig_alg),
+        _ => {
+            #[cfg(feature = "pqc")]
+            if crate::util::crypto_composite::is_composite(*sig_alg) {
+                return Some(key_alg == sig_alg);
+            }
+            return None;
+        }
+    };
+    Some(*key_alg == *sig_alg || *key_alg == pure)
 }
 
 /// `is_self_issued` returns true if the subject field in the certificate is the same as the issuer
@@ -1505,7 +1591,50 @@ fn bad_input_self_signed() {
     let junk = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    assert!(!is_self_signed_with_buffer(&pe, &ta_cert, junk));
+    assert!(is_self_signed_with_buffer(&pe, &ta_cert, junk).is_err());
+}
+
+#[cfg(feature = "rsa")]
+#[test]
+fn self_signed_verified() {
+    let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(true));
+}
+
+#[cfg(feature = "rsa")]
+#[test]
+fn not_self_signed_same_key_type() {
+    let der = include_bytes!("../../tests/examples/ValidCertificatePathTest1EE.crt");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(false));
+}
+
+// An RSA key cannot produce an ECDSA signature, so no verifier is needed to answer.
+#[test]
+fn not_self_signed_key_type_mismatch() {
+    let der = include_bytes!("../../tests/examples/self_signed/rsa_key_ecdsa_signed.der");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let pe = PkiEnvironment::default();
+    assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(false));
+}
+
+// A self-signed SHA-1 RSA root, which no certval verifier supports.
+#[test]
+fn self_signed_unsupported_algorithm() {
+    let der = include_bytes!("../../tests/examples/self_signed/sha1_rsa_root.cer");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    assert_eq!(
+        is_self_signed_with_buffer(&pe, &cert, der),
+        Err(Error::Unrecognized)
+    );
+    assert!(is_self_issued(&cert));
 }
 
 #[test]

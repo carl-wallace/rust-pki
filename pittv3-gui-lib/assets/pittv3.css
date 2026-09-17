@@ -129,11 +129,6 @@ input[type="text"] {
   gap: 0.4rem;
 }
 
-/* Checkboxes that qualify each other share one row rather than each claiming a label column. */
-.controls > .field.check-group {
-  gap: 1.25rem;
-}
-
 input[type="checkbox"] {
   vertical-align: middle;
 }

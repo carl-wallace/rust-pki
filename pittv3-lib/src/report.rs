@@ -389,7 +389,7 @@ impl NoPathsContext {
             target_invalid_at_toi: valid_at_time(target.decoded().tbs_certificate(), toi, true)
                 .err()
                 .map(|e| format!("{e:?}")),
-            target_self_signed: is_self_signed(pe, target),
+            target_self_signed: is_self_signed(pe, target) == Ok(true),
             dynamic_build,
         }
     }
