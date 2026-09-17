@@ -1589,9 +1589,13 @@ fn App() -> Element {
     let validate_loaded = move || async move {
         let started = Instant::now();
         run_stamp.set(Some(now_as_unix_epoch()));
-        // each Validate replaces the prior results rather than appending to them
+        // each Validate replaces the prior results rather than appending to them, and the log with
+        // them, as the desktop does: a saved log belongs to the run it is saved beside, and one
+        // carrying every earlier run in the session also grows toward the buffer's cap
         targets.write().clear();
         notes.write().clear();
+        log_capture::clear();
+        log_tick += 1;
         validating.set(true);
         // Yield one frame so the busy state paints before the synchronous parse/validation blocks
         // the (single) thread; on a large store the first parse otherwise reads as a hang.
@@ -1671,10 +1675,11 @@ fn App() -> Element {
         // certificates whose revocation status could be asked about, and the CRL distribution
         // points worth retrieving are the ones named on the path that building found.
         if tier().retrieves() {
-            // Chasing is worth doing only when path building came up short. Determining that means
-            // validating first, and those results are discarded if a retrieval changes the answer
-            // -- which is the same shape the service's own run uses.
-            let built_a_path = {
+            // Chasing is worth doing only when it is asked for and path building came up short.
+            // Determining the second means validating first, and those results are discarded if a
+            // retrieval changes the answer -- which is the same shape the service's own run uses.
+            // With chasing off, the tier retrieves revocation data alone.
+            let built_a_path = !cps.get_retrieve_from_aia_sia_http() || {
                 let guard = prepared_env.read();
                 let (prepared, _) = guard.as_ref().unwrap();
                 let (reports, _) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
@@ -1880,6 +1885,8 @@ fn App() -> Element {
             // certificate widened the pool, since that is when preparation discovers paths rather
             // than reading the ones a fetched store already carries.
             built_graph: prepared.built_graph().map(<[u8]>::to_vec),
+            // The anchor half of the same record: the store's anchors plus the uploaded ones.
+            built_anchors: prepared.built_anchors().map(<[u8]>::to_vec),
             settings: Some(cps.clone()),
             end_entities: loaded_ees(),
             anchors_used: retained_paths
@@ -2218,16 +2225,35 @@ fn App() -> Element {
                         // renderings of one value, held in the same `settings` signal, so there is
                         // nothing to keep in step.
                         //
-                        // Chasing has no row of its own because in this frontend it is not a
-                        // setting to choose. `PS_RETRIEVE_FROM_AIA_SIA_HTTP` has no reader here --
-                        // certval's are `remote`-gated and the browser does not build them -- and
-                        // what actually decides whether AIA and SIA are followed is the retrieval
-                        // tier above. So the box says why chasing cannot happen when it cannot, and
-                        // otherwise says nothing: a control that could not act would be worse, and
-                        // so would repeating what the tier control already shows.
+                        // Chasing is read by the Validate run rather than by certval, whose readers
+                        // are `remote`-gated and not built here: AIA and SIA are followed when the
+                        // tier retrieves *and* this is on. The tier alone cannot say it, because
+                        // the service also serves revocation checking, and a run can want that
+                        // without chasing.
                         fieldset {
                             legend { "Common Settings" }
                             div { class: "controls",
+                                // `.label-cell` and `.field` rather than `CheckboxRow`, which binds a
+                                // `Signal<bool>`; this value lives in the settings model.
+                                div {
+                                    class: "label-cell",
+                                    title: "Fetch missing intermediates by following AIA and SIA URIs, through the service, when path building comes up short. Needs retrieval turned on; with it off, the service is still used for revocation checking. This is the same setting as Retrieve from HTTP AIA and SIA on the Settings view.",
+                                    label { r#for: "validate-chase", "Chase SIA/AIA: " }
+                                }
+                                div { class: "field",
+                                    input {
+                                        id: "validate-chase",
+                                        r#type: "checkbox",
+                                        checked: settings().retrieve_from_aia_sia_http.unwrap_or(true),
+                                        disabled: chase_blocked_because().is_some(),
+                                        onchange: move |ev| {
+                                            settings.write().retrieve_from_aia_sia_http = Some(ev.checked());
+                                            if let Err(e) = persist_settings(&settings()) {
+                                                settings_status.set(e);
+                                            }
+                                        },
+                                    }
+                                }
                                 TimeOfInterestRow {
                                     value: settings().time_of_interest,
                                     onchange: move |v| {
@@ -2239,8 +2265,7 @@ fn App() -> Element {
                                 }
                             }
                             // Only when it cannot happen. That the tier has retrieval on is already
-                            // on screen in the control that decides it, and repeating it under the
-                            // time of interest annotates the wrong field. `capability-notice` sets
+                            // on screen in the control that decides it. `capability-notice` sets
                             // it apart from a field hint, which is what it is: a qualification of
                             // the box rather than a note about a row in it.
                             if let Some(why) = chase_blocked_because() {

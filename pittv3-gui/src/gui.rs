@@ -40,8 +40,8 @@ use pittv3_gui_lib::gui_inspect::InspectReportView;
 use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::gui_results::{ResultsView, RunEvent};
 use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
-use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow, TimeRow};
-use pittv3_gui_lib::gui_settings::EditSettingsFile;
+use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxCell, CheckboxRow, PathListRow};
+use pittv3_gui_lib::gui_settings::{EditSettingsFile, TimeOfInterestRow};
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::UriCheckResults;
 use pittv3_gui_lib::gui_utils::{
@@ -374,6 +374,11 @@ fn edited_toi(current: &str) -> Option<u64> {
         true => None,
         false => current.trim().parse().ok(),
     }
+}
+
+/// Writes a time-of-interest row's value back to the epoch string the views hold, blank for run time.
+fn set_edited_toi(mut sig: Signal<String>, value: Option<u64>) {
+    sig.set(value.map(|secs| secs.to_string()).unwrap_or_default());
 }
 
 /// Whether it is all right to do something that discards the settings form's edits: either there
@@ -2286,25 +2291,23 @@ pub(crate) fn App() -> Element {
                 &s_export_name(),
                 s_run_stamp().unwrap_or_else(now_as_unix_epoch),
             );
-            // The environment halves, from the run's cache where there is one and from the files
-            // the run read where there is not.
+            // The environment halves: the files the run read, as given, and beside them what the
+            // run's cache says it built from them, where it built anything.
             //
             // **The cache is not enough on its own, which is what the first bundles showed.**
             // `fingerprint_for_args` answers `None` for a store used by itself, because such a
             // store already carries its partial paths and nothing needs building -- so the most
             // ordinary run there is produced a bundle with no environment in it at all, and a
-            // command line that would have found no trust anchors. The cache is preferred because
-            // it holds what a built graph actually became; the files are the fallback and are the
-            // same bytes for a store that was only read.
+            // command line that would have found no trust anchors. So the files always fill the
+            // store halves, and the cache fills only the built ones.
             let inputs = match s_run_inputs() {
                 None => RunInputs::default(),
                 Some((args, store)) => {
                     let fingerprint = graph_cache::fingerprint_for_args(&args);
                     RunInputs {
-                        anchors: fingerprint
-                            .as_deref()
-                            .and_then(graph_cache::cached_anchors)
-                            .or_else(|| read_input_file(&args.ta_cbor))
+                        // The store's anchors as given, like `graph` below; what the run
+                        // assembled goes in `built_anchors`, not here.
+                        anchors: read_input_file(&args.ta_cbor)
                             .or_else(|| pool_includes_ta_store(&read_pool(&args.ta_inputs))),
                         // The store as the run read it, always, so it stays comparable -- from
                         // the singular argument, or from whichever pooled input is itself a store.
@@ -2315,6 +2318,8 @@ pub(crate) fn App() -> Element {
                         // a built graph saved under that name looks like a store snapshot and is
                         // not one, and nothing in the file says so.
                         built_graph: fingerprint.as_deref().and_then(graph_cache::cached),
+                        // Cached beside the graph under the same key, so they describe one run.
+                        built_anchors: fingerprint.as_deref().and_then(graph_cache::cached_anchors),
                         // The targets the run was asked about. Supplied here because the run's own
                         // retained state records them per validated path, and a run that found no
                         // paths would otherwise carry no target at all -- which is the certificate
@@ -2617,10 +2622,9 @@ pub(crate) fn App() -> Element {
                                             sig: s_dynamic_build,
                                             title: "Fetch missing intermediates by following AIA and SIA URIs. They are written to the download folder, or the CA folder when none is set; name one on the Settings view. This is the same setting as Retrieve from HTTP AIA and SIA on the Settings view.",
                                         }
-                                        TimeRow {
-                                            label: "Time of Interest",
-                                            name: "time-of-interest",
-                                            sig: s_time_of_interest,
+                                        TimeOfInterestRow {
+                                            value: edited_toi(&s_time_of_interest()),
+                                            onchange: move |v| set_edited_toi(s_time_of_interest, v),
                                             title: "The instant every certificate and revocation artifact is judged against. Blank means run time, resolved when the run starts, and Now clears the box to get back to it. Pin an instant with the picker or by typing an epoch; a time pinned here is the same setting as Time of Interest on the Settings view and is written there, while blank leaves that setting unset.",
                                         }
                                     }
@@ -2813,7 +2817,10 @@ pub(crate) fn App() -> Element {
                                 // Beside the option it serves: this is where chasing puts what it
                                 // fetches, and it means nothing when nothing is being chased.
                                 FolderRow { label: "Download Folder", name: "download-folder", sig: s_download_folder }
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_time_of_interest }
+                                TimeOfInterestRow {
+                                    value: edited_toi(&s_time_of_interest()),
+                                    onchange: move |v| set_edited_toi(s_time_of_interest, v),
+                                }
                             }
                         }
                         RunButton {
@@ -2880,7 +2887,10 @@ pub(crate) fn App() -> Element {
                                     filter_name: "PITTv3 CBOR-serialized PKI",
                                     extensions: ["cbor", "pki"].as_slice(),
                                 }
-                                TimeRow { label: "Time of Interest", name: "time-of-interest", sig: s_inspect_toi }
+                                TimeOfInterestRow {
+                                    value: edited_toi(&s_inspect_toi()),
+                                    onchange: move |v| set_edited_toi(s_inspect_toi, v),
+                                }
                             }
                         }
                         // The same group box the Validate view puts a target in, so the certificate
@@ -3343,7 +3353,6 @@ mod tooltip_coverage {
     const TOOLTIP_ROWS: &[&str] = &[
         "TextRow",
         "BrowseRow",
-        "TimeRow",
         "CheckboxCell",
         "CheckboxRow",
         "PathListRow",

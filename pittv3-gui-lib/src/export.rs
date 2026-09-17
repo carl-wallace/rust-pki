@@ -474,6 +474,9 @@ fn render_readme(paths: &[Vec<ExportEntry>], inputs: &RunInputs, run_ms: Option<
         }
     };
     let mut ta_parts = vec![];
+    if inputs.built_anchors.is_some() {
+        ta_parts.push(format!("{DERIVED_DIR}/{BUILT_TA_NAME}"));
+    }
     if inputs.anchors.is_some() {
         ta_parts.push(format!("{INPUTS_DIR}/{TA_NAME}"));
     }
@@ -605,6 +608,13 @@ fn render_readme(paths: &[Vec<ExportEntry>], inputs: &RunInputs, run_ms: Option<
              actually judged against, which reproduces these targets on its own.\n"
         )),
     }
+    if inputs.built_anchors.is_some() {
+        out.push_str(&format!(
+            "\n{BUILT_TA_NAME} contains the trust anchors composed from: the selected store, any \n\
+             updated TAs. {BUILT_GRAPH_NAME}'s partial paths end at these, so load the two \n\
+             together. {INPUTS_DIR}/{TA_NAME} is the store's anchors alone, unmodified.\n"
+        ));
+    }
     out
 }
 
@@ -649,6 +659,11 @@ pub const OCSP_DIR: &str = "OCSP";
 /// [`CA_NAME`] rather than a companion to it, offered because it carries the partial paths the run
 /// found and so replays without building them again.
 pub const BUILT_GRAPH_NAME: &str = "built-graph.cbor";
+/// See [`TA_NAME`]. The anchors the run assembled, when anything was supplied beside a store.
+///
+/// The anchor-side counterpart of [`BUILT_GRAPH_NAME`], and an alternative to [`TA_NAME`] in the
+/// same way: `--ta-cbor` reads either, and this one also holds the anchors that were supplied.
+pub const BUILT_TA_NAME: &str = "built-ta.cbor";
 /// See [`TA_NAME`]. The command that replays the run against the files beside it.
 pub const COMMAND_NAME: &str = "command.txt";
 
@@ -723,6 +738,14 @@ pub struct RunInputs {
     ///
     /// [`graph`]: RunInputs::graph
     pub built_graph: Option<Vec<u8>>,
+    /// The anchors the run assembled -- the store's plus any supplied -- as a CBOR trust anchor
+    /// store, kept in addition to [`anchors`] for the same reason [`built_graph`] is kept beside the
+    /// [`graph`]. `ta.cbor` is the store as given, and this is what the run actually used.
+    ///
+    /// [`anchors`]: RunInputs::anchors
+    /// [`built_graph`]: RunInputs::built_graph
+    /// [`graph`]: RunInputs::graph
+    pub built_anchors: Option<Vec<u8>>,
     /// The settings the run was carried out under, serialized as `-s` reads them.
     pub settings: Option<CertificationPathSettings>,
     /// The end entity certificates the run validated, named as they will appear in [`EE_DIR`].
@@ -821,6 +844,9 @@ pub fn derived_entries(inputs: &RunInputs, paths: &[Vec<ExportEntry>]) -> Vec<Ex
     let mut out = vec![];
     if let Some(bytes) = &inputs.built_graph {
         out.push((format!("{DERIVED_DIR}/{BUILT_GRAPH_NAME}"), bytes.clone()));
+    }
+    if let Some(bytes) = &inputs.built_anchors {
+        out.push((format!("{DERIVED_DIR}/{BUILT_TA_NAME}"), bytes.clone()));
     }
     // Deduplicated by content: one anchor terminates several paths and one intermediate is commonly
     // on several, and the same bytes written twice is one file either way.
@@ -938,8 +964,16 @@ fn render_replay_command(inputs: &RunInputs) -> String {
     // alternatives: the store is the wider set a `-v` sweep needs, the folder is what these targets
     // were actually judged against, and `--ta-cbor` and `--ta` combine their anchors rather than one
     // displacing the other.
-    if inputs.anchors.is_some() {
-        cmd.push_str(&format!(" --ta-cbor {INPUTS_DIR}/{TA_NAME}"));
+    // The assembled anchors when there are any, which include the store's: the built graph's
+    // paths end at them, so pairing that graph with the store's anchors alone would replay a
+    // narrower environment than the run had.
+    match inputs.built_anchors.is_some() {
+        true => cmd.push_str(&format!(" --ta-cbor {DERIVED_DIR}/{BUILT_TA_NAME}")),
+        false => {
+            if inputs.anchors.is_some() {
+                cmd.push_str(&format!(" --ta-cbor {INPUTS_DIR}/{TA_NAME}"));
+            }
+        }
     }
     // The anchors the paths used, never the supplied ones: a replay is judged against what this run
     // was judged against, and supplied anchors no path used would widen it.
@@ -1655,6 +1689,60 @@ mod tests {
             "{command}"
         );
         assert!(!command.contains(BUILT_GRAPH_NAME), "{command}");
+    }
+
+    /// The assembled anchors travel beside the store's rather than over them, the command replays
+    /// from the assembled set, and the README names it -- the anchor half of the rule above.
+    #[test]
+    fn built_anchors_do_not_displace_the_store_anchors() {
+        let inputs = RunInputs {
+            anchors: Some(b"the store's anchors".to_vec()),
+            built_anchors: Some(b"store plus supplied".to_vec()),
+            built_graph: Some(b"the graph".to_vec()),
+            time_of_interest: 1,
+            ..Default::default()
+        };
+        let entries = all_entries(&inputs);
+        let by_name = |n: &str| {
+            entries
+                .iter()
+                .find(|(name, _)| name == n)
+                .map(|(_, b)| b.clone())
+        };
+        assert_eq!(
+            by_name(&format!("{INPUTS_DIR}/{TA_NAME}")),
+            Some(b"the store's anchors".to_vec())
+        );
+        assert_eq!(
+            by_name(&format!("{DERIVED_DIR}/{BUILT_TA_NAME}")),
+            Some(b"store plus supplied".to_vec())
+        );
+
+        let command = command_text(&inputs);
+        assert!(
+            command.contains(&format!(" --ta-cbor {DERIVED_DIR}/{BUILT_TA_NAME}")),
+            "{command}"
+        );
+        assert!(
+            !command.contains(&format!("{INPUTS_DIR}/{TA_NAME}")),
+            "{command}"
+        );
+
+        let readme = render_readme(&[], &inputs, None);
+        assert!(readme.contains(BUILT_TA_NAME), "{readme}");
+
+        // with nothing assembled, the store's anchors are what the command names
+        let store_only = RunInputs {
+            anchors: Some(b"the store's anchors".to_vec()),
+            time_of_interest: 1,
+            ..Default::default()
+        };
+        let command = command_text(&store_only);
+        assert!(
+            command.contains(&format!(" --ta-cbor {INPUTS_DIR}/{TA_NAME}")),
+            "{command}"
+        );
+        assert!(!command.contains(BUILT_TA_NAME), "{command}");
     }
 
     /// The retired names hold an absolute path on the machine that ran the validation and do

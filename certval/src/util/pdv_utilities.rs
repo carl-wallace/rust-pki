@@ -201,7 +201,13 @@ pub fn valid_at_time(
     let nb = validity.not_before;
     if nb > toi {
         if !stifle_log {
-            log_error_for_name(target.subject(), "certificate is not yet valid, i.e., not_before is prior to the configured time of interest");
+            log_error_for_name(
+                target.subject(),
+                format!(
+                    "certificate is not yet valid: not_before {nb} is later than the time of interest {toi}"
+                )
+                .as_str(),
+            );
         }
         return Err(Error::PathValidation(
             PathValidationStatus::InvalidNotBeforeDate,
@@ -214,8 +220,7 @@ pub fn valid_at_time(
             log_error_for_name(
                 target.subject(),
                 format!(
-                    "certificate is expired relative to the configured time of interest: {}",
-                    validity.not_after
+                    "certificate is expired: not_after {na} is earlier than the time of interest {toi}"
                 )
                 .as_str(),
             );
