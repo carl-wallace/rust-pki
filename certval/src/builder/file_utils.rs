@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use walkdir::WalkDir;
 
-use log::{error, info};
+use log::{debug, error, info};
 
 use der::Decode;
 use x509_cert::anchor::TrustAnchorChoice;
@@ -181,6 +181,11 @@ fn add_file_to_vec(
         }
     };
 
+    // Objects that did not parse at all, as distinct from ones that parsed and were then filtered
+    // out, which log their own reason.
+    let objects = buffers.len();
+    let mut unparsed = 0;
+
     for buffer in buffers {
         // make sure it parses before saving buffer; a rejected object skips only
         // itself, not the rest of a bundle.
@@ -193,7 +198,10 @@ fn add_file_to_vec(
             // there is nothing to check, which is not the same as failing a check.
             let ta = match TrustAnchorChoice::<Raw>::from_der(buffer.as_slice()) {
                 Ok(ta) => ta,
-                Err(_e) => continue,
+                Err(_e) => {
+                    unparsed += 1;
+                    continue;
+                }
             };
             if ta_valid_at_time(&ta, time_of_interest, true).is_err() {
                 error!(
@@ -221,6 +229,7 @@ fn add_file_to_vec(
                     continue;
                 }
             } else {
+                unparsed += 1;
                 continue;
             }
         }
@@ -232,6 +241,24 @@ fn add_file_to_vec(
         if !certsvec.contains(&cf) {
             certsvec.push(cf);
         }
+    }
+
+    // A file some of whose objects parsed lost the rest, which is worth an error: the caller gets a
+    // count and cannot tell six-of-six from one-of-six. A file none of whose objects parsed is not
+    // that kind of input at all -- a CBOR store or an InstallRoot stream named where certificates
+    // are also accepted reaches here first -- and callers already report the zero.
+    let kind = if collect_tas {
+        "trust anchors"
+    } else {
+        "certificates"
+    };
+    if unparsed > 0 && unparsed < objects {
+        error!(
+            "Ignored {unparsed} of {objects} objects in {} that could not be parsed as {kind}",
+            path.display()
+        );
+    } else if unparsed > 0 {
+        debug!("No object in {} parsed as {kind}", path.display());
     }
 
     certsvec.len() - initial_count
