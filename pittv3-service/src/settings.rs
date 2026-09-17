@@ -96,7 +96,8 @@ pub fn sanitize(settings: &mut CertificationPathSettings, config: &ServiceConfig
     }
 
     // Chasing costs outbound retrieval, so a client may ask for it only where the deployment has
-    // said yes. Removing the setting leaves certval's default, which is off.
+    // said yes. This service's certval is built without `remote`, so nothing here reads the setting
+    // and `allow_dynamic_build` alone decides; removing it is what lets the note say so.
     if !config.allow_dynamic_build && settings.0.remove(PS_RETRIEVE_FROM_AIA_SIA_HTTP).is_some() {
         notes.push(format!(
             "ignored {PS_RETRIEVE_FROM_AIA_SIA_HTTP}: this service does not chase AIA and SIA URIs"
