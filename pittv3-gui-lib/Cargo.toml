@@ -68,6 +68,7 @@ revocation = ["certval/revocation", "pittv3-lib/revocation"]
 std = ["revocation", "certval/std", "pittv3-lib/std", "dep:home"]
 remote = ["certval/remote", "pittv3-lib/remote", "revocation", "std"]
 pqc = ["certval/pqc", "pittv3-lib/pqc"]
+rsa = ["certval/rsa", "pittv3-lib/rsa"]
 webpki = ["certval/webpki", "pittv3-lib/webpki"]
 gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
 # DoD InstallRoot streams as uploaded trust anchor or CA inputs.
