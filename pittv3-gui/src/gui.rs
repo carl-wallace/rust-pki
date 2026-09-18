@@ -1024,7 +1024,7 @@ fn StoreRow(sig: Signal<usize>, status: Signal<String>) -> Element {
                         value: "{i + 1}",
                         selected: sig() == i + 1,
                         disabled: !stores::is_accessible(i + 1),
-                        "{s.label}"
+                        "{s.label()}"
                     }
                 }
             }
@@ -1740,6 +1740,49 @@ pub(crate) fn App() -> Element {
             no_auto_discover: false,
         })
     };
+
+    // The settings are also written when the window closes, not only when a run starts.
+    //
+    // A run used to be the single moment anything was saved, which made the saved file mean "the
+    // inputs of the last run" while the Clear buttons implied it meant "the form as you left it".
+    // Clearing a row and quitting restored the row. For the end entity pool the two readings could
+    // not even be reconciled: the Validate button is disabled while that pool is empty, so an empty
+    // one could never be reached by the only code path that saved, and the last certificate
+    // validated came back at every launch for good.
+    //
+    // `current_args` rather than a cheaper subset, so the file keeps one meaning whichever moment
+    // wrote it -- and because the store selection is recovered on restore by matching the saved
+    // CBOR path against the cache layout, which means the paths have to be there. It materializes
+    // the selected store to produce them, so this does write the store cache on the way out; that
+    // is a serialization and a byte comparison, not a fetch.
+    //
+    // Three events, because which one arrives depends on how the application was ended, and the
+    // window ones are not enough: **quitting with Cmd-Q on macOS sends neither `CloseRequested` nor
+    // `Destroyed`**, which is how the first version of this shipped doing nothing at all. Measured
+    // rather than reasoned -- the config file's mtime stayed where the last run had left it.
+    // `LoopDestroyed` is what tao documents as the "do on quit" event and guarantees to emit last,
+    // so it is the one that catches a quit; the window events still catch a window closed on
+    // platforms that send them. Writing more than once is writing the same bytes more than once.
+    use_wry_event_handler(move |event, _| {
+        use dioxus::desktop::tao::event::{Event, WindowEvent};
+        let ending = matches!(
+            event,
+            Event::LoopDestroyed
+                | Event::WindowEvent {
+                    event: WindowEvent::CloseRequested | WindowEvent::Destroyed,
+                    ..
+                }
+        );
+        if !ending {
+            return;
+        }
+        // A store that cannot be materialized leaves the settings as the last run wrote them.
+        // Nothing can be done about it at this point in the application's life, and the failure
+        // is one the Validate button reports when it matters.
+        if let Ok(args) = current_args() {
+            let _ = save_args(&args);
+        }
+    });
 
     // Takes what a host presents and files it across the pools it belongs in. Spawned rather than
     // awaited so the window stays live during a handshake against a host that is slow to answer.

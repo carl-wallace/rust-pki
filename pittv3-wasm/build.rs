@@ -101,15 +101,14 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// One generated store: which provider environment it comes from, and the file
-/// names `STORES` expects. `ca` is `None` for an anchors-only environment.
+/// One generated store: which provider store it comes from, and the file names
+/// `STORES` expects. `ca` is `None` for an anchors-only store.
 struct Artifact {
     provider: &'static dyn TrustStoreProvider,
-    env: &'static str,
-    /// The identifier `STORES` gives this store, which also names the environment
-    /// variables its dates are passed through. Must match the `id` there; a
-    /// mismatch would leave the dates silently unset, which is what
-    /// `every_shipped_store_states_when_it_was_collected` is for.
+    /// The provider's own id for this store, which selects it and names the
+    /// environment variables its dates are passed through. Taken from the
+    /// provider crate's constant rather than written out, so a store renamed
+    /// there stops this build rather than silently matching nothing.
     id: &'static str,
     ta: &'static str,
     ca: Option<&'static str>,
@@ -123,8 +122,7 @@ fn artifacts() -> Vec<Artifact> {
     vec![
         Artifact {
             provider: certval_stores_nipr::provider(),
-            env: "NIPR",
-            id: "dod_nipr_prod",
+            id: certval_stores_nipr::NIPR_PROD,
             ta: "dod_nipr_prod_ta.cbor",
             ca: Some("dod_nipr_prod_ca.cbor"),
         },
@@ -133,8 +131,7 @@ fn artifacts() -> Vec<Artifact> {
         // roots anchor nothing the production DoD roots anchor.
         Artifact {
             provider: certval_stores_nipr::provider(),
-            env: "OM_NIPR",
-            id: "dod_nipr_om",
+            id: certval_stores_nipr::NIPR_OM,
             ta: "dod_nipr_om_ta.cbor",
             ca: Some("dod_nipr_om_ca.cbor"),
         },
@@ -144,8 +141,7 @@ fn artifacts() -> Vec<Artifact> {
         // roots anchor nothing the DoD roots anchor.
         Artifact {
             provider: certval_stores_eca::provider(),
-            env: "ECA",
-            id: "dod_eca",
+            id: certval_stores_eca::ECA,
             ta: "dod_eca_ta.cbor",
             ca: Some("dod_eca_ca.cbor"),
         },
@@ -156,8 +152,7 @@ fn artifacts() -> Vec<Artifact> {
         // not from the anchor set.
         Artifact {
             provider: certval_stores_mozilla::provider(),
-            env: "MOZILLA_ALL",
-            id: "webpki",
+            id: certval_stores_mozilla::ALL,
             ta: "webpki_ta.cbor",
             ca: Some("webpki_ca.cbor"),
         },
@@ -182,12 +177,12 @@ fn main() {
     let dir = Path::new("resources");
     let mut inventory = Vec::new();
     for a in artifacts() {
-        let store = match serialize_environment(&[a.provider], a.env) {
+        let store = match serialize_environment(&[a.provider], a.id) {
             Ok(s) => s,
             // A provider that cannot serialize is a broken build, not a warning
             // to scroll past: the app would fetch a stale store and validate
             // against material nobody chose.
-            Err(e) => panic!("failed to serialize the {} store: {e:?}", a.env),
+            Err(e) => panic!("failed to serialize the {} store: {e:?}", a.id),
         };
 
         // The dates ride in on the environment rather than in the CBOR, which has nowhere
@@ -196,6 +191,7 @@ fn main() {
         // provider states no date compiles to `None` with nothing further to arrange.
         stamp_date(a.id, "PUBLISHED", store.published);
         stamp_date(a.id, "COLLECTED", store.collected);
+        stamp_label(a.id, store.label);
 
         write_if_changed(&dir.join(a.ta), &store.ta_cbor);
         let ta = StoreFile::of(a.ta, &store.ta_cbor);
@@ -208,13 +204,13 @@ fn main() {
             (Some(name), None) => {
                 panic!(
                     "{} expects a CA store at {name} but the provider carries none",
-                    a.env
+                    a.id
                 )
             }
             (None, Some(_)) => {
                 panic!(
                     "{} carries a CA store but no file name is configured for it",
-                    a.env
+                    a.id
                 )
             }
             (None, None) => None,
@@ -222,7 +218,6 @@ fn main() {
 
         inventory.push(Inventory {
             id: a.id,
-            env: a.env,
             published: store.published,
             collected: store.collected,
             anchors: anchors(&a),
@@ -239,6 +234,23 @@ fn main() {
 /// Nothing is emitted when the provider states no date: an unset variable is what
 /// makes `option_env!` produce `None`, and emitting an empty string instead would
 /// hand the selector a store claiming to have been collected on no day at all.
+/// Pass a store's display name to the crate as `PITTV3_STORE_LABEL_<ID>`.
+///
+/// The browser cannot ask the provider the way the desktop selector does — it never links the
+/// provider crates, which is the whole reason this script exists — so the name travels the same
+/// road the dates do. Without it `STORES` would hold the one remaining hand-written name for
+/// provider material, and a name written twice is a name free to drift: the desktop and the
+/// service each had one, and they disagreed about NIPR.
+///
+/// Unconditional, unlike a date: every store has a name, so `STORES` can treat an unset variable
+/// as a build that went wrong rather than as a store with nothing to say.
+fn stamp_label(id: &str, label: &str) {
+    println!(
+        "cargo::rustc-env=PITTV3_STORE_LABEL_{}={label}",
+        id.to_ascii_uppercase()
+    );
+}
+
 fn stamp_date(id: &str, which: &str, date: Option<&str>) {
     if let Some(date) = date {
         println!(
@@ -295,7 +307,6 @@ impl StoreFile {
 /// One store's entry in the manifest.
 struct Inventory {
     id: &'static str,
-    env: &'static str,
     published: Option<&'static str>,
     collected: Option<&'static str>,
     /// Subject and digest per trust anchor, sorted by subject.
@@ -317,7 +328,7 @@ fn anchors(a: &Artifact) -> Vec<(String, String)> {
     let entries = a.provider.entries();
     let mut rows: Vec<(String, String)> = entries
         .iter()
-        .filter(|e| e.env == a.env)
+        .filter(|e| e.id == a.id)
         .flat_map(|e| e.roots.iter().copied())
         .map(|der| (anchor_subject(der), sha256_hex(der)))
         .collect();
@@ -363,7 +374,7 @@ fn store_file_line(which: &str, f: &StoreFile) -> String {
 fn render_manifest(stores: &[Inventory]) -> String {
     let mut out = String::from(MANIFEST_HEADER);
     for s in stores {
-        out.push_str(&format!("[{}]  env={}", s.id, s.env));
+        out.push_str(&format!("[{}]", s.id));
         if let Some(d) = s.published {
             out.push_str(&format!("  published={d}"));
         }

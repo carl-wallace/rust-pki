@@ -13,32 +13,32 @@
 # Anchors are sorted by subject, so the order carries no meaning and an addition
 # does not move its neighbours.
 
-[dod_nipr_prod]  env=NIPR  published=2026-06-12  collected=2026-09-11
+[dod_nipr_prod]  published=2026-06-12  collected=2026-09-11
   anchors 4
     CN=DoD Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:b107b33f453e5510f68e513110c6f6944bacc263df0137f821c1b3c2f8f863d2
     CN=DoD Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:559a5189452b13f8233f0022363c06f26e3c517c1d4b77445035959df3244f74
     CN=DoD Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:1f4ede9dc2a241f6521bf518424acd49ebe84420e69daf5bac57af1f8ee294a9
     CN=DoD Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:2a5e41aca93df7cc496d2369b7a0a037045d502f1abaaf76975fc07c6660cf93
-  ta_store  dod_nipr_prod_ta.cbor  3484 bytes  sha256:ecf181516338efc20598a1ef84d52bd0c79431d24bdd980c035a17dda894450b
+  ta_store  dod_nipr_prod_ta.cbor  3520 bytes  sha256:5c1a7c5e4095df791bfabad580c3ebfd55eaf16250ca3ed562b54204ba3da0d6
   ca_store  dod_nipr_prod_ca.cbor  59431 bytes  sha256:663b5bdb15582508d7c6f9ed8036ce411eaada4f5aa31d342c2f4d45c0badda7
 
-[dod_nipr_om]  env=OM_NIPR  published=2025-02-03  collected=2026-09-11
+[dod_nipr_om]  published=2025-02-03  collected=2026-09-11
   anchors 4
     CN=DoD JITC Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:058e89a6f8db8ad2a79da75b63eea62deaa5666fb9cfbf6dd11e584f50ba9866
     CN=DoD JITC Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:5507a9e0834748792f909060a1cf1713d4d89ea281f193303767730799ab2b72
     CN=DoD JITC Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:57e62069dade85daae049d2593209c82c859cf530d8c88052e51f40d7ddbd368
     CN=DoD JITC Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:cb97c7d04891f8aa2b052da5597340ed552b4c76dd02b278bef9fae05f7d2cee
-  ta_store  dod_nipr_om_ta.cbor  3535 bytes  sha256:4dc2f44fc157579aff5089d98a1860c3b524af45623518bca2d1fc1d87c3ead6
+  ta_store  dod_nipr_om_ta.cbor  3551 bytes  sha256:5fd586b8510d20acc243760a393d267b3153716bda0444d794284b8d2f913f29
   ca_store  dod_nipr_om_ca.cbor  81384 bytes  sha256:b34bc70b11f9d8c7445f8696055efeda9c12e71862293f7dc3e23f0e48bab64c
 
-[dod_eca]  env=ECA  published=2025-12-18  collected=2026-09-11
+[dod_eca]  published=2025-12-18  collected=2026-09-11
   anchors 2
     CN=ECA Root CA 4,OU=ECA,O=U.S. Government,C=US  sha256:343ff530f246b00c71616a5d42541d551114baf74b7f786c7b42527586c6b22a
     CN=ECA Root CA 5,OU=ECA,O=U.S. Government,C=US  sha256:ddf1c18f91ee0bdb64846e2e6a4e9e42ebea47ff4b0d7f6a8e9f036119af945d
-  ta_store  dod_eca_ta.cbor  2317 bytes  sha256:7f8f09bd6121696faaacc27150fbc333be3163491001953297206a8a9478f98c
+  ta_store  dod_eca_ta.cbor  2325 bytes  sha256:1d8910763ac30c01c1c30c5e2c964925f6f7716a6972a9c2ceb0b3cf4c6b6a04
   ca_store  dod_eca_ca.cbor  9546 bytes  sha256:a60db5763da045dcab4db36b5cfd76fe6647736daec5ad2fa25dae5b974d7686
 
-[webpki]  env=MOZILLA_ALL  collected=2026-08-13
+[webpki]  collected=2026-08-13
   anchors 170
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
@@ -210,6 +210,6 @@
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
-  ta_store  webpki_ta.cbor  189575 bytes  sha256:15803ccdee726546fc08310024c13ae762bc48155037d92fe1f1f8bfeaca9820
+  ta_store  webpki_ta.cbor  188725 bytes  sha256:dfb2612adbcbda6f751171b25fb29ce8e67006238564c18f771948a2edaf6d1d
   ca_store  webpki_ca.cbor  3884820 bytes  sha256:28389ad02cae49f530f099f7491eae3f80f94682b2158e06cb863b5f5de544ce
 

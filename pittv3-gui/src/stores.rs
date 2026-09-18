@@ -66,13 +66,23 @@ pub(crate) enum StoreSource {
     },
 }
 
-/// A trust anchor and CA certificate store pair offered by the store selector, named by the
-/// provider environment it comes from.
+/// A trust anchor and CA certificate store pair offered by the store selector, named by the id
+/// the provider gives it.
 pub(crate) struct BuiltInStore {
-    /// Display name for the store
-    pub label: &'static str,
-    /// Provider environment, e.g. `NIPR`. Also names the cache folder the store is written to.
-    pub env: &'static str,
+    /// Name to show for the sources this application assembles itself, and `None` wherever a
+    /// provider carries the material.
+    ///
+    /// Not `&'static str` with a value for every entry, because a name written here beside a
+    /// store the provider already names is a second opinion free to drift from the first -- and
+    /// it did: this selector said "U.S. DoD (NIPR production)" while the browser and the service,
+    /// showing the same anchors, said "U.S. DoD (NIPR)". Read it through
+    /// [`label`](BuiltInStore::label), never directly.
+    pub fallback_label: Option<&'static str>,
+    /// The store's id, e.g. `dod_nipr_prod`. Taken from the provider's own constant where a
+    /// provider carries the material, so this selector and the browser's name a store alike;
+    /// chosen here for the sources no provider backs. Also names the cache folder the store is
+    /// written to.
+    pub id: &'static str,
     /// Where the material comes from
     pub source: StoreSource,
     /// The PKI this store's material comes from, as a noun phrase completing "Trust anchors [and
@@ -85,6 +95,25 @@ pub(crate) struct BuiltInStore {
     pub note: &'static str,
 }
 
+impl BuiltInStore {
+    /// The name to show for this store.
+    ///
+    /// The provider's own, wherever a provider carries the material, for the same reason
+    /// [`has_ca_store`] asks rather than records: the provider states what the store is, and this
+    /// application restating it is how the desktop selector and the browser's came to call one set
+    /// of anchors two different things. Falls back to the id rather than to an empty menu entry if
+    /// a provider stops carrying a store this catalogue still lists -- a wrong-looking name is
+    /// easier to act on than a blank one.
+    pub(crate) fn label(&self) -> &'static str {
+        if let StoreSource::Provider(provider) = self.source {
+            if let Some(entry) = provider().entries().iter().find(|e| e.id == self.id) {
+                return entry.label;
+            }
+        }
+        self.fallback_label.unwrap_or(self.id)
+    }
+}
+
 /// Value of the store selector meaning "none of the below": the TA and CA inputs are used as
 /// given, which is how the app behaved before there were built-in stores.
 pub(crate) const CUSTOM: usize = 0;
@@ -95,8 +124,8 @@ pub(crate) const CUSTOM: usize = 0;
 /// ships a subset, since each store it offers is bytes it has to download.
 pub(crate) const STORES: &[BuiltInStore] = &[
     BuiltInStore {
-        label: "U.S. DoD (NIPR production)",
-        env: "NIPR",
+        fallback_label: None,
+        id: certval_stores_nipr::NIPR_PROD,
         source: StoreSource::Provider(certval_stores_nipr::provider),
         pki: "the DoD production PKI on NIPRNet",
         note: "",
@@ -107,8 +136,8 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // nothing the production roots anchor, so combining them would offer a trust set nobody
     // operates.
     BuiltInStore {
-        label: "U.S. DoD (NIPR operational test, JITC)",
-        env: "OM_NIPR",
+        fallback_label: None,
+        id: certval_stores_nipr::NIPR_OM,
         source: StoreSource::Provider(certval_stores_nipr::provider),
         pki: "the DoD operational-test PKI on NIPRNet, also known as JITC",
         note: "Test material: not for judging production certificates.",
@@ -117,8 +146,8 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // environment only, because a large share of the CCADB intermediates chain solely to
     // email-only roots and would be unanchored under the TLS-scoped anchor set.
     BuiltInStore {
-        label: "Web PKI (Mozilla roots, TLS + S/MIME, + CCADB intermediates)",
-        env: "MOZILLA_ALL",
+        fallback_label: None,
+        id: certval_stores_mozilla::ALL,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, covering all purposes it supports",
         note: "",
@@ -128,15 +157,15 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // certificates record, so the split has to come from the provider — it cannot be recovered
     // from the DER of the roots themselves.
     BuiltInStore {
-        label: "Web PKI (Mozilla roots, TLS only)",
-        env: "MOZILLA_TLS",
+        fallback_label: None,
+        id: certval_stores_mozilla::TLS,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, the roots trusted for websites",
         note: "See the CCADB for further details.",
     },
     BuiltInStore {
-        label: "Web PKI (Mozilla roots, S/MIME only)",
-        env: "MOZILLA_EMAIL",
+        fallback_label: None,
+        id: certval_stores_mozilla::EMAIL,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, the roots trusted for email",
         note: "See the CCADB for further details.",
@@ -146,15 +175,15 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // of the Mozilla program against CCADB read directly — and which one a run used is worth being
     // able to say. The blurb is where the difference is stated, since the labels cannot carry it.
     BuiltInStore {
-        label: "Web PKI (webpki-roots crate, TLS only)",
-        env: "WEBPKI",
+        fallback_label: Some("Web PKI (webpki-roots crate, TLS only)"),
+        id: "webpki_roots",
         source: StoreSource::Webpki,
         pki: "the webpki-roots crate, rustls' snapshot of the Mozilla program",
         note: "These anchors assert no validity, so anchor validity checking is off for the run.",
     },
     BuiltInStore {
-        label: "U.S. Federal PKI (Common Policy CA G2)",
-        env: "FPKI",
+        fallback_label: None,
+        id: certval_stores_fpki::FPKI,
         source: StoreSource::Provider(certval_stores_fpki::provider),
         pki: "the U.S. Federal PKI",
         note: "Its bridge-era roots are nodes within the PKI, reached by cross-certificate.",
@@ -163,15 +192,15 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // outside the department that interoperate with it. Its own entry rather than part of the NIPR
     // one, because it is a separate trust set -- the two ECA roots anchor nothing the DoD roots do.
     BuiltInStore {
-        label: "U.S. DoD (External Certification Authority)",
-        env: "ECA",
+        fallback_label: None,
+        id: certval_stores_eca::ECA,
         source: StoreSource::Provider(certval_stores_eca::provider),
         pki: "the DoD ECA program, under which commercial vendors issue to non-DoD subscribers",
         note: "",
     },
     BuiltInStore {
-        label: "U.S. DoD (Purebred development)",
-        env: "DEV",
+        fallback_label: None,
+        id: certval_stores_pbdev::PUREBRED_DEV,
         source: StoreSource::Provider(certval_stores_pbdev::provider),
         pki: "the Purebred development environment",
         note: "Test material: not for judging production certificates.",
@@ -181,8 +210,8 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // narrower-sounding name, and is the one that works without elevation.
     #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
-        label: "Windows certificate store (current user, read-only)",
-        env: "CAPI_USER",
+        fallback_label: Some("Windows certificate store (current user, read-only)"),
+        id: "capi_user",
         source: StoreSource::Capi {
             ta: "CurrentUser\\ROOT",
             ca: Some("CurrentUser\\CA"),
@@ -195,8 +224,8 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // separate decision. Current user only: the machine stores need elevation even to read.
     #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
-        label: "Windows certificate store (current user, writable)",
-        env: "CAPI_USER_RW",
+        fallback_label: Some("Windows certificate store (current user, writable)"),
+        id: "capi_user_rw",
         source: StoreSource::Capi {
             ta: "CurrentUser\\ROOT",
             ca: Some("CurrentUser\\CA"),
@@ -208,8 +237,8 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     },
     #[cfg(all(windows, feature = "capi"))]
     BuiltInStore {
-        label: "Windows certificate store (local machine, read-only)",
-        env: "CAPI_MACHINE",
+        fallback_label: Some("Windows certificate store (local machine, read-only)"),
+        id: "capi_machine",
         source: StoreSource::Capi {
             ta: "LocalMachine\\ROOT",
             ca: Some("LocalMachine\\CA"),
@@ -233,7 +262,7 @@ pub(crate) fn env_for(index: usize) -> Option<String> {
     if index == CUSTOM {
         return None;
     }
-    STORES.get(index - 1).map(|s| s.env.to_string())
+    STORES.get(index - 1).map(|s| s.id.to_string())
 }
 
 /// The folder built-in stores are written to, `stores` beneath the application home.
@@ -263,11 +292,11 @@ pub(crate) fn materialize(index: usize) -> Result<(Option<String>, Option<String
 
     let dir = store_home()
         .ok_or_else(|| "no home directory to cache built-in stores in".to_string())?
-        .join(store.env);
+        .join(store.id);
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
 
-    let serialized = serialize_environment(&[provider()], store.env)
-        .map_err(|e| format!("failed to serialize the {} store: {e:?}", store.env))?;
+    let serialized = serialize_environment(&[provider()], store.id)
+        .map_err(|e| format!("failed to serialize the {} store: {e:?}", store.id))?;
 
     let ta_path = dir.join("ta.cbor");
     write_if_changed(&ta_path, &serialized.ta_cbor)?;
@@ -368,15 +397,15 @@ pub(crate) fn export(index: usize, dest: &Path) -> Result<Exported, String> {
     // No export for webpki: its anchors live in the run rather than in material this app holds, so
     // there is nothing here to copy out. The button is hidden for it rather than failing here.
     let StoreSource::Provider(provider) = store.source else {
-        return Err(format!("{} has no material to export", store.label));
+        return Err(format!("{} has no material to export", store.label()));
     };
 
-    let dir = dest.join(store.env);
+    let dir = dest.join(store.id);
     let tas = dir.join("tas");
     fs::create_dir_all(&tas).map_err(|e| format!("cannot create {}: {e}", tas.display()))?;
 
-    let serialized = serialize_environment(&[provider()], store.env)
-        .map_err(|e| format!("failed to serialize the {} store: {e:?}", store.env))?;
+    let serialized = serialize_environment(&[provider()], store.id)
+        .map_err(|e| format!("failed to serialize the {} store: {e:?}", store.id))?;
     fs::write(dir.join("ta.cbor"), &serialized.ta_cbor)
         .map_err(|e| format!("cannot write ta.cbor: {e}"))?;
     if let Some(bytes) = &serialized.ca_cbor {
@@ -389,7 +418,7 @@ pub(crate) fn export(index: usize, dest: &Path) -> Result<Exported, String> {
     let mut anchors = 0;
     let mut seen: Vec<&[u8]> = Vec::new();
     for entry in provider().entries() {
-        if entry.env != store.env {
+        if entry.id != store.id {
             continue;
         }
         for (i, der) in entry.roots.iter().enumerate() {
@@ -397,7 +426,7 @@ pub(crate) fn export(index: usize, dest: &Path) -> Result<Exported, String> {
                 continue;
             }
             seen.push(der);
-            let name = format!("{}_root_{i}.der", store.env);
+            let name = format!("{}_root_{i}.der", store.id);
             fs::write(tas.join(&name), der).map_err(|e| format!("cannot write {name}: {e}"))?;
             anchors += 1;
         }
@@ -452,7 +481,7 @@ pub(crate) fn material_age(index: usize) -> String {
     provider()
         .entries()
         .iter()
-        .find(|e| e.env == store.env)
+        .find(|e| e.id == store.id)
         .map(|e| pittv3_gui_lib::store_provenance::material_age(e.published, e.collected))
         .unwrap_or_default()
 }
@@ -472,7 +501,7 @@ pub(crate) fn has_ca_store(index: usize) -> bool {
             StoreSource::Provider(provider) => provider()
                 .entries()
                 .iter()
-                .any(|e| e.env == store.env && e.cert_store_cbor.is_some()),
+                .any(|e| e.id == store.id && e.cert_store_cbor.is_some()),
             // webpki-roots is anchors and nothing else
             StoreSource::Webpki => false,
             #[cfg(all(windows, feature = "capi"))]
@@ -581,7 +610,7 @@ pub(crate) fn selection_for(
     };
     STORES
         .iter()
-        .position(|s| home.join(s.env).join("ta.cbor") == Path::new(ta_cbor))
+        .position(|s| home.join(s.id).join("ta.cbor") == Path::new(ta_cbor))
         .map_or(CUSTOM, |i| i + 1)
 }
 
@@ -616,11 +645,11 @@ mod tests {
             };
             let entries = provider().entries();
             assert!(
-                entries.iter().any(|e| e.env == store.env),
+                entries.iter().any(|e| e.id == store.id),
                 "{} names environment {}, which its provider does not serve; it serves {:?}",
-                store.label,
-                store.env,
-                entries.iter().map(|e| e.env).collect::<Vec<_>>()
+                store.label(),
+                store.id,
+                entries.iter().map(|e| e.id).collect::<Vec<_>>()
             );
         }
     }
@@ -630,11 +659,11 @@ mod tests {
     /// is named after the environment.
     #[test]
     fn environments_are_distinct() {
-        let mut envs: Vec<&str> = STORES.iter().map(|s| s.env).collect();
-        envs.sort_unstable();
-        let count = envs.len();
-        envs.dedup();
-        assert_eq!(count, envs.len(), "duplicate environment in the catalogue");
+        let mut ids: Vec<&str> = STORES.iter().map(|s| s.id).collect();
+        ids.sort_unstable();
+        let count = ids.len();
+        ids.dedup();
+        assert_eq!(count, ids.len(), "duplicate store id in the catalogue");
     }
 
     /// What the selector produces has to be what `options_std` reads back: a trust anchor store it
@@ -660,27 +689,28 @@ mod tests {
                 assert_eq!(materialize(selection).unwrap(), (None, None));
                 continue;
             };
-            let serialized = serialize_environment(&[provider()], store.env)
-                .unwrap_or_else(|e| panic!("{} failed to serialize: {e:?}", store.label));
+            let serialized = serialize_environment(&[provider()], store.id)
+                .unwrap_or_else(|e| panic!("{} failed to serialize: {e:?}", store.label()));
 
-            let ta = TaSource::new_from_cbor(&serialized.ta_cbor)
-                .unwrap_or_else(|e| panic!("{} wrote an unloadable TA store: {e:?}", store.label));
-            assert!(!ta.is_empty(), "{} anchors nothing", store.label);
+            let ta = TaSource::new_from_cbor(&serialized.ta_cbor).unwrap_or_else(|e| {
+                panic!("{} wrote an unloadable TA store: {e:?}", store.label())
+            });
+            assert!(!ta.is_empty(), "{} anchors nothing", store.label());
 
             assert_eq!(
                 serialized.ca_cbor.is_some(),
                 has_ca_store(selection),
                 "{} disagrees with what the UI says it carries",
-                store.label
+                store.label()
             );
             if let Some(ca_cbor) = serialized.ca_cbor {
                 let ca = CertSource::new_from_cbor(&ca_cbor).unwrap_or_else(|e| {
-                    panic!("{} wrote an unloadable CA store: {e:?}", store.label)
+                    panic!("{} wrote an unloadable CA store: {e:?}", store.label())
                 });
                 assert!(
                     !ca.is_empty(),
                     "{} claims a CA store that is empty",
-                    store.label
+                    store.label()
                 );
             }
         }
@@ -704,10 +734,14 @@ mod tests {
     #[test]
     fn export_writes_usable_material() {
         let dir = tempfile::tempdir().unwrap();
-        let selection = STORES.iter().position(|s| s.env == "FPKI").unwrap() + 1;
+        let selection = STORES
+            .iter()
+            .position(|s| s.id == certval_stores_fpki::FPKI)
+            .unwrap()
+            + 1;
 
         let exported = export(selection, dir.path()).unwrap();
-        let out = dir.path().join("FPKI");
+        let out = dir.path().join(certval_stores_fpki::FPKI);
 
         let ta = TaSource::new_from_cbor(&fs::read(out.join("ta.cbor")).unwrap())
             .expect("the exported TA store does not load");
@@ -731,16 +765,48 @@ mod tests {
         }
     }
 
+    /// The selector's names come from the providers, not from a second table here. This is the
+    /// drift that existed: the desktop said "U.S. DoD (NIPR production)" for the store the browser
+    /// and the service called "U.S. DoD (NIPR)", and nothing compared the two.
+    #[test]
+    fn provider_backed_stores_take_their_name_from_the_provider() {
+        for store in STORES {
+            let StoreSource::Provider(provider) = store.source else {
+                assert!(
+                    store.fallback_label.is_some(),
+                    "{} has no provider and no name of its own",
+                    store.id
+                );
+                continue;
+            };
+            assert!(
+                store.fallback_label.is_none(),
+                "{} is provider-backed and should not carry a name of its own",
+                store.id
+            );
+            let entry = provider()
+                .entries()
+                .into_iter()
+                .find(|e| e.id == store.id)
+                .unwrap_or_else(|| panic!("no provider entry carries {}", store.id));
+            assert_eq!(store.label(), entry.label);
+        }
+    }
+
     /// An environment that carries intermediates unpacks them too, which is the half a user can
     /// point another run at: the CBOR beside them holds the same certificates but nothing except
     /// this app can read it, and the CBOR arguments hold one path each.
     #[test]
     fn export_unpacks_the_ca_store_into_certificates() {
         let dir = tempfile::tempdir().unwrap();
-        let selection = STORES.iter().position(|s| s.env == "NIPR").unwrap() + 1;
+        let selection = STORES
+            .iter()
+            .position(|s| s.id == certval_stores_nipr::NIPR_PROD)
+            .unwrap()
+            + 1;
 
         let exported = export(selection, dir.path()).unwrap();
-        let out = dir.path().join("NIPR");
+        let out = dir.path().join(certval_stores_nipr::NIPR_PROD);
 
         assert!(exported.ca_store, "NIPR is expected to carry intermediates");
         assert!(exported.intermediates > 0);
@@ -807,13 +873,13 @@ mod tests {
             if !is_written_out(store) {
                 continue; // never written, so there is no path to recover it from
             }
-            let path = home.join(store.env).join("ta.cbor");
+            let path = home.join(store.id).join("ta.cbor");
             let saved = Some(path.to_str().unwrap().to_string());
             assert_eq!(
                 selection_for(&saved, false, &[], &None),
                 i + 1,
                 "{} did not round trip",
-                store.label
+                store.label()
             );
         }
     }
@@ -839,7 +905,7 @@ mod tests {
                 selection_for(&None, false, &saved, &saved_rw),
                 i + 1,
                 "{} did not round trip",
-                store.label
+                store.label()
             );
         }
         // A store no entry offers is a custom selection, not the nearest entry.
@@ -860,9 +926,9 @@ mod tests {
                 continue;
             }
             assert!(
-                store.label.contains("local machine"),
+                store.label().contains("local machine"),
                 "{} was reported inaccessible",
-                store.label
+                store.label()
             );
         }
     }
