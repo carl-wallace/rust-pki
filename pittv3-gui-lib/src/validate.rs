@@ -294,6 +294,12 @@ fn assemble(
         },
         None => TaSource::new(),
     };
+    // Measured across the upload loops rather than taken from `tas.len()`/`cas.len()`, because those
+    // count files offered and the summary below claims what is *in use*. The two disagree in both
+    // directions: an upload that does not parse is reported and dropped, and one `.p7c` or `.cbor`
+    // carries many. Saying "2 uploaded intermediate(s)" beside an error rejecting one of the two is
+    // how that read before.
+    let uploaded_tas_before = ta_store.len();
     for (name, bytes) in tas {
         // A `.cbor` trust-anchor store (BuffersAndPaths) merges all of its anchors; new_from_cbor
         // rejects anything else, so a PEM/DER certificate falls through to the single-cert path.
@@ -357,6 +363,7 @@ fn assemble(
         },
         _ => CertSource::new(),
     };
+    let uploaded_cas_before = cert_source.len();
     for (name, bytes) in cas {
         // A `.cbor` CA store merges all of its buffers; otherwise treat as a single PEM/DER cert.
         if let Ok(src) = CertSource::new_from_cbor(bytes) {
@@ -392,9 +399,13 @@ fn assemble(
         }
     }
     #[cfg(feature = "installroot")]
+    // After the drain, so CA certificates carried in on an InstallRoot stream count as the uploaded
+    // intermediates they are. The per-stream line above says where they came from; this is the total.
     for cf in installroot_cas.drain(..) {
         cert_source.push(cf);
     }
+    let uploaded_tas = ta_store.len() - uploaded_tas_before;
+    let uploaded_cas = cert_source.len() - uploaded_cas_before;
 
     if let Err(e) = cert_source.initialize(cps) {
         return Err(vec![err(format!("Failed to initialize CA store: {e:?}"))]);
@@ -403,14 +414,10 @@ fn assemble(
     match (store, tas.is_empty() && cas.is_empty()) {
         (Some((label, _, _)), true) => out.push(info(format!("Using {label} store"))),
         (Some((label, _, _)), false) => out.push(info(format!(
-            "Using {label} store with {} uploaded trust anchor(s) and {} uploaded intermediate(s)",
-            tas.len(),
-            cas.len()
+            "Using {label} store with {uploaded_tas} uploaded trust anchor(s) and {uploaded_cas} uploaded intermediate(s)"
         ))),
         (None, _) => out.push(info(format!(
-            "Using {} uploaded trust anchor(s) and {} uploaded intermediate(s)",
-            tas.len(),
-            cas.len()
+            "Using {uploaded_tas} uploaded trust anchor(s) and {uploaded_cas} uploaded intermediate(s)"
         ))),
     }
 
