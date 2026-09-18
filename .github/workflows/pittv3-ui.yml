@@ -38,14 +38,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check -p pittv3-gui-lib
       - run: cargo check -p pittv3-gui
-      # pittv3-wasm's unit tests, which had never been executed anywhere: the wasm job below
-      # cannot run them without a headless browser, and this crate will not build for the host on
-      # its own -- `dioxus-web` calls `web_sys::Window::location`, which needs a web-sys feature
-      # nothing in a standalone build enables. Naming pittv3-gui alongside it supplies that
-      # feature through dioxus-desktop, and cargo's unification hands it to dioxus-web. That
-      # coupling is the reason for the second `-p`, so leave it there. The tests reach the host
-      # through `src/bin/ziptest.rs`, which includes the app module wholesale.
-      - run: cargo test -p pittv3-wasm -p pittv3-gui --all-features
+      - run: cargo test -p pittv3-wasm -p pittv3-gui -p pittv3-gui-lib --all-features
 
   # The service depends on pittv3-gui-lib for the shared validation path, so it carries the same
   # 1.88 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
