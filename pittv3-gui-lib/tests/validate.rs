@@ -18,8 +18,10 @@ use std::path::Path;
 use certval::*;
 use pittv3_gui_lib::gui_results::ResultLine;
 use pittv3_gui_lib::validate::{
-    prepare_validation, validate_prepared, validate_prepared_retaining, PreparedValidation,
+    inspect, prepare_validation, validate_prepared, validate_prepared_retaining, InspectRequest,
+    Inspected, PreparedValidation,
 };
+use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::report::TargetStatus;
 
 /// What both preparation helpers return: the prepared environment plus notes, or the fatal notes
@@ -366,6 +368,140 @@ fn a_store_without_partial_paths_finds_none() {
         TargetStatus::NoPathsFound,
         "an undiscovered store is inert, not merely slower"
     );
+}
+
+/// Inspecting takes the same material by the same two routes as validating, so the helper mirrors
+/// `prepare` rather than introducing a second shape.
+fn inspect_uploads(
+    tas: &[(String, Vec<u8>)],
+    cas: &[(String, Vec<u8>)],
+    cps: &CertificationPathSettings,
+    request: &InspectRequest,
+) -> core::result::Result<(Inspected, Vec<ResultLine>), Vec<ResultLine>> {
+    inspect(None, tas, cas, cps, request)
+}
+
+/// What the Inspect tab shows: a row per anchor and a row per pool position, with the partial paths
+/// discovery found over them.
+#[test]
+fn inspecting_uploads_reports_a_row_per_anchor_and_position() {
+    let (tas, cas) = good_material();
+    let cps = settings();
+    let request = InspectRequest {
+        paths_for_target: None,
+    };
+    let (inspected, _) = inspect_uploads(&tas, &cas, &cps, &request).expect("a usable store");
+
+    assert_eq!(inspected.report.anchors.len(), 1);
+    assert_eq!(inspected.report.certs.len(), 1);
+    assert_eq!(inspected.report.usable(), 1);
+    assert_eq!(inspected.report.unusable(), 0);
+    assert!(
+        !inspected.report.paths.is_empty(),
+        "the Good CA is reachable from the anchor, so a partial path exists"
+    );
+}
+
+/// An upload that cannot be read is rejected with a note naming it, and never becomes a pool
+/// position. The pool is what parsed; `InspectReport::certs` reporting "every position, including
+/// those holding nothing usable" is about buffers inside a *store*, which arrive already numbered.
+#[test]
+fn an_unreadable_upload_is_reported_and_left_out_of_the_pool() {
+    let (tas, cas) = good_material();
+    let mut cas = cas;
+    cas.push(("junk.der".to_string(), b"not a certificate".to_vec()));
+    let cps = settings();
+    let request = InspectRequest {
+        paths_for_target: None,
+    };
+    let (inspected, lines) = inspect_uploads(&tas, &cas, &cps, &request).expect("a usable store");
+
+    assert_eq!(
+        inspected.report.certs.len(),
+        1,
+        "only the certificate that parsed is a position: {:#?}",
+        inspected.report.certs
+    );
+    assert_eq!(inspected.report.unusable(), 0);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.class == "err" && l.text.contains("junk.der")),
+        "the rejection names the file that was rejected: {lines:#?}"
+    );
+    // The summary counts what is in use, not what was offered. It read "2 uploaded intermediate(s)"
+    // beside the error rejecting one of the two until the counts were taken from the sources.
+    assert!(
+        lines.iter().any(|l| l
+            .text
+            .contains("1 uploaded trust anchor(s) and 1 uploaded intermediate(s)")),
+        "the summary agrees with the pool: {lines:#?}"
+    );
+}
+
+/// `target_paths` distinguishes three states, and the middle one is the easy one to lose: `None`
+/// says nobody asked, `Some(vec![])` says the question was asked and the answer is none.
+#[test]
+fn target_paths_says_whether_the_question_was_asked() {
+    let (tas, cas) = good_material();
+    let cps = settings();
+
+    let unasked = InspectRequest {
+        paths_for_target: None,
+    };
+    let (inspected, _) = inspect_uploads(&tas, &cas, &cps, &unasked).expect("a usable store");
+    assert!(inspected.report.target_paths.is_none(), "nobody asked");
+
+    let asked = InspectRequest {
+        paths_for_target: Some(named("ValidCertificatePathTest1EE.crt")),
+    };
+    let (inspected, _) = inspect_uploads(&tas, &cas, &cps, &asked).expect("a usable store");
+    let paths = inspected.report.target_paths.expect("asked, so answered");
+    assert!(
+        !paths.is_empty(),
+        "the Good CA certifies this target, so a path certifies it"
+    );
+}
+
+/// The report's indices are positions in the sources `Inspected` carries, which is why the two are
+/// held as one value. Reading a position back has to return the certificate that was put there.
+#[test]
+fn a_reported_index_addresses_the_certificate_it_describes() {
+    let (tas, cas) = good_material();
+    let cps = settings();
+    let request = InspectRequest {
+        paths_for_target: None,
+    };
+    let (inspected, _) = inspect_uploads(&tas, &cas, &cps, &request).expect("a usable store");
+
+    let taken = certificate_bytes(&inspected.certs, &[0]);
+    assert_eq!(taken.len(), 1);
+    assert_eq!(
+        taken[0].1, cas[0].1,
+        "position 0 is the CA that was uploaded"
+    );
+
+    let anchors = anchor_bytes(&inspected.anchors, &[0]);
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(
+        anchors[0].1, tas[0].1,
+        "anchor 0 is the anchor that was uploaded, a different index space"
+    );
+}
+
+/// A position past the end is skipped rather than reported, since a caller passes positions it read
+/// off the rows and an out-of-range one means the rows and the source came apart.
+#[test]
+fn an_index_past_the_end_yields_nothing() {
+    let (tas, cas) = good_material();
+    let cps = settings();
+    let request = InspectRequest {
+        paths_for_target: None,
+    };
+    let (inspected, _) = inspect_uploads(&tas, &cas, &cps, &request).expect("a usable store");
+
+    assert!(certificate_bytes(&inspected.certs, &[99]).is_empty());
+    assert!(anchor_bytes(&inspected.anchors, &[99]).is_empty());
 }
 
 /// `validate_all` over the same shared path, in a module rather than a second test target so
