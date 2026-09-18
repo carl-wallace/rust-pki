@@ -23,7 +23,7 @@ use pittv3_gui_lib::gui_results::ResultsView;
 use pittv3_gui_lib::gui_settings::{Capabilities, EditSettings, TimeOfInterestRow};
 use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
-use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckResults};
+use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckIntro, UriCheckResults};
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
@@ -2604,21 +2604,7 @@ fn App() -> Element {
                     View::CheckUris => rsx! {
                         div { class: "help-view",
                             h2 { "Check URIs in certificate" }
-                            p {
-                                "Fetches every HTTP URI a certificate names — authority information "
-                                "access, subject information access, CRL distribution points and "
-                                "freshest CRL — and reports each one on its own. This is a check of "
-                                "the repositories, not of the certificate: it builds no path and "
-                                "reaches no verdict about trust."
-                            }
-                            p { class: "hint",
-                                "An issuer, supplied or auto-discovered from AIA, is what makes CRL "
-                                "signature verification and OCSP possible; without one those rows "
-                                "report that they could not be checked rather than failing."
-                            }
-                            p { class: "hint",
-                                "Check Self-Signed needs no retrieval, so it works without the service."
-                            }
+                            UriCheckIntro {}
                         }
                         div { class: "controls custom",
                             label { "Certificate: " }

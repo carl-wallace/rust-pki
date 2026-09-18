@@ -61,6 +61,11 @@ certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.gi
 certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr", "om_nipr"] }
 certval_stores_eca = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["eca"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_all", "mozilla_cas"] }
+# For stores.manifest: the digest of each artifact, and the subject naming each
+# trust anchor in it. Both are already in this crate's build graph through
+# certval_stores_core, so neither adds a crate to compile.
+sha2 = { version = "0.11.0", default-features = false }
+x509-cert = { version = "0.3.0", default-features = false }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }

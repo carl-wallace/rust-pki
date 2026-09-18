@@ -1,0 +1,215 @@
+# Inventory of the trust-store artifacts in resources/, written by build.rs.
+#
+# The material is not this crate's: it is tracked in the certval_stores_*
+# repositories the workspace lock pins, and build.rs re-serializes it into the
+# files Trunk publishes. Those files are build output, so this repository does
+# not keep them. It keeps this record instead, so that a provider moving under a
+# lock refresh reads as an anchor added or removed rather than as a rev bump.
+#
+# Generated, not authoritative: the providers at the locked rev are the source.
+# What it is good for is history -- `git log -p` over this file says when an
+# anchor arrived or left.
+#
+# Anchors are sorted by subject, so the order carries no meaning and an addition
+# does not move its neighbours.
+
+[dod_nipr_prod]  published=2026-06-12  collected=2026-09-11
+  anchors 4
+    CN=DoD Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:b107b33f453e5510f68e513110c6f6944bacc263df0137f821c1b3c2f8f863d2
+    CN=DoD Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:559a5189452b13f8233f0022363c06f26e3c517c1d4b77445035959df3244f74
+    CN=DoD Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:1f4ede9dc2a241f6521bf518424acd49ebe84420e69daf5bac57af1f8ee294a9
+    CN=DoD Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:2a5e41aca93df7cc496d2369b7a0a037045d502f1abaaf76975fc07c6660cf93
+  ta_store  dod_nipr_prod_ta.cbor  3520 bytes  sha256:5c1a7c5e4095df791bfabad580c3ebfd55eaf16250ca3ed562b54204ba3da0d6
+  ca_store  dod_nipr_prod_ca.cbor  59431 bytes  sha256:663b5bdb15582508d7c6f9ed8036ce411eaada4f5aa31d342c2f4d45c0badda7
+
+[dod_nipr_om]  published=2025-02-03  collected=2026-09-11
+  anchors 4
+    CN=DoD JITC Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:058e89a6f8db8ad2a79da75b63eea62deaa5666fb9cfbf6dd11e584f50ba9866
+    CN=DoD JITC Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:5507a9e0834748792f909060a1cf1713d4d89ea281f193303767730799ab2b72
+    CN=DoD JITC Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:57e62069dade85daae049d2593209c82c859cf530d8c88052e51f40d7ddbd368
+    CN=DoD JITC Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:cb97c7d04891f8aa2b052da5597340ed552b4c76dd02b278bef9fae05f7d2cee
+  ta_store  dod_nipr_om_ta.cbor  3551 bytes  sha256:5fd586b8510d20acc243760a393d267b3153716bda0444d794284b8d2f913f29
+  ca_store  dod_nipr_om_ca.cbor  81384 bytes  sha256:b34bc70b11f9d8c7445f8696055efeda9c12e71862293f7dc3e23f0e48bab64c
+
+[dod_eca]  published=2025-12-18  collected=2026-09-11
+  anchors 2
+    CN=ECA Root CA 4,OU=ECA,O=U.S. Government,C=US  sha256:343ff530f246b00c71616a5d42541d551114baf74b7f786c7b42527586c6b22a
+    CN=ECA Root CA 5,OU=ECA,O=U.S. Government,C=US  sha256:ddf1c18f91ee0bdb64846e2e6a4e9e42ebea47ff4b0d7f6a8e9f036119af945d
+  ta_store  dod_eca_ta.cbor  2325 bytes  sha256:1d8910763ac30c01c1c30c5e2c964925f6f7716a6972a9c2ceb0b3cf4c6b6a04
+  ca_store  dod_eca_ca.cbor  9546 bytes  sha256:a60db5763da045dcab4db36b5cfd76fe6647736daec5ad2fa25dae5b974d7686
+
+[webpki]  collected=2026-08-13
+  anchors 170
+    C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
+    C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
+    C=DE,O=Atos,CN=Atos TrustedRoot Root CA RSA TLS 2021  sha256:81a9088ea59fb364c548a6f85559099b6f0405efbf18e5324ec9f457ba00112f
+    C=ES,O=ACCV,OU=PKIACCV,CN=ACCVRAIZ1  sha256:9a6ec012e1a7da9dbe34194d478ad7c0db1822fb071df12981496ed104384113
+    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
+    CN=AC RAIZ FNMT-RCM SERVIDORES SEGUROS,2.5.4.97=#0c0f56415445532d51323832363030344a,OU=Ceres,O=FNMT-RCM,C=ES  sha256:554153b13d2cf9ddb753bfbe1a4e0ae08d0aa4187058fe60a2b862b2e4b87bcb
+    CN=ANF Secure Server Root CA,OU=ANF CA Raiz,O=ANF Autoridad de Certificacion,C=ES,SERIALNUMBER=G63287510  sha256:fb8fec759169b9106b1e511644c618c51304373f6c0643088d8beffd1b997599
+    CN=Actalis Authentication Root CA,O=Actalis S.p.A./03358520967,L=Milan,C=IT  sha256:55926084ec963a64b96e2abe01ce0ba86a64fbfebcc7aab5afc155b37fd76066
+    CN=Amazon Root CA 1,O=Amazon,C=US  sha256:8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e
+    CN=Amazon Root CA 2,O=Amazon,C=US  sha256:1ba5b2aa8c65401a82960118f80bec4f62304d83cec4713a19c39c011ea46db4
+    CN=Amazon Root CA 3,O=Amazon,C=US  sha256:18ce6cfe7bf14e60b2e347b8dfe868cb31d02ebb3ada271569f50343b46db3a4
+    CN=Amazon Root CA 4,O=Amazon,C=US  sha256:e35d28419ed02025cfa69038cd623962458da5c695fbdea3c22b0bfb25897092
+    CN=Atos TrustedRoot Root CA ECC G2 2020,O=Atos,C=DE  sha256:e38655f4b0190c84d3b3893d840a687e190a256d98052f159e6d4a39f589a6eb
+    CN=Atos TrustedRoot Root CA RSA G2 2020,O=Atos,C=DE  sha256:78833a783bb2986c254b9370d3c20e5eba8fa7840cbf63fe17297a0b0119685e
+    CN=Autoridad de Certificacion Firmaprofesional CIF A62634068,C=ES  sha256:57de0583efd2b26e0361da99da9df4648def7ee8441c3b728afa9bcde0f9b26a
+    CN=BJCA Global Root CA1,O=BEIJING CERTIFICATE AUTHORITY,C=CN  sha256:f3896f88fe7c0a882766a7fa6ad2749fb57a7f3e98fb769c1fa7b09c2c44d5ae
+    CN=BJCA Global Root CA2,O=BEIJING CERTIFICATE AUTHORITY,C=CN  sha256:574df6931e278039667b720afdc1600fc27eb66dd3092979fb73856487212882
+    CN=Buypass Class 2 Root CA,O=Buypass AS-983163327,C=NO  sha256:9a114025197c5bb95d94e63d55cd43790847b646b23cdf11ada4a00eff15fb48
+    CN=Buypass Class 3 Root CA,O=Buypass AS-983163327,C=NO  sha256:edf7ebbca27a2a384d387b7d4010c666e2edb4843e4c29b4ae1d5b9332e6b24d
+    CN=CA Disig Root R2,O=Disig a.s.,L=Bratislava,C=SK  sha256:e23d4a036d7b70e9f595b1422079d2b91edfbb1fb651a0633eaa8a9dc5f80703
+    CN=CFCA EV ROOT,O=China Financial Certification Authority,C=CN  sha256:5cc3d78e4e1d5e45547a04e6873e64f90cf9536d1ccc2ef800f355c4c5fd70fd
+    CN=COMODO Certification Authority,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:0c2cd63df7806fa399ede809116b575bf87989f06518f9808c860503178baf66
+    CN=COMODO ECC Certification Authority,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:1793927a0614549789adce2f8f34f7f0b66d0f3ae3a3b84d21ec15dbba4fadc7
+    CN=COMODO RSA Certification Authority,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:52f0e1c4e58ec629291b60317f074671b85d7ea80d5b07273463534b32b40234
+    CN=Certainly Root E1,O=Certainly,C=US  sha256:b4585f22e4ac756a4e8612a1361c5d9d031a93fd84febb778fa3068b0fc42dc2
+    CN=Certainly Root R1,O=Certainly,C=US  sha256:77b82cd8644c4305f7acc5cb156b45675004033d51c60c6202a8e0c33467d3a0
+    CN=Certigna Root CA,OU=0002 48146308100036,O=Dhimyotis,C=FR  sha256:d48d3d23eedb50a459e55197601c27774b9d7b18c94d5a059511a10250b93168
+    CN=Certigna,O=Dhimyotis,C=FR  sha256:e3b6a2db2ed7ce48842f7ac53241c7b71d54144bfb40c11f3f1d0b42f5eea12d
+    CN=Certum CA,O=Unizeto Sp. z o.o.,C=PL  sha256:d8e0febc1db2e38d00940f37d27d41344d993e734b99d5656d9778d4d8143624
+    CN=Certum EC-384 CA,OU=Certum Certification Authority,O=Asseco Data Systems S.A.,C=PL  sha256:6b328085625318aa50d173c98d8bda09d57e27413d114cf787a0f5d06c030cf6
+    CN=Certum Trusted Network CA 2,OU=Certum Certification Authority,O=Unizeto Technologies S.A.,C=PL  sha256:b676f2eddae8775cd36cb0f63cd1d4603961f49e6265ba013a2f0307b6d0b804
+    CN=Certum Trusted Network CA,OU=Certum Certification Authority,O=Unizeto Technologies S.A.,C=PL  sha256:5c58468d55f58e497e743982d2b50010b6d165374acf83a7d4a32db768c4408e
+    CN=Certum Trusted Root CA,OU=Certum Certification Authority,O=Asseco Data Systems S.A.,C=PL  sha256:fe7696573855773e37a95e7ad4d9cc96c30157c15d31765ba9b15704e1ae78fd
+    CN=D-TRUST BR Root CA 1 2020,O=D-Trust GmbH,C=DE  sha256:e59aaa816009c22bff5b25bad37df306f049797c1f81d85ab089e657bd8f0044
+    CN=D-TRUST BR Root CA 2 2023,O=D-Trust GmbH,C=DE  sha256:0552e6f83fdf65e8fa9670e666df28a4e21340b510cbe52566f97c4fb94b2bd1
+    CN=D-TRUST EV Root CA 1 2020,O=D-Trust GmbH,C=DE  sha256:08170d1aa36453901a2f959245e347db0c8d37abaabc56b81aa100dc958970db
+    CN=D-TRUST EV Root CA 2 2023,O=D-Trust GmbH,C=DE  sha256:8e8221b2e7d4007836a1672f0dcc299c33bc07d316f132fa1a206d587150f1ce
+    CN=D-TRUST Root CA 3 2013,O=D-Trust GmbH,C=DE  sha256:a1a86d04121eb87f027c66f53303c28e5739f943fc84b38ad6af009035dd9457
+    CN=D-TRUST Root Class 3 CA 2 2009,O=D-Trust GmbH,C=DE  sha256:49e7a442acf0ea6287050054b52564b650e4f49e42e348d6aa38e039e957b1c1
+    CN=D-TRUST Root Class 3 CA 2 EV 2009,O=D-Trust GmbH,C=DE  sha256:eec5496b988ce98625b934092eec2908bed0b0f316c2d4730c84eaf1f3d34881
+    CN=D-Trust SBR Root CA 1 2022,O=D-Trust GmbH,C=DE  sha256:d92c171f5cf890ba428019292927fe22f3207fd2b54449cb6f675af4922146e2
+    CN=D-Trust SBR Root CA 2 2022,O=D-Trust GmbH,C=DE  sha256:dba84dd7ef622d485463a90137ea4d574df8550928f6afa03b4d8b1141e636cc
+    CN=DIGITALSIGN GLOBAL ROOT ECDSA CA,O=DigitalSign Certificadora Digital,C=PT  sha256:261d7114ae5f8ff2d8c7209a9de4289e6afc9d717023d85450909199f1857cfe
+    CN=DIGITALSIGN GLOBAL ROOT RSA CA,O=DigitalSign Certificadora Digital,C=PT  sha256:82bd5d851acf7f6e1ba7bfcbc53030d0e7bc3c21df772d858cab41d199bdf595
+    CN=DigiCert Assured ID Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:3e9099b5015e8f486c00bcea9d111ee721faba355a89bcf1df69561e3dc6325c
+    CN=DigiCert Assured ID Root G2,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:7d05ebb682339f8c9451ee094eebfefa7953a114edb2f44949452fab7d2fc185
+    CN=DigiCert Assured ID Root G3,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:7e37cb8b4c47090cab36551ba6f45db840680fba166a952db100717f43053fc2
+    CN=DigiCert Global Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:4348a0e9444c78cb265e058d5e8944b4d84f9662bd26db257f8934a443c70161
+    CN=DigiCert Global Root G2,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:cb3ccbb76031e5e0138f8dd39a23f9de47ffc35e43c1144cea27d46a5ab1cb5f
+    CN=DigiCert Global Root G3,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:31ad6648f8104138c738f39ea4320133393e3a18cc02296ef97c2ac9ef6731d0
+    CN=DigiCert High Assurance EV Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:7431e5f4c3c1ce4690774f0b61e05440883ba9a01ed00ba6abd7806ed3b118cf
+    CN=DigiCert SMIME ECC P384 Root G5,O=DigiCert\, Inc.,C=US  sha256:e8e8176536a60cc2c4e10187c3befca20ef263497018f566d5bea0f94d0c111b
+    CN=DigiCert SMIME RSA4096 Root G5,O=DigiCert\, Inc.,C=US  sha256:90370d3efa88bf58c30105ba25104a358460a7fa52dfc2011df233a0f417912a
+    CN=DigiCert TLS ECC P384 Root G5,O=DigiCert\, Inc.,C=US  sha256:018e13f0772532cf809bd1b17281867283fc48c6e13be9c69812854a490c1b05
+    CN=DigiCert TLS RSA4096 Root G5,O=DigiCert\, Inc.,C=US  sha256:371a00dc0533b3721a7eeb40e8419e70799d2b0a0f2c1d80693165f7cec4ad75
+    CN=DigiCert Trusted Root G4,OU=www.digicert.com,O=DigiCert Inc,C=US  sha256:552f7bdcf1a7af9e6ce672017f4f12abf77240c78e761ac203d1d9d20ac89988
+    CN=Entrust Root Certification Authority - EC1,OU=(c) 2012 Entrust\, Inc. - for authorized use only,OU=See www.entrust.net/legal-terms,O=Entrust\, Inc.,C=US  sha256:02ed0eb28c14da45165c566791700d6451d7fb56f0b2ab1d3b8eb070e56edff5
+    CN=Entrust Root Certification Authority - G2,OU=(c) 2009 Entrust\, Inc. - for authorized use only,OU=See www.entrust.net/legal-terms,O=Entrust\, Inc.,C=US  sha256:43df5774b03e7fef5fe40d931a7bedf1bb2e6b42738c4e6d3841103d3aa7f339
+    CN=Entrust Root Certification Authority - G4,OU=(c) 2015 Entrust\, Inc. - for authorized use only,OU=See www.entrust.net/legal-terms,O=Entrust\, Inc.,C=US  sha256:db3517d1f6732a2d5ab97c533ec70779ee3270a62fb4ac4238372460e6f01e88
+    CN=Entrust.net Certification Authority (2048),OU=(c) 1999 Entrust.net Limited,OU=www.entrust.net/CPS_2048 incorp. by ref. (limits liab.),O=Entrust.net  sha256:6dc47172e01cbcb0bf62580d895fe2b8ac9ad4f873801e0c10b9c837d21eb177
+    CN=GDCA TrustAUTH R5 ROOT,O=GUANG DONG CERTIFICATE AUTHORITY CO.\,LTD.,C=CN  sha256:bfff8fd04433487d6a8aa60c1a29767a9fc2bbb05e420f713a13b992891d3893
+    CN=GTS Root R1,O=Google Trust Services LLC,C=US  sha256:d947432abde7b7fa90fc2e6b59101b1280e0e1c7e4e40fa3c6887fff57a7f4cf
+    CN=GTS Root R2,O=Google Trust Services LLC,C=US  sha256:8d25cd97229dbf70356bda4eb3cc734031e24cf00fafcfd32dc76eb5841c7ea8
+    CN=GTS Root R3,O=Google Trust Services LLC,C=US  sha256:34d8a73ee208d9bcdb0d956520934b4e40e69482596e8b6f73c8426b010a6f48
+    CN=GTS Root R4,O=Google Trust Services LLC,C=US  sha256:349dfa4058c5e263123b398ae795573c4e1313c83fe68f93556cd5e8031b3c7d
+    CN=GlobalSign Root CA,OU=Root CA,O=GlobalSign nv-sa,C=BE  sha256:ebd41040e4bb3ec742c9e381d31ef2a41a48b6685c96e7cef3c1df6cd4331c99
+    CN=GlobalSign Root E46,O=GlobalSign nv-sa,C=BE  sha256:cbb9c44d84b8043e1050ea31a69f514955d7bfd2e2c6b49301019ad61d9f5058
+    CN=GlobalSign Root R46,O=GlobalSign nv-sa,C=BE  sha256:4fa3126d8d3a11d1c4855a4f807cbad6cf919d3a5a88b03bea2c6372d93c40c9
+    CN=GlobalSign Secure Mail Root E45,O=GlobalSign nv-sa,C=BE  sha256:5cbf6fb81fd417ea4128cd6f8172a3c9402094f74ab2ed3a06b4405d04f30b19
+    CN=GlobalSign Secure Mail Root R45,O=GlobalSign nv-sa,C=BE  sha256:319af0a7729e6f89269c131ea6a3a16fcd86389fdcab3c47a4a675c161a3f974
+    CN=GlobalSign,O=GlobalSign,OU=GlobalSign ECC Root CA - R4  sha256:b085d70b964f191a73e4af0d54ae7a0e07aafdaf9b71dd0862138ab7325a24a2
+    CN=GlobalSign,O=GlobalSign,OU=GlobalSign ECC Root CA - R5  sha256:179fbc148a3dd00fd24ea13458cc43bfa7f59c8182d783a513f6ebec100c8924
+    CN=GlobalSign,O=GlobalSign,OU=GlobalSign Root CA - R3  sha256:cbb522d7b7f127ad6a0113865bdf1cd4102e7d0759af635a7cf4720dc963c53b
+    CN=GlobalSign,O=GlobalSign,OU=GlobalSign Root CA - R6  sha256:2cabeafe37d06ca22aba7391c0033d25982952c453647349763a3ab5ad6ccf69
+    CN=Go Daddy Root Certificate Authority - G2,O=GoDaddy.com\, Inc.,L=Scottsdale,ST=Arizona,C=US  sha256:45140b3247eb9cc8c5b4f0d7b53091f73292089e6e5a63e2749dd3aca9198eda
+    CN=HARICA Client ECC Root CA 2021,O=Hellenic Academic and Research Institutions CA,C=GR  sha256:8dd4b5373cb0de36769c12339280d82746b3aa6cd426e797a31babe4279cf00b
+    CN=HARICA Client RSA Root CA 2021,O=Hellenic Academic and Research Institutions CA,C=GR  sha256:1be7abe30686b16348afd1c61b6866a0ea7f4821e67d5e8af937cf8011bc750d
+    CN=HARICA TLS ECC Root CA 2021,O=Hellenic Academic and Research Institutions CA,C=GR  sha256:3f99cc474acfce4dfed58794665e478d1547739f2e780f1bb4ca9b133097d401
+    CN=HARICA TLS RSA Root CA 2021,O=Hellenic Academic and Research Institutions CA,C=GR  sha256:d95d0e8eda79525bf9beb11b14d2100d3294985f0c62d9fabd9cd999eccb7b1d
+    CN=Hellenic Academic and Research Institutions ECC RootCA 2015,O=Hellenic Academic and Research Institutions Cert. Authority,L=Athens,C=GR  sha256:44b545aa8a25e65a73ca15dc27fc36d24c1cb9953a066539b11582dc487b4833
+    CN=Hellenic Academic and Research Institutions RootCA 2015,O=Hellenic Academic and Research Institutions Cert. Authority,L=Athens,C=GR  sha256:a040929a02ce53b4acf4f2ffc6981ce4496f755e6d45fe0b2a692bcd52523f36
+    CN=HiPKI Root CA - G1,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:f015ce3cc239bfef064be9f1d2c417e1a0264a0a94be1f0c8d121864eb6949cc
+    CN=Hongkong Post Root CA 3,O=Hongkong Post,L=Hong Kong,ST=Hong Kong,C=HK  sha256:5a2fc03f0c83b090bbfa40604b0988446c7636183df9846e17101a447fb8efd6
+    CN=ISRG Root X1,O=Internet Security Research Group,C=US  sha256:96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6
+    CN=ISRG Root X2,O=Internet Security Research Group,C=US  sha256:69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470
+    CN=IdenTrust Commercial Root CA 1,O=IdenTrust,C=US  sha256:5d56499be4d2e08bcfcad08a3e38723d50503bde706948e42f55603019e528ae
+    CN=IdenTrust Public Sector Root CA 1,O=IdenTrust,C=US  sha256:30d0895a9a448a262091635522d1f52010b5867acae12c78ef958fd4f4389f2f
+    CN=Izenpe.com,O=IZENPE S.A.,C=ES  sha256:2530cc8e98321502bad96f9b1fba1b099e2d299e0f4548bb914f363bc0d4531f
+    CN=LAWtrust Root CA2 (4096),O=LAWtrust,C=ZA  sha256:48e1cf9e43b688a51044160f46d773b8277fe45beaad0e4df90d1974382fea99
+    CN=Microsoft ECC Root Certificate Authority 2017,O=Microsoft Corporation,C=US  sha256:358df39d764af9e1b766e9c972df352ee15cfac227af6ad1d70e8e4a6edcba02
+    CN=Microsoft RSA Root Certificate Authority 2017,O=Microsoft Corporation,C=US  sha256:c741f70f4b2a8d88bf2e71c14122ef53ef10eba0cfa5e64cfa20f418853073e0
+    CN=NAVER Global Root Certification Authority,O=NAVER BUSINESS PLATFORM Corp.,C=KR  sha256:88f438dcf8ffd1fa8f429115ffe5f82ae1e06e0c70c375faad717b34a49e7265
+    CN=NetLock Arany (Class Gold) Főtanúsítvány,OU=Tanúsítványkiadók (Certification Services),O=NetLock Kft.,L=Budapest,C=HU  sha256:6c61dac3a2def031506be036d2a6fe401994fbd13df9c8d466599274c446ec98
+    CN=OISTE Client Root ECC G1,O=OISTE Foundation,C=CH  sha256:d9a32485a8cca85539cef12fffff711378a17851d73da2732ab4302d763bd62b
+    CN=OISTE Client Root RSA G1,O=OISTE Foundation,C=CH  sha256:d02a0f994a868c66395f2e7a880df509bd0c29c96de16015a0fd501eda4f96a9
+    CN=OISTE Server Root ECC G1,O=OISTE Foundation,C=CH  sha256:eec997c0c30f216f7e3b8b307d2bae42412d753fc8219dafd1520b2572850f49
+    CN=OISTE Server Root RSA G1,O=OISTE Foundation,C=CH  sha256:9ae36232a5189ffddb353dfd26520c015395d22777dac59db57b98c089a651e6
+    CN=OISTE WISeKey Global Root GA CA,OU=OISTE Foundation Endorsed,OU=Copyright (c) 2005,O=WISeKey,C=CH  sha256:41c923866ab4cad6b7ad578081582e020797a6cbdf4fff78ce8396b38937d7f5
+    CN=OISTE WISeKey Global Root GB CA,OU=OISTE Foundation Endorsed,O=WISeKey,C=CH  sha256:6b9c08e86eb0f767cfad65cd98b62149e5494a67f5845e7bd1ed019f27b86bd6
+    CN=OISTE WISeKey Global Root GC CA,OU=OISTE Foundation Endorsed,O=WISeKey,C=CH  sha256:8560f91c3624daba9570b5fea0dbe36ff11a8323be9486854fb3f34a5571198d
+    CN=QuoVadis Root CA 1 G3,O=QuoVadis Limited,C=BM  sha256:8a866fd1b276b57e578e921c65828a2bed58e9f2f288054134b7f1f4bfc9cc74
+    CN=QuoVadis Root CA 2 G3,O=QuoVadis Limited,C=BM  sha256:8fe4fb0af93a4d0d67db0bebb23e37c71bf325dcbcdd240ea04daf58b47e1840
+    CN=QuoVadis Root CA 2,O=QuoVadis Limited,C=BM  sha256:85a0dd7dd720adb7ff05f83d542b209dc7ff4528f7d677b18389fea5e5c49e86
+    CN=QuoVadis Root CA 3 G3,O=QuoVadis Limited,C=BM  sha256:88ef81de202eb018452e43f864725cea5fbd1fc2d9d205730709c5d8b8690f46
+    CN=QuoVadis Root CA 3,O=QuoVadis Limited,C=BM  sha256:18f1fc7f205df8adddeb7fe007dd57e3af375a9c4d8d73546bf4f1fed1e18d35
+    CN=SECOM SMIME RSA Root CA 2024,O=SECOM Trust Systems Co.\, Ltd.,C=JP  sha256:3629e7188e00a7cb3232c4426bc84912f1218b1a9ae676c0b0abe1dbfe2182b5
+    CN=SECOM TLS ECC Root CA 2024,O=SECOM Trust Systems Co.\, Ltd.,C=JP  sha256:6ab2ab75f51cb4f4f0156203fbf6f646232f514be059f62833308b82b4d72db1
+    CN=SECOM TLS RSA Root CA 2024,O=SECOM Trust Systems Co.\, Ltd.,C=JP  sha256:1435f225c5d252d7a21948cc3ce62aecfa88001e3dd72d1cc3555100eb372f93
+    CN=SSL.com Client ECC Root CA 2022,O=SSL Corporation,C=US  sha256:ad7dd58d03aedb22a30b5084394920ce12230c2d8017ad9b81ab04079bdd026b
+    CN=SSL.com Client RSA Root CA 2022,O=SSL Corporation,C=US  sha256:1d4ca4a2ab21d0093659804fc0eb2175a617279b56a2475245c9517afeb59153
+    CN=SSL.com EV Root Certification Authority ECC,O=SSL Corporation,L=Houston,ST=Texas,C=US  sha256:22a2c1f7bded704cc1e701b5f408c310880fe956b5de2a4a44f99c873a25a7c8
+    CN=SSL.com EV Root Certification Authority RSA R2,O=SSL Corporation,L=Houston,ST=Texas,C=US  sha256:2e7bf16cc22485a7bbe2aa8696750761b0ae39be3b2fe9d0cc6d4ef73491425c
+    CN=SSL.com Root Certification Authority ECC,O=SSL Corporation,L=Houston,ST=Texas,C=US  sha256:3417bb06cc6007da1b961c920b8ab4ce3fad820e4aa30b9acbc4a74ebdcebc65
+    CN=SSL.com Root Certification Authority RSA,O=SSL Corporation,L=Houston,ST=Texas,C=US  sha256:85666a562ee0be5ce925c1d8890a6f76a87ec16d4d7d5f29ea7419cf20123b69
+    CN=SSL.com TLS ECC Root CA 2022,O=SSL Corporation,C=US  sha256:c32ffd9f46f936d16c3673990959434b9ad60aafbb9e7cf33654f144cc1ba143
+    CN=SSL.com TLS RSA Root CA 2022,O=SSL Corporation,C=US  sha256:8faf7d2e2cb4709bb8e0b33666bf75a5dd45b5de480f8ea8d4bfe6bebc17f2ed
+    CN=SZAFIR ROOT CA2,O=Krajowa Izba Rozliczeniowa S.A.,C=PL  sha256:a1339d33281a0b56e557d3d32b1ce7f9367eb094bd5fa72a7e5004c8ded7cafe
+    CN=Sectigo Public Email Protection Root E46,O=Sectigo Limited,C=GB  sha256:22d9599234d60f1d4bc7c7e96f43fa555b07301fd475175089dafb8c25e477b3
+    CN=Sectigo Public Email Protection Root R46,O=Sectigo Limited,C=GB  sha256:d5917a7791eb7cf20a2e57eb98284a67b28a57e89182da53d546678c9fde2b4f
+    CN=Sectigo Public Server Authentication Root E46,O=Sectigo Limited,C=GB  sha256:c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383
+    CN=Sectigo Public Server Authentication Root R46,O=Sectigo Limited,C=GB  sha256:7bb647a62aeeac88bf257aa522d01ffea395e0ab45c73f93f65654ec38f25a06
+    CN=SecureSign Root CA14,O=Cybertrust Japan Co.\, Ltd.,C=JP  sha256:4b009c1034494f9ab56bba3ba1d62731fc4d20d8955adcec10a925607261e338
+    CN=SecureSign Root CA15,O=Cybertrust Japan Co.\, Ltd.,C=JP  sha256:e778f0f095fe843729cd1a0082179e5314a9c291442805e1fb1d8fb6b8886c3a
+    CN=SecureSign Root CA16,O=Cybertrust Japan Co.\, Ltd.,C=JP  sha256:4c1ccd24f17e950fc18536b33cafe32293cfc33e8467b41e1c693055d7f513bf
+    CN=Security Communication ECC RootCA1,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:e74fbda55bd564c473a36b441aa799c8a68e077440e8288b9fa1e50e4bbaca11
+    CN=Staat der Nederlanden Root CA - G3,O=Staat der Nederlanden,C=NL  sha256:3c4fb0b95ab8b30032f432b86f535fe172c185d0fd39865837cf36187fa6f428
+    CN=Starfield Root Certificate Authority - G2,O=Starfield Technologies\, Inc.,L=Scottsdale,ST=Arizona,C=US  sha256:2ce1cb0bf9d2f9e102993fbe215152c3b2dd0cabde1c68e5319b839154dbb7f5
+    CN=Starfield Services Root Certificate Authority - G2,O=Starfield Technologies\, Inc.,L=Scottsdale,ST=Arizona,C=US  sha256:568d6905a2c88708a4b3025190edcfedb1974a606a13c6e5290fcb2ae63edab5
+    CN=SwissSign Gold CA - G2,O=SwissSign AG,C=CH  sha256:62dd0be9b9f50a163ea0f8e75c053b1eca57ea55c8688f647c6881f2c8357b95
+    CN=SwissSign RSA SMIME Root CA 2022 - 1,O=SwissSign AG,C=CH  sha256:9a12c392bfe57891a0c545309d4d9fd567e480cb613d6342278b195c79a7931f
+    CN=SwissSign RSA TLS Root CA 2022 - 1,O=SwissSign AG,C=CH  sha256:193144f431e0fddb740717d4de926a571133884b4360d30e272913cbe660ce41
+    CN=T-TeleSec GlobalRoot Class 2,OU=T-Systems Trust Center,O=T-Systems Enterprise Services GmbH,C=DE  sha256:91e2f5788d5810eba7ba58737de1548a8ecacd014598bc0b143e041b17052552
+    CN=T-TeleSec GlobalRoot Class 3,OU=T-Systems Trust Center,O=T-Systems Enterprise Services GmbH,C=DE  sha256:fd73dad31c644ff1b43bef0ccdda96710b9cd9875eca7e31707af3e96d522bbd
+    CN=TUBITAK Kamu SM SSL Kok Sertifikasi - Surum 1,OU=Kamu Sertifikasyon Merkezi - Kamu SM,O=Turkiye Bilimsel ve Teknolojik Arastirma Kurumu - TUBITAK,L=Gebze - Kocaeli,C=TR  sha256:46edc3689046d53a453fb3104ab80dcaec658b2660ea1629dd7e867990648716
+    CN=TWCA CYBER Root CA,OU=Root CA,O=TAIWAN-CA,C=TW  sha256:3f63bb2814be174ec8b6439cf08d6d56f0b7c405883a5648a334424d6b3ec558
+    CN=TWCA Global Root CA G2,OU=Root CA,O=TAIWAN-CA,C=TW  sha256:3a0072d49ffc04e996c59aeb75991d3c340f3615d6fd4dce90ac0b3d88ead4f4
+    CN=TWCA Global Root CA,OU=Root CA,O=TAIWAN-CA,C=TW  sha256:59769007f7685d0fcd50872f9f95d5755a5b2b457d81f3692b610a98672f0e1b
+    CN=TWCA Root Certification Authority,OU=Root CA,O=TAIWAN-CA,C=TW  sha256:bfd88fe1101c41ae3e801bf8be56350ee9bad1a6b9bd515edc5c6d5b8711ac44
+    CN=Telekom Security SMIME ECC Root 2021,O=Deutsche Telekom Security GmbH,C=DE  sha256:3ae6df7e0d637a65a8c81612ec6f9a142f85a16834c10280d88e707028518755
+    CN=Telekom Security SMIME RSA Root 2023,O=Deutsche Telekom Security GmbH,C=DE  sha256:78a656344f947e9cc0f734d9053d32f6742086b6b9cd2cae4fae1a2e4efde048
+    CN=Telekom Security TLS ECC Root 2020,O=Deutsche Telekom Security GmbH,C=DE  sha256:578af4ded0853f4e5998db4aeaf9cbea8d945f60b620a38d1a3c13b2bc7ba8e1
+    CN=Telekom Security TLS RSA Root 2023,O=Deutsche Telekom Security GmbH,C=DE  sha256:efc65cadbb59adb6efe84da22311b35624b71b3b1ea0da8b6655174ec8978646
+    CN=Telia EC Email Root CA v3,O=Telia Company AB,C=SE  sha256:3682228d7d678b571440cf1cb34e69fb4135fd6c2a1be38e14163b711e02ae01
+    CN=Telia EC TLS Root CA v3,O=Telia Company AB,C=SE  sha256:098e08a91dbbf77478b96cceb89b1413a5da37b7c862606a955deb07179f4326
+    CN=Telia RSA Email Root CA v3,O=Telia Company AB,C=SE  sha256:5b0c502a7d963ba55217396fda9b3dc78171000aeeff42cecc3a20a7938163e8
+    CN=Telia RSA TLS Root CA v3,O=Telia Company AB,C=SE  sha256:d13db1294c45ebc6fc86c6bbf69fa29bdfe692dff7c713c243c7a956c6a2284c
+    CN=Telia Root CA v2,O=Telia Finland Oyj,C=FI  sha256:242b69742fcb1e5b2abf98898b94572187544e5b4d9911786573621f6a74b82c
+    CN=TrustAsia Global Root CA G3,O=TrustAsia Technologies\, Inc.,C=CN  sha256:e0d3226aeb1163c2e48ff9be3b50b4c6431be7bb1eacc5c36b5d5ec509039a08
+    CN=TrustAsia Global Root CA G4,O=TrustAsia Technologies\, Inc.,C=CN  sha256:be4b56cb5056c0136a526df444508daa36a0b54f42e4ac38f72af470e479654c
+    CN=TrustAsia SMIME ECC Root CA,O=TrustAsia Technologies\, Inc.,C=CN  sha256:436472c1009a325c54f1a5bbb5468a7baeeccbe05de5f099cb70d3fe41e13c16
+    CN=TrustAsia SMIME RSA Root CA,O=TrustAsia Technologies\, Inc.,C=CN  sha256:c7796beb62c101bb143d262a7c96a0c6168183223ef50d699632d86e03b8cc9b
+    CN=TrustAsia TLS ECC Root CA,O=TrustAsia Technologies\, Inc.,C=CN  sha256:c0076b9ef0531fb1a656d67c4ebe97cd5dbaa41ef44598acc2489878c92d8711
+    CN=TrustAsia TLS RSA Root CA,O=TrustAsia Technologies\, Inc.,C=CN  sha256:06c08d7dafd876971eb1124fe67f847ec0c7a158d3ea53cbe940e2ea9791f4c3
+    CN=TunTrust Root CA,O=Agence Nationale de Certification Electronique,C=TN  sha256:2e44102ab58cb85419451c8e19d9acf3662cafbc614b6a53960a30f7d0e2eb41
+    CN=UCA Extended Validation Root,O=UniTrust,C=CN  sha256:d43af9b35473755c9684fc06d7d8cb70ee5c28e773fb294eb41ee71722924d24
+    CN=UCA Global G2 Root,O=UniTrust,C=CN  sha256:9bea11c976fe014764c1be56a6f914b5a560317abd9988393382e5161aa0493c
+    CN=USERTrust ECC Certification Authority,O=The USERTRUST Network,L=Jersey City,ST=New Jersey,C=US  sha256:4ff460d54b9c86dabfbcfc5712e0400d2bed3fbc4d4fbdaa86e06adcd2a9ad7a
+    CN=USERTrust RSA Certification Authority,O=The USERTRUST Network,L=Jersey City,ST=New Jersey,C=US  sha256:e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2
+    CN=e-Szigno Root CA 2017,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:beb00b30839b9bc32c32e4447905950641f26421b15ed089198b518ae2ea1b99
+    CN=e-Szigno TLS Root CA 2023,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:b49141502d00663d740f2e7ec340c52800962666121a36d09cf7dd2b90384fb4
+    CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
+    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
+    CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
+    CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
+    CN=vTrus ECC Root CA,O=iTrusChina Co.\,Ltd.,C=CN  sha256:30fbba2c32238e2a98547af97931e550428b9b3f1c8eeb6633dcfa86c5b27dd3
+    CN=vTrus Root CA,O=iTrusChina Co.\,Ltd.,C=CN  sha256:8a71de6559336f426c26e53880d00d88a18da4c6a91f0dcb6194e206c5c96387
+    EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
+    OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
+    OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
+    OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
+  ta_store  webpki_ta.cbor  188725 bytes  sha256:dfb2612adbcbda6f751171b25fb29ce8e67006238564c18f771948a2edaf6d1d
+  ca_store  webpki_ca.cbor  3884820 bytes  sha256:28389ad02cae49f530f099f7491eae3f80f94682b2158e06cb863b5f5de544ce
+

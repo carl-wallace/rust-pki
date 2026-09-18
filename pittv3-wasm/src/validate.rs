@@ -24,7 +24,15 @@ pub struct Store {
     /// served by that service is recognized as one this application already ships. It is also what
     /// a server-side validation request would name.
     pub id: &'static str,
-    /// Display name for the store
+    /// Display name for the store, stated by the provider and passed in by `build.rs` as
+    /// `PITTV3_STORE_LABEL_<ID>`.
+    ///
+    /// Not written out here, even though every other field is: this frontend never links the
+    /// provider crates, so a name typed here would be a second opinion about a store the provider
+    /// already names — which is how the desktop selector came to call one set of anchors
+    /// "U.S. DoD (NIPR production)" while this one called it "U.S. DoD (NIPR)". `env!` rather
+    /// than `option_env!` because every store has a name; an unset variable is a build that went
+    /// wrong, not a store with nothing to say.
     pub label: &'static str,
     /// URL of the CBOR-serialized trust anchor store
     pub ta_url: &'static str,
@@ -49,13 +57,13 @@ pub struct Store {
 pub const STORES: &[Store] = &[
     // The anchors are the provider's MOZILLA_ALL environment — every root carrying a websites
     // OR an email trust bit — so the anchor set does not gate purpose: a TLS certificate can
-    // validate here against a root Mozilla trusts only for S/MIME, and vice versa. The label
-    // says "TLS + S/MIME" for that reason. Judging the purpose means reading the trust bits
+    // validate here against a root Mozilla trusts only for S/MIME, and vice versa. The provider's
+    // label says "TLS + S/MIME" for that reason. Judging the purpose means reading the trust bits
     // Mozilla records beside each root, which are out-of-band policy that RFC 5280 processing
     // cannot see and a certval CBOR store does not carry.
     Store {
         id: "webpki",
-        label: "Web PKI (Mozilla roots, TLS + S/MIME, + CCADB intermediates)",
+        label: env!("PITTV3_STORE_LABEL_WEBPKI"),
         ta_url: "resources/webpki_ta.cbor",
         // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
         // fetch proxy lands) will cover anything not preloaded here
@@ -65,7 +73,7 @@ pub const STORES: &[Store] = &[
     },
     Store {
         id: "dod_nipr_prod",
-        label: "U.S. DoD (NIPR)",
+        label: env!("PITTV3_STORE_LABEL_DOD_NIPR_PROD"),
         ta_url: "resources/dod_nipr_prod_ta.cbor",
         ca_url: Some("resources/dod_nipr_prod_ca.cbor"),
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_PROD"),
@@ -74,7 +82,7 @@ pub const STORES: &[Store] = &[
     // The operational-test environment, JITC to the department and OM_NIPR to the provider.
     Store {
         id: "dod_nipr_om",
-        label: "U.S. DoD (JITC)",
+        label: env!("PITTV3_STORE_LABEL_DOD_NIPR_OM"),
         ta_url: "resources/dod_nipr_om_ta.cbor",
         ca_url: Some("resources/dod_nipr_om_ca.cbor"),
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_OM"),
@@ -82,7 +90,7 @@ pub const STORES: &[Store] = &[
     },
     Store {
         id: "dod_eca",
-        label: "U.S. DoD (ECA)",
+        label: env!("PITTV3_STORE_LABEL_DOD_ECA"),
         ta_url: "resources/dod_eca_ta.cbor",
         ca_url: Some("resources/dod_eca_ca.cbor"),
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_ECA"),
@@ -515,7 +523,7 @@ mod tests {
             },
             StoreDescriptor {
                 id: "dod_nipr_prod".to_string(),
-                label: "U.S. DoD (NIPR production)".to_string(),
+                label: "U.S. DoD (NIPR)".to_string(),
                 ta_url: "stores/dod_nipr_prod/ta.cbor".to_string(),
                 ca_url: Some("stores/dod_nipr_prod/ca.cbor".to_string()),
                 provenance: Provenance::Provider,

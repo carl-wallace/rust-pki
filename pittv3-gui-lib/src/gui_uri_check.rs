@@ -31,6 +31,27 @@ pub fn uri_status_class(status: UriStatus) -> &'static str {
     }
 }
 
+/// The standing explanation above the Check URIs controls, in both frontends. The prose is shared
+/// because the check is.
+#[component]
+pub fn UriCheckIntro() -> Element {
+    rsx! {
+        p { class: "hint",
+            "Fetches every HTTP URI included in an authority information access, subject "
+            "information access, CRL distribution points, and freshest CRL extension in the target "
+            "certificate and evaluates the content relative to the certificate: an SIA content must "
+            "be verifiable using the key from the certificate, an AIA must verify the signature on "
+            "the certificate, a CRL must include the issuer name from the certificate and verify "
+            "using that issuer's key, and an OCSP response scope must include the certificate."
+        }
+        p { class: "hint",
+            "An issuer certificate, supplied or auto-discovered from AIA, enables CRL signature "
+            "verification and OCSP response validation. If an issuer certificate is not available, "
+            "the corresponding rows in the report indicate the check could not be performed."
+        }
+    }
+}
+
 /// The results of one URI check: what was checked, against which issuer, and a row per URI.
 ///
 /// An empty result set is reported as such rather than left blank — a certificate naming no URIs is

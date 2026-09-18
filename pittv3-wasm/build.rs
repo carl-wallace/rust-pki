@@ -12,12 +12,23 @@
 //! because `resources/` is what Trunk publishes. `write_if_changed` keeps it
 //! idempotent: bytes are only written when they differ, so an unchanged
 //! regeneration leaves mtimes alone and cannot feed a rebuild loop.
+//!
+//! The artifacts are gitignored here, being output of this script rather than
+//! material of this repository — the certificates they carry are versioned in
+//! the provider repositories. What this repository keeps is `stores.manifest`,
+//! also written here: the anchors each store carries, by subject, and a digest
+//! per file. That is the readable form of the same change — a provider moving
+//! under a `cargo update` shows up as an anchor added or removed rather than as
+//! a rev bump in the lock.
 
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use certval_stores_core::{serialize_environment, TrustStoreProvider};
+use sha2::{Digest, Sha256};
+use x509_cert::der::Decode;
+use x509_cert::Certificate;
 
 /// Stamps the time of this build into `PITTV3_BUILD_TIME`, which the header
 /// shows so a person can tell whether the page in front of them is the build
@@ -90,15 +101,14 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// One generated store: which provider environment it comes from, and the file
-/// names `STORES` expects. `ca` is `None` for an anchors-only environment.
+/// One generated store: which provider store it comes from, and the file names
+/// `STORES` expects. `ca` is `None` for an anchors-only store.
 struct Artifact {
     provider: &'static dyn TrustStoreProvider,
-    env: &'static str,
-    /// The identifier `STORES` gives this store, which also names the environment
-    /// variables its dates are passed through. Must match the `id` there; a
-    /// mismatch would leave the dates silently unset, which is what
-    /// `every_shipped_store_states_when_it_was_collected` is for.
+    /// The provider's own id for this store, which selects it and names the
+    /// environment variables its dates are passed through. Taken from the
+    /// provider crate's constant rather than written out, so a store renamed
+    /// there stops this build rather than silently matching nothing.
     id: &'static str,
     ta: &'static str,
     ca: Option<&'static str>,
@@ -112,8 +122,7 @@ fn artifacts() -> Vec<Artifact> {
     vec![
         Artifact {
             provider: certval_stores_nipr::provider(),
-            env: "NIPR",
-            id: "dod_nipr_prod",
+            id: certval_stores_nipr::NIPR_PROD,
             ta: "dod_nipr_prod_ta.cbor",
             ca: Some("dod_nipr_prod_ca.cbor"),
         },
@@ -122,8 +131,7 @@ fn artifacts() -> Vec<Artifact> {
         // roots anchor nothing the production DoD roots anchor.
         Artifact {
             provider: certval_stores_nipr::provider(),
-            env: "OM_NIPR",
-            id: "dod_nipr_om",
+            id: certval_stores_nipr::NIPR_OM,
             ta: "dod_nipr_om_ta.cbor",
             ca: Some("dod_nipr_om_ca.cbor"),
         },
@@ -133,8 +141,7 @@ fn artifacts() -> Vec<Artifact> {
         // roots anchor nothing the DoD roots anchor.
         Artifact {
             provider: certval_stores_eca::provider(),
-            env: "ECA",
-            id: "dod_eca",
+            id: certval_stores_eca::ECA,
             ta: "dod_eca_ta.cbor",
             ca: Some("dod_eca_ca.cbor"),
         },
@@ -145,8 +152,7 @@ fn artifacts() -> Vec<Artifact> {
         // not from the anchor set.
         Artifact {
             provider: certval_stores_mozilla::provider(),
-            env: "MOZILLA_ALL",
-            id: "webpki",
+            id: certval_stores_mozilla::ALL,
             ta: "webpki_ta.cbor",
             ca: Some("webpki_ca.cbor"),
         },
@@ -158,14 +164,25 @@ fn artifacts() -> Vec<Artifact> {
 fn main() {
     stamp_build_time();
 
+    // Removing a file from `resources/` is a reason to run again, and the only
+    // one this script does not already have: its other triggers are sources.
+    // That matters now that the artifacts are untracked -- a clone has none of
+    // them, and anyone who clears the directory by hand would otherwise get a
+    // build that skips this script and a `dist/` with no stores in it. Writing
+    // into a watched directory is safe because `write_if_changed` leaves
+    // mtimes alone when the bytes match, so this settles after one rerun
+    // rather than looping.
+    println!("cargo::rerun-if-changed=resources");
+
     let dir = Path::new("resources");
+    let mut inventory = Vec::new();
     for a in artifacts() {
-        let store = match serialize_environment(&[a.provider], a.env) {
+        let store = match serialize_environment(&[a.provider], a.id) {
             Ok(s) => s,
             // A provider that cannot serialize is a broken build, not a warning
             // to scroll past: the app would fetch a stale store and validate
             // against material nobody chose.
-            Err(e) => panic!("failed to serialize the {} store: {e:?}", a.env),
+            Err(e) => panic!("failed to serialize the {} store: {e:?}", a.id),
         };
 
         // The dates ride in on the environment rather than in the CBOR, which has nowhere
@@ -174,25 +191,42 @@ fn main() {
         // provider states no date compiles to `None` with nothing further to arrange.
         stamp_date(a.id, "PUBLISHED", store.published);
         stamp_date(a.id, "COLLECTED", store.collected);
+        stamp_label(a.id, store.label);
 
         write_if_changed(&dir.join(a.ta), &store.ta_cbor);
-        match (a.ca, store.ca_cbor) {
-            (Some(name), Some(bytes)) => write_if_changed(&dir.join(name), &bytes),
+        let ta = StoreFile::of(a.ta, &store.ta_cbor);
+
+        let ca = match (a.ca, store.ca_cbor) {
+            (Some(name), Some(bytes)) => {
+                write_if_changed(&dir.join(name), &bytes);
+                Some(StoreFile::of(name, &bytes))
+            }
             (Some(name), None) => {
                 panic!(
                     "{} expects a CA store at {name} but the provider carries none",
-                    a.env
+                    a.id
                 )
             }
             (None, Some(_)) => {
                 panic!(
                     "{} carries a CA store but no file name is configured for it",
-                    a.env
+                    a.id
                 )
             }
-            (None, None) => {}
-        }
+            (None, None) => None,
+        };
+
+        inventory.push(Inventory {
+            id: a.id,
+            published: store.published,
+            collected: store.collected,
+            anchors: anchors(&a),
+            ta,
+            ca,
+        });
     }
+
+    write_if_changed(Path::new(MANIFEST), render_manifest(&inventory).as_bytes());
 }
 
 /// Pass one of a store's dates to the crate as `PITTV3_STORE_<WHICH>_<ID>`.
@@ -200,6 +234,23 @@ fn main() {
 /// Nothing is emitted when the provider states no date: an unset variable is what
 /// makes `option_env!` produce `None`, and emitting an empty string instead would
 /// hand the selector a store claiming to have been collected on no day at all.
+/// Pass a store's display name to the crate as `PITTV3_STORE_LABEL_<ID>`.
+///
+/// The browser cannot ask the provider the way the desktop selector does — it never links the
+/// provider crates, which is the whole reason this script exists — so the name travels the same
+/// road the dates do. Without it `STORES` would hold the one remaining hand-written name for
+/// provider material, and a name written twice is a name free to drift: the desktop and the
+/// service each had one, and they disagreed about NIPR.
+///
+/// Unconditional, unlike a date: every store has a name, so `STORES` can treat an unset variable
+/// as a build that went wrong rather than as a store with nothing to say.
+fn stamp_label(id: &str, label: &str) {
+    println!(
+        "cargo::rustc-env=PITTV3_STORE_LABEL_{}={label}",
+        id.to_ascii_uppercase()
+    );
+}
+
 fn stamp_date(id: &str, which: &str, date: Option<&str>) {
     if let Some(date) = date {
         println!(
@@ -207,6 +258,143 @@ fn stamp_date(id: &str, which: &str, date: Option<&str>) {
             id.to_ascii_uppercase()
         );
     }
+}
+
+/// The record this repository keeps of what the generated artifacts contain.
+///
+/// At the crate root rather than in `resources/`, because Trunk copies that
+/// directory into `dist/` wholesale and this file is for readers of the
+/// repository, not of the deployment.
+const MANIFEST: &str = "stores.manifest";
+
+/// Heading of `stores.manifest`, saying where the material comes from and what
+/// the file is and is not good for.
+const MANIFEST_HEADER: &str = "\
+# Inventory of the trust-store artifacts in resources/, written by build.rs.
+#
+# The material is not this crate's: it is tracked in the certval_stores_*
+# repositories the workspace lock pins, and build.rs re-serializes it into the
+# files Trunk publishes. Those files are build output, so this repository does
+# not keep them. It keeps this record instead, so that a provider moving under a
+# lock refresh reads as an anchor added or removed rather than as a rev bump.
+#
+# Generated, not authoritative: the providers at the locked rev are the source.
+# What it is good for is history -- `git log -p` over this file says when an
+# anchor arrived or left.
+#
+# Anchors are sorted by subject, so the order carries no meaning and an addition
+# does not move its neighbours.
+
+";
+
+/// One artifact as the manifest records it.
+struct StoreFile {
+    name: &'static str,
+    len: usize,
+    digest: String,
+}
+
+impl StoreFile {
+    fn of(name: &'static str, bytes: &[u8]) -> Self {
+        StoreFile {
+            name,
+            len: bytes.len(),
+            digest: sha256_hex(bytes),
+        }
+    }
+}
+
+/// One store's entry in the manifest.
+struct Inventory {
+    id: &'static str,
+    published: Option<&'static str>,
+    collected: Option<&'static str>,
+    /// Subject and digest per trust anchor, sorted by subject.
+    anchors: Vec<(String, String)>,
+    ta: StoreFile,
+    ca: Option<StoreFile>,
+}
+
+/// The trust anchors a store carries, as `(subject, digest)` sorted by subject.
+///
+/// Read from the provider's own `roots` rather than from the CBOR just written,
+/// because that is the material: the CBOR is one packaging of it, and reading it
+/// back would test the serializer instead of recording what the store holds.
+///
+/// Deduplicated to match `serialize_environment`, which drops a root a second
+/// entry repeats; a manifest listing it twice would claim an anchor set the
+/// store does not have.
+fn anchors(a: &Artifact) -> Vec<(String, String)> {
+    let entries = a.provider.entries();
+    let mut rows: Vec<(String, String)> = entries
+        .iter()
+        .filter(|e| e.id == a.id)
+        .flat_map(|e| e.roots.iter().copied())
+        .map(|der| (anchor_subject(der), sha256_hex(der)))
+        .collect();
+    rows.sort();
+    rows.dedup();
+    rows
+}
+
+/// A trust anchor's subject, as the name to recognize it by in a diff.
+///
+/// A root that does not parse is a broken store rather than a nameless row:
+/// `serialize_environment` has already decoded the same bytes by the time this
+/// runs, so reaching the panic means the provider and the serializer disagree.
+fn anchor_subject(der: &[u8]) -> String {
+    match Certificate::from_der(der) {
+        Ok(cert) => cert.tbs_certificate().subject().to_string(),
+        Err(e) => panic!("a trust anchor does not parse as a certificate: {e}"),
+    }
+}
+
+/// Lowercase hex of the SHA-256 of `bytes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(64);
+    for b in Sha256::digest(bytes).iter() {
+        hex.push_str(&format!("{b:02x}"));
+    }
+    hex
+}
+
+/// One `ta_store` or `ca_store` row.
+fn store_file_line(which: &str, f: &StoreFile) -> String {
+    format!(
+        "  {which}  {}  {} bytes  sha256:{}\n",
+        f.name, f.len, f.digest
+    )
+}
+
+/// Render the manifest.
+///
+/// Fields are `key=value` and rows are indented by depth, so the file reads as
+/// text and diffs a line at a time. Nothing is column-aligned: padding would
+/// mean one long subject reflowing every line around it.
+fn render_manifest(stores: &[Inventory]) -> String {
+    let mut out = String::from(MANIFEST_HEADER);
+    for s in stores {
+        out.push_str(&format!("[{}]", s.id));
+        if let Some(d) = s.published {
+            out.push_str(&format!("  published={d}"));
+        }
+        if let Some(d) = s.collected {
+            out.push_str(&format!("  collected={d}"));
+        }
+        out.push('\n');
+
+        out.push_str(&format!("  anchors {}\n", s.anchors.len()));
+        for (subject, digest) in &s.anchors {
+            out.push_str(&format!("    {subject}  sha256:{digest}\n"));
+        }
+
+        out.push_str(&store_file_line("ta_store", &s.ta));
+        if let Some(ca) = &s.ca {
+            out.push_str(&store_file_line("ca_store", ca));
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// Write `bytes` only if the file does not already hold exactly them, so a

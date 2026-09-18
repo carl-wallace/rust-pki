@@ -31,18 +31,15 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "builtin-stores")]
 use certval_stores_core::{serialize_environment, TrustStoreProvider};
 
-/// One generated store: the provider environment it comes from, and how it is named to a client.
+/// One store to generate into the catalogue.
+///
+/// Only which store, and from which provider: the id a client names in a request and the label a
+/// person reads both come off the provider now, so the browser and this service cannot drift on
+/// either. Taking the id from the provider crate's constant rather than writing it out means a
+/// store renamed there stops this build instead of silently matching nothing.
 #[cfg(feature = "builtin-stores")]
 struct Builtin {
-    /// Provider environment, e.g. `NIPR`
-    env: &'static str,
-    /// Identifier a client names in a request and in a store URI.
-    ///
-    /// These match the file names `pittv3-wasm/build.rs` writes, minus the `_ta`/`_ca` suffix, so
-    /// the identifier a store carries here is the identifier the browser already knows it by.
     id: &'static str,
-    /// Name shown to a person choosing a store.
-    label: &'static str,
     /// A function pointer because `provider()` is not a const fn.
     provider: fn() -> &'static dyn TrustStoreProvider,
 }
@@ -55,53 +52,39 @@ struct Builtin {
 fn builtins() -> Vec<Builtin> {
     vec![
         Builtin {
-            env: "NIPR",
-            id: "dod_nipr_prod",
-            label: "U.S. DoD (NIPR production)",
+            id: certval_stores_nipr::NIPR_PROD,
             provider: certval_stores_nipr::provider,
         },
         // The operational-test environment, called JITC by the department and OM_NIPR by the
         // provider. A separate trust set from production, not a variant of it.
         Builtin {
-            env: "OM_NIPR",
-            id: "dod_nipr_om",
-            label: "U.S. DoD (NIPR operational test, JITC)",
+            id: certval_stores_nipr::NIPR_OM,
             provider: certval_stores_nipr::provider,
         },
-        // MOZILLA_ALL rather than MOZILLA_TLS: the intermediate store hangs off the combined
-        // environment only, because a large share of the CCADB intermediates chain solely to
-        // email-only roots and would be unanchored under the TLS-scoped anchor set.
+        // The combined set rather than the TLS one: the intermediate store hangs off it alone,
+        // because a large share of the CCADB intermediates chain solely to email-only roots and
+        // would be unanchored under the TLS-scoped anchor set.
         Builtin {
-            env: "MOZILLA_ALL",
-            id: "webpki",
-            label: "Web PKI (Mozilla roots, TLS + S/MIME, + CCADB intermediates)",
+            id: certval_stores_mozilla::ALL,
             provider: certval_stores_mozilla::provider,
         },
         // The trust-bit-scoped subsets, which carry anchors and nothing else. Which roots belong to
         // each is CCADB policy rather than anything the certificates record, so the split has to
         // come from the provider.
         Builtin {
-            env: "MOZILLA_TLS",
-            id: "webpki_tls",
-            label: "Web PKI (Mozilla roots, TLS only)",
+            id: certval_stores_mozilla::TLS,
             provider: certval_stores_mozilla::provider,
         },
         Builtin {
-            env: "MOZILLA_EMAIL",
-            id: "webpki_email",
-            label: "Web PKI (Mozilla roots, S/MIME only)",
+            id: certval_stores_mozilla::EMAIL,
             provider: certval_stores_mozilla::provider,
         },
         Builtin {
-            env: "FPKI",
-            id: "fpki",
-            label: "U.S. Federal PKI (Common Policy CA G2)",
+            id: certval_stores_fpki::FPKI,
             provider: certval_stores_fpki::provider,
         },
         Builtin {
-            env: "DEV",
-            id: "dod_purebred_dev",
-            label: "U.S. DoD (Purebred development)",
+            id: certval_stores_pbdev::PUREBRED_DEV,
             provider: certval_stores_pbdev::provider,
         },
     ]
@@ -129,12 +112,12 @@ fn generate(dir: &Path, table: &mut String) {
     fs::create_dir_all(dir).unwrap_or_else(|e| panic!("cannot create {}: {e}", dir.display()));
 
     for b in builtins() {
-        let store = match serialize_environment(&[(b.provider)()], b.env) {
+        let store = match serialize_environment(&[(b.provider)()], b.id) {
             Ok(s) => s,
             // A provider that cannot serialize is a broken build rather than a warning to scroll
             // past: the service would come up offering fewer stores than it says it does, and
             // nothing at run time would say which one went missing.
-            Err(e) => panic!("failed to serialize the {} store: {e:?}", b.env),
+            Err(e) => panic!("failed to serialize the {} store: {e:?}", b.id),
         };
 
         let ta = dir.join(format!("{}_ta.cbor", b.id));
@@ -150,8 +133,8 @@ fn generate(dir: &Path, table: &mut String) {
 
         table.push_str(&format!(
             "    Builtin {{ id: {:?}, label: {:?}, ta_cbor: {}, ca_cbor: {}, published: {}, collected: {} }},\n",
-            b.id,
-            b.label,
+            store.id,
+            store.label,
             include_bytes_literal(&ta),
             ca,
             option_literal(store.published),

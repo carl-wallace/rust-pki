@@ -4,3 +4,18 @@ target
 ocsp-probe/
 certval/tests/examples/rfc822_dn_nc/generate.py
 pittv3-wasm/dist/
+
+# Written by pittv3-wasm/build.rs from the certval_stores_* providers the lock
+# pins, and republished into dist/ by Trunk on every build. Named one by one
+# rather than as resources/*.cbor so that a store added to build.rs has to be
+# added here too, and so a file dropped into resources/ by hand is still seen.
+# The certificates they carry are versioned in the provider repositories; what
+# this repository keeps is pittv3-wasm/stores.manifest.
+pittv3-wasm/resources/dod_eca_ca.cbor
+pittv3-wasm/resources/dod_eca_ta.cbor
+pittv3-wasm/resources/dod_nipr_om_ca.cbor
+pittv3-wasm/resources/dod_nipr_om_ta.cbor
+pittv3-wasm/resources/dod_nipr_prod_ca.cbor
+pittv3-wasm/resources/dod_nipr_prod_ta.cbor
+pittv3-wasm/resources/webpki_ca.cbor
+pittv3-wasm/resources/webpki_ta.cbor
