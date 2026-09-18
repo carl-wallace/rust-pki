@@ -36,7 +36,7 @@ use pittv3_gui_lib::gui_rows::now_as_unix_epoch;
 use pittv3_gui_lib::gui_rows::{BrowseRow, CheckboxRow, PathListRow};
 use pittv3_gui_lib::gui_settings::{EditSettingsFile, TimeOfInterestRow};
 use pittv3_gui_lib::gui_shell::AppShell;
-use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckResults};
+use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckIntro, UriCheckResults};
 use pittv3_gui_lib::gui_utils::{
     clear_log_sink, last_dialog_dir, read_saved_args, remember_dialog_dir, save_args, set_log_sink,
     DialogPurpose,
@@ -871,9 +871,7 @@ fn UriCheckView() -> Element {
     };
 
     rsx! {
-        p { class: "hint",
-            "Fetches the HTTP URIs in the certificate's AIA, SIA, CRL DP and freshest-CRL extensions and reports each one, independent of path processing. This is a check of the repositories, not of the certificate: it builds no path and reaches no verdict about trust. An issuer, supplied or auto-discovered, is what makes CRL signature verification and OCSP possible; without one those rows report that they could not be checked rather than failing."
-        }
+        UriCheckIntro {}
         div { class: "controls",
             FileRow {
                 label: "Target certificate",
