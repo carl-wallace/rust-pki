@@ -74,6 +74,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo build -p pittv3-wasm --target wasm32-unknown-unknown
+      # The build above regenerated stores.manifest from the providers the lock
+      # pins. If it differs from the committed one, the trust material this app
+      # ships has changed and the change is not in the diff being reviewed --
+      # which is the whole reason the manifest is tracked while the artifacts it
+      # describes are not. `git diff` names the anchors that moved.
+      - name: stores.manifest is in step with the locked providers
+        run: git diff --exit-code -- pittv3-wasm/stores.manifest
       # The crate's unit tests are compiled by no other leg, and were never compiled by any: a
       # plain `build` skips `#[cfg(test)]` code, and the crate cannot be built for the host at
       # all, `dioxus-web` needing `web_sys::Window::location`. So they type-checked nowhere, and

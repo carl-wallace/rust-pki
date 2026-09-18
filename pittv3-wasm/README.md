@@ -11,10 +11,14 @@ to try it.
 The two trust-community stores — the Web PKI (Mozilla roots and CCADB intermediates) and U.S. DoD
 (NIPR) — are shipped as CBOR files in `resources/`, which Trunk copies into `dist/` and the app
 fetches by relative URL when the store is selected, rather than embedding them, which would be paid
-on every page load. They are regenerated from their provider crates by `build.rs`. The ML-DSA-44
-PKITS edition is different: it is small, static test collateral with no provider behind it, so it is
-compiled in from `fixtures/` alongside its two sample end entity certificates. See
-`resources/NOTICE` for what each artifact is, where it came from and the terms it travels under.
+on every page load. They are regenerated from their provider crates by `build.rs` and are not kept
+in this repository, the certificates themselves being versioned in those crates; what is kept here
+is `stores.manifest`, which records the trust anchors each store carries and a digest per file, so a
+provider moving under a `cargo update` reads as an anchor added or removed. A working tree therefore
+has no stores in it until the crate has been built once. The ML-DSA-44 PKITS edition is different:
+it is small, static test collateral with no provider behind it, so it is compiled in from
+`fixtures/` alongside its two sample end entity certificates. See `resources/NOTICE` for what each
+artifact is, where it came from and the terms it travels under.
 
 Trust anchors and intermediate CA certificates can also be uploaded and are used together with the
 selected built-in store (or alone when no store is selected) to validate certificates from other
