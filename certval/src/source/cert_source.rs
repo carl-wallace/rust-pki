@@ -1782,23 +1782,20 @@ impl CertificateSource for CertSource {
                                             }
                                         }
 
+                                        let mut resolved = None;
                                         if !ta_akid_hex.is_empty() {
-                                            if let Ok(new_ta) =
-                                                pe.get_trust_anchor_by_hex_skid(&ta_akid_hex)
-                                            {
-                                                ta = Some(new_ta);
-                                            }
-                                        } else {
-                                            let fname = get_filename_from_cert_metadata(cert);
-                                            let issuer = get_leaf_rdn(
-                                                cert.decoded().tbs_certificate().issuer(),
-                                            );
-                                            debug!("Missing AKID for trust anchor - issuer {issuer} ({fname})");
-                                            if let Ok(new_ta) = pe.get_trust_anchor_for_target(cert)
-                                            {
-                                                debug!("Found trust anchor by name for issuer {issuer}");
-                                                ta = Some(new_ta);
-                                            }
+                                            resolved =
+                                                pe.get_trust_anchor_by_hex_skid(&ta_akid_hex).ok();
+                                        }
+                                        // Falls back on the result rather than on the presence of an AKID, so an AKID that
+                                        // resolves to nothing reaches the name lookup too. A store indexes an anchor by its
+                                        // SKID extension where it has one and by a hash of its public key where it does not,
+                                        // so an AKID carrying a value derived the other way misses here and is found by name.
+                                        if resolved.is_none() {
+                                            resolved = pe.get_trust_anchor_for_target(cert).ok();
+                                        }
+                                        if resolved.is_some() {
+                                            ta = resolved;
                                         }
                                     }
                                 } else {
