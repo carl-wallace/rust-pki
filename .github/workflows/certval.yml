@@ -93,6 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy }
       # Same exclusions as the Ubuntu legs, so the two cover the same crates. Note the reasons do
       # not carry over: pittv3-gui is excluded there for missing Linux system packages, which
       # Windows does not need, and its MSRV floor is below stable anyway. It stays out here on
@@ -109,6 +110,22 @@ jobs:
       # here, which the tests treat as the expected unelevated outcome rather than a failure. That
       # half stays uncovered by CI.
       - run: cargo test -p pittv3 --features capi
+      # The only clippy and rustdoc runs that see cfg(windows) code: the lint jobs below are
+      # ubuntu-latest, where every cfg(windows) arm compiles out, so capi_source.rs and the sites
+      # gated behind it reach no lint on any other leg. The crate and feature shapes mirror the test
+      # steps above, so the lint legs cover the code the test legs run.
+      - run: cargo clippy --workspace --all-targets --exclude pittv3-gui --exclude pittv3-gui-lib --exclude pittv3-wasm --exclude pittv3-relay --exclude pittv3-service -- -D warnings
+      - run: cargo clippy -p certval --all-targets --features capi -- -D warnings
+      - run: cargo clippy -p pittv3 --all-targets --features capi -- -D warnings
+      # Broken intra-doc links are invisible to check, clippy and test: only rustdoc resolves them.
+      # RUSTDOCFLAGS sits on each doc step rather than in the job env because cargo test runs
+      # doctests through rustdoc as well, and the test legs are here to gate code, not documentation.
+      - run: cargo doc -p certval --no-deps --features capi
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      - run: cargo doc -p pittv3 --no-deps --features capi
+        env:
+          RUSTDOCFLAGS: "-D warnings"
 
   # Lints run on stable only, deliberately not across the MSRV matrix: clippy's diagnostics differ
   # between toolchains, so linting against the 1.85 pin reports on a compiler nobody develops with.
