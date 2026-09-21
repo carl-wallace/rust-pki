@@ -96,6 +96,14 @@ pub const STORES: &[Store] = &[
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_ECA"),
         collected: option_env!("PITTV3_STORE_COLLECTED_DOD_ECA"),
     },
+    Store {
+        id: "dod_wcf",
+        label: env!("PITTV3_STORE_LABEL_DOD_WCF"),
+        ta_url: "resources/dod_wcf_ta.cbor",
+        ca_url: Some("resources/dod_wcf_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_WCF"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_WCF"),
+    },
 ];
 
 /// Where a store in the selector came from, which is as much as this application can say about how

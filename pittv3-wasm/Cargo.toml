@@ -60,6 +60,7 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false }
 certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr", "om_nipr"] }
 certval_stores_eca = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["eca"] }
+certval_stores_wcf = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["wcf"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_all", "mozilla_cas"] }
 # For stores.manifest: the digest of each artifact, and the subject naming each
 # trust anchor in it. Both are already in this crate's build graph through

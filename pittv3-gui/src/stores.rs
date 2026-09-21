@@ -198,6 +198,18 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         pki: "the DoD ECA program, under which commercial vendors issue to non-DoD subscribers",
         note: "",
     },
+    // The WCF PKI, which DISA publishes as its own InstallRoot stream rather than inside the DoD
+    // one. Beside ECA rather than inside the NIPR entry for the same reason: its root anchors
+    // nothing the DoD roots anchor.
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_wcf::WCF,
+        source: StoreSource::Provider(certval_stores_wcf::provider),
+        pki: "the DoD WCF PKI, published by DISA as its own InstallRoot stream",
+        note:
+            "One intermediate stands between the root and every signing CA, so its paths are two \
+               certificates rather than one.",
+    },
     BuiltInStore {
         fallback_label: None,
         id: certval_stores_pbdev::PUREBRED_DEV,

@@ -145,6 +145,15 @@ fn artifacts() -> Vec<Artifact> {
             ta: "dod_eca_ta.cbor",
             ca: Some("dod_eca_ca.cbor"),
         },
+        // The WCF PKI, published as its own InstallRoot stream. Its store is two
+        // deep -- one intermediate beneath the root, ten signing CAs beneath that
+        // -- so ten of its eleven partial paths carry two certificates.
+        Artifact {
+            provider: certval_stores_wcf::provider(),
+            id: certval_stores_wcf::WCF,
+            ta: "dod_wcf_ta.cbor",
+            ca: Some("dod_wcf_ca.cbor"),
+        },
         // MOZILLA_ALL rather than MOZILLA_TLS: the CA store hangs off the
         // combined environment only, because 356 of the intermediates chain
         // solely to email-only roots and would be unanchored under the
