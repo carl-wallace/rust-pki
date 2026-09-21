@@ -25,18 +25,8 @@
 # ignored. What remains is the HTTP/2 front of pittv3-service, where a remote party does
 # frame the input, so this is a real exposure held open by a dependency rather than a
 # judgement that it does not matter. Remove when actix-web moves to `h2` 0.4.
-#
-# RUSTSEC-2026-0195, RUSTSEC-2026-0194 -- `quick-xml` unbounded namespace-declaration
-# allocation and quadratic duplicate-attribute checking, both denial of service against a
-# parser fed hostile XML. Reached only through `wayland-scanner`, a build-time proc macro
-# compiled on Linux, whose input is the wayland protocol definitions shipped inside the
-# crate. No run reads XML through this path, so neither has an input to arrive on. The fix
-# is `quick-xml` 0.41, a semver-major bump owned by `wayland-client` and `rfd`. Remove when
-# that lands.
 [advisories]
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0258",
-    "RUSTSEC-2026-0195",
-    "RUSTSEC-2026-0194",
 ]

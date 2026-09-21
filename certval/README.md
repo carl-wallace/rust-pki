@@ -12,7 +12,7 @@ A change log is available at the root of the `certval` project.
 
 ## Crate Feature Flags
 
-The certval library provides seven feature gates that enable varying levels of support.
+The certval library provides nine feature gates that enable varying levels of support.
 
 - `default-features = false` provides path validation support for no-std applications without support for revocation status determination or multi-thread support. Certificates and partial paths can be provided via a CBOR file, providing rich certification path development support for environments in which new CAs are introduced infrequently.
 - `revocation` augments the `default-features = false` feature by adding support for processing CRLs and OCSP responses that are provided by the caller, such as may have been obtained by stapling to a higher level protocol.
@@ -21,9 +21,29 @@ The certval library provides seven feature gates that enable varying levels of s
 - `remote` is enabled by default (the default feature set is `remote` plus `webpki`). It replaces and augments the `revocation,std` features by adding support for retrieving certificates via URIs expressed in SIA and AIA extensions, for retrieving CRLs via URIs expressed in CRL DP extensions, and for interacting with OCSP responders via URIs expressed in AIA extensions.
 - `pqc` adds support for ML-DSA (FIPS 204), including the hash-ML-DSA-with-SHA-512 variants, and SLH-DSA (FIPS 205), using the [ml-dsa](https://crates.io/crates/ml-dsa) and [slh-dsa](https://crates.io/crates/slh-dsa) implementations, plus composite ML-DSA signatures. Object identifiers for the standardized algorithms come from `const_oid`'s FIPS 204 and FIPS 205 tables; the composite and pre-standardization identifiers are declared in certval's own `pqc_oids` module.
 - `webpki` adds support for instantiating TaSource instances using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate
+- `capi` reads Microsoft CryptoAPI system certificate stores into a `TaSource` or `CertSource`, and offers a `CertVector` that writes to one. Windows-only in effect: the dependency is target-gated and the code is `cfg(windows)`, so enabling it elsewhere is inert rather than an error. Implies `std`. Not enabled by default.
 - `rsa` enables use of the RSA algorithm. RSA support is not enabled by default.
 - `eddsa` enables use of the Ed25519 algorithm. Ed25519 support is not enabled by default.
 - `sha1_sig` enables verification of `sha1WithRSAEncryption` signatures. It implies `rsa` and is not enabled by default.
+
+## Not Supported
+
+Revocation:
+
+Each fails closed and, at present, there are no plans to add support for any of these.
+
+- **Delta CRLs.** Neither indexed nor considered; a scope that requires one fails rather than
+  falling back to the base CRL.
+- **CRLs verified by any key other than the one that verifies the certificate.** Designated CRL
+  signing certificates, indirect CRLs (`Error::UnsupportedIndirectCrl`) and CA key rollover
+  certificates all fall under this.
+- **OCSP responses or responder certificates validated through CA key rollover certificates.**
+- **Locally authorized OCSP responders.** A response must be signed by the issuing CA or by a
+  responder it delegated, which certval checks through the `id-kp-OCSPSigning` EKU.
+
+Other:
+- **This is not a TLS verifier.** Web PKI-specific behavior is out of scope, which is what the
+  `webpki::` x509-limbo mismatches noted below record.
 
 ## Sample Usage
 
