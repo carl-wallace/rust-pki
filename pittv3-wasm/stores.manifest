@@ -38,6 +38,12 @@
   ta_store  dod_eca_ta.cbor  2325 bytes  sha256:1d8910763ac30c01c1c30c5e2c964925f6f7716a6972a9c2ceb0b3cf4c6b6a04
   ca_store  dod_eca_ca.cbor  9546 bytes  sha256:a60db5763da045dcab4db36b5cfd76fe6647736daec5ad2fa25dae5b974d7686
 
+[dod_wcf]  published=2026-05-25  collected=2026-09-21
+  anchors 1
+    CN=DoD WCF Root CA 1,OU=WCF PKI,OU=DoD,O=U.S. Government,C=US  sha256:9b5212d92d073b1d5e8d672e94d1fb472f46d15aea2ee4d131e5c6436b74b86e
+  ta_store  dod_wcf_ta.cbor  962 bytes  sha256:3c5403443d35f762303752b4a0115d59f60cec9020c2872a9cbb6277d1ff4937
+  ca_store  dod_wcf_ca.cbor  17731 bytes  sha256:10e5a9eb2068915d26ba7ae2db35074c4ec9796bff6126e28e84aee08c398e8b
+
 [webpki]  collected=2026-08-13
   anchors 170
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474

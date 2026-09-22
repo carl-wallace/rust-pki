@@ -17,5 +17,7 @@ pittv3-wasm/resources/dod_nipr_om_ca.cbor
 pittv3-wasm/resources/dod_nipr_om_ta.cbor
 pittv3-wasm/resources/dod_nipr_prod_ca.cbor
 pittv3-wasm/resources/dod_nipr_prod_ta.cbor
+pittv3-wasm/resources/dod_wcf_ca.cbor
+pittv3-wasm/resources/dod_wcf_ta.cbor
 pittv3-wasm/resources/webpki_ca.cbor
 pittv3-wasm/resources/webpki_ta.cbor

@@ -98,6 +98,18 @@ outside the Department of Defense that need to interoperate with it. Public
 artifacts of that program, and the works of the CAs that issued them.
 
 
+dod_wcf_ta.cbor, dod_wcf_ca.cbor — U.S. DoD WCF PKI
+---------------------------------------------------------
+
+Generated from certval_stores_wcf (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: DoD WCF Root CA 1, the
+intermediate beneath it and the ten signing CAs beneath that, with eleven
+partial paths -- one of a single certificate and ten of two, the root issuing a
+single intermediate that in turn issues every signing CA. DISA publishes the
+material as its own InstallRoot stream. Public artifacts of the U.S. Department of Defense
+PKI, and the works of the CAs that issued them.
+
+
 pkits_ml_dsa_44_ta.cbor, pkits_ml_dsa_44_ca.cbor,
 sample_valid_ml_dsa_44.der, sample_invalid_ml_dsa_44.der — PKITS, ML-DSA-44
 -----------------------------------------------------------------------------
