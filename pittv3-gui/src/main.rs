@@ -15,6 +15,12 @@
 // written to a file -- see `logging`.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Windows-only: the Validate Using CAPI action. Absent elsewhere because there is no chain
+// engine to ask, which is a platform fact rather than a build option.
+#[cfg(windows)]
+mod capi_run;
+#[cfg(windows)]
+mod capi_view;
 mod gui;
 mod logging;
 mod peek;

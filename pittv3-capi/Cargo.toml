@@ -1,0 +1,48 @@
+[package]
+name = "pittv3-capi"
+version = "0.2.0-pre.2"
+description = """
+Certification path building and validation via the Microsoft CryptoAPI chain engine, for use as a
+second opinion alongside the certval-based validation performed by the PKI Interoperability Test
+Tool v3 (PITTv3).
+"""
+authors = [""]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/carl-wallace/rust-pki"
+categories = ["cryptography", "pki"]
+keywords = ["crypto", "x.509", "capi"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.88"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Reused rather than re-derived: a CAPI chain element is a certificate, and the GUI already knows
+# how to render one of these. Rendering it here the CAPI way -- CertNameToStr for the names, a
+# hand-rolled digest -- would put two spellings of the same certificate side by side in one window,
+# and a comparison tool is worth less the moment the two columns disagree about something that is
+# not a difference of opinion between the validators.
+pittv3-lib = { path = "../pittv3-lib", default-features = false }
+# For PDVCertificate, which is what CertSummary is built from.
+certval = { path = "../certval", default-features = false }
+# A CAPI revocation result names the CRL it came from by handing back the encoded CRL; decoding it
+# here keeps the issuer name rendered the same way every other name in the report is.
+x509-cert = { version = "0.3.0", default-features = false }
+der = { version = "0.8.1", default-features = false, features = ["alloc"] }
+log = "0.4.33"
+
+# The whole reason this is its own crate: certval, pittv3-gui and pittv3-gui-lib are all
+# forbid(unsafe_code), and every Win32 entry point in the windows crate is an unsafe fn. Rather than
+# relax that lint on three crates that have earned it, the unsafe lives here, in one module, behind
+# one safe function.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

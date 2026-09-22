@@ -66,6 +66,14 @@ tokio = { version = "1.52.3", features = ["rt", "time"] }
 # and to ask whether this process can open them. Everything else goes through pittv3-lib.
 certval = { path = "../certval", default-features = false, features = ["capi"], optional = true }
 
+# The CAPI second opinion behind the Validate Using CAPI button (see src/capi_run.rs). Target-gated
+# rather than feature-gated: the button is Windows-only, and off Windows there is no chain engine to
+# offer, so this is a platform difference rather than a variant of the app. Independent of the
+# `capi` feature below, which is about reading Windows certificate *stores* as trust material -- a
+# run can take its anchors from a file and still want Windows' verdict on them.
+[target.'cfg(windows)'.dependencies]
+pittv3-capi = { path = "../pittv3-capi" }
+
 # The one gated capability in this crate, against the note above: it is platform-specific rather
 # than a variant of the app, and a non-Windows build has nothing to turn on. Inert if enabled
 # there anyway -- the certval side is cfg(windows).
