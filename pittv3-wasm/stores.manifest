@@ -31,6 +31,26 @@
   ta_store  dod_nipr_om_ta.cbor  3551 bytes  sha256:5fd586b8510d20acc243760a393d267b3153716bda0444d794284b8d2f913f29
   ca_store  dod_nipr_om_ca.cbor  81384 bytes  sha256:b34bc70b11f9d8c7445f8696055efeda9c12e71862293f7dc3e23f0e48bab64c
 
+[dod_nipr_interop]  published=2026-06-12  collected=2026-09-21
+  anchors 5
+    CN=DoD Interoperability Root CA 2,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:234aea0cb27dca9a35c7c4f3984e540759d1d37906e1c5cdd9127d9dd9b2c718
+    CN=DoD Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:b107b33f453e5510f68e513110c6f6944bacc263df0137f821c1b3c2f8f863d2
+    CN=DoD Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:559a5189452b13f8233f0022363c06f26e3c517c1d4b77445035959df3244f74
+    CN=DoD Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:1f4ede9dc2a241f6521bf518424acd49ebe84420e69daf5bac57af1f8ee294a9
+    CN=DoD Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:2a5e41aca93df7cc496d2369b7a0a037045d502f1abaaf76975fc07c6660cf93
+  ta_store  dod_nipr_interop_ta.cbor  4590 bytes  sha256:1421dea31090d287d28e576e50f1b39525d14c9869dfc83899f8121ff93d6f94
+  ca_store  dod_nipr_interop_ca.cbor  69157 bytes  sha256:050cd66071528eb96efdd389ef94c6e84928cd6f46ddfd559cc2fc850f16fa1d
+
+[dod_nipr_cceb_interop]  published=2026-06-12  collected=2026-09-21
+  anchors 5
+    CN=DoD Root CA 3,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:b107b33f453e5510f68e513110c6f6944bacc263df0137f821c1b3c2f8f863d2
+    CN=DoD Root CA 4,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:559a5189452b13f8233f0022363c06f26e3c517c1d4b77445035959df3244f74
+    CN=DoD Root CA 5,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:1f4ede9dc2a241f6521bf518424acd49ebe84420e69daf5bac57af1f8ee294a9
+    CN=DoD Root CA 6,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:2a5e41aca93df7cc496d2369b7a0a037045d502f1abaaf76975fc07c6660cf93
+    CN=US DoD CCEB Interoperability Root CA 2,OU=PKI,OU=DoD,O=U.S. Government,C=US  sha256:704f22cc8f3c091bde93a06c9f6723df9c5cc21f8ebf756c556755901a1b57be
+  ta_store  dod_nipr_cceb_interop_ta.cbor  4642 bytes  sha256:422c78fd1093b546fff7b71f1fe913d9f815f016c8d0fe30198e9ddee8b21ecb
+  ca_store  dod_nipr_cceb_interop_ca.cbor  67282 bytes  sha256:6c93b00669fe389b03ddf02435e0ffc3df67c921cc78ade4a9ed7edda74d4f20
+
 [dod_eca]  published=2025-12-18  collected=2026-09-11
   anchors 2
     CN=ECA Root CA 4,OU=ECA,O=U.S. Government,C=US  sha256:343ff530f246b00c71616a5d42541d551114baf74b7f786c7b42527586c6b22a

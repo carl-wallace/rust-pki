@@ -86,6 +86,40 @@ carries. Test material: a path validating against these anchors says nothing
 about a production certificate.
 
 
+dod_nipr_interop_ta.cbor, dod_nipr_interop_ca.cbor — U.S. DoD PKI (NIPR
++ Interoperability)
+---------------------------------------------------------------------------
+
+Generated from certval_stores_nipr (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: the NIPR production material
+above plus DoD Interoperability Root CA 2 as a fifth anchor and the five
+certificates that root publishes at its own SIA -- DoD Root CA 3, DoD Root CA
+6, ECA Root CA 4, ECA Root CA 5 and Federal Bridge CA G4 -- for 46
+intermediate CAs. DoD Root CA 3 and 6 therefore appear twice, as anchors and
+again as the interop root issued them, which is what carries a path out of the
+department: to the ECA program, and through Federal Bridge CA G4 to the U.S.
+federal mesh. Public artifacts of the U.S. Department of Defense PKI, and the
+works of the CAs that issued them. The interop root is published nowhere
+fetchable and is carried in that crate as a committed input; the bundle beneath
+it comes from the root's own repository.
+
+
+dod_nipr_cceb_interop_ta.cbor, dod_nipr_cceb_interop_ca.cbor — U.S. DoD PKI
+(NIPR + CCEB Interoperability)
+---------------------------------------------------------------------------
+
+Generated from certval_stores_nipr (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: the same shape around US DoD
+CCEB Interoperability Root CA 2 -- a fifth anchor and the four certificates it
+publishes at its own SIA, DoD Root CA 3, DoD Root CA 6, the Australian Defence
+Interoperability CA and DND CCEB Interop CA1-MDN Interop CCEB AC1, for 45
+intermediate CAs. It reaches the allied national PKIs the Combined
+Communications-Electronics Board cross-certifies rather than the federal mesh,
+so it is a different trust set from the one above and not a wider version of
+it. Public artifacts of the U.S. Department of Defense PKI, and the works of
+the CAs that issued them.
+
+
 dod_eca_ta.cbor, dod_eca_ca.cbor — U.S. DoD ECA program
 ---------------------------------------------------------
 

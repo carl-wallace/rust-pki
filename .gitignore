@@ -13,6 +13,10 @@ pittv3-wasm/dist/
 # this repository keeps is pittv3-wasm/stores.manifest.
 pittv3-wasm/resources/dod_eca_ca.cbor
 pittv3-wasm/resources/dod_eca_ta.cbor
+pittv3-wasm/resources/dod_nipr_cceb_interop_ca.cbor
+pittv3-wasm/resources/dod_nipr_cceb_interop_ta.cbor
+pittv3-wasm/resources/dod_nipr_interop_ca.cbor
+pittv3-wasm/resources/dod_nipr_interop_ta.cbor
 pittv3-wasm/resources/dod_nipr_om_ca.cbor
 pittv3-wasm/resources/dod_nipr_om_ta.cbor
 pittv3-wasm/resources/dod_nipr_prod_ca.cbor
