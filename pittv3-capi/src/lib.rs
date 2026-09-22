@@ -33,7 +33,9 @@ pub use crate::capi_verify::verify;
 /// to acquire a conditionally compiled button, a conditionally compiled results pane and a
 /// conditionally compiled test beside it.
 ///
-/// See the Windows definition in [`capi_verify`](crate::capi_verify) for what the real one does.
+/// See the Windows definition, in the `capi_verify` module, for what the real one does. Named
+/// rather than linked: that module is `cfg(windows)`, so on this target there is nothing to link
+/// to and an intra-doc link here fails the documentation build for every other platform.
 #[cfg(not(windows))]
 pub fn verify(
     _target_der: &[u8],

@@ -3227,6 +3227,18 @@ pub(crate) fn App() -> Element {
                         #[cfg(not(windows))]
                         let active_log = s_log();
 
+                        // Clear empties the tab in front of the reader, so what counts as "nothing
+                        // to clear" differs per tab. Settled here for the same reason `active_log`
+                        // is: the CAPI signals are `cfg(windows)`, and an arm guarded only by a
+                        // runtime `false` is still compiled.
+                        #[cfg(windows)]
+                        let clear_disabled = match on_capi {
+                            true => s_capi().is_none() && active_log.is_empty(),
+                            false => s_report().is_none() && active_log.is_empty(),
+                        };
+                        #[cfg(not(windows))]
+                        let clear_disabled = s_report().is_none() && active_log.is_empty();
+
                         // Shown only once a CAPI run has happened: until then there is one kind of
                         // result and a tab bar over it would be a control with nowhere to go.
                         #[cfg(windows)]
@@ -3358,10 +3370,7 @@ pub(crate) fn App() -> Element {
                                 }
                                 button {
                                     r#type: "button",
-                                    disabled: match on_capi {
-                                        true => s_capi().is_none() && active_log.is_empty(),
-                                        false => s_report().is_none() && active_log.is_empty(),
-                                    },
+                                    disabled: clear_disabled,
                                     onclick: move |_| {
                                         // Only the tab in front of the reader: clearing both would
                                         // discard a run they can still see on the other one.

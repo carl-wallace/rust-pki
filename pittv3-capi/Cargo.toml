@@ -13,7 +13,11 @@ categories = ["cryptography", "pki"]
 keywords = ["crypto", "x.509", "capi"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.88"
+# 1.85, matching certval and pittv3-lib, which this sits beside and depends on -- not the 1.88 the
+# UI crates declare. Nothing here needs it: the crate is let-else, OnceLock-free plain Rust plus the
+# windows bindings. It matters because this crate is in default-members and in the library half of
+# the workspace, so the runs that build that half at its MSRV now build this too.
+rust-version = "1.85"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
