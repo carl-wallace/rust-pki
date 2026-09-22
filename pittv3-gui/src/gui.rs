@@ -972,6 +972,20 @@ enum View {
 ///
 /// Nothing indexes this list positionally; the selected entry and the Results index are both found
 /// by lookup, so the order is presentation only.
+/// Which validator's results the Results view is showing.
+///
+/// Both are held at once rather than one replacing the other: putting the same inputs to two
+/// validators is the point of the CAPI button, and a comparison you have to re-run to see half of
+/// is not one. The tab also decides which run the export buttons act on -- see the Results view.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResultsTab {
+    /// The certval run, which is what the application does by itself.
+    Validation,
+    /// The Windows chain engine's second opinion.
+    Capi,
+}
+
 const VIEWS: &[(View, &str)] = &[
     (View::Validate, "Validate"),
     (View::Results, "Results"),
@@ -1623,7 +1637,31 @@ pub(crate) fn App() -> Element {
     // results and log output flow back over channels and are applied to signals on the UI side only
     let mut s_view = use_signal(|| View::Validate);
     let mut s_running = use_signal(|| false);
+    // Which trust the CAPI second opinion asks with. Off by default, i.e. this machine's stores:
+    // the button says "Validate Using CAPI", and the plain reading of that is "ask Windows".
+    //
+    // On hands the run's own anchors to the engine instead, which is the controlled comparison --
+    // the same material to both validators, so a difference in the answers is a difference between
+    // them. That is the answer you want for material whose root Windows has never heard of, the
+    // PKITS suite included, and it is worth reaching for deliberately rather than arriving at
+    // without having chosen it.
+    //
+    // Not persisted: `use_signal` is per-session, so every launch starts here.
+    #[cfg(windows)]
+    let s_capi_own_anchors = use_signal(|| false);
     let mut s_report = use_signal(|| None::<ValidationReport>);
+    // The CAPI run's own state, kept apart from the validation run's rather than sharing it. A CAPI
+    // run retains no artifacts and produces no report, so folding it into `s_report` and `s_log`
+    // would mean each run wiping the other's results and the comparison never being on screen at
+    // once. Its own log also keeps Save log honest: the button writes the tab you are looking at.
+    #[cfg(windows)]
+    let mut s_capi = use_signal(|| None::<crate::capi_run::CapiRunResult>);
+    #[cfg(windows)]
+    let mut s_capi_log = use_signal(Vec::<String>::new);
+    #[cfg(windows)]
+    let mut s_capi_stamp = use_signal(|| None::<u64>);
+    #[cfg(windows)]
+    let mut s_results_tab = use_signal(|| ResultsTab::Validation);
     // What the last run kept, so the results view can save the artifacts behind it without
     // validating a second time. Held outside the signal system because the run produces it on a
     // worker thread; see `save::RetainedArtifacts`.
@@ -2204,6 +2242,64 @@ pub(crate) fn App() -> Element {
         }
     };
 
+    // The CAPI second opinion. Shares `current_args` with the run above rather than reading the
+    // controls itself, so the two validators cannot be handed different material by a setting that
+    // one of them consults and the other does not.
+    //
+    // Reuses `s_running`, which makes the two buttons disable each other -- one run at a time -- but
+    // touches none of the validation run's results: the certval report, its retained artifacts and
+    // its log all stay exactly as they were, so both tabs hold a real run and the export buttons
+    // stay correct for whichever is on screen.
+    #[cfg(windows)]
+    let run_capi = move |_: ()| {
+        if s_running() {
+            return;
+        }
+        let args = match current_args() {
+            Ok(args) => args,
+            Err(msg) => {
+                error!("{msg}");
+                s_capi_log.write().push(msg);
+                s_results_tab.set(ResultsTab::Capi);
+                s_view.set(View::Results);
+                return;
+            }
+        };
+        let trust = match s_capi_own_anchors() {
+            true => crate::capi_run::CapiTrust::RunAnchors,
+            false => crate::capi_run::CapiTrust::MachineStores,
+        };
+
+        s_running.set(true);
+        s_capi.set(None);
+        s_capi_log.write().clear();
+        // Its own stamp, or Save log on this tab names its file after the validation run.
+        s_capi_stamp.set(Some(now_as_unix_epoch()));
+        s_results_tab.set(ResultsTab::Capi);
+        s_view.set(View::Results);
+
+        let (tx, mut rx) =
+            futures_channel::mpsc::unbounded::<Box<crate::capi_run::CapiRunResult>>();
+        // On a worker thread for the same reason the validation run is: when the settings ask for
+        // revocation the engine reaches the network through Windows, and the WebView would be
+        // frozen for the duration.
+        std::thread::spawn(move || {
+            let _ = tx.unbounded_send(Box::new(crate::capi_run::execute(&args, trust)));
+        });
+        spawn(async move {
+            while let Some(result) = rx.next().await {
+                // Both from one value, so the pane and the log a reader saves cannot tell
+                // different stories about the same run.
+                s_capi_log.set(result.to_lines());
+                s_capi.set(Some(*result));
+            }
+            // The stream ends when the worker returns and drops the sender. That is the only thing
+            // that ends this run -- there is no completion event, because there is no report to
+            // carry one.
+            s_running.set(false);
+        });
+    };
+
     // Saves every retained path's artifacts as one zip -- the same archive the browser downloads,
     // written where the user says instead of into a download.
     let save_artifacts = {
@@ -2365,6 +2461,42 @@ pub(crate) fn App() -> Element {
                                 "Validate {n} certificates using the current store and settings"
                             ),
                         };
+                        // Named for the engine rather than for the settings, because the settings
+                        // row above it does not govern this run: CAPI takes the material and the
+                        // time of interest and decides the rest for itself.
+                        #[cfg(windows)]
+                        let capi_label = match targets {
+                            0 => "Validate using CAPI".to_string(),
+                            1 => "Validate 1 certificate using CAPI".to_string(),
+                            n => format!("Validate {n} certificates using CAPI"),
+                        };
+                        // A second opinion from the platform, offered beside the run rather than on
+                        // a view of its own: it answers a question about the same inputs, and a
+                        // reader asks it about the material already on screen.
+                        #[cfg(windows)]
+                        let capi_controls = rsx! {
+                            div { class: "controls",
+                                CheckboxRow {
+                                    label: "CAPI uses this run's trust anchors",
+                                    name: "capi-own-anchors",
+                                    sig: s_capi_own_anchors,
+                                    title: "On hands this run's trust anchors to the Windows chain engine as its only roots, so both validators judge the same material and a difference in the answer is a difference between them. Off asks whether this machine would accept the certificate, using the Windows certificate stores — which is the question PITTv2's CAPI panel asked.",
+                                }
+                            }
+                            RunButton {
+                                running: s_running(),
+                                onrun: run_capi,
+                                label: capi_label,
+                                // Gated on the same pool as the run above, and for the reason
+                                // documented there.
+                                nothing_to_do: match s_ee_inputs().is_empty() {
+                                    true => "Add a certificate to validate",
+                                    false => "",
+                                },
+                            }
+                        };
+                        #[cfg(not(windows))]
+                        let capi_controls = rsx! {};
                         rsx! {
                             // Peer boxes rather than a nesting, matching the wasm frontend: the store,
                             // the material that supplements it, the revocation artifacts, the targets
@@ -2647,6 +2779,7 @@ pub(crate) fn App() -> Element {
                                     false => "",
                                 },
                             }
+                            {capi_controls}
                         }
                     }
                     View::Generate => rsx! {
@@ -3077,13 +3210,95 @@ pub(crate) fn App() -> Element {
                             }
                         }
                     },
-                    View::Results => rsx! {
+                    View::Results => {
+                        // Which run the buttons and the log below belong to. A CAPI run retains
+                        // nothing, so the two artifact buttons are dead on that tab and say so by
+                        // being disabled rather than by failing when pressed.
+                        #[cfg(windows)]
+                        let on_capi = s_results_tab() == ResultsTab::Capi && s_capi().is_some();
+                        #[cfg(not(windows))]
+                        let on_capi = false;
+
+                        #[cfg(windows)]
+                        let active_log = match on_capi {
+                            true => s_capi_log(),
+                            false => s_log(),
+                        };
+                        #[cfg(not(windows))]
+                        let active_log = s_log();
+
+                        // Clear empties the tab in front of the reader, so what counts as "nothing
+                        // to clear" differs per tab. Settled here for the same reason `active_log`
+                        // is: the CAPI signals are `cfg(windows)`, and an arm guarded only by a
+                        // runtime `false` is still compiled.
+                        #[cfg(windows)]
+                        let clear_disabled = match on_capi {
+                            true => s_capi().is_none() && active_log.is_empty(),
+                            false => s_report().is_none() && active_log.is_empty(),
+                        };
+                        #[cfg(not(windows))]
+                        let clear_disabled = s_report().is_none() && active_log.is_empty();
+
+                        // Shown only once a CAPI run has happened: until then there is one kind of
+                        // result and a tab bar over it would be a control with nowhere to go.
+                        #[cfg(windows)]
+                        let results_tabs = match s_capi().is_some() {
+                            false => rsx! {},
+                            true => rsx! {
+                                div { class: "tab-bar",
+                                    button {
+                                        r#type: "button",
+                                        class: if on_capi { "tab" } else { "tab tab-active" },
+                                        onclick: move |_| s_results_tab.set(ResultsTab::Validation),
+                                        "Validation"
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: if on_capi { "tab tab-active" } else { "tab" },
+                                        onclick: move |_| s_results_tab.set(ResultsTab::Capi),
+                                        "CAPI"
+                                    }
+                                }
+                            },
+                        };
+                        #[cfg(not(windows))]
+                        let results_tabs = rsx! {};
+
+                        #[cfg(windows)]
+                        let results_body = match (on_capi, s_capi()) {
+                            (true, Some(result)) => rsx! {
+                                crate::capi_view::CapiResultsView { result }
+                            },
+                            _ => rsx! {
+                                if let Some(report) = s_report() {
+                                    ResultsView { report }
+                                }
+                                if !s_running() && s_report().is_none() {
+                                    p { class: "hint",
+                                        "No results yet: run something from Validate or Generate."
+                                    }
+                                }
+                            },
+                        };
+                        #[cfg(not(windows))]
+                        let results_body = rsx! {
+                            if let Some(report) = s_report() {
+                                ResultsView { report }
+                            }
+                            if !s_running() && s_report().is_none() {
+                                p { class: "hint",
+                                    "No results yet: run something from Validate or Generate."
+                                }
+                            }
+                        };
+
+                        rsx! {
                         fieldset {
                             legend { "Results" }
                             div { class: "results-header",
                                 button {
                                     r#type: "button",
-                                    disabled: s_report().is_none(),
+                                    disabled: on_capi || s_report().is_none(),
                                     onclick: move |_| {
                                         if let Some(r) = s_report() {
                                             let name = stamped_export_name(
@@ -3101,21 +3316,31 @@ pub(crate) fn App() -> Element {
                                 // stamped name, since the path logs already take `{name}.txt`.
                                 button {
                                     r#type: "button",
-                                    disabled: s_log().is_empty(),
+                                    disabled: active_log.is_empty(),
                                     onclick: move |_| {
+                                        // Read back rather than captured, so the button writes the
+                                        // tab in front of the reader and not the one that happened
+                                        // to be showing when this closure was built.
+                                        #[cfg(windows)]
+                                        let (lines, stamp, suffix) = match on_capi {
+                                            true => (s_capi_log(), s_capi_stamp(), "-capi-log.txt"),
+                                            false => (s_log(), s_run_stamp(), "-log.txt"),
+                                        };
+                                        #[cfg(not(windows))]
+                                        let (lines, stamp, suffix) = (s_log(), s_run_stamp(), "-log.txt");
                                         let name = stamped_export_name(
                                             &s_export_name(),
-                                            s_run_stamp().unwrap_or_else(now_as_unix_epoch),
+                                            stamp.unwrap_or_else(now_as_unix_epoch),
                                         );
-                                        let text = s_log().join("\n");
+                                        let text = lines.join("\n");
                                         spawn(write_export(
-                                            format!("{name}-log.txt"),
+                                            format!("{name}{suffix}"),
                                             &["txt"],
                                             text.into_bytes(),
                                             s_log,
                                         ));
                                     },
-                                    title: "Save what the validation stack logged, as text",
+                                    title: "Save what this run logged, as text",
                                     "Save log"
                                 }
                                 // Saving what a run used is offered here, beside the report, rather
@@ -3124,14 +3349,14 @@ pub(crate) fn App() -> Element {
                                 // order and same archive as the browser.
                                 button {
                                     r#type: "button",
-                                    disabled: !s_can_export(),
+                                    disabled: on_capi || !s_can_export(),
                                     onclick: save_path_logs,
                                     title: "Save every path's manifest as one text file",
                                     "Save path logs"
                                 }
                                 button {
                                     r#type: "button",
-                                    disabled: !s_can_export(),
+                                    disabled: on_capi || !s_can_export(),
                                     onclick: save_artifacts,
                                     title: "Save the certificates and revocation data behind every path, as a zip",
                                     "Save artifacts"
@@ -3145,8 +3370,17 @@ pub(crate) fn App() -> Element {
                                 }
                                 button {
                                     r#type: "button",
-                                    disabled: s_report().is_none() && s_log().is_empty(),
+                                    disabled: clear_disabled,
                                     onclick: move |_| {
+                                        // Only the tab in front of the reader: clearing both would
+                                        // discard a run they can still see on the other one.
+                                        #[cfg(windows)]
+                                        if on_capi {
+                                            s_capi.set(None);
+                                            s_capi_log.write().clear();
+                                            s_results_tab.set(ResultsTab::Validation);
+                                            return;
+                                        }
                                         s_report.set(None);
                                         s_log.write().clear();
                                     },
@@ -3159,24 +3393,19 @@ pub(crate) fn App() -> Element {
                                     span { " Running…" }
                                 }
                             }
-                            if let Some(report) = s_report() {
-                                ResultsView { report }
-                            }
-                            if !s_running() && s_report().is_none() {
-                                p { class: "hint",
-                                    "No results yet: run something from Validate or Generate."
-                                }
-                            }
-                            if !s_log().is_empty() {
+                            {results_tabs}
+                            {results_body}
+                            if !active_log.is_empty() {
                                 details { class: "advanced", open: s_running(),
-                                    summary { "Run log ({s_log().len()} line(s))" }
+                                    summary { "Run log ({active_log.len()} line(s))" }
                                     div { class: "log-stream",
-                                        for line in s_log().iter() {
+                                        for line in active_log.iter() {
                                             p { "{line}" }
                                         }
                                     }
                                 }
                             }
+                        }
                         }
                     },
                     View::Help => rsx! {

@@ -5135,6 +5135,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pittv3-capi"
+version = "0.2.0-pre.2"
+dependencies = [
+ "certval 0.2.0-pre",
+ "der",
+ "log",
+ "pittv3-lib",
+ "windows",
+ "x509-cert",
+]
+
+[[package]]
 name = "pittv3-gui"
 version = "0.2.0-pre.2"
 dependencies = [
@@ -5154,6 +5166,7 @@ dependencies = [
  "home",
  "log",
  "log4rs",
+ "pittv3-capi",
  "pittv3-gui-lib",
  "pittv3-lib",
  "pittv3-relay",

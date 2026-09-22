@@ -82,7 +82,31 @@ pub fn ensure_config_file(path: &str, log_file: &str) -> bool {
     if fs::create_dir_all(parent).is_err() {
         return false;
     }
-    fs::write(path, TEMPLATE.replace(LOG_FILE_PLACEHOLDER, log_file)).is_ok()
+    fs::write(
+        path,
+        TEMPLATE.replace(LOG_FILE_PLACEHOLDER, &yaml_escape(log_file)),
+    )
+    .is_ok()
+}
+
+/// Escapes a value for a YAML double-quoted scalar, which is what both substitution sites in
+/// [`TEMPLATE`] are.
+///
+/// A Windows log path is the one value here that YAML will not take as written: inside double
+/// quotes, the `\U` of `C:\Users\...` is an escape sequence expecting eight hexadecimal digits, so
+/// the default configuration failed to load on every Windows machine. It failed silently, because
+/// `init_logging` falls back to the built-in appenders when a file will not parse -- the symptom
+/// was an edited `log.yaml` having no effect rather than an error.
+///
+/// Backslash and double quote are the only characters a double-quoted scalar treats specially.
+/// Backslash is replaced first, or the backslash introduced by escaping a quote would itself be
+/// doubled. A Windows path cannot contain a double quote and a POSIX one rarely does, but it is
+/// escaped rather than reasoned about.
+///
+/// Escaping rather than single-quoting the template, which would also have handled a backslash and
+/// would then have broken on an apostrophe -- and `C:\Users\O'Brien` is a real home directory.
+fn yaml_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Configures logging for the process, from `logging_config` when it names a usable log4rs file and
@@ -186,6 +210,11 @@ mod tests {
     #[test]
     fn the_template_loads_with_our_deserializers() {
         let dir = std::env::temp_dir().join("pittv3-logging-test");
+        // Cleared before, not only after: `ensure_config_file` declines to overwrite, and the
+        // cleanup at the end is skipped when the assertion below fails. A file left by a failing
+        // run was therefore read by every later one, so the test went on reporting the bug after it
+        // was fixed -- and would equally have gone on passing had it been left by a passing run.
+        let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("log.yaml");
         let log_file = dir.join("pittv3.log");
@@ -197,6 +226,44 @@ mod tests {
         let loaded = log4rs::config::load_config_file(&path, deserializers());
         assert!(loaded.is_ok(), "template did not load: {loaded:?}");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The regression this file exists to prevent. Inside a double-quoted YAML scalar the `\U` of
+    /// `C:\Users` is an escape expecting eight hexadecimal digits, and the default configuration
+    /// would not load on any Windows machine because of it.
+    ///
+    /// Pinned with a literal path rather than left to `temp_dir`, which yields no backslashes on
+    /// the platforms this also runs on -- so only the Windows leg would ever have caught it. The
+    /// apostrophe is there because it is the reason the template is escaped rather than
+    /// single-quoted: `C:\Users\O'Brien` is a real home directory.
+    #[test]
+    fn a_windows_path_survives_the_template() {
+        let dir = std::env::temp_dir().join("pittv3-logging-windows-path");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("log.yaml");
+        assert!(ensure_config_file(
+            path.to_str().unwrap(),
+            r"C:\Users\O'Brien\.pittv3\pittv3.log"
+        ));
+        let loaded = log4rs::config::load_config_file(&path, deserializers());
+        assert!(loaded.is_ok(), "template did not load: {loaded:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Backslash before quote: escaping the quote first would double the backslash it introduces.
+    #[test]
+    fn yaml_escape_handles_both_special_characters() {
+        assert_eq!(yaml_escape(r"C:\Users\carl"), r"C:\\Users\\carl");
+        assert_eq!(yaml_escape(r#"a"b"#), r#"a\"b"#);
+        // The ordering case: one backslash and one quote must come back as two and an escaped one,
+        // not as three.
+        assert_eq!(yaml_escape(r#"\""#), r#"\\\""#);
+        // A POSIX path is left exactly as it was.
+        assert_eq!(
+            yaml_escape("/home/carl/.pittv3/pittv3.log"),
+            "/home/carl/.pittv3/pittv3.log"
+        );
     }
 
     /// Writing is once only, so an edited file is not replaced on the next run.
