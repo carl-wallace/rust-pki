@@ -135,6 +135,25 @@ fn artifacts() -> Vec<Artifact> {
             ta: "dod_nipr_om_ta.cbor",
             ca: Some("dod_nipr_om_ca.cbor"),
         },
+        // NIPR production plus DoD Interoperability Root CA 2 and the bundle that
+        // root publishes at its own SIA. A wider trust set than production rather
+        // than a different one: the interop root is what carries a path to ECA and,
+        // through Federal Bridge CA G4, the federal mesh.
+        Artifact {
+            provider: certval_stores_nipr::provider(),
+            id: certval_stores_nipr::NIPR_INTEROP,
+            ta: "dod_nipr_interop_ta.cbor",
+            ca: Some("dod_nipr_interop_ca.cbor"),
+        },
+        // The same with the CCEB root, which reaches allied national PKIs --
+        // Australian Defence, DND/MDN Canada -- and not the federal mesh. Neither
+        // interop set contains the other, so both are shipped.
+        Artifact {
+            provider: certval_stores_nipr::provider(),
+            id: certval_stores_nipr::NIPR_CCEB_INTEROP,
+            ta: "dod_nipr_cceb_interop_ta.cbor",
+            ca: Some("dod_nipr_cceb_interop_ca.cbor"),
+        },
         // The External Certification Authority program: vendor CAs issuing to
         // people and systems outside the department that interoperate with it.
         // A separate trust set from NIPR rather than a part of it -- its two

@@ -88,6 +88,25 @@ pub const STORES: &[Store] = &[
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_OM"),
         collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_OM"),
     },
+    // NIPR production plus an interoperability root and what that root publishes at its own SIA:
+    // the first reaches ECA and the federal mesh, the second the allied national PKIs. Neither
+    // contains the other.
+    Store {
+        id: "dod_nipr_interop",
+        label: env!("PITTV3_STORE_LABEL_DOD_NIPR_INTEROP"),
+        ta_url: "resources/dod_nipr_interop_ta.cbor",
+        ca_url: Some("resources/dod_nipr_interop_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_INTEROP"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_INTEROP"),
+    },
+    Store {
+        id: "dod_nipr_cceb_interop",
+        label: env!("PITTV3_STORE_LABEL_DOD_NIPR_CCEB_INTEROP"),
+        ta_url: "resources/dod_nipr_cceb_interop_ta.cbor",
+        ca_url: Some("resources/dod_nipr_cceb_interop_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_DOD_NIPR_CCEB_INTEROP"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_DOD_NIPR_CCEB_INTEROP"),
+    },
     Store {
         id: "dod_eca",
         label: env!("PITTV3_STORE_LABEL_DOD_ECA"),
@@ -553,7 +572,7 @@ mod tests {
     /// artifact's `id`, and `STORES` reads them back by spelling the same name again. Nothing in
     /// the language ties the two: a renamed store, or an artifact whose `id` drifts from the
     /// entry it feeds, leaves `option_env!` returning `None` and the selector quietly saying
-    /// nothing about how old the material is. Every provider behind these three records a
+    /// nothing about how old the material is. Every provider behind these stores records a
     /// collection date, so this fails on that mismatch.
     #[test]
     fn every_shipped_store_states_when_it_was_collected() {

@@ -142,6 +142,28 @@ pub(crate) const STORES: &[BuiltInStore] = &[
         pki: "the DoD operational-test PKI on NIPRNet, also known as JITC",
         note: "Test material: not for judging production certificates.",
     },
+    // NIPR production plus DoD Interoperability Root CA 2 and the certificates that root
+    // publishes at its own SIA. Its own entry rather than a wider NIPR store, because anchoring
+    // the interop root is a separate trust decision: it is what carries a path out of the
+    // department, to ECA and -- through Federal Bridge CA G4 -- the federal mesh.
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_nipr::NIPR_INTEROP,
+        source: StoreSource::Provider(certval_stores_nipr::provider),
+        pki: "the DoD production PKI on NIPRNet and the interoperability root that cross-certifies it",
+        note: "DoD Root CA 3 and 6 are anchors here and also certificates the interop root issued, \
+               so every CA beneath them has a second route.",
+    },
+    // The same shape around the CCEB root, listed separately rather than as a variant of the
+    // entry above: it reaches allied national PKIs -- Australian Defence, DND/MDN Canada -- and
+    // not the federal mesh, so the two are different offers and neither contains the other.
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_nipr::NIPR_CCEB_INTEROP,
+        source: StoreSource::Provider(certval_stores_nipr::provider),
+        pki: "the DoD production PKI on NIPRNet and the CCEB interoperability root that cross-certifies it",
+        note: "Reaches the allied national PKIs the CCEB root cross-certifies, not the U.S. federal mesh.",
+    },
     // MOZILLA_ALL rather than MOZILLA_TLS: the intermediate store hangs off the combined
     // environment only, because a large share of the CCADB intermediates chain solely to
     // email-only roots and would be unanchored under the TLS-scoped anchor set.
