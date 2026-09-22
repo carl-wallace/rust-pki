@@ -232,6 +232,62 @@ pub(crate) const STORES: &[BuiltInStore] = &[
             "One intermediate stands between the root and every signing CA, so its paths are two \
                certificates rather than one.",
     },
+    // The Microsoft root program, six ways. One list of roots, split by the purposes Microsoft
+    // grants each one -- which is metadata the program publishes and Mozilla's does not, so this
+    // is a split no other provider here can offer. Listed together and in descending size, since
+    // choosing between them is choosing a purpose rather than a PKI.
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_ALL,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, every root it still trusts",
+        note: "Roots the program has expired or restricted are not carried.",
+    },
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_CLIENT_AUTH,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, the roots trusted for client authentication",
+        note: "",
+    },
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_TLS,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, the roots trusted for servers",
+        note: "A third program's answer to the question Web PKI and Mozilla also answer.",
+    },
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_EMAIL,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, the roots trusted for email",
+        note: "",
+    },
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_TIMESTAMPING,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, the roots trusted for timestamping",
+        note: "What an Authenticode countersignature chains to.",
+    },
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_msft::MSFT_CODE_SIGNING,
+        source: StoreSource::Provider(certval_stores_msft::provider),
+        pki: "the Microsoft root program, the roots trusted for code signing",
+        note: "No other root program here publishes a code-signing set.",
+    },
+    // The TPM vendor CAs, which answer a different question from every other store in this list:
+    // not whether a certificate was issued to whom it says, but whether an attestation key lives
+    // in a real part made by a real vendor.
+    BuiltInStore {
+        fallback_label: None,
+        id: certval_stores_tpm::TPM,
+        source: StoreSource::Provider(certval_stores_tpm::provider),
+        pki: "the TPM vendor CAs Microsoft redistributes for attestation",
+        note: "For judging attestation keys, not certificates issued to people.",
+    },
     BuiltInStore {
         fallback_label: None,
         id: certval_stores_pbdev::PUREBRED_DEV,

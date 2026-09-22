@@ -45,6 +45,16 @@ inherits = "release"
 opt-level = "z"
 lto = true
 
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
 [patch.crates-io]
 # x509-ocsp has no 0.3 crates.io release yet (max published 0.2.1), so pull it from formats.git to
 # match the now-published x509-cert 0.3.0. Drop this patch once x509-ocsp 0.3 publishes.

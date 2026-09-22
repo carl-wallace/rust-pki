@@ -23,5 +23,13 @@ pittv3-wasm/resources/dod_nipr_prod_ca.cbor
 pittv3-wasm/resources/dod_nipr_prod_ta.cbor
 pittv3-wasm/resources/dod_wcf_ca.cbor
 pittv3-wasm/resources/dod_wcf_ta.cbor
+pittv3-wasm/resources/msft_all_ta.cbor
+pittv3-wasm/resources/msft_client_auth_ta.cbor
+pittv3-wasm/resources/msft_code_signing_ta.cbor
+pittv3-wasm/resources/msft_email_ta.cbor
+pittv3-wasm/resources/msft_timestamping_ta.cbor
+pittv3-wasm/resources/msft_tls_ta.cbor
+pittv3-wasm/resources/tpm_ca.cbor
+pittv3-wasm/resources/tpm_ta.cbor
 pittv3-wasm/resources/webpki_ca.cbor
 pittv3-wasm/resources/webpki_ta.cbor

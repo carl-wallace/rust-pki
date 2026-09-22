@@ -173,6 +173,63 @@ fn artifacts() -> Vec<Artifact> {
             ta: "dod_wcf_ta.cbor",
             ca: Some("dod_wcf_ca.cbor"),
         },
+        // The Microsoft root program. `ca: None` throughout and not an oversight: the program
+        // publishes roots and nothing else, so there are no intermediates to preload and a chain
+        // validated against these needs its own supplied or retrieved.
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_ALL,
+            ta: "msft_all_ta.cbor",
+            ca: None,
+        },
+        // The server-auth subset, for the comparison the other two stores make possible: three
+        // root programs answering the same question, side by side.
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_TLS,
+            ta: "msft_tls_ta.cbor",
+            ca: None,
+        },
+        // The four remaining purpose-scoped subsets. Each is serialized separately rather than
+        // derived in the browser from the combined store: what scopes a root to a purpose is the
+        // trust list's per-entry enhanced key usage property, which lives in the CTL and not in the
+        // certificate, so the subsets cannot be recovered from the certificates alone.
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_CLIENT_AUTH,
+            ta: "msft_client_auth_ta.cbor",
+            ca: None,
+        },
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_EMAIL,
+            ta: "msft_email_ta.cbor",
+            ca: None,
+        },
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_CODE_SIGNING,
+            ta: "msft_code_signing_ta.cbor",
+            ca: None,
+        },
+        Artifact {
+            provider: certval_stores_msft::provider(),
+            id: certval_stores_msft::MSFT_TIMESTAMPING,
+            ta: "msft_timestamping_ta.cbor",
+            ca: None,
+        },
+        // The TPM vendor CAs, which answer a different question from every other store here: not
+        // whether a certificate was issued to whom it says, but whether an attestation key lives
+        // in a real part made by a real vendor. The only store in this list whose CA side is
+        // larger than its anchors by two orders of magnitude -- 47 roots, 2,480 intermediates --
+        // because the vendors publish deep hierarchies and an attestation key can sit anywhere
+        // under them.
+        Artifact {
+            provider: certval_stores_tpm::provider(),
+            id: certval_stores_tpm::TPM,
+            ta: "tpm_ta.cbor",
+            ca: Some("tpm_ca.cbor"),
+        },
         // MOZILLA_ALL rather than MOZILLA_TLS: the CA store hangs off the
         // combined environment only, because 356 of the intermediates chain
         // solely to email-only roots and would be unanchored under the

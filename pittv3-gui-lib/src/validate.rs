@@ -421,6 +421,20 @@ fn assemble(
         ))),
     }
 
+    // Said out loud, because otherwise a run against a trust-anchor-only store reports no paths
+    // and gives no reason -- and the reason is arithmetic rather than a failure. The Microsoft
+    // root program is the first shipped store of that shape: it publishes roots and no
+    // intermediates, so the only certificate such a run holds is the target's, and anything
+    // issued below a root has nothing to chain through. The remedy differs by frontend, so this
+    // names what is missing and leaves obtaining it to the caller.
+    if cert_source.is_empty() {
+        out.push(info(
+            "No intermediate CA certificates are available: a target issued below a trust anchor \
+             needs its issuers uploaded or retrieved before a path can be built"
+                .to_string(),
+        ));
+    }
+
     Ok(Assembled {
         pe,
         ta_store,

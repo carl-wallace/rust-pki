@@ -123,6 +123,69 @@ pub const STORES: &[Store] = &[
         published: option_env!("PITTV3_STORE_PUBLISHED_DOD_WCF"),
         collected: option_env!("PITTV3_STORE_COLLECTED_DOD_WCF"),
     },
+    // `ca_url: None` because Microsoft publishes roots and no intermediates -- a path through one
+    // needs its CAs uploaded or retrieved, which the selector says by asking the provider rather
+    // than by this entry claiming a store it has not got.
+    Store {
+        id: "msft_all",
+        label: env!("PITTV3_STORE_LABEL_MSFT_ALL"),
+        ta_url: "resources/msft_all_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_ALL"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_ALL"),
+    },
+    Store {
+        id: "msft_tls",
+        label: env!("PITTV3_STORE_LABEL_MSFT_TLS"),
+        ta_url: "resources/msft_tls_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_TLS"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_TLS"),
+    },
+    Store {
+        id: "msft_client_auth",
+        label: env!("PITTV3_STORE_LABEL_MSFT_CLIENT_AUTH"),
+        ta_url: "resources/msft_client_auth_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_CLIENT_AUTH"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_CLIENT_AUTH"),
+    },
+    Store {
+        id: "msft_email",
+        label: env!("PITTV3_STORE_LABEL_MSFT_EMAIL"),
+        ta_url: "resources/msft_email_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_EMAIL"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_EMAIL"),
+    },
+    Store {
+        id: "msft_code_signing",
+        label: env!("PITTV3_STORE_LABEL_MSFT_CODE_SIGNING"),
+        ta_url: "resources/msft_code_signing_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_CODE_SIGNING"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_CODE_SIGNING"),
+    },
+    Store {
+        id: "msft_timestamping",
+        label: env!("PITTV3_STORE_LABEL_MSFT_TIMESTAMPING"),
+        ta_url: "resources/msft_timestamping_ta.cbor",
+        ca_url: None,
+        published: option_env!("PITTV3_STORE_PUBLISHED_MSFT_TIMESTAMPING"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MSFT_TIMESTAMPING"),
+    },
+    // The TPM vendor CAs, for judging whether an attestation key lives in a real part made by a
+    // real vendor rather than whether a certificate was issued to whom it says. Unlike the
+    // Microsoft stores above this one carries its intermediates, because the vendors publish them
+    // and an attestation key sits several levels down.
+    Store {
+        id: "tpm",
+        label: env!("PITTV3_STORE_LABEL_TPM"),
+        ta_url: "resources/tpm_ta.cbor",
+        ca_url: Some("resources/tpm_ca.cbor"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_TPM"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_TPM"),
+    },
 ];
 
 /// Where a store in the selector came from, which is as much as this application can say about how
