@@ -61,6 +61,20 @@ certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.gi
 certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr", "om_nipr", "nipr_interop", "nipr_cceb_interop"] }
 certval_stores_eca = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["eca"] }
 certval_stores_wcf = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["wcf"] }
+# All six environments, the same six the desktop offers. Shipping a subset was tried first, on the
+# grounds that each root a browser carries is bytes it has to download; what it actually produced
+# was a selector that disagreed with the desktop's about what exists, which is the divergence this
+# pair of applications is not allowed to have. The cost is about a megabyte: the environments are
+# views over one list, so a root granted five purposes is serialized into five of these stores.
+certval_stores_msft = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = [
+    "msft_all",
+    "msft_tls",
+    "msft_client_auth",
+    "msft_email",
+    "msft_code_signing",
+    "msft_timestamping",
+] }
+certval_stores_tpm = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["tpm"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_all", "mozilla_cas"] }
 # For stores.manifest: the digest of each artifact, and the subject naming each
 # trust anchor in it. Both are already in this crate's build graph through

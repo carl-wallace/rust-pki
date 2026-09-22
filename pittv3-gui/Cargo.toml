@@ -38,6 +38,8 @@ certval_stores_core = { git = "https://github.com/carl-wallace/certval-stores.gi
 certval_stores_nipr = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["nipr", "om_nipr", "nipr_interop", "nipr_cceb_interop"] }
 certval_stores_eca = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["eca"] }
 certval_stores_wcf = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["wcf"] }
+certval_stores_msft = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["msft_all", "msft_tls", "msft_client_auth", "msft_email", "msft_code_signing", "msft_timestamping"] }
+certval_stores_tpm = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["tpm"] }
 certval_stores_pbdev = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["dev"] }
 certval_stores_fpki = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["fpki"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_tls", "mozilla_email", "mozilla_cas"] }

@@ -144,6 +144,29 @@ material as its own InstallRoot stream. Public artifacts of the U.S. Department 
 PKI, and the works of the CAs that issued them.
 
 
+msft_all_ta.cbor — Microsoft root program
+---------------------------------------------------------
+
+Generated from certval_stores_msft (Apache-2.0 OR MIT),
+https://github.com/carl-wallace/certval-stores: the 357 roots Microsoft's
+trust list carries and still trusts, of the 562 it lists -- 98 have expired
+and 107 are restricted past a date the program records against them. Roots
+only: Microsoft publishes no intermediates, so a chain validated against these
+needs its own supplied or retrieved. The certificates are the works of the CAs
+that issued them; the list naming them is published by Microsoft at
+ctldl.windowsupdate.com and is signed, and each certificate here matched the
+SHA-1 thumbprint that list gave for it.
+
+
+msft_tls_ta.cbor — Microsoft root program, server authentication
+---------------------------------------------------------
+
+The same material, narrowed to the 234 roots Microsoft grants
+id-kp-serverAuth. That per-root purpose is metadata the program publishes and
+is what makes the split possible. Alongside webpki_ta.cbor it lets one page
+compare two root programs' answers to the same question.
+
+
 pkits_ml_dsa_44_ta.cbor, pkits_ml_dsa_44_ca.cbor,
 sample_valid_ml_dsa_44.der, sample_invalid_ml_dsa_44.der — PKITS, ML-DSA-44
 -----------------------------------------------------------------------------

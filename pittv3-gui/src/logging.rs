@@ -242,9 +242,16 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("log.yaml");
+        // Loading the config builds the appender, which creates the file it names. A bare
+        // `C:\Users\...` is one odd filename to a POSIX system rather than a path, so it would be
+        // created in whatever directory the test ran from -- and this test left an empty
+        // `C:\Users\O'Brien\.pittv3\pittv3.log` in the crate root every time it passed. Joining it
+        // onto the temp directory leaves the backslashes and the apostrophe where the escaping is
+        // exercised and puts the file where the cleanup below can reach it.
+        let log = dir.join(r"C:\Users\O'Brien\.pittv3\pittv3.log");
         assert!(ensure_config_file(
             path.to_str().unwrap(),
-            r"C:\Users\O'Brien\.pittv3\pittv3.log"
+            log.to_str().unwrap()
         ));
         let loaded = log4rs::config::load_config_file(&path, deserializers());
         assert!(loaded.is_ok(), "template did not load: {loaded:?}");
