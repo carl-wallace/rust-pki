@@ -389,11 +389,16 @@ async fn fetch_crl(
         return Err(Error::UriOnBlocklist);
     }
 
-    let client = match crate::builder::uri_utils::shared_http_client() {
-        Some(c) => c,
-        None => {
-            debug!("Failed to prepare HTTP client to retrieve CRL");
-            return Err(Error::ResourceUnchanged);
+    // Errors rather than reporting ResourceUnchanged, which the previous code did: that status
+    // means "the responder says nothing has changed", and reporting it for a client that could not
+    // be built told the caller a fetch had succeeded with nothing new. It matters more now that a
+    // consumer-registered client can be what failed -- which is also why this says so, like every
+    // other failure here: the caller discards the error on the assumption it was reported.
+    let client = match pe.http_client() {
+        Ok(client) => client,
+        Err(e) => {
+            debug!("Failed to prepare an HTTP client to retrieve a CRL from {uri}: {e:?}");
+            return Err(e);
         }
     };
 
@@ -1291,6 +1296,9 @@ pub(crate) async fn check_revocation_crl_remote(
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 
+            // Discarded rather than logged: fetch_crl reports each of its own failures, with
+            // the URI and the underlying cause, so logging again here would say it twice. The one
+            // outcome it does not log is a 304, which is not a failure.
             let crl = match fetch_crl(pe, crl_dp.as_str(), timeout, max_bytes).await {
                 Ok(crl) => crl,
                 Err(_e) => continue,

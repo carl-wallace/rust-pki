@@ -232,12 +232,17 @@ fn generate_nonce() -> Result<Vec<u8>> {
 }
 
 #[cfg(feature = "remote")]
-async fn post_ocsp(uri_to_check: &str, enc_ocsp_req: &[u8], max_bytes: u64) -> Result<Vec<u8>> {
-    let client = match crate::builder::uri_utils::shared_http_client() {
-        Some(client) => client,
-        None => {
-            error!("Failed to prepare OCSP client: {uri_to_check}");
-            return Err(Error::NetworkError);
+async fn post_ocsp(
+    pe: &PkiEnvironment,
+    uri_to_check: &str,
+    enc_ocsp_req: &[u8],
+    max_bytes: u64,
+) -> Result<Vec<u8>> {
+    let client = match pe.http_client() {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Failed to prepare OCSP client for {uri_to_check}: {e:?}");
+            return Err(e);
         }
     };
 
@@ -514,6 +519,7 @@ pub async fn send_ocsp_request(
     )?;
 
     let enc_ocsp_resp = match post_ocsp(
+        pe,
         uri_to_check,
         enc_ocsp_req.as_slice(),
         cps.get_max_ocsp_fetch_bytes(),

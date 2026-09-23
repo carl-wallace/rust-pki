@@ -119,6 +119,15 @@ pub struct PkiEnvironment {
     /// List of trait objects that provide access to blocklist and last modified info
     check_remote: Vec<Box<dyn CheckRemoteResource + Send + Sync>>,
 
+    /// Supplies the HTTP client used for artifact retrieval. `None` means the built-in client,
+    /// which is what every consumer got before this existed.
+    ///
+    /// Singular where the sources above are lists, because those are searched and this is used:
+    /// every registered certificate source contributes certificates, but exactly one client
+    /// carries a request. A list here would accept a second registration and silently ignore it.
+    #[cfg(feature = "remote")]
+    http_client_source: Option<Box<dyn HttpClientSource + Send + Sync>>,
+
     //--------------------------------------------------------------------------
     //Miscellaneous interfaces
     //--------------------------------------------------------------------------
@@ -145,6 +154,8 @@ impl Default for PkiEnvironment {
             revocation_cache: vec![],
             signature_cache: vec![],
             check_remote: vec![],
+            #[cfg(feature = "remote")]
+            http_client_source: None,
         }
     }
 }
@@ -167,6 +178,8 @@ impl PkiEnvironment {
             revocation_cache: vec![],
             signature_cache: vec![],
             check_remote: vec![],
+            #[cfg(feature = "remote")]
+            http_client_source: None,
         }
     }
 
@@ -855,6 +868,34 @@ impl PkiEnvironment {
         self.check_remote.clear();
     }
 
+    /// set_http_client_source sets the [`HttpClientSource`] used for artifact retrieval,
+    /// replacing the built-in client and any previously set one.
+    #[cfg(feature = "remote")]
+    pub fn set_http_client_source(&mut self, c: Box<dyn HttpClientSource + Send + Sync>) {
+        self.http_client_source = Some(c);
+    }
+
+    /// clear_http_client_source drops the [`HttpClientSource`], restoring the built-in client.
+    #[cfg(feature = "remote")]
+    pub fn clear_http_client_source(&mut self) {
+        self.http_client_source = None;
+    }
+
+    /// Returns the HTTP client to use for artifact retrieval.
+    ///
+    /// The set [`HttpClientSource`], or the built-in process-wide client when none is set. A set
+    /// source that fails is reported rather than replaced by the built-in one: see
+    /// [`HttpClientSource`] for why that distinction is deliberate.
+    #[cfg(feature = "remote")]
+    pub(crate) fn http_client(&self) -> Result<reqwest::Client> {
+        match self.http_client_source.as_ref() {
+            Some(source) => source.client(),
+            None => crate::builder::uri_utils::shared_http_client()
+                .cloned()
+                .ok_or(Error::NetworkError),
+        }
+    }
+
     /// get_last_modified takes a URI and returns stored last modified value or None.
     pub fn get_last_modified(&self, uri: &str) -> Option<String> {
         for f in &self.check_remote {
@@ -1031,5 +1072,76 @@ mod signature_cache_tests {
         // At the cap, further entries are dropped, so they report as not verified.
         cache.add_verified(b"cert-c", b"key-1");
         assert!(!cache.is_verified(b"cert-c", b"key-1"));
+    }
+}
+
+#[cfg(all(test, feature = "remote"))]
+mod http_client_source_tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Counts how often it is asked, so "the registered source was consulted" is observable
+    /// without reaching the network.
+    struct Counting(Arc<AtomicUsize>);
+    impl HttpClientSource for Counting {
+        fn client(&self) -> Result<reqwest::Client> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            reqwest::Client::builder()
+                .build()
+                .map_err(|_| Error::NetworkError)
+        }
+    }
+
+    struct Failing;
+    impl HttpClientSource for Failing {
+        fn client(&self) -> Result<reqwest::Client> {
+            Err(Error::Unrecognized)
+        }
+    }
+
+    #[test]
+    fn the_builtin_client_is_used_when_nothing_is_set() {
+        let pe = PkiEnvironment::default();
+        assert!(pe.http_client().is_ok());
+    }
+
+    #[test]
+    fn a_set_source_is_consulted() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let mut pe = PkiEnvironment::default();
+        pe.set_http_client_source(Box::new(Counting(count.clone())));
+        assert!(pe.http_client().is_ok());
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    /// Setting a second replaces the first rather than being ignored, which is the reason this is
+    /// a setter and not an `add_` over a list like the sources beside it.
+    #[test]
+    fn setting_a_second_source_replaces_the_first() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let mut pe = PkiEnvironment::default();
+        pe.set_http_client_source(Box::new(Counting(count.clone())));
+        pe.set_http_client_source(Box::new(Failing));
+        assert_eq!(pe.http_client().err(), Some(Error::Unrecognized));
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+    }
+
+    /// The deliberate part. A caller registers a client to control what the connection trusts, so
+    /// falling back to one that trusts the platform's roots would undo exactly that, quietly.
+    #[test]
+    fn a_failing_source_is_not_rescued_by_the_builtin_client() {
+        let mut pe = PkiEnvironment::default();
+        pe.set_http_client_source(Box::new(Failing));
+        assert_eq!(pe.http_client().err(), Some(Error::Unrecognized));
+    }
+
+    #[test]
+    fn clearing_the_source_restores_the_builtin_client() {
+        let mut pe = PkiEnvironment::default();
+        pe.set_http_client_source(Box::new(Failing));
+        assert!(pe.http_client().is_err());
+        pe.clear_http_client_source();
+        assert!(pe.http_client().is_ok());
     }
 }

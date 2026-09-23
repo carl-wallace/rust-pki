@@ -443,6 +443,41 @@ pub trait CheckRemoteResource {
     fn add_to_blocklist(&self, uri: &str);
 }
 
+/// The [`HttpClientSource`] trait lets a consumer supply the HTTP client used for every outbound
+/// artifact retrieval: AIA/SIA certificate fetching, OCSP requests and CRL downloads.
+///
+/// Without one, certval builds a bare process-wide client and uses that, which is what it has
+/// always done. Registering a source is how a consumer sets a proxy, presents a client
+/// certificate, pins or replaces the TLS roots, or applies connection settings of its own — none
+/// of which was reachable before. `certval_stores_core::get_reqwest_client` builds exactly such a
+/// client, trusting a provider's roots and nothing else.
+///
+/// # A registered source that fails is not rescued by the default
+///
+/// certval falls back to its built-in client only when *nothing* has been set. If a source that
+/// has been set returns an error, the retrieval fails. The usual reason to
+/// register one is to control which roots the connection trusts, and quietly substituting a client
+/// that trusts the platform's roots instead would undo exactly that — a silent downgrade rather
+/// than a visible failure.
+///
+/// # One error an implementation must not return
+///
+/// The error an instance returns is propagated to the caller unchanged, on the view that the
+/// instance knows why it failed better than certval does. [`Error::ResourceUnchanged`] is the
+/// exception: it means *the server answered 304*, and CRL retrieval treats it as "nothing new to
+/// process" rather than as a failure. An instance returning it would make a fetch that never
+/// happened look like a successful no-op -- which is the confusion this interface's own call site
+/// was fixed to stop. Prefer [`Error::NetworkError`], or whichever variant names the real cause.
+///
+/// A [`reqwest::Client`] is reference-counted internally, so returning one by value is cheap and an
+/// implementation is expected to build it once and hand out clones. Building a fresh client per
+/// call would discard the connection pool, which is the cost the shared client exists to avoid.
+#[cfg(feature = "remote")]
+pub trait HttpClientSource {
+    /// Returns the client to use for outbound artifact retrieval.
+    fn client(&self) -> Result<reqwest::Client>;
+}
+
 /// The [`RevocationStatusCache`] trait defines the interface for storing and retrieving cached revocation status determinations
 /// in support of certification path validation.
 pub trait RevocationStatusCache {
