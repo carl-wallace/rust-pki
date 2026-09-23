@@ -57,6 +57,67 @@ pub(crate) fn shared_http_client() -> Option<&'static reqwest::Client> {
         .as_ref()
 }
 
+/// An [`HttpClientSource`] that routes certval's retrievals through an HTTP proxy.
+///
+/// The common case of supplying a client, without the caller naming a [`reqwest`] type:
+///
+/// ```no_run
+/// # use certval::*;
+/// # fn main() -> Result<()> {
+/// let mut pe = PkiEnvironment::default();
+/// pe.set_http_client_source(Box::new(ProxiedHttpClient::new("http://proxy.example.com:8080")?));
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # This replaces the environment's proxy settings rather than adding to them
+///
+/// `reqwest` reads `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` from the environment by default, so
+/// certval already follows a system proxy with nothing registered at all. Setting one here turns
+/// that detection **off** and uses only what is given — which is what makes it predictable, but
+/// means a caller who expects both will find the environment ignored. Where the environment
+/// already says the right thing, register nothing.
+///
+/// The client carries no default timeout, matching the built-in one: every call site applies
+/// its own per-request bound, and a client-level timeout would be silently overridden by it.
+#[cfg(feature = "remote")]
+pub struct ProxiedHttpClient {
+    client: reqwest::Client,
+}
+
+#[cfg(feature = "remote")]
+impl ProxiedHttpClient {
+    /// Builds a client routing through `proxy_uri`, for all schemes.
+    ///
+    /// Fails if the URI is not a proxy URI reqwest accepts, or if the client cannot be built —
+    /// reported here, where the caller can still do something about it, rather than at the first
+    /// retrieval.
+    pub fn new(proxy_uri: &str) -> Result<Self> {
+        let proxy = reqwest::Proxy::all(proxy_uri).map_err(|e| {
+            error!(
+                "Failed to parse {proxy_uri} as a proxy URI: {}",
+                error_chain(&e)
+            );
+            Error::NetworkError
+        })?;
+        let client = reqwest::Client::builder()
+            .proxy(proxy)
+            .build()
+            .map_err(|e| {
+                error!("Failed to build a proxied HTTP client: {}", error_chain(&e));
+                Error::NetworkError
+            })?;
+        Ok(ProxiedHttpClient { client })
+    }
+}
+
+#[cfg(feature = "remote")]
+impl HttpClientSource for ProxiedHttpClient {
+    fn client(&self) -> Result<reqwest::Client> {
+        Ok(self.client.clone())
+    }
+}
+
 /// `e` followed by each error in its source chain. reqwest's own message stops at "error sending
 /// request"; the cause -- a failed lookup, a refused connection, a timeout -- is in the chain.
 #[cfg(feature = "remote")]
@@ -351,9 +412,12 @@ pub async fn fetch_to_buffer(
         .map(read_fetched_artifacts)
         .unwrap_or_default();
 
-    let client = match shared_http_client() {
-        Some(client) => client,
-        None => return Err(Error::Unrecognized),
+    let client = match pe.http_client() {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Failed to prepare an HTTP client to fetch certificates: {e:?}");
+            return Err(e);
+        }
     };
 
     // URIs may be piled up by the caller wiht the start_index used to ignore URIs that were
