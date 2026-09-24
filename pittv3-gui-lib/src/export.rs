@@ -1091,8 +1091,22 @@ fn render_replay_command(inputs: &RunInputs) -> String {
 /// figure lives in the archive because every other entry there is about a path, not about the run.
 /// The per-path manifests are identical in both exports, which is the property that matters: the
 /// concatenated log and the archived manifests are one document, plus a line about the run.
-pub fn paths_text(paths: &[Vec<ExportEntry>], run_ms: Option<u64>) -> String {
+pub fn paths_text(paths: &[Vec<ExportEntry>], run_ms: Option<u64>, notes: &[String]) -> String {
     let mut out = String::new();
+    // First, because it is what a reader needs before the verdicts mean anything: a run that
+    // stopped retrieving early produced some of the statuses below by not asking, and nothing in
+    // the per-path detail says so. Until now the notes lived only in the window that produced
+    // them, so a saved run could not be told from one that finished.
+    if !notes.is_empty() {
+        out.push_str("Run notes\n");
+        out.push_str(&"=".repeat(9));
+        out.push('\n');
+        for note in notes {
+            out.push_str(note);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
     for entries in paths {
         let Some((_, bytes)) = entries.iter().find(|(name, _)| name == PATH_LOG_NAME) else {
             continue;
@@ -1498,7 +1512,7 @@ mod tests {
         assert!(readme.contains("Certification paths: 1"));
 
         let line = "Time for the entire operation: 1234 ms";
-        assert!(paths_text(&paths, Some(1234)).contains(line) && readme.contains(line));
+        assert!(paths_text(&paths, Some(1234), &[]).contains(line) && readme.contains(line));
 
         // A run with no figure to report says nothing rather than reporting a zero, which would
         // read as a run that took no time.
@@ -1974,7 +1988,7 @@ mod tests {
             ],
             vec![(PATH_LOG_NAME.to_string(), b"path two".to_vec())],
         ];
-        let text = paths_text(&paths, None);
+        let text = paths_text(&paths, None, &[]);
         assert!(text.contains("path one"));
         assert!(text.contains("path two"));
         // the DER rode along in the archive and must not appear in the log
@@ -1986,7 +2000,7 @@ mod tests {
     #[test]
     fn a_path_without_a_manifest_contributes_nothing_to_the_text() {
         let paths = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
-        let text = paths_text(&paths, None);
+        let text = paths_text(&paths, None, &[]);
         assert!(!text.contains("0-ta"), "{text}");
         assert!(text.contains("No certification paths were found"), "{text}");
     }
@@ -2004,15 +2018,42 @@ mod tests {
 
         // The wording of the trailer is the renderer's to choose. What this pins is that the
         // figure is present and that it closes the file rather than landing between two paths.
-        let timed = paths_text(&paths, Some(1234));
+        let timed = paths_text(&paths, Some(1234), &[]);
         assert!(timed.trim_end().ends_with("1234 ms"));
         assert!(timed.starts_with("path one"));
 
         // The trailer is appended and nothing else moves, so an export made with a run figure and
         // one made without describe the paths identically.
-        let untimed = paths_text(&paths, None);
+        let untimed = paths_text(&paths, None, &[]);
         assert!(!untimed.contains("1234"));
         assert!(timed.starts_with(&untimed));
+    }
+
+    /// The notes go into the file, ahead of the verdicts they explain. A run that stopped
+    /// retrieving early produced some of those verdicts by not asking, and until the notes
+    /// travelled with the export that fact lived only in the window that produced it.
+    #[test]
+    fn run_notes_are_written_above_the_paths() {
+        let paths = vec![vec![(
+            PATH_LOG_NAME.to_string(),
+            b"Certification path validation results for: t\n".to_vec(),
+        )]];
+        let notes = vec![
+            "Rate limited by the service: try again in 43 second(s).".to_string(),
+            "Retrieved 12 CRL(s)".to_string(),
+        ];
+        let text = paths_text(&paths, Some(1234), &notes);
+
+        assert!(text.contains("Run notes"), "{text}");
+        assert!(text.contains("try again in 43 second(s)"), "{text}");
+        assert!(
+            text.find("Run notes") < text.find("Certification path validation results"),
+            "the notes belong above the verdicts they explain"
+        );
+
+        // Nothing to say, nothing said: a run that finished should not carry an empty heading.
+        let quiet = paths_text(&paths, Some(1234), &[]);
+        assert!(!quiet.contains("Run notes"), "{quiet}");
     }
 
     /// A run that found nothing gets a log stating that, closed by the run figure -- how long it
@@ -2021,12 +2062,13 @@ mod tests {
     /// rather than from this text.
     #[test]
     fn a_run_that_found_nothing_still_has_a_log() {
-        let text = paths_text(&[], Some(1234));
+        let text = paths_text(&[], Some(1234), &[]);
         assert!(text.contains("No certification paths were found"), "{text}");
         assert!(text.trim_end().ends_with("1234 ms"), "{text}");
 
         let no_manifests = vec![vec![("0-ta.der".to_string(), vec![0x30])]];
-        assert!(paths_text(&no_manifests, Some(1234)).contains("No certification paths were found"));
+        assert!(paths_text(&no_manifests, Some(1234), &[])
+            .contains("No certification paths were found"));
     }
 
     #[test]

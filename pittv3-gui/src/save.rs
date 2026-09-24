@@ -153,10 +153,14 @@ pub(crate) fn artifacts_archive(
 ///
 /// `None` only when no run is held. A run that found no paths has a log saying so, which is the
 /// point of asking for one after such a run.
-pub(crate) fn path_logs_text(artifacts: &RetainedArtifacts, run_ms: Option<u64>) -> Option<String> {
+pub(crate) fn path_logs_text(
+    artifacts: &RetainedArtifacts,
+    run_ms: Option<u64>,
+    notes: &[String],
+) -> Option<String> {
     let guard = artifacts.lock().ok()?;
     let run = guard.as_ref()?;
-    Some(paths_text(&entries_for(run), run_ms))
+    Some(paths_text(&entries_for(run), run_ms, notes))
 }
 
 #[cfg(test)]
@@ -172,9 +176,9 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(path_logs_text(&artifacts, None).is_none());
+        assert!(path_logs_text(&artifacts, None, &[]).is_none());
         // and a run figure does not conjure a log out of paths that are not held
-        assert!(path_logs_text(&artifacts, Some(1234)).is_none());
+        assert!(path_logs_text(&artifacts, Some(1234), &[]).is_none());
         // inputs alone do not make one either: they say what a run would have been given, and no
         // run has been made
         let inputs = RunInputs {
@@ -227,7 +231,7 @@ mod tests {
             .expect("a run with no paths still has an inputs half");
         assert!(!zipped.is_empty());
         // and the log says what happened rather than not being written
-        let log = path_logs_text(&artifacts, Some(1234)).expect("a run has a log");
+        let log = path_logs_text(&artifacts, Some(1234), &[]).expect("a run has a log");
         assert!(log.contains("No certification paths were found"), "{log}");
         assert!(log.contains("1234 ms"), "{log}");
     }

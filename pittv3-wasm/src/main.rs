@@ -30,7 +30,9 @@ use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
-use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
+use pittv3_lib::report::{
+    attribute_unretrieved_to_limit, RevocationStatus, TargetReport, ValidationReport,
+};
 use pittv3_lib::uri_check::{
     anchor_certificate_der, check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports,
 };
@@ -43,6 +45,7 @@ use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, stapl
 
 use crate::relay::{
     chase_certificates, relay_peek, retrieve_crls, retrieve_ocsp, FetchBudget, RelayFetcher, Tier,
+    MAX_END_ENTITIES,
 };
 use crate::validate::{
     merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
@@ -1209,7 +1212,11 @@ fn App() -> Element {
         let entries = build_entries();
         // `run_ms` is the wall clock of the run that retained these paths -- both are replaced
         // together when a run finishes -- so the log closes with the run its manifests came from.
-        let text = paths_text(&entries, Some(run_ms()));
+        // The notes go with it: they are where a run says it stopped retrieving early, and the
+        // verdicts below cannot be read correctly without knowing that. They existed only in the
+        // window until now, so a saved run could not be told from one that finished.
+        let run_notes: Vec<String> = notes.read().iter().map(|n| n.text.clone()).collect();
+        let text = paths_text(&entries, Some(run_ms()), &run_notes);
         let name = stamped_export_name(
             &export_name(),
             run_stamp().unwrap_or_else(now_as_unix_epoch),
@@ -1282,7 +1289,23 @@ fn App() -> Element {
 
     // loads a certificate into the aggregated list; validation happens when the Validate button
     // is clicked
-    let load_ee = move |name: String, bytes: Vec<u8>| {
+    //
+    // Refused at the door once the pool is full, with the count, because this is the bound that can
+    // be checked before any work: what a run will cost to retrieve cannot be predicted from what it
+    // holds, but what it holds is known exactly. Said through the notes so a certificate that did
+    // not arrive is visible rather than silently absent from a later count.
+    let mut load_ee = move |name: String, bytes: Vec<u8>| {
+        if loaded_ees.read().len() >= MAX_END_ENTITIES {
+            notes.write().push(ResultLine {
+                class: "err",
+                text: format!(
+                    "Not adding {name}: this page holds at most {MAX_END_ENTITIES} end entity \
+                     certificates, and it has that many. Validate what is loaded, or remove some \
+                     and add it again."
+                ),
+            });
+            return;
+        }
         extend_unique(loaded_ees, vec![(name, bytes)]);
     };
 
@@ -1469,7 +1492,8 @@ fn App() -> Element {
             let mut budget = FetchBudget::new();
             let mut seeds = uploaded_tas();
             seeds.extend(cas.clone());
-            let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+            let (found, chase_notes) =
+                chase_certificates(&seeds, &mut budget, Some(cps.get_aia_timeout())).await;
             insp_notes.write().extend(chase_notes);
             cas.extend(found);
         }
@@ -1607,6 +1631,12 @@ fn App() -> Element {
         // answer after that decision rather than the preference that went into it.
         run_revocation.set(Some(cps.get_check_revocation_status()));
 
+        // Whether retrieval ran out of room, carried past the block that retrieves so the report
+        // built afterwards can attribute what was never asked about. The report cannot know this
+        // for itself: a position nothing was consulted for looks the same whether the certificate
+        // named no source or the run stopped before reaching it.
+        let mut retrieval_stopped_early = false;
+
         // Rebuild the prepared environment only when it is stale (or absent); otherwise reuse the
         // cached one, skipping the store fetch, reparse and partial-path discovery.
         if env_dirty() || prepared_env.read().is_none() {
@@ -1689,7 +1719,8 @@ fn App() -> Element {
                 let mut seeds = loaded_ees();
                 seeds.extend(uploaded_cas());
                 seeds.extend(chased_cas());
-                let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+                let (found, chase_notes) =
+                    chase_certificates(&seeds, &mut budget, Some(cps.get_aia_timeout())).await;
                 notes.write().extend(chase_notes);
                 if !found.is_empty() {
                     chased_cas.write().extend(found);
@@ -1739,8 +1770,13 @@ fn App() -> Element {
                 // for a first answer is waiting on.
                 let mut retrieved_ocsp = 0;
                 if !work.ocsp.is_empty() {
-                    let (added, ocsp_notes) =
-                        retrieve_ocsp(&work.ocsp, &ocsp_sink, &mut budget).await;
+                    let (added, ocsp_notes) = retrieve_ocsp(
+                        &work.ocsp,
+                        &ocsp_sink,
+                        &mut budget,
+                        Some(cps.get_ocsp_timeout()),
+                    )
+                    .await;
                     retrieved_ocsp = added;
                     notes.write().extend(ocsp_notes);
                 }
@@ -1793,9 +1829,12 @@ fn App() -> Element {
                 };
 
                 if !crl_dp.is_empty() {
-                    let (_added, crl_notes) = retrieve_crls(&crl_dp, &crl_sink, &mut budget).await;
+                    let (_added, crl_notes) =
+                        retrieve_crls(&crl_dp, &crl_sink, &mut budget, Some(cps.get_crl_timeout()))
+                            .await;
                     notes.write().extend(crl_notes);
                 }
+                retrieval_stopped_early = budget.stopped_early();
             }
         }
 
@@ -1803,8 +1842,12 @@ fn App() -> Element {
         let guard = prepared_env.read();
         let (prepared, prep_notes) = guard.as_ref().unwrap();
         notes.write().extend(prep_notes.iter().cloned());
-        let (reports, lines, retained) =
+        let (mut reports, lines, retained) =
             validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);
+        if retrieval_stopped_early {
+            attribute_unretrieved_to_limit(&mut reports);
+        }
+        let reports = reports;
         retained_paths.set(retained);
 
         // After the paths are known and before the results are shown, so the log the user can save

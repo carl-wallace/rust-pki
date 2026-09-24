@@ -152,6 +152,43 @@ pub enum RevocationStatus {
     Undetermined,
     /// Revocation status determination was not required (e.g., OCSP no-check)
     NotChecked,
+    /// The run stopped retrieving before this certificate's status was obtained, so nothing was
+    /// consulted for it.
+    ///
+    /// Distinct from [`Undetermined`](Self::Undetermined), which says a source was consulted and
+    /// did not settle the question, and from [`NotChecked`](Self::NotChecked), which says no check
+    /// was required. This one says the answer is still owed and the run ran out of room to get it,
+    /// which calls for running again rather than for looking at the repository.
+    ///
+    /// Both bounds that produce it are rate limits: the budget a run imposes on itself, and a
+    /// refusal from the service it retrieves through. Which one applies is in the run's notes; the
+    /// status says only that nothing was asked.
+    RateLimit,
+}
+
+/// Attributes the positions a run never asked about to the limit that stopped it.
+///
+/// A run that stopped retrieving leaves certificates whose status nothing was consulted for, and
+/// they arrive here as [`RevocationStatus::Undetermined`] with [`RevocationMethod::None`] -- the
+/// same shape as a certificate that names no revocation source at all, because in both cases
+/// nothing was consulted. The run is the only thing that can tell them apart: it knows whether it
+/// stopped early. So this is called by the caller that knows, and only then.
+///
+/// Positions that a source did settle, or that were settled and found revoked, are untouched; so
+/// is anything a check was not required for. Only the "nothing was consulted" case moves, which is
+/// the case the limit could have caused.
+pub fn attribute_unretrieved_to_limit(reports: &mut [TargetReport]) {
+    for target in reports.iter_mut() {
+        for path in target.paths.iter_mut() {
+            for outcome in path.revocation.iter_mut() {
+                if outcome.status == RevocationStatus::Undetermined
+                    && outcome.method == RevocationMethod::None
+                {
+                    outcome.status = RevocationStatus::RateLimit;
+                }
+            }
+        }
+    }
 }
 
 /// Revocation status outcome for one certificate in a certification path.
@@ -1211,6 +1248,51 @@ mod tests {
         assert_eq!(outcomes[3].method, RevocationMethod::RemoteCrlDp);
         assert_eq!(outcomes[4].method, RevocationMethod::OcspNoCheck);
         assert_eq!(outcomes[4].status, RevocationStatus::NotChecked);
+    }
+
+    /// A run that stopped retrieving attributes only the positions nothing was consulted for. A
+    /// source that was consulted and did not settle the question is a fact about the repository,
+    /// and relabelling it as a fact about the run would send a reader to re-run where they should
+    /// be looking at the responder.
+    #[test]
+    fn attribution_moves_only_what_was_never_asked_about() {
+        let outcome = |cert_index, method, status| RevocationOutcome {
+            cert_index,
+            method,
+            status,
+        };
+        let mut reports = vec![TargetReport {
+            name: "t".to_string(),
+            target: None,
+            status: TargetStatus::ValidExceptRevocationUndetermined,
+            paths: vec![PathReport {
+                revocation: vec![
+                    outcome(1, RevocationMethod::None, RevocationStatus::Undetermined),
+                    outcome(2, RevocationMethod::Ocsp, RevocationStatus::Undetermined),
+                    outcome(3, RevocationMethod::Crl, RevocationStatus::NotRevoked),
+                    outcome(
+                        4,
+                        RevocationMethod::OcspNoCheck,
+                        RevocationStatus::NotChecked,
+                    ),
+                ],
+                ..Default::default()
+            }],
+            no_paths_hints: vec![],
+            error: None,
+        }];
+
+        attribute_unretrieved_to_limit(&mut reports);
+
+        let outcomes = &reports[0].paths[0].revocation;
+        assert_eq!(outcomes[0].status, RevocationStatus::RateLimit);
+        assert_eq!(
+            outcomes[1].status,
+            RevocationStatus::Undetermined,
+            "a source was consulted and did not settle it: that is not the run's doing"
+        );
+        assert_eq!(outcomes[2].status, RevocationStatus::NotRevoked);
+        assert_eq!(outcomes[3].status, RevocationStatus::NotChecked);
     }
 
     /// A position with neither a recorded source nor an artifact is undetermined, and says so.

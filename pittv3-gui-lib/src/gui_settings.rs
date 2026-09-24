@@ -934,6 +934,12 @@ pub fn EditSettings(
                                 placeholder: "60",
                                 onchange: move |v| model.write().crl_timeout_secs = v,
                             }
+                            NumberRow {
+                                label: "OCSP timeout (seconds)",
+                                value: m.ocsp_timeout_secs,
+                                placeholder: "10",
+                                onchange: move |v| model.write().ocsp_timeout_secs = v,
+                            }
                         }
                     }
                 },
@@ -959,6 +965,12 @@ pub fn EditSettings(
                             value: m.max_aia_sia_certs,
                             placeholder: "2000",
                             onchange: move |v| model.write().max_aia_sia_certs = v,
+                        }
+                        NumberRow {
+                            label: "AIA/SIA fetch timeout (seconds)",
+                            value: m.aia_timeout_secs,
+                            placeholder: "10",
+                            onchange: move |v| model.write().aia_timeout_secs = v,
                         }
                     }
                 },

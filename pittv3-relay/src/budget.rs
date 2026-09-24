@@ -31,10 +31,12 @@ pub struct FetchBudget {
 impl Default for FetchBudget {
     fn default() -> Self {
         FetchBudget {
-            // Comfortably larger than any certificate, certs-only SignedData or OCSP response, and
-            // larger than most CRLs while far below certval's hundred-mebibyte per-CRL ceiling: a
-            // service pays for that ceiling in memory per concurrent request.
-            max_response_bytes: 16 * 1024 * 1024,
+            // Comfortably larger than any certificate, certs-only SignedData or OCSP response,
+            // and larger than the CRLs that exist: the largest measured is a DoD distribution
+            // point at 30.2 MB, and sixteen would have refused it. Still far below certval's
+            // hundred-mebibyte per-CRL ceiling, which a service pays for in memory per concurrent
+            // request.
+            max_response_bytes: 32 * 1024 * 1024,
             max_request_bytes: 64 * 1024,
             timeout: Duration::from_secs(10),
         }
@@ -55,6 +57,11 @@ pub struct ChaseBudgetLimits {
     /// Number of retrievals that may be made.
     pub max_fetches: usize,
     /// Wall-clock time the sequence may occupy.
+    ///
+    /// Runs from the moment the budget is built, so it covers the work between retrievals as well
+    /// as the retrievals: a validation is bounded end to end rather than by the time it spends on
+    /// the network. That matters for the default, which is sized against a measured request rather
+    /// than against retrieval alone.
     pub max_duration: Duration,
 }
 
@@ -63,7 +70,14 @@ impl Default for ChaseBudgetLimits {
         ChaseBudgetLimits {
             max_total_bytes: 64 * 1024 * 1024,
             max_fetches: 64,
-            max_duration: Duration::from_secs(60),
+            // Measured 2026-09-24: a full 32-target request of unexpired certificates, revocation
+            // retrieval and no chasing, took 93 seconds -- roughly 3 seconds for each certificate
+            // that found a path, almost all of it network. Sixty seconds would have truncated it
+            // and reported undetermined status for the remainder. Two minutes covers that case and
+            // still ends a chase that is going nowhere; a request that needs longer is one a
+            // deployment should want cut short. The byte and fetch caps were comfortable in the
+            // same run and are unchanged.
+            max_duration: Duration::from_secs(120),
         }
     }
 }

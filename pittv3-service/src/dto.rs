@@ -95,6 +95,14 @@ pub struct FetchRequestBody {
     /// unchanged without retrieving it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub if_modified_since: Option<String>,
+    /// How long this retrieval may take, in seconds.
+    ///
+    /// The browser carries its own timeout settings here so that a knob the settings form offers
+    /// governs a retrieval the browser does not make itself. It narrows the service's configured
+    /// budget and cannot widen it -- the relay takes the smaller of the two -- so a client cannot
+    /// buy itself a longer wait than the deployment allows by asking for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
 }
 
 /// What the relay retrieved. The HTTP status is reported rather than translated, because a client
@@ -241,6 +249,21 @@ mod tests {
         })
         .unwrap();
         assert!(encoded.contains(r#""body":"BAUG""#));
+    }
+
+    /// A client states a timeout or it does not, and the absent case has to stay absent rather than
+    /// arriving as a zero — a zero is a timeout a retrieval cannot survive, so `Option` here is
+    /// load-bearing and not a convenience.
+    #[test]
+    fn a_fetch_request_may_state_a_timeout() {
+        let stated: FetchRequestBody =
+            serde_json::from_str(r#"{"uri":"http://crl.example.com/ca.crl","timeout_secs":5}"#)
+                .unwrap();
+        assert_eq!(stated.timeout_secs, Some(5));
+
+        let unstated: FetchRequestBody =
+            serde_json::from_str(r#"{"uri":"http://crl.example.com/ca.crl"}"#).unwrap();
+        assert_eq!(unstated.timeout_secs, None);
     }
 
     /// What a person types into a box is a site, not a URI, and the scheme is the part they leave

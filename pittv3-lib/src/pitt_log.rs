@@ -731,6 +731,7 @@ fn revocation_status_text(status: crate::report::RevocationStatus) -> &'static s
         Revoked => "revoked",
         Undetermined => "could not be determined",
         NotChecked => "not checked",
+        RateLimit => "not retrieved: the run stopped before asking",
     }
 }
 

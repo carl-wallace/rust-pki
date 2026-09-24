@@ -7,7 +7,7 @@ use actix_web::dev::Service;
 use actix_web::http::header::{HeaderValue, CACHE_CONTROL};
 use actix_web::{web, App, HttpServer};
 use clap::Parser;
-use log::info;
+use log::{info, warn};
 
 use pittv3_service::config::{ServiceConfig, ServiceState};
 use pittv3_service::routes;
@@ -145,6 +145,28 @@ async fn main() -> std::io::Result<()> {
         enabled(state.config.allow_dynamic_build),
         enabled(state.config.allow_tls_peek)
     );
+    // Said at startup rather than left in the file: an operator asked what a deployment allows one
+    // client to do should not have to read the configuration back to find out.
+    let rate = &state.config.rate_limit;
+    match rate.enabled {
+        true => info!(
+            "Per-client limits: {} request(s), {} retrieval(s), {} byte(s) per {}s; \
+             {} request(s), {} retrieval(s), {} byte(s) per {}s; tracking at most {} client(s)",
+            rate.burst.requests,
+            rate.burst.retrievals,
+            rate.burst.bytes,
+            rate.burst.seconds,
+            rate.sustained.requests,
+            rate.sustained.retrievals,
+            rate.sustained.bytes,
+            rate.sustained.seconds,
+            rate.max_tracked_clients
+        ),
+        // Worth a warning rather than an info line on a service that can be reached from anywhere:
+        // it is a deliberate posture for a single user or an isolated network, and a surprise
+        // otherwise.
+        false => warn!("Per-client rate limiting is disabled; one client may ask for any amount"),
+    }
 
     HttpServer::new(move || {
         let app = App::new()

@@ -13,6 +13,8 @@
 //! Nothing here decides *whether* to retrieve. That is [`Tier`], which follows the deployment by
 //! default and the user whenever they say otherwise.
 
+use core::time::Duration;
+
 use pittv3_gui_lib::retrieval::{
     certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
@@ -24,16 +26,52 @@ use web_time::Instant;
 #[cfg(target_family = "wasm")]
 use serde::{Deserialize, Serialize};
 
+/// Most end entity certificates the page will hold.
+///
+/// Two things are bounded here and they answer to different pressures. This one bounds the page:
+/// what it holds in memory and validates on the browser's single thread. It is enforced when a
+/// certificate is added, so it fails at the door, with a count, rather than partway through a run.
+///
+/// A folder of 489 measured 4.8 seconds of validation, so this is above real use rather than
+/// against it.
+pub const MAX_END_ENTITIES: usize = 500;
+
 /// How much retrieval one Validate click may do.
 ///
 /// A certificate naming a subject information access URI that serves a bundle of further
 /// certificates, each naming more, turns one click into an unbounded amount of fetching. The
 /// service enforces its own budgets and would stop it eventually; this stops it here, where the
 /// person waiting for the answer is.
-const MAX_FETCHES: usize = 40;
+///
+/// **Sized so a legal upload can finish.** The worst case is one retrieval per certificate that
+/// needs a status -- the end entities plus the intermediates above them, which deduplicate across
+/// paths -- so a quarter again over [`MAX_END_ENTITIES`] covers a pool entirely made of
+/// certificates nothing has been retrieved for yet. Most runs cost a fraction of it: a status
+/// already in the cache is not asked for again, one CRL settles every certificate beneath its
+/// issuer, and the run skips CRL retrieval outright when OCSP settled everything. Measured against
+/// the same 489: 38 retrievals.
+///
+/// It is a ceiling rather than an allowance. Nothing is spent unless a fetch happens, and the
+/// number is chosen to not be reached rather than to be right -- what a run will cost cannot be
+/// predicted from what it holds.
+const MAX_FETCHES: usize = MAX_END_ENTITIES + MAX_END_ENTITIES / 4;
+
+/// The retrieval budget has to cover the end entity limit: a pool filled to the cap, none of it
+/// already answered for, must not run out of fetches partway. Checked here rather than in a test
+/// because the two numbers live for different reasons -- one bounds the page, one bounds what the
+/// service is asked to fetch -- and a build that cannot satisfy both should not produce an
+/// application that discovers it at run time.
+const _: () = assert!(
+    MAX_FETCHES > MAX_END_ENTITIES,
+    "the retrieval budget must cover a full end entity pool"
+);
 
 /// Total retrieved bytes one Validate click may accept.
-const MAX_BYTES: usize = 16 * 1024 * 1024;
+///
+/// Driven by CRLs, which vary by three orders of magnitude -- a web PKI CRL runs to kilobytes
+/// where `DODEMAILCA_63.crl` is 9.5 MB and one DoD distribution point measured 30.2 MB. A run
+/// needing twelve of the large ones measured 48.9 MB, so this holds that with room.
+const MAX_BYTES: usize = 128 * 1024 * 1024;
 
 /// How many times the chase may harvest, retrieve and re-harvest before giving up. Each round can
 /// only reach one certificate further from the target, so a small number covers real hierarchies;
@@ -104,10 +142,74 @@ impl Tier {
     }
 }
 
+/// Why a relay request did not produce an artifact.
+///
+/// Two cases rather than a string, because they call for opposite behaviour. An ordinary failure
+/// is about one URI and the next one is still worth trying; a refusal for rate limiting is about
+/// this client, so every retrieval after it would be refused too. Telling them apart is what stops
+/// a limited run from spending its whole allowance being told to stop.
+#[derive(Clone, Debug)]
+pub enum RelayError {
+    /// The service refused because this client is over one of its limits. `retry_after` is what
+    /// the `Retry-After` header said, in seconds, when it said anything.
+    ///
+    /// Constructed only in the browser build, which is the only one that reaches a relay at all;
+    /// the host build's `relay_request` is a stub that refuses before making a request, so there
+    /// is nothing there to be rate limited and the variant reads as dead code.
+    #[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+    RateLimited {
+        /// Seconds until the limit resets, from `Retry-After`.
+        retry_after: Option<u64>,
+        /// What the service said, which names the limit that was reached.
+        message: String,
+    },
+    /// Anything else: a policy refusal, an unreachable repository, a malformed answer.
+    Failed(String),
+}
+
+impl core::fmt::Display for RelayError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            RelayError::RateLimited { message, .. } => write!(f, "{message}"),
+            RelayError::Failed(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl RelayError {
+    /// Shorthand for the ordinary case, which is most of them.
+    fn failed(message: impl Into<String>) -> Self {
+        RelayError::Failed(message.into())
+    }
+}
+
+/// The one line a run says when the service starts refusing it.
+///
+/// Written once and used by every phase so the wording cannot drift, and worded as a statement
+/// about the client rather than about a URI: rendered beside "could not retrieve http://...", a
+/// rate limit reads as a broken repository, which sends someone to debug the wrong thing.
+fn rate_limit_note(retry_after: Option<u64>) -> String {
+    match retry_after {
+        Some(seconds) => format!(
+            "Rate limited by the service: it stopped answering this browser and retrieval ended. \
+             Try again in {seconds} second(s)."
+        ),
+        None => {
+            "Rate limited by the service: it stopped answering this browser and retrieval ended."
+                .to_string()
+        }
+    }
+}
+
 /// What one Validate click has left to spend on retrieval.
 pub struct FetchBudget {
     fetches: usize,
     bytes: usize,
+    /// Set once the service refuses this client for rate limiting, with whatever `Retry-After`
+    /// said. A run does not recover from it: the window that has to pass is longer than a click,
+    /// and every further request would be refused, so the remaining work is abandoned instead of
+    /// attempted. That is the same thing an exhausted budget means, which is why it lives here.
+    rate_limited: Option<Option<u64>>,
 }
 
 impl Default for FetchBudget {
@@ -115,6 +217,7 @@ impl Default for FetchBudget {
         FetchBudget {
             fetches: MAX_FETCHES,
             bytes: MAX_BYTES,
+            rate_limited: None,
         }
     }
 }
@@ -127,7 +230,40 @@ impl FetchBudget {
 
     /// Reports whether another retrieval is permitted.
     fn available(&self) -> bool {
-        self.fetches > 0 && self.bytes > 0
+        self.rate_limited.is_none() && self.fetches > 0 && self.bytes > 0
+    }
+
+    /// Records that the service refused this client, so every later phase of the run stops too.
+    fn rate_limited(&mut self, retry_after: Option<u64>) {
+        self.rate_limited = Some(retry_after);
+    }
+
+    /// Whether this run stopped retrieving before it was finished, by either bound.
+    ///
+    /// Both are rate limits -- the one a run imposes on itself and the one the service imposes on
+    /// it -- and the difference does not matter to a certificate nothing was asked about. What it
+    /// changes is whether a position reported as undetermined is a fact about the repository or a
+    /// fact about the run, which is the distinction the report cannot draw for itself.
+    pub fn stopped_early(&self) -> bool {
+        !self.available()
+    }
+
+    /// Why retrieval stopped, for the note a phase writes when it finds it cannot proceed.
+    ///
+    /// A spent budget and a refusal are both "no more retrieving", and a person reading the results
+    /// needs to know which: one says the run was bigger than a click is allowed to be, the other
+    /// says to come back later.
+    fn stop_reason(&self) -> String {
+        match self.rate_limited {
+            Some(retry_after) => rate_limit_note(retry_after),
+            // Worded to match the badge, which says "rate limited" for either bound. A reader who
+            // sees that badge and searches the notes for the word has to find the line that
+            // explains it, and this is the one that does -- there is no wait to state, because the
+            // budget is this run's own and the next run starts with a fresh one.
+            None => "Rate limited by this run's own retrieval budget, which is spent. \
+                     Validating again starts with a fresh one."
+                .to_string(),
+        }
     }
 
     /// Records a completed retrieval.
@@ -150,6 +286,11 @@ struct FetchRequestBody<'a> {
     body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_type: Option<&'a str>,
+    /// How long this retrieval may take, from the path settings this run is using. The service
+    /// takes the smaller of this and its own budget, so a settings form cannot widen a
+    /// deployment's allowance -- it can only ask for less of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout_secs: Option<u64>,
 }
 
 /// What the relay retrieved. The body is base64 because the exchange is JSON.
@@ -275,20 +416,28 @@ pub struct Retrieved {
     pub body: Vec<u8>,
 }
 
-/// Retrieves one URI through the relay.
-pub async fn relay_fetch(uri: &str) -> Result<Retrieved, String> {
-    relay_request(uri, None).await
+/// Retrieves one URI through the relay, within `timeout` when one is stated.
+pub async fn relay_fetch(uri: &str, timeout: Option<Duration>) -> Result<Retrieved, RelayError> {
+    relay_request(uri, None, timeout).await
 }
 
 /// Sends one OCSP request through the relay and returns what the responder answered.
-pub async fn relay_ocsp(uri: &str, request: &[u8]) -> Result<Retrieved, String> {
-    relay_request(uri, Some(request)).await
+pub async fn relay_ocsp(
+    uri: &str,
+    request: &[u8],
+    timeout: Option<Duration>,
+) -> Result<Retrieved, RelayError> {
+    relay_request(uri, Some(request), timeout).await
 }
 
 /// Makes one relay request: a `GET` when there is no body, a `POST` of an OCSP request when there
 /// is. Everything else about the exchange is the same, which is why they share this.
 #[cfg(target_family = "wasm")]
-async fn relay_request(uri: &str, ocsp_request: Option<&[u8]>) -> Result<Retrieved, String> {
+async fn relay_request(
+    uri: &str,
+    ocsp_request: Option<&[u8]>,
+    timeout: Option<Duration>,
+) -> Result<Retrieved, RelayError> {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine as _;
 
@@ -297,33 +446,53 @@ async fn relay_request(uri: &str, ocsp_request: Option<&[u8]>) -> Result<Retriev
         method: ocsp_request.map(|_| "POST"),
         body: ocsp_request.map(|r| STANDARD.encode(r)),
         content_type: ocsp_request.map(|_| "application/ocsp-request"),
+        timeout_secs: timeout.map(|t| t.as_secs()),
     };
-    let request =
-        serde_json::to_string(&body).map_err(|e| format!("could not encode the request: {e}"))?;
+    let request = serde_json::to_string(&body)
+        .map_err(|e| RelayError::failed(format!("could not encode the request: {e}")))?;
     let response = gloo_net::http::Request::post(FETCH_URL)
         .header("Content-Type", "application/json")
         .body(request)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| RelayError::failed(e.to_string()))?
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| RelayError::failed(e.to_string()))?;
 
-    let bytes = response.binary().await.map_err(|e| e.to_string())?;
+    // Read before the body, because the body is consumed by reading it.
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let status = response.status();
+
+    let bytes = response
+        .binary()
+        .await
+        .map_err(|e| RelayError::failed(e.to_string()))?;
     // A refusal carries a JSON error body rather than a retrieval, and the message in it is the
     // useful part -- it says which rule the URI ran into.
-    if !response.ok() {
+    if !(200..300).contains(&status) {
         let message = serde_json::from_slice::<serde_json::Value>(&bytes)
             .ok()
             .and_then(|v| v.get("error").and_then(|e| e.as_str().map(str::to_string)))
-            .unwrap_or_else(|| format!("HTTP {}", response.status()));
-        return Err(message);
+            .unwrap_or_else(|| format!("HTTP {status}"));
+        // 429 is about this client rather than this URI, so it is carried as its own case: every
+        // retrieval after it would be refused the same way, and the callers stop instead of
+        // spending the rest of the run learning that one at a time.
+        return match status {
+            429 => Err(RelayError::RateLimited {
+                retry_after,
+                message,
+            }),
+            _ => Err(RelayError::Failed(message)),
+        };
     }
 
-    let decoded: FetchResponseBody =
-        serde_json::from_slice(&bytes).map_err(|e| format!("unexpected relay answer: {e}"))?;
+    let decoded: FetchResponseBody = serde_json::from_slice(&bytes)
+        .map_err(|e| RelayError::failed(format!("unexpected relay answer: {e}")))?;
     let body = STANDARD
         .decode(decoded.body.as_bytes())
-        .map_err(|e| format!("relay answer was not valid base64: {e}"))?;
+        .map_err(|e| RelayError::failed(format!("relay answer was not valid base64: {e}")))?;
     Ok(Retrieved {
         status: decoded.status,
         final_uri: decoded.final_uri,
@@ -334,8 +503,14 @@ async fn relay_request(uri: &str, ocsp_request: Option<&[u8]>) -> Result<Retriev
 /// Host builds (`cargo check`/`cargo test`) do not run in a browser and have no relay to call; the
 /// application itself only ever executes as wasm.
 #[cfg(not(target_family = "wasm"))]
-async fn relay_request(_uri: &str, _ocsp_request: Option<&[u8]>) -> Result<Retrieved, String> {
-    Err("retrieval is only available in the browser build".to_string())
+async fn relay_request(
+    _uri: &str,
+    _ocsp_request: Option<&[u8]>,
+    _timeout: Option<Duration>,
+) -> Result<Retrieved, RelayError> {
+    Err(RelayError::failed(
+        "retrieval is only available in the browser build",
+    ))
 }
 
 fn info(text: String) -> ResultLine {
@@ -383,6 +558,7 @@ fn redirect_note(requested: &str, response: &Retrieved) -> Option<ResultLine> {
 pub async fn chase_certificates(
     seeds: &[(String, Vec<u8>)],
     budget: &mut FetchBudget,
+    timeout: Option<Duration>,
 ) -> (Vec<(String, Vec<u8>)>, Vec<ResultLine>) {
     let mut notes = vec![];
     let mut found: Vec<(String, Vec<u8>)> = vec![];
@@ -402,15 +578,15 @@ pub async fn chase_certificates(
         let before = found.len();
         for uri in uris {
             if !budget.available() {
-                notes.push(err(
-                    "Stopped retrieving certificates: this run's retrieval budget is spent"
-                        .to_string(),
-                ));
+                notes.push(err(format!(
+                    "Stopped retrieving certificates: {}",
+                    budget.stop_reason()
+                )));
                 return (found, notes);
             }
             retrieved.push(uri.clone());
 
-            match relay_fetch(&uri).await {
+            match relay_fetch(&uri, timeout).await {
                 Ok(response) => {
                     budget.spend(response.body.len());
                     notes.extend(redirect_note(&uri, &response));
@@ -432,6 +608,11 @@ pub async fn chase_certificates(
                             found.push((format!("{uri}#{index}"), der));
                         }
                     }
+                }
+                Err(RelayError::RateLimited { retry_after, .. }) => {
+                    budget.rate_limited(retry_after);
+                    notes.push(err(rate_limit_note(retry_after)));
+                    return (found, notes);
                 }
                 Err(e) => {
                     budget.spend(0);
@@ -463,18 +644,20 @@ pub async fn retrieve_crls(
     uris: &[String],
     sink: &MemoryCrlSource,
     budget: &mut FetchBudget,
+    timeout: Option<Duration>,
 ) -> (usize, Vec<ResultLine>) {
     let mut notes = vec![];
     let mut added = 0;
 
     for uri in uris {
         if !budget.available() {
-            notes.push(err(
-                "Stopped retrieving CRLs: this run's retrieval budget is spent".to_string(),
-            ));
+            notes.push(err(format!(
+                "Stopped retrieving CRLs: {}",
+                budget.stop_reason()
+            )));
             break;
         }
-        match relay_fetch(uri).await {
+        match relay_fetch(uri, timeout).await {
             Ok(response) => {
                 budget.spend(response.body.len());
                 notes.extend(redirect_note(uri, &response));
@@ -489,6 +672,11 @@ pub async fn retrieve_crls(
                     true => added += 1,
                     false => notes.push(err(format!("{uri} did not serve a CRL"))),
                 }
+            }
+            Err(RelayError::RateLimited { retry_after, .. }) => {
+                budget.rate_limited(retry_after);
+                notes.push(err(rate_limit_note(retry_after)));
+                break;
             }
             Err(e) => {
                 budget.spend(0);
@@ -517,6 +705,7 @@ pub async fn retrieve_ocsp(
     items: &[OcspRequestItem],
     sink: &OcspResponses,
     budget: &mut FetchBudget,
+    timeout: Option<Duration>,
 ) -> (usize, Vec<ResultLine>) {
     let mut notes = vec![];
     let mut added = 0;
@@ -526,12 +715,13 @@ pub async fn retrieve_ocsp(
             continue;
         }
         if !budget.available() {
-            notes.push(err(
-                "Stopped sending OCSP requests: this run's retrieval budget is spent".to_string(),
-            ));
+            notes.push(err(format!(
+                "Stopped sending OCSP requests: {}",
+                budget.stop_reason()
+            )));
             break;
         }
-        match relay_ocsp(&item.uri, &item.request).await {
+        match relay_ocsp(&item.uri, &item.request, timeout).await {
             Ok(response) => {
                 budget.spend(response.body.len());
                 notes.extend(redirect_note(&item.uri, &response));
@@ -544,6 +734,11 @@ pub async fn retrieve_ocsp(
                 }
                 sink.insert(item.key.clone(), response.body);
                 added += 1;
+            }
+            Err(RelayError::RateLimited { retry_after, .. }) => {
+                budget.rate_limited(retry_after);
+                notes.push(err(rate_limit_note(retry_after)));
+                break;
             }
             Err(e) => {
                 budget.spend(0);
@@ -600,7 +795,20 @@ impl RelayFetcher {
             budget: core::cell::RefCell::new(FetchBudget {
                 fetches: MAX_FETCHES.saturating_mul(n),
                 bytes: MAX_BYTES.saturating_mul(n),
+                rate_limited: None,
             }),
+        }
+    }
+
+    /// Records that the service refused this client, so the rest of a bulk check stops asking.
+    ///
+    /// A URI check makes one request per URI across every certificate in a run, so a limit reached
+    /// partway would otherwise be reached again once per remaining URI -- each one a round trip
+    /// spent being told to stop, and each one reported in the grid as a repository that could not
+    /// be reached.
+    fn note_refusal(&self, error: &RelayError) {
+        if let RelayError::RateLimited { retry_after, .. } = error {
+            self.budget.borrow_mut().rate_limited(*retry_after);
         }
     }
 
@@ -625,7 +833,10 @@ impl UriFetcher for RelayFetcher {
             return FetchOutcome::default();
         }
         let start = Instant::now();
-        let outcome = relay_fetch(uri).await;
+        // No timeout stated: the service's own applies. A URI check is not a path-building
+        // retrieval, so none of the three settings that name one -- CRL, OCSP, AIA -- is the one
+        // this reaches with, and picking any of them would be arbitrary.
+        let outcome = relay_fetch(uri, None).await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
         match outcome {
             // The status is reported by the checker, not translated here: a 404 on an authority
@@ -638,7 +849,14 @@ impl UriFetcher for RelayFetcher {
                     elapsed_ms,
                 }
             }
-            Ok(_) | Err(_) => FetchOutcome {
+            Err(e) => {
+                self.note_refusal(&e);
+                FetchOutcome {
+                    elapsed_ms,
+                    ..Default::default()
+                }
+            }
+            Ok(_) => FetchOutcome {
                 elapsed_ms,
                 ..Default::default()
             },
@@ -650,7 +868,7 @@ impl UriFetcher for RelayFetcher {
             return FetchOutcome::default();
         }
         let start = Instant::now();
-        let outcome = relay_ocsp(uri, request).await;
+        let outcome = relay_ocsp(uri, request, None).await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
         match outcome {
             Ok(r) if r.status == 200 => {
@@ -661,7 +879,14 @@ impl UriFetcher for RelayFetcher {
                     elapsed_ms,
                 }
             }
-            Ok(_) | Err(_) => FetchOutcome {
+            Err(e) => {
+                self.note_refusal(&e);
+                FetchOutcome {
+                    elapsed_ms,
+                    ..Default::default()
+                }
+            }
+            Ok(_) => FetchOutcome {
                 elapsed_ms,
                 ..Default::default()
             },
@@ -672,6 +897,56 @@ impl UriFetcher for RelayFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refusal ends retrieval for the whole run, not just the request that met it. The three
+    /// phases run one after another, so without this a limit reached while chasing certificates
+    /// would be met again by CRL retrieval and again by OCSP -- each one a round trip guaranteed to
+    /// be refused, spending the client's request allowance on being told to stop.
+    #[test]
+    fn a_refusal_stops_the_rest_of_the_run() {
+        let mut budget = FetchBudget::new();
+        assert!(budget.available());
+        budget.rate_limited(Some(43));
+        assert!(
+            !budget.available(),
+            "a rate-limited run must not keep retrieving"
+        );
+    }
+
+    /// The two ways retrieval stops are not the same news. A spent budget says the run was bigger
+    /// than one click is allowed to be; a refusal says to come back later, and says when.
+    #[test]
+    fn the_stop_reason_distinguishes_a_spent_budget_from_a_refusal() {
+        let mut spent = FetchBudget::new();
+        spent.spend(MAX_BYTES);
+        let reason = spent.stop_reason();
+        assert!(reason.contains("budget"), "{reason}");
+        // Both bounds say "rate limited", because that is the word on the badge a reader is
+        // holding when they go looking for the explanation. A note wearing a different word than
+        // the badge it explains is a note nobody finds.
+        assert!(reason.to_lowercase().contains("rate limited"), "{reason}");
+        assert!(
+            !reason.contains("second"),
+            "there is no wait for a budget that resets on the next run: {reason}"
+        );
+
+        let mut refused = FetchBudget::new();
+        refused.rate_limited(Some(43));
+        let reason = refused.stop_reason();
+        assert!(reason.contains("Rate limited by the service"), "{reason}");
+        assert!(
+            reason.contains("43"),
+            "the wait is the actionable part: {reason}"
+        );
+
+        // A service that refuses without a Retry-After still gets a usable sentence rather than a
+        // dangling "try again in  seconds".
+        let mut refused = FetchBudget::new();
+        refused.rate_limited(None);
+        let reason = refused.stop_reason();
+        assert!(reason.contains("Rate limited by the service"), "{reason}");
+        assert!(!reason.contains("second"), "{reason}");
+    }
 
     #[test]
     fn a_budget_stops_at_its_limits() {

@@ -1600,13 +1600,81 @@ pub async fn validate_cert_folder_retaining(
     }
 }
 
-/// generate takes a Pittv3Args structure containing at least `cbor`, `ca-folder` and a source of
-/// trust anchors (`ta-cbor`, `ta-folder`, `ta-inputs` or `webpki-tas`) and then calls
-/// [`build_graph`].
+/// Gathers the certificates a generation run puts in the store it writes.
 ///
-/// The CA material is the one folder `ca-folder` names, because [`build_graph`] reads it from a
-/// single certification-authority-folder setting; the `ca-inputs` pool is a validation-time input
-/// and is not consulted here.
+/// [`build_graph`] reads the one folder the certification-authority-folder setting names. This
+/// reads that folder *and* every repeatable CA input, which is what lets a store be made out of
+/// the stores that already exist rather than out of loose files.
+///
+/// `collect_tas` picks the same self-signed rule [`build_graph`] applies — a trust anchor store
+/// keeps self-signed certificates and a CA store excludes them — so both entry points put the same
+/// certificates in the same store.
+///
+/// **Only the certificates are taken from a CBOR store, never its partial paths.** Each store's
+/// paths describe that store alone, and the store being written spans all of them; discovery runs
+/// over the union afterwards. That is the same rule the validation-time inputs follow, and the
+/// reason a merged store is worth writing at all — paths that leave one PKI and re-enter another
+/// exist only once the certificates share a pool.
+#[cfg(feature = "std")]
+fn gather_generation_inputs(
+    pe: &PkiEnvironment,
+    inputs: &[&str],
+    collect_tas: bool,
+    time_of_interest: TimeOfInterest,
+) -> CertSource {
+    let mut cert_store = CertSource::new();
+    for path in inputs {
+        let before = cert_store.len();
+        let named_file = Path::new(path).is_file();
+        let r = match (named_file, collect_tas) {
+            (true, true) => ta_file_to_vec(pe, path, &mut cert_store, time_of_interest),
+            (true, false) => cert_file_to_vec(pe, path, &mut cert_store, time_of_interest),
+            (false, true) => ta_folder_to_vec(pe, path, &mut cert_store, time_of_interest),
+            (false, false) => cert_folder_to_vec(pe, path, &mut cert_store, time_of_interest),
+        };
+        if let Err(e) = r {
+            error!("Failed to read certificates from {path} for generation: {e:?}");
+        }
+
+        // A file that yielded nothing may be a CBOR store rather than certificate material, which
+        // is the case this exists for. A trust anchor store and a CA store are both read, in the
+        // order that matches what is being written, because either can be named as material for
+        // either — combining the shipped stores means naming files of both kinds.
+        if named_file && cert_store.len() == before {
+            let certs = match collect_tas {
+                true => cbor_ta_store_anchors(path).or_else(|| cbor_cert_store_certs(path)),
+                false => cbor_cert_store_certs(path).or_else(|| cbor_ta_store_anchors(path)),
+            };
+            if let Some(certs) = certs {
+                for cf in certs {
+                    cert_store.push(cf);
+                }
+            }
+        }
+
+        // What this input added, not what it holds: `push` drops a certificate the pool already
+        // has, and the shipped stores overlap heavily — the Microsoft root program carries most of
+        // the Mozilla one. A count that ignored that would not add up to the store written.
+        info!(
+            "Read {} new certificate(s) for generation from {path}",
+            cert_store.len() - before
+        );
+    }
+    cert_store
+}
+
+/// generate takes a Pittv3Args structure containing at least `cbor`, a source of CA material
+/// (`ca-folder`, `ca-inputs` or both) and a source of trust anchors (`ta-cbor`, `ta-folder`,
+/// `ta-inputs` or `webpki-tas`), and then builds the store.
+///
+/// The anchors are whatever the run loaded, so `ta-inputs` is honored here by having been honored
+/// before this was called: the anchors are registered on the environment, and discovery needs them
+/// because a partial path ends at one.
+///
+/// The CA material is the `ca-folder` folder plus every `ca-input`. With no CA inputs this is
+/// [`build_graph`] unchanged, one folder and all; with them, the certificates are gathered here and
+/// [`build_graph_from`] does the rest, which is the same code either way.
+///
 /// Where dynamic building is in effect, the `download-folder` option will be used if present (else
 /// ca-folder is used as destination for downloaded artifacts).
 #[cfg(feature = "std")]
@@ -1619,18 +1687,25 @@ pub async fn generate(
 
     let no_anchors =
         args.ta_cbor.is_none() && args.ta_folder.is_none() && args.ta_inputs.is_empty();
+    let no_ca_material = args.ca_folder.is_none() && args.ca_inputs.is_empty();
+
+    // A trust anchor store needs no anchors to build. Anchors are required because discovery ends
+    // a partial path at one, and a trust anchor store carries no partial paths -- it is the
+    // anchors. Requiring them here meant naming one of the inputs a second time through --ta to
+    // satisfy a check that had nothing to check.
+    let need_anchors = !args.cbor_ta_store;
 
     // Reported through the log rather than stdout: a GUI captures the log and never sees a
     // println, so a run that stopped here looked to a user like a run that did nothing at all.
     #[cfg(feature = "webpki")]
-    if args.cbor.is_none() || (no_anchors && !args.webpki_tas) || args.ca_folder.is_none() {
-        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder, ta-inputs or webpki-tas. Generation reads its CA certificates from the one folder ca-folder names, so a ca-inputs pool does not satisfy it.");
+    if args.cbor.is_none() || (need_anchors && no_anchors && !args.webpki_tas) || no_ca_material {
+        error!("The cbor option and CA material are required when generate is specified, and a CA store additionally needs one of ta-cbor, ta-folder, ta-inputs or webpki-tas for the anchors its partial paths end at. The CA material is ca-folder, one or more ca inputs, or both.");
         return;
     }
 
     #[cfg(not(feature = "webpki"))]
-    if args.cbor.is_none() || no_anchors || args.ca_folder.is_none() {
-        error!("The cbor and ca-folder options are required when generate is specified plus one of ta-cbor, ta-folder or ta-inputs. Generation reads its CA certificates from the one folder ca-folder names, so a ca-inputs pool does not satisfy it.");
+    if args.cbor.is_none() || (need_anchors && no_anchors) || no_ca_material {
+        error!("The cbor option and CA material are required when generate is specified, and a CA store additionally needs one of ta-cbor, ta-folder or ta-inputs for the anchors its partial paths end at. The CA material is ca-folder, one or more ca inputs, or both.");
         return;
     }
 
@@ -1648,7 +1723,42 @@ pub async fn generate(
         cps.set_cbor_ta_store(true);
     }
 
-    let graph = build_graph(pe, cps).await;
+    // One folder and nothing else is `build_graph` exactly as before, including its own fallback
+    // that makes the CA folder the destination for what a chase downloads. With CA inputs there is
+    // no single folder to fall back to, so the gathering happens here and the destination has to
+    // have been named -- which is what the guard below says, rather than leaving a chase to
+    // discover it had nowhere to put anything.
+    let graph = if args.ca_inputs.is_empty() {
+        build_graph(pe, cps).await
+    } else {
+        let mut inputs: Vec<&str> = Vec::new();
+        if let Some(ca_folder) = &args.ca_folder {
+            inputs.push(ca_folder.as_str());
+        }
+        inputs.extend(args.ca_inputs.iter().map(String::as_str));
+
+        #[cfg(feature = "remote")]
+        if cps.get_retrieve_from_aia_sia_http()
+            && !cps.get_cbor_ta_store()
+            && cps.get_download_folder().is_none()
+        {
+            error!("a download folder is required when AIA and SIA are chased and generation reads ca inputs rather than one folder");
+            return;
+        }
+
+        let cert_store = gather_generation_inputs(
+            pe,
+            &inputs,
+            cps.get_cbor_ta_store(),
+            cps.get_time_of_interest(),
+        );
+        info!(
+            "Generating a store from {} certificate(s) gathered from {} input(s)",
+            cert_store.len(),
+            inputs.len()
+        );
+        build_graph_from(pe, cps, cert_store).await
+    };
     match graph {
         Ok(graph) => {
             if let Some(cbor) = args.cbor.as_ref() {

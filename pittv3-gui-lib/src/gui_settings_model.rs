@@ -91,12 +91,16 @@ pub struct SettingsModel {
     pub revocation_max_age_secs: Option<u64>,
     /// Timeout in seconds for CRL retrieval
     pub crl_timeout_secs: Option<u64>,
+    /// Timeout in seconds for a single OCSP request
+    pub ocsp_timeout_secs: Option<u64>,
 
     // ---- fetching ----
     /// Retrieve certificates from HTTP AIA and SIA locations while building paths
     pub retrieve_from_aia_sia_http: Option<bool>,
     /// Maximum number of certificates to retrieve via AIA and SIA
     pub max_aia_sia_certs: Option<u64>,
+    /// Timeout in seconds for retrieving one artifact from an AIA or SIA URI
+    pub aia_timeout_secs: Option<u64>,
 
     // ---- folders and files (desktop-only tab) ----
     /// Folder containing trust anchors
@@ -163,10 +167,13 @@ impl SettingsModel {
             revocation_max_age_secs: present(cps, PS_REVOCATION_MAX_AGE)
                 .then(|| cps.get_revocation_max_age().as_secs()),
             crl_timeout_secs: present(cps, PS_CRL_TIMEOUT).then(|| cps.get_crl_timeout().as_secs()),
+            ocsp_timeout_secs: present(cps, PS_OCSP_TIMEOUT)
+                .then(|| cps.get_ocsp_timeout().as_secs()),
             retrieve_from_aia_sia_http: present(cps, PS_RETRIEVE_FROM_AIA_SIA_HTTP)
                 .then(|| cps.get_retrieve_from_aia_sia_http()),
             max_aia_sia_certs: present(cps, PS_MAX_AIA_SIA_CERTS)
                 .then(|| cps.get_max_aia_sia_certs()),
+            aia_timeout_secs: present(cps, PS_AIA_TIMEOUT).then(|| cps.get_aia_timeout().as_secs()),
             trust_anchor_folder: cps.get_trust_anchor_folder(),
             certification_authority_folder: cps.get_certification_authority_folder(),
             download_folder: cps.get_download_folder(),
@@ -323,6 +330,12 @@ impl SettingsModel {
         set_or_remove(cps, PS_CRL_TIMEOUT, &self.crl_timeout_secs, |c, v| {
             c.set_crl_timeout(core::time::Duration::from_secs(v))
         });
+        set_or_remove(cps, PS_OCSP_TIMEOUT, &self.ocsp_timeout_secs, |c, v| {
+            c.set_ocsp_timeout(core::time::Duration::from_secs(v))
+        });
+        set_or_remove(cps, PS_AIA_TIMEOUT, &self.aia_timeout_secs, |c, v| {
+            c.set_aia_timeout(core::time::Duration::from_secs(v))
+        });
         set_or_remove(
             cps,
             PS_RETRIEVE_FROM_AIA_SIA_HTTP,
@@ -437,7 +450,9 @@ mod tests {
             ocsp_aia_nonce_setting: Some(OcspNonceSetting::SendNonceRequireMatch),
             revocation_max_age_secs: Some(3600),
             crl_timeout_secs: Some(30),
+            ocsp_timeout_secs: Some(15),
             max_aia_sia_certs: Some(100),
+            aia_timeout_secs: Some(20),
             trust_anchor_folder: Some("/tas".to_string()),
             initial_permitted_subtrees: Some(NameConstraintsSettings {
                 dns_name: Some(vec!["example.com".to_string()]),

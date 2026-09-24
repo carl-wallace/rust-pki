@@ -146,7 +146,8 @@ pub struct Pittv3Args {
 
     /// Full path of a folder containing binary, DER-encoded intermediate CA certificates, or of a
     /// single such file (which may hold several concatenated PEM objects, e.g. a fullchain).
-    /// Required when generate action is performed. When path validation is performed, these
+    /// Required when the generate action is performed unless --ca names material instead, and
+    /// combined with it when both are given. When path validation is performed, these
     /// certificates are added to the graph that is built, augmenting any CBOR store in use. A folder
     /// also doubles as a place to store downloaded files when dynamic building is used and
     /// --download-folder is not specified.
@@ -157,8 +158,14 @@ pub struct Pittv3Args {
     /// Additional intermediate CA input, repeatable. Each occurrence may name a folder, a
     /// certificate, a bundle holding several, or a CBOR-formatted store (whose partial paths are
     /// adopted along with its certificates), and all of them feed the one graph a run builds. This
-    /// is the plural form of --ca-folder and --cbor for validation. It is not consulted when
-    /// generating: --ca-folder names the folder generation reads, and --cbor the file it writes.
+    /// is the plural form of --ca-folder and --cbor.
+    ///
+    /// It is consulted when generating as well, where it is how a store is made out of the stores
+    /// that already exist: naming several puts their certificates in one pool, and the partial
+    /// paths are then discovered over that pool rather than adopted from any one of them. A path
+    /// that leaves one PKI and re-enters another exists only once they are searched together, so
+    /// the merged store finds paths none of its inputs carried. --cbor still names the file
+    /// written.
     ///
     /// --ca-folder also names where --mozilla-csv saves certificates and where dynamic building
     /// stores what it downloads when --download-folder is absent, which this input cannot take on.
@@ -172,7 +179,8 @@ pub struct Pittv3Args {
 
     /// Flag that indicates a fresh CBOR-formatted file containing buffers of CA certificates and
     /// map containing set of partial certification paths should be generated and saved to location
-    /// indicated by --cbor.
+    /// indicated by --cbor. The certificates come from --ca-folder, from every --ca input, or from
+    /// both; the anchors the partial paths end at come from the trust anchor inputs as usual.
     #[cfg(feature = "std")]
     #[cfg_attr(feature = "clap", arg(short = 'g', long, help_heading = "GENERATION"))]
     pub generate: bool,
