@@ -191,9 +191,13 @@ impl RelayError {
 fn rate_limit_note(retry_after: Option<u64>) -> String {
     match retry_after {
         Some(seconds) => format!(
-            "The service is rate limiting this browser and stopped retrieving. Try again in {seconds} second(s)."
+            "Rate limited by the service: it stopped answering this browser and retrieval ended. \
+             Try again in {seconds} second(s)."
         ),
-        None => "The service is rate limiting this browser and stopped retrieving.".to_string(),
+        None => {
+            "Rate limited by the service: it stopped answering this browser and retrieval ended."
+                .to_string()
+        }
     }
 }
 
@@ -252,7 +256,13 @@ impl FetchBudget {
     fn stop_reason(&self) -> String {
         match self.rate_limited {
             Some(retry_after) => rate_limit_note(retry_after),
-            None => "this run's retrieval budget is spent".to_string(),
+            // Worded to match the badge, which says "rate limited" for either bound. A reader who
+            // sees that badge and searches the notes for the word has to find the line that
+            // explains it, and this is the one that does -- there is no wait to state, because the
+            // budget is this run's own and the next run starts with a fresh one.
+            None => "Rate limited by this run's own retrieval budget, which is spent. \
+                     Validating again starts with a fresh one."
+                .to_string(),
         }
     }
 
@@ -911,11 +921,19 @@ mod tests {
         spent.spend(MAX_BYTES);
         let reason = spent.stop_reason();
         assert!(reason.contains("budget"), "{reason}");
+        // Both bounds say "rate limited", because that is the word on the badge a reader is
+        // holding when they go looking for the explanation. A note wearing a different word than
+        // the badge it explains is a note nobody finds.
+        assert!(reason.to_lowercase().contains("rate limited"), "{reason}");
+        assert!(
+            !reason.contains("second"),
+            "there is no wait for a budget that resets on the next run: {reason}"
+        );
 
         let mut refused = FetchBudget::new();
         refused.rate_limited(Some(43));
         let reason = refused.stop_reason();
-        assert!(reason.contains("rate limiting"), "{reason}");
+        assert!(reason.contains("Rate limited by the service"), "{reason}");
         assert!(
             reason.contains("43"),
             "the wait is the actionable part: {reason}"
@@ -926,7 +944,7 @@ mod tests {
         let mut refused = FetchBudget::new();
         refused.rate_limited(None);
         let reason = refused.stop_reason();
-        assert!(reason.contains("rate limiting"), "{reason}");
+        assert!(reason.contains("Rate limited by the service"), "{reason}");
         assert!(!reason.contains("second"), "{reason}");
     }
 

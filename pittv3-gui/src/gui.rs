@@ -2377,7 +2377,11 @@ pub(crate) fn App() -> Element {
             spawn(async move {
                 // The run figure comes from the report on screen, which is the run these paths
                 // were retained from.
-                match save::path_logs_text(&retained, s_report().map(|r| r.duration_ms)) {
+                // No notes: this application retrieves through certval rather than through a
+                // relay, so what it has to say about a run goes to the application log as it
+                // happens rather than accumulating as a per-run list. The browser, which does have
+                // one, carries it into its export.
+                match save::path_logs_text(&retained, s_report().map(|r| r.duration_ms), &[]) {
                     None => s_log
                         .write()
                         .push("No run is held to save. Validate something first.".to_string()),

@@ -1212,7 +1212,11 @@ fn App() -> Element {
         let entries = build_entries();
         // `run_ms` is the wall clock of the run that retained these paths -- both are replaced
         // together when a run finishes -- so the log closes with the run its manifests came from.
-        let text = paths_text(&entries, Some(run_ms()));
+        // The notes go with it: they are where a run says it stopped retrieving early, and the
+        // verdicts below cannot be read correctly without knowing that. They existed only in the
+        // window until now, so a saved run could not be told from one that finished.
+        let run_notes: Vec<String> = notes.read().iter().map(|n| n.text.clone()).collect();
+        let text = paths_text(&entries, Some(run_ms()), &run_notes);
         let name = stamped_export_name(
             &export_name(),
             run_stamp().unwrap_or_else(now_as_unix_epoch),
