@@ -39,8 +39,13 @@ pub enum RunEvent {
     Failed(String),
 }
 
-/// Returns a CSS class and label for a target status badge
-fn status_parts(status: TargetStatus) -> (&'static str, &'static str) {
+/// Returns a CSS class and label for a target status badge.
+///
+/// Public because it is the one definition of how an outcome looks: the CAPI results pane, which
+/// cannot live in this crate, rolls a chain engine verdict up to a [`TargetStatus`] and draws it
+/// with this. Two panes in one tab strip that assign their own colours and words to the same six
+/// outcomes defeat the comparison the application exists to make.
+pub fn status_parts(status: TargetStatus) -> (&'static str, &'static str) {
     match status {
         TargetStatus::Valid => ("badge badge-valid", "Valid"),
         TargetStatus::ValidExceptRevocationUndetermined => (

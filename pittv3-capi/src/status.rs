@@ -130,6 +130,31 @@ impl CapiTrustStatus {
         self.info & flag != 0
     }
 
+    /// Whether the error bit [`ERROR_FLAGS`] gives this name is set.
+    ///
+    /// By name rather than by literal, so the table stays the one definition of every flag and a
+    /// consumer testing for a condition cannot come to disagree with a report listing it about
+    /// which bit it is. A name the table does not carry is `false`: an unrecognized bit is a
+    /// residue, reported by [`unknown_error_bits`](Self::unknown_error_bits), and is nobody's
+    /// named condition.
+    pub fn has_named_error(&self, name: &str) -> bool {
+        error_bit(name).is_some_and(|bit| self.has_error(bit))
+    }
+
+    /// The error bits set other than the named ones.
+    ///
+    /// Zero means the named conditions are the whole of what the engine faulted, which is what
+    /// lets a caller say "this failed for no reason but that one". Unnamed bits count toward the
+    /// residue rather than being masked out of it: a flag this build predates must not let a
+    /// status read as though it carried only the conditions asked about.
+    pub fn errors_besides(&self, names: &[&str]) -> u32 {
+        let named = names
+            .iter()
+            .filter_map(|name| error_bit(name))
+            .fold(0u32, |acc, bit| acc | bit);
+        self.error & !named
+    }
+
     /// The names of the error bits that are set, in ascending bit order.
     pub fn error_names(&self) -> Vec<&'static str> {
         names(self.error, ERROR_FLAGS)
@@ -195,6 +220,14 @@ impl fmt::Display for CapiTrustStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.describe())
     }
+}
+
+/// The bit [`ERROR_FLAGS`] gives this name, or `None` when the name is not one it carries.
+pub fn error_bit(name: &str) -> Option<u32> {
+    ERROR_FLAGS
+        .iter()
+        .find(|(_, flag)| *flag == name)
+        .map(|(bit, _)| *bit)
 }
 
 fn names(mask: u32, table: &[(u32, &'static str)]) -> Vec<&'static str> {
@@ -510,5 +543,47 @@ mod tests {
                 "0x{code:08X} has a name but no message"
             );
         }
+    }
+
+    /// A condition can be tested by the name Windows documents, which is the name a report prints,
+    /// so the two cannot drift. A name the table does not carry is not a condition.
+    #[test]
+    fn named_errors_resolve_through_the_flag_table() {
+        let revoked = CapiTrustStatus::new(0x0000_0004, 0);
+        assert!(revoked.has_named_error("CERT_TRUST_IS_REVOKED"));
+        assert!(!revoked.has_named_error("CERT_TRUST_IS_PARTIAL_CHAIN"));
+        assert!(!revoked.has_named_error("CERT_TRUST_NOT_A_REAL_FLAG"));
+
+        assert_eq!(error_bit("CERT_TRUST_IS_PARTIAL_CHAIN"), Some(0x0001_0000));
+        assert_eq!(error_bit("CERT_TRUST_NOT_A_REAL_FLAG"), None);
+    }
+
+    /// The residue is what is left when the named conditions are set aside, which is how a caller
+    /// asks whether anything *else* went wrong.
+    #[test]
+    fn errors_besides_sets_aside_only_what_is_named() {
+        const UNKNOWN: &[&str] = &[
+            "CERT_TRUST_REVOCATION_STATUS_UNKNOWN",
+            "CERT_TRUST_IS_OFFLINE_REVOCATION",
+        ];
+
+        // Revocation alone: nothing else is wrong with this chain.
+        let revocation_only = CapiTrustStatus::new(0x0000_0040 | 0x0100_0000, 0);
+        assert_eq!(revocation_only.errors_besides(UNKNOWN), 0);
+
+        // The same two bits plus an untrusted root, which is a different answer entirely.
+        let and_untrusted = CapiTrustStatus::new(0x0000_0040 | 0x0100_0000 | 0x0000_0020, 0);
+        assert_eq!(and_untrusted.errors_besides(UNKNOWN), 0x0000_0020);
+
+        // A bit no table names counts toward the residue. Masking it out would let a flag added
+        // after this build read as a clean revocation-only result.
+        let and_unknown_bit = CapiTrustStatus::new(0x0000_0040 | 0x8000_0000, 0);
+        assert_eq!(and_unknown_bit.errors_besides(UNKNOWN), 0x8000_0000);
+
+        // A name the table does not carry sets nothing aside.
+        assert_eq!(
+            revocation_only.errors_besides(&["CERT_TRUST_NOT_A_REAL_FLAG"]),
+            0x0000_0040 | 0x0100_0000
+        );
     }
 }
