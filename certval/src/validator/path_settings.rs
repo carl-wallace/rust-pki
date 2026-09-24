@@ -281,6 +281,35 @@ pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
 /// `PS_CRL_TIMEOUT` is used to a u64 that expresses the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT: &str = "psCrlTimeout";
 
+/// `PS_OCSP_TIMEOUT` bounds the time spent on a single OCSP request, connection setup included. It
+/// is the time companion to [`PS_MAX_OCSP_FETCH_BYTES`]: one bounds how long a responder may take,
+/// the other how much it may send. The default is [`PS_OCSP_TIMEOUT_DEFAULT`].
+///
+/// Applied per request, so it overrides any client-level timeout on a client supplied through
+/// `HttpClientSource`: reqwest lets a per-request bound win over the client's own.
+pub static PS_OCSP_TIMEOUT: &str = "psOcspTimeout";
+
+/// Default value for [`PS_OCSP_TIMEOUT`]: 10 seconds, the value this fetch was fixed at before it
+/// became a setting. A responder either returns a prepared response or signs one on demand, and
+/// ten seconds covers both; the bound exists so a stalled responder does not hold up a path.
+pub static PS_OCSP_TIMEOUT_DEFAULT: Duration = Duration::from_secs(10);
+
+/// `PS_AIA_TIMEOUT` bounds the time spent fetching one artifact from an AIA or SIA URI, connection
+/// setup included. It is the time companion to [`PS_MAX_AIA_FETCH_BYTES`], and applies to each
+/// fetch in a chase rather than to the chase as a whole. The default is
+/// [`PS_AIA_TIMEOUT_DEFAULT`].
+///
+/// Applied per request, so it overrides any client-level timeout on a client supplied through
+/// `HttpClientSource`: reqwest lets a per-request bound win over the client's own.
+pub static PS_AIA_TIMEOUT: &str = "psAiaTimeout";
+
+/// Default value for [`PS_AIA_TIMEOUT`]: 10 seconds, the value this fetch was fixed at before it
+/// became a setting. The artifacts are single certificates or certs-only PKCS#7 bags, so a
+/// responsive publisher answers well inside it and a slow one is what the bound is for. Lower than
+/// [`PS_CRL_TIMEOUT_DEFAULT`] because a chase makes many of these fetches where a CRL check makes
+/// one much larger one.
+pub static PS_AIA_TIMEOUT_DEFAULT: Duration = Duration::from_secs(10);
+
 /// `PS_CHECK_REVOCATION_STATUS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is true. When true, certification path validation should perform
 /// revocation status checks via available means, i.e., CRLs, OCSP, etc.
@@ -730,6 +759,8 @@ cps_gets_and_sets_with_default!(
     PS_MAX_PATH_LENGTH_CONSTRAINT
 );
 cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, Duration, PS_CRL_TIMEOUT_DEFAULT);
+cps_gets_and_sets_with_default!(PS_OCSP_TIMEOUT, Duration, PS_OCSP_TIMEOUT_DEFAULT);
+cps_gets_and_sets_with_default!(PS_AIA_TIMEOUT, Duration, PS_AIA_TIMEOUT_DEFAULT);
 
 cps_gets_and_sets_with_default!(PS_CHECK_REVOCATION_STATUS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_OCSP_FROM_AIA, bool, true);
@@ -867,6 +898,10 @@ fn test_default_gets_cps() {
     assert!(cps.get_enforce_trust_anchor_validity());
     assert!(!cps.get_extended_key_usage_path());
     assert_eq!(Duration::from_secs(60), cps.get_crl_timeout());
+    // Ten seconds each: the values these two fetches were fixed at before they became settings, so
+    // a consumer that sets neither sees no change from when they could not be set.
+    assert_eq!(Duration::from_secs(10), cps.get_ocsp_timeout());
+    assert_eq!(Duration::from_secs(10), cps.get_aia_timeout());
 
     assert!(cps.get_check_revocation_status());
     assert!(cps.get_check_ocsp_from_aia());
@@ -963,6 +998,12 @@ fn test_default_sets_cps() {
     cps.set_extended_key_usage_path(true);
     assert!(cps.get_extended_key_usage_path());
     cps.set_crl_timeout(Duration::from_secs(120));
+    assert_eq!(Duration::from_secs(120), cps.get_crl_timeout());
+    cps.set_ocsp_timeout(Duration::from_secs(5));
+    assert_eq!(Duration::from_secs(5), cps.get_ocsp_timeout());
+    cps.set_aia_timeout(Duration::from_secs(30));
+    assert_eq!(Duration::from_secs(30), cps.get_aia_timeout());
+    // The three are independent keys, not one bound wearing three names.
     assert_eq!(Duration::from_secs(120), cps.get_crl_timeout());
 
     cps.set_check_revocation_status(false);

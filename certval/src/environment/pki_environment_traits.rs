@@ -469,6 +469,17 @@ pub trait CheckRemoteResource {
 /// happened look like a successful no-op -- which is the confusion this interface's own call site
 /// was fixed to stop. Prefer [`Error::NetworkError`], or whichever variant names the real cause.
 ///
+/// # certval applies its own timeout to every request
+///
+/// Each retrieval sets a per-request bound, and `reqwest` lets a per-request timeout win over the
+/// client's own, so a client built with `ClientBuilder::timeout` has that setting overridden on
+/// every request certval makes. The bound is not fixed, though: it comes from
+/// [`CertificationPathSettings`] -- [`PS_CRL_TIMEOUT`](crate::PS_CRL_TIMEOUT),
+/// [`PS_OCSP_TIMEOUT`](crate::PS_OCSP_TIMEOUT) or [`PS_AIA_TIMEOUT`](crate::PS_AIA_TIMEOUT)
+/// according to what is being fetched -- so a consumer moves it there rather than on the client.
+/// Between those, the size caps beside them and the client itself, every dimension of a retrieval
+/// is the consumer's to set.
+///
 /// A [`reqwest::Client`] is reference-counted internally, so returning one by value is cheap and an
 /// implementation is expected to build it once and hand out clones. Building a fresh client per
 /// call would discard the connection pool, which is the cost the shared client exists to avoid.

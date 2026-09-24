@@ -690,6 +690,7 @@ async fn options_std_inner(
                         &mut lmm,
                         &mut blocklist,
                         TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                        cps.get_aia_timeout(),
                         cps.get_max_aia_fetch_bytes(),
                     )
                     .await;
@@ -1434,6 +1435,7 @@ async fn generate_and_validate(
                     &mut lmm,
                     &mut blocklist,
                     TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                    cps.get_aia_timeout(),
                     cps.get_max_aia_fetch_bytes(),
                 )
                 .await;

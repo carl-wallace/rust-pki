@@ -38,8 +38,8 @@ cfg_if! {
 /// AIA/SIA fetches). Building a fresh client per request throws away reqwest's connection pool,
 /// forcing a new TCP+TLS handshake for every fetch on the enrollment hot path; a single pooled
 /// client amortizes connection setup across requests. The shared client carries no default timeout
-/// -- callers apply a per-request bound via [`reqwest::RequestBuilder::timeout`], since the CRL path
-/// takes a caller-supplied timeout while OCSP/AIA use a fixed one.
+/// -- each call site applies a per-request bound via [`reqwest::RequestBuilder::timeout`], taken
+/// from [`PS_CRL_TIMEOUT`], [`PS_OCSP_TIMEOUT`] or [`PS_AIA_TIMEOUT`] according to what it fetches.
 ///
 /// Returns `None` (logged once) if the client could not be built -- e.g. the TLS backend failed to
 /// initialize -- which callers translate into a network error.
@@ -78,8 +78,8 @@ pub(crate) fn shared_http_client() -> Option<&'static reqwest::Client> {
 /// means a caller who expects both will find the environment ignored. Where the environment
 /// already says the right thing, register nothing.
 ///
-/// The client carries no default timeout, matching the built-in one: every call site applies
-/// its own per-request bound, and a client-level timeout would be silently overridden by it.
+/// The client carries no default timeout, matching the built-in one: every call site applies its
+/// own per-request bound from the path settings, which would silently override a client-level one.
 #[cfg(feature = "remote")]
 pub struct ProxiedHttpClient {
     client: reqwest::Client,
@@ -390,6 +390,7 @@ pub async fn fetch_to_buffer(
     last_mod_map: &mut BTreeMap<String, String>,
     blocklist: &mut Vec<String>,
     time_of_interest: TimeOfInterest,
+    timeout: Duration,
     max_bytes: u64,
 ) -> Result<()> {
     // Downloaded artifacts are saved for future use, create a path object for that folder. An empty
@@ -466,16 +467,12 @@ pub async fn fetch_to_buffer(
         }
 
         let response = if h.is_empty() {
-            client
-                .get(target)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await
+            client.get(target).timeout(timeout).send().await
         } else {
             client
                 .get(target)
                 .header("If-Modified-Since", h)
-                .timeout(Duration::from_secs(10))
+                .timeout(timeout)
                 .send()
                 .await
         };

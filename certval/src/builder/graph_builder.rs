@@ -179,6 +179,7 @@ pub async fn build_graph_from(
                 &mut lmm,
                 &mut blocklist,
                 toi,
+                cps.get_aia_timeout(),
                 cps.get_max_aia_fetch_bytes(),
             )
             .await;
