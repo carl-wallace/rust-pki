@@ -105,6 +105,10 @@ pub fn RevocationBadge(outcome: RevocationOutcome) -> Element {
         RevocationStatus::Revoked => ("badge badge-revoked", "revoked"),
         RevocationStatus::Undetermined => ("badge badge-undetermined", "undetermined"),
         RevocationStatus::NotChecked => ("badge badge-nopaths", "not checked"),
+        // Amber like `undetermined`, not grey like `not checked`: the status is still owed, and
+        // grey would make a run that stopped early look settled. The word is about the retrieval
+        // rather than the certificate, which is what a reader takes it for in this column.
+        RevocationStatus::RateLimit => ("badge badge-undetermined", "rate limited"),
     };
     // The method sits beside the badge rather than inside it. A badge is a pill, and a pill has to
     // stay on one line to keep its shape -- "not revoked (OCSP no-check)" in the narrow revocation

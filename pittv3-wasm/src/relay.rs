@@ -26,16 +26,52 @@ use web_time::Instant;
 #[cfg(target_family = "wasm")]
 use serde::{Deserialize, Serialize};
 
+/// Most end entity certificates the page will hold.
+///
+/// Two things are bounded here and they answer to different pressures. This one bounds the page:
+/// what it holds in memory and validates on the browser's single thread. It is enforced when a
+/// certificate is added, so it fails at the door, with a count, rather than partway through a run.
+///
+/// A folder of 489 measured 4.8 seconds of validation, so this is above real use rather than
+/// against it.
+pub const MAX_END_ENTITIES: usize = 500;
+
 /// How much retrieval one Validate click may do.
 ///
 /// A certificate naming a subject information access URI that serves a bundle of further
 /// certificates, each naming more, turns one click into an unbounded amount of fetching. The
 /// service enforces its own budgets and would stop it eventually; this stops it here, where the
 /// person waiting for the answer is.
-const MAX_FETCHES: usize = 40;
+///
+/// **Sized so a legal upload can finish.** The worst case is one retrieval per certificate that
+/// needs a status -- the end entities plus the intermediates above them, which deduplicate across
+/// paths -- so a quarter again over [`MAX_END_ENTITIES`] covers a pool entirely made of
+/// certificates nothing has been retrieved for yet. Most runs cost a fraction of it: a status
+/// already in the cache is not asked for again, one CRL settles every certificate beneath its
+/// issuer, and the run skips CRL retrieval outright when OCSP settled everything. Measured against
+/// the same 489: 38 retrievals.
+///
+/// It is a ceiling rather than an allowance. Nothing is spent unless a fetch happens, and the
+/// number is chosen to not be reached rather than to be right -- what a run will cost cannot be
+/// predicted from what it holds.
+const MAX_FETCHES: usize = MAX_END_ENTITIES + MAX_END_ENTITIES / 4;
+
+/// The retrieval budget has to cover the end entity limit: a pool filled to the cap, none of it
+/// already answered for, must not run out of fetches partway. Checked here rather than in a test
+/// because the two numbers live for different reasons -- one bounds the page, one bounds what the
+/// service is asked to fetch -- and a build that cannot satisfy both should not produce an
+/// application that discovers it at run time.
+const _: () = assert!(
+    MAX_FETCHES > MAX_END_ENTITIES,
+    "the retrieval budget must cover a full end entity pool"
+);
 
 /// Total retrieved bytes one Validate click may accept.
-const MAX_BYTES: usize = 16 * 1024 * 1024;
+///
+/// Driven by CRLs, which vary by three orders of magnitude -- a web PKI CRL runs to kilobytes
+/// where `DODEMAILCA_63.crl` is 9.5 MB and one DoD distribution point measured 30.2 MB. A run
+/// needing twelve of the large ones measured 48.9 MB, so this holds that with room.
+const MAX_BYTES: usize = 128 * 1024 * 1024;
 
 /// How many times the chase may harvest, retrieve and re-harvest before giving up. Each round can
 /// only reach one certificate further from the target, so a small number covers real hierarchies;
@@ -196,6 +232,16 @@ impl FetchBudget {
     /// Records that the service refused this client, so every later phase of the run stops too.
     fn rate_limited(&mut self, retry_after: Option<u64>) {
         self.rate_limited = Some(retry_after);
+    }
+
+    /// Whether this run stopped retrieving before it was finished, by either bound.
+    ///
+    /// Both are rate limits -- the one a run imposes on itself and the one the service imposes on
+    /// it -- and the difference does not matter to a certificate nothing was asked about. What it
+    /// changes is whether a position reported as undetermined is a fact about the repository or a
+    /// fact about the run, which is the distinction the report cannot draw for itself.
+    pub fn stopped_early(&self) -> bool {
+        !self.available()
     }
 
     /// Why retrieval stopped, for the note a phase writes when it finds it cannot proceed.

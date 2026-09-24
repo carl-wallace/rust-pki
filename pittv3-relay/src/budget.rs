@@ -31,10 +31,12 @@ pub struct FetchBudget {
 impl Default for FetchBudget {
     fn default() -> Self {
         FetchBudget {
-            // Comfortably larger than any certificate, certs-only SignedData or OCSP response, and
-            // larger than most CRLs while far below certval's hundred-mebibyte per-CRL ceiling: a
-            // service pays for that ceiling in memory per concurrent request.
-            max_response_bytes: 16 * 1024 * 1024,
+            // Comfortably larger than any certificate, certs-only SignedData or OCSP response,
+            // and larger than the CRLs that exist: the largest measured is a DoD distribution
+            // point at 30.2 MB, and sixteen would have refused it. Still far below certval's
+            // hundred-mebibyte per-CRL ceiling, which a service pays for in memory per concurrent
+            // request.
+            max_response_bytes: 32 * 1024 * 1024,
             max_request_bytes: 64 * 1024,
             timeout: Duration::from_secs(10),
         }

@@ -48,7 +48,11 @@ impl Default for RateWindow {
         RateWindow {
             seconds: 60,
             requests: 120,
-            retrievals: 300,
+            // Above what one full run may cost. The browser will not make more than a quarter
+            // again as many retrievals as the end entities it holds, and it holds at most 500, so
+            // a cold run over a whole legal upload fits inside one window with room. A limit below
+            // that would refuse the tool's own heaviest legitimate use.
+            retrievals: 700,
             bytes: 256 * 1024 * 1024,
         }
     }
@@ -91,7 +95,7 @@ impl Default for RateLimits {
             sustained: RateWindow {
                 seconds: 3600,
                 requests: 2000,
-                retrievals: 5000,
+                retrievals: 7000,
                 bytes: 4 * 1024 * 1024 * 1024,
             },
             max_tracked_clients: 10_000,
