@@ -24,6 +24,7 @@ use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
 
 use crate::config::{RequestLimits, ServiceState};
+use crate::limit::Spend;
 use crate::settings::sanitize;
 
 /// A validation request in plain Rust: certificates as bytes, each with the name to report it
@@ -49,6 +50,9 @@ pub struct ValidationInput {
 pub struct ValidationOutcome {
     /// Result of the run.
     pub report: ValidationReport,
+    /// What serving the request cost in outbound work, so a per-client limit can charge a
+    /// validation what it actually retrieved rather than a flat estimate.
+    pub spend: Spend,
     /// Remarks: settings that were not honored, retrievals a budget cut short, certificates that
     /// could not be parsed.
     pub notes: Vec<String>,
@@ -60,6 +64,7 @@ impl ValidationOutcome {
         ValidationOutcome {
             report: ValidationReport::failed(message),
             notes: vec![],
+            spend: Spend::default(),
         }
     }
 }
@@ -100,26 +105,48 @@ pub async fn validate(state: &ServiceState, input: ValidationInput) -> Validatio
     };
 
     let mut cas = input.cas.clone();
-    let (targets, mut lines) = run(state, &input, store, &cas, &settings, &mut notes).await;
+    // One budget for the request, shared by everything it retrieves. `ChaseBudgetLimits` bounds
+    // "a sequence of retrievals serving one user-visible operation", and a validation is one of
+    // those however many times it retrieves within it: chasing certificates and then fetching the
+    // revocation data for the paths that chase made possible is one operation, not two.
+    let mut budget = ChaseBudget::new(state.config.chase_budget.clone());
+    let (targets, mut lines) = run(
+        state,
+        &input,
+        store,
+        &cas,
+        &settings,
+        &mut notes,
+        &mut budget,
+    )
+    .await;
     let mut targets = targets;
 
     let chased = state.config.allow_dynamic_build && !anything_validated(&targets);
     if chased {
-        let mut budget = ChaseBudget::new(state.config.chase_budget.clone());
         let seeds = input
             .targets
             .iter()
             .chain(input.cas.iter())
             .cloned()
             .collect::<Vec<(String, Vec<u8>)>>();
+        let fetches_before = budget.fetches();
         let added = chase(&state.relay, &mut budget, &seeds, &mut cas, &mut notes).await;
         if added > 0 {
             notes.push(format!(
                 "retrieved {added} certificate(s) in {} fetch(es) and validated again",
-                budget.fetches()
+                budget.fetches() - fetches_before
             ));
-            let (retried, retry_lines) =
-                run(state, &input, store, &cas, &settings, &mut notes).await;
+            let (retried, retry_lines) = run(
+                state,
+                &input,
+                store,
+                &cas,
+                &settings,
+                &mut notes,
+                &mut budget,
+            )
+            .await;
             targets = retried;
             lines = retry_lines;
         }
@@ -132,7 +159,12 @@ pub async fn validate(state: &ServiceState, input: ValidationInput) -> Validatio
     let mut report =
         ValidationReport::from_targets(&targets, toi, Some(settings.get_check_revocation_status()));
     report.duration_ms = started.elapsed().as_millis() as u64;
-    ValidationOutcome { report, notes }
+    ValidationOutcome {
+        report,
+        notes,
+        // Read off the budget the whole request shared, which is the whole of what it retrieved.
+        spend: Spend::from(&budget),
+    }
 }
 
 /// Prepares an environment, retrieves the revocation data the paths through it call for, and
@@ -150,6 +182,7 @@ async fn run(
     cas: &[(String, Vec<u8>)],
     settings: &CertificationPathSettings,
     notes: &mut Vec<String>,
+    budget: &mut ChaseBudget,
 ) -> (Vec<TargetReport>, Vec<String>) {
     // A cache per request rather than one shared by the service: determinations are facts about
     // certificates and would be sound to share, but requests arrive under settings of their own --
@@ -177,7 +210,7 @@ async fn run(
         };
 
     if state.config.fetch_revocation_data && settings.get_check_revocation_status() {
-        retrieve_revocation_data(state, &prepared, input, settings, notes).await;
+        retrieve_revocation_data(state, &prepared, input, settings, notes, budget).await;
     }
 
     let (targets, validation_lines) =
@@ -224,6 +257,7 @@ async fn retrieve_revocation_data(
     input: &ValidationInput,
     settings: &CertificationPathSettings,
     notes: &mut Vec<String>,
+    budget: &mut ChaseBudget,
 ) -> usize {
     let work = harvest_revocation_work(prepared, settings, &input.targets);
     if work.is_empty() {
@@ -231,7 +265,6 @@ async fn retrieve_revocation_data(
         return 0;
     }
 
-    let mut budget = ChaseBudget::new(state.config.chase_budget.clone());
     let mut added = 0;
 
     // A certificate whose answer is already held is not asked about again, and neither is one whose

@@ -278,6 +278,16 @@ impl StoreCatalog {
             };
 
             if !ta_path.is_file() {
+                // Make sure the path contains suitable CBOR files.
+                if holds_cbor(&path) {
+                    warn!(
+                        "Skipped {}: a trust store directory is read as {}, and there is none there. \
+                         The other layouts are <id>_ta.cbor and <id>.ta.cbor, as files in {}.",
+                        path.display(),
+                        ta_path.display(),
+                        dir.display()
+                    );
+                }
                 continue;
             }
             let ta_cbor = Bytes::from(fs::read(&ta_path)?);
@@ -344,6 +354,21 @@ impl StoreCatalog {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+/// Whether `path` is a directory holding any `.cbor` file.
+///
+/// The test for "somebody meant this to be a store". A directory of CBOR that the layouts did not
+/// recognise is worth complaining about; a directory of anything else is not this code's business.
+fn holds_cbor(path: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(path) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        e.path()
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("cbor"))
+    })
 }
 
 /// Reads the optional `stores.json` naming each store for display. Wording that reads well ("DoD
@@ -427,6 +452,32 @@ mod tests {
         assert!(listing
             .iter()
             .all(|d| d.provenance == StoreProvenance::Configured));
+    }
+
+    /// A directory of CBOR under names no layout recognises is passed over, and complained about.
+    /// The complaint is the point: this exact shape -- a store built by an older tool, its files
+    /// still carrying the tool's own prefix -- looks from the browser like a store that failed to
+    /// appear for some other reason entirely.
+    #[test]
+    fn a_directory_of_cbor_under_other_names_is_skipped_and_noticed() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let misnamed = dir.path().join("mystore");
+        fs::create_dir(&misnamed).unwrap();
+        fs::write(misnamed.join("kitchen_ta.cbor"), b"ta").unwrap();
+        fs::write(misnamed.join("kitchen_ca.cbor"), b"ca").unwrap();
+        assert!(holds_cbor(&misnamed));
+
+        // Quiet for a directory that holds no CBOR at all: it is not a store anybody thought they
+        // were providing, and warning about it would train an operator to ignore the warning.
+        let unrelated = dir.path().join("notes");
+        fs::create_dir(&unrelated).unwrap();
+        fs::write(unrelated.join("readme.txt"), b"x").unwrap();
+        assert!(!holds_cbor(&unrelated));
+
+        let catalog = StoreCatalog::load(dir.path()).unwrap();
+        assert!(catalog.get("mystore").is_none());
+        assert_eq!(catalog.len(), 0);
     }
 
     #[test]

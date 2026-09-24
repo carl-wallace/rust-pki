@@ -5,12 +5,13 @@
 
 pub mod config;
 pub mod dto;
+pub mod limit;
 pub mod orchestrate;
 pub mod routes;
 pub mod settings;
 pub mod stores;
 
-pub use config::{RequestLimits, ServiceConfig, ServiceState};
+pub use config::{RateLimits, RateWindow, RequestLimits, ServiceConfig, ServiceState};
 
 /// `Cache-Control` for content served under a name that stays the same when the bytes behind it
 /// change: keep a copy, but ask before using it.

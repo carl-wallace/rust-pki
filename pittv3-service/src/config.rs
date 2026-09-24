@@ -1,12 +1,103 @@
 //! Service configuration and the state handlers share.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use pittv3_relay::{ChaseBudgetLimits, FetchBudget, NetworkPolicy, Relay};
 
+use crate::limit::RateLimiter;
 use crate::stores::StoreCatalog;
+
+/// One period, and what a client may spend within it.
+///
+/// A zero is unbounded rather than "nothing permitted", so an operator can cap outbound bytes
+/// without also capping request count, and writes one number instead of restating the section.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct RateWindow {
+    /// Length of the period in seconds.
+    pub seconds: u64,
+    /// Calls to the service permitted in the period.
+    pub requests: u64,
+    /// Retrievals the service may make to third parties on one client's behalf in the period.
+    ///
+    /// Counted separately from `requests` because the ratio between them is the client's to
+    /// choose: `POST /api/fetch` costs exactly one retrieval, while a validation that chases costs
+    /// as many as its chase budget allows. Counting only requests would price those the same.
+    ///
+    /// Note that [`NetworkPolicy::max_redirects`](pittv3_relay::NetworkPolicy::max_redirects)
+    /// multiplies this: a retrieval that redirects is one count and several outbound connections.
+    /// Raising that limit widens this budget by the same factor.
+    pub retrievals: u64,
+    /// Bytes those retrievals may bring back in the period.
+    pub bytes: u64,
+}
+
+impl RateWindow {
+    /// The period as a [`Duration`].
+    pub fn period(&self) -> Duration {
+        Duration::from_secs(self.seconds)
+    }
+}
+
+impl Default for RateWindow {
+    fn default() -> Self {
+        RateWindow {
+            seconds: 60,
+            requests: 120,
+            retrievals: 300,
+            bytes: 256 * 1024 * 1024,
+        }
+    }
+}
+
+/// How much work one client address may ask for, over time.
+///
+/// **Derived from one measurement, not from many.** A 58-path run over NIPR and its interoperability
+/// material needed twelve CRLs totalling 48.9 MB, one of them 30.2 MB. Validating a folder of
+/// certificates is several such runs, and behind a shared address it is that again for each person
+/// doing it -- so the defaults are set well above what the tool's own heaviest ordinary use costs.
+/// A limiter that denies the thing the service is for is worse than none, and these should be
+/// re-set against a real folder run rather than left at arithmetic.
+///
+/// On by default, because a deployment reachable from the internet should not be unprotected until
+/// somebody knows to turn a limiter on. Deployments where it is noise -- one user, or an isolated
+/// network -- set `enabled` to false.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct RateLimits {
+    /// Whether any of this is enforced.
+    pub enabled: bool,
+    /// The short window, which catches a runaway loop while someone is still watching it.
+    pub burst: RateWindow,
+    /// The long window, which catches steady extraction that stays beneath the short limit.
+    pub sustained: RateWindow,
+    /// Most client addresses tracked at once.
+    ///
+    /// The table is attack surface of its own: a client holding a range of addresses can present a
+    /// fresh one per request. The cap is what stops the limiter becoming the memory exhaustion it
+    /// exists to prevent.
+    pub max_tracked_clients: usize,
+}
+
+impl Default for RateLimits {
+    fn default() -> Self {
+        RateLimits {
+            enabled: true,
+            burst: RateWindow::default(),
+            sustained: RateWindow {
+                seconds: 3600,
+                requests: 2000,
+                retrievals: 5000,
+                bytes: 4 * 1024 * 1024 * 1024,
+            },
+            max_tracked_clients: 10_000,
+        }
+    }
+}
 
 /// Caps applied to a request before any work is scheduled for it.
 ///
@@ -74,6 +165,8 @@ pub struct ServiceConfig {
     pub chase_budget: ChaseBudgetLimits,
     /// Caps applied to a request as it is accepted.
     pub limits: RequestLimits,
+    /// How much one client address may ask for, over time.
+    pub rate_limit: RateLimits,
     /// Permits server-side path building that chases authority and subject information access
     /// URIs. Off by default: it turns one uploaded certificate into an unbounded-looking amount of
     /// outbound retrieval, so a deployment opts into it knowingly.
@@ -107,6 +200,7 @@ impl Default for ServiceConfig {
             fetch_budget: FetchBudget::default(),
             chase_budget: ChaseBudgetLimits::default(),
             limits: RequestLimits::default(),
+            rate_limit: RateLimits::default(),
             allow_dynamic_build: false,
             enable_validation: true,
             allow_tls_peek: true,
@@ -128,6 +222,11 @@ pub struct ServiceState {
     pub relay: Relay,
     /// Trust stores the service can validate against and serve.
     pub stores: StoreCatalog,
+    /// What each client address has spent lately, and the limits it is held to.
+    ///
+    /// Behind an [`Arc`] because every worker thread shares one set of counts: a limiter per worker
+    /// would multiply every limit by the worker count, which is a number no operator configured.
+    pub limiter: Arc<RateLimiter>,
 }
 
 impl ServiceState {
@@ -148,10 +247,12 @@ impl ServiceState {
                 })?,
             );
         }
+        let limiter = Arc::new(RateLimiter::new(config.rate_limit.clone()));
         Ok(ServiceState {
             config,
             relay,
             stores,
+            limiter,
         })
     }
 }

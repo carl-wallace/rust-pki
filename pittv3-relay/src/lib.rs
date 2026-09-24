@@ -194,16 +194,8 @@ impl Relay {
             return Err(FetchError::RequestTooLarge(self.budget.max_request_bytes));
         }
 
-        // Per-request values narrow the configured budget and never widen it, so a caller passing
-        // what remains of a chase budget cannot buy itself a larger response or a longer wait.
-        let max_bytes = match request.max_response_bytes {
-            Some(b) => b.min(self.budget.max_response_bytes),
-            None => self.budget.max_response_bytes,
-        };
-        let timeout = match request.timeout {
-            Some(t) => t.min(self.budget.timeout),
-            None => self.budget.timeout,
-        };
+        let max_bytes = narrowed(request.max_response_bytes, self.budget.max_response_bytes);
+        let timeout = narrowed(request.timeout, self.budget.timeout);
 
         let mut builder = match request.method {
             FetchMethod::Get => self.client.get(dest.url.clone()),
@@ -253,6 +245,20 @@ impl Relay {
             final_uri,
             body,
         })
+    }
+}
+
+/// The bound applied to one retrieval: what the caller asked for, never more than what the
+/// deployment configured.
+///
+/// A function rather than two inline `match`es so the rule can be tested without a server, which
+/// matters now that the value arrives over the wire: a browser carries its own timeout settings in
+/// `api/fetch`, so "a client cannot widen a budget by asking for more of it" went from an internal
+/// convenience to something a caller could try.
+fn narrowed<T: Ord>(requested: Option<T>, configured: T) -> T {
+    match requested {
+        Some(r) => r.min(configured),
+        None => configured,
     }
 }
 
@@ -373,6 +379,27 @@ async fn read_capped_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The rule a client reaches from outside: asking for less than the deployment allows is
+    /// honoured, asking for more is not, and asking for nothing takes the deployment's own.
+    #[test]
+    fn a_requested_bound_narrows_a_budget_but_never_widens_one() {
+        let configured = Duration::from_secs(10);
+        assert_eq!(
+            narrowed(Some(Duration::from_secs(3)), configured),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            narrowed(Some(Duration::from_secs(600)), configured),
+            configured
+        );
+        assert_eq!(narrowed(None, configured), configured);
+
+        // The byte cap is the same rule on the other field, and is asserted here rather than
+        // trusted to stay in step by inspection.
+        assert_eq!(narrowed(Some(1_024u64), 16 * 1024), 1_024);
+        assert_eq!(narrowed(Some(u64::MAX), 16 * 1024), 16 * 1024);
+    }
 
     #[tokio::test]
     async fn refuses_a_uri_the_policy_rejects_without_connecting() {

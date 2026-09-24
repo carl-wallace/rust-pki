@@ -1469,7 +1469,8 @@ fn App() -> Element {
             let mut budget = FetchBudget::new();
             let mut seeds = uploaded_tas();
             seeds.extend(cas.clone());
-            let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+            let (found, chase_notes) =
+                chase_certificates(&seeds, &mut budget, Some(cps.get_aia_timeout())).await;
             insp_notes.write().extend(chase_notes);
             cas.extend(found);
         }
@@ -1689,7 +1690,8 @@ fn App() -> Element {
                 let mut seeds = loaded_ees();
                 seeds.extend(uploaded_cas());
                 seeds.extend(chased_cas());
-                let (found, chase_notes) = chase_certificates(&seeds, &mut budget).await;
+                let (found, chase_notes) =
+                    chase_certificates(&seeds, &mut budget, Some(cps.get_aia_timeout())).await;
                 notes.write().extend(chase_notes);
                 if !found.is_empty() {
                     chased_cas.write().extend(found);
@@ -1739,8 +1741,13 @@ fn App() -> Element {
                 // for a first answer is waiting on.
                 let mut retrieved_ocsp = 0;
                 if !work.ocsp.is_empty() {
-                    let (added, ocsp_notes) =
-                        retrieve_ocsp(&work.ocsp, &ocsp_sink, &mut budget).await;
+                    let (added, ocsp_notes) = retrieve_ocsp(
+                        &work.ocsp,
+                        &ocsp_sink,
+                        &mut budget,
+                        Some(cps.get_ocsp_timeout()),
+                    )
+                    .await;
                     retrieved_ocsp = added;
                     notes.write().extend(ocsp_notes);
                 }
@@ -1793,7 +1800,9 @@ fn App() -> Element {
                 };
 
                 if !crl_dp.is_empty() {
-                    let (_added, crl_notes) = retrieve_crls(&crl_dp, &crl_sink, &mut budget).await;
+                    let (_added, crl_notes) =
+                        retrieve_crls(&crl_dp, &crl_sink, &mut budget, Some(cps.get_crl_timeout()))
+                            .await;
                     notes.write().extend(crl_notes);
                 }
             }

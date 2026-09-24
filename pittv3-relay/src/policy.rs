@@ -90,6 +90,13 @@ pub struct NetworkPolicy {
     /// remaining checks; a non-empty list is exhaustive.
     pub allow_hosts: Vec<String>,
     /// Hosts that may never be retrieved from, applied ahead of `allow_hosts`.
+    ///
+    /// **This is a name-level control and cannot be made address-complete.** An entry is compared
+    /// against the host as written, so the same machine is still reachable by its literal address,
+    /// by a second name, or by a name that resolves there later. What stops a destination
+    /// regardless of how it is named is the address check, which is why the ranges that must never
+    /// be reached are excluded there rather than listed here. Use this to decline a host by
+    /// policy, not to contain one.
     pub deny_hosts: Vec<String>,
     /// Number of redirects that may be followed. A redirect names a URI the requester did not
     /// present, so each hop is put back through [`check_uri`](Self::check_uri) and the addresses it
@@ -99,7 +106,14 @@ pub struct NetworkPolicy {
     /// The default is ten, the limit `certval`'s own HTTP client takes from reqwest. A repository
     /// that redirects has to resolve the same way whichever frontend reached it -- the relay is how
     /// the browser application fetches what the CLI fetches directly, so a limit of its own would
-    /// mean the same certificate validating in one and not the other.
+    /// mean the same certificate validating in one and not the other. That parity is what the
+    /// default protects, which is why it is ten rather than the two or three a PKI repository
+    /// actually uses; a deployment wanting a tighter relay lowers it knowingly.
+    ///
+    /// **It multiplies any per-client retrieval limit.** One retrieval that redirects is a single
+    /// count and up to this many outbound connections, each policy-checked. So the hops bound
+    /// *volume* and never *destination* -- a chain cannot walk anywhere the first URI could not --
+    /// but an operator who raises this has widened the outbound budget by the same factor.
     pub max_redirects: usize,
     /// Permits destinations that are not public addresses, for a relay deployed on the network
     /// whose repositories it is meant to reach.

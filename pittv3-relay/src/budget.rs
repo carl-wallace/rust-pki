@@ -55,6 +55,11 @@ pub struct ChaseBudgetLimits {
     /// Number of retrievals that may be made.
     pub max_fetches: usize,
     /// Wall-clock time the sequence may occupy.
+    ///
+    /// Runs from the moment the budget is built, so it covers the work between retrievals as well
+    /// as the retrievals: a validation is bounded end to end rather than by the time it spends on
+    /// the network. That matters for the default, which is sized against a measured request rather
+    /// than against retrieval alone.
     pub max_duration: Duration,
 }
 
@@ -63,7 +68,14 @@ impl Default for ChaseBudgetLimits {
         ChaseBudgetLimits {
             max_total_bytes: 64 * 1024 * 1024,
             max_fetches: 64,
-            max_duration: Duration::from_secs(60),
+            // Measured 2026-09-24: a full 32-target request of unexpired certificates, revocation
+            // retrieval and no chasing, took 93 seconds -- roughly 3 seconds for each certificate
+            // that found a path, almost all of it network. Sixty seconds would have truncated it
+            // and reported undetermined status for the remainder. Two minutes covers that case and
+            // still ends a chase that is going nowhere; a request that needs longer is one a
+            // deployment should want cut short. The byte and fetch caps were comfortable in the
+            // same run and are unchanged.
+            max_duration: Duration::from_secs(120),
         }
     }
 }

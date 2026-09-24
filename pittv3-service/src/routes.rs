@@ -4,6 +4,9 @@
 //! HTTP, and encode what comes back. Everything worth testing -- the network policy, the budgets,
 //! the settings sanitizer, the validation itself -- is reachable without a running server.
 
+use std::net::IpAddr;
+use std::time::Duration;
+
 use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use log::warn;
 use serde::Serialize;
@@ -15,6 +18,7 @@ use crate::dto::{
     FetchRequestBody, FetchResponseBody, PeekRequestBody, PeekResponseBody, ValidateRequestBody,
     ValidateResponseBody,
 };
+use crate::limit::{RateLimited, Spend};
 use crate::orchestrate::{self, ValidationInput};
 use crate::CACHE_CONTROL_REVALIDATE;
 
@@ -57,9 +61,17 @@ async fn health() -> impl Responder {
 /// consider a failure, because the client is the one that knows what a 404 on a given URI means.
 /// Only a refusal to make the request at all, or a failure to complete it, becomes an error here.
 async fn fetch(
+    req: HttpRequest,
     state: web::Data<ServiceState>,
     body: web::Json<FetchRequestBody>,
 ) -> impl Responder {
+    let client = client_address(&req);
+    if let Some(client) = client {
+        if let Err(limited) = state.limiter.admit(client) {
+            return rate_limited_response(limited);
+        }
+    }
+
     let body = body.into_inner();
     let request = FetchRequest {
         uri: body.uri,
@@ -68,18 +80,33 @@ async fn fetch(
         content_type: body.content_type,
         if_modified_since: body.if_modified_since,
         max_response_bytes: None,
-        timeout: None,
+        timeout: body.timeout_secs.map(Duration::from_secs),
     };
 
     match state.relay.fetch(&request).await {
-        Ok(response) => HttpResponse::Ok().json(FetchResponseBody {
-            status: response.status,
-            content_type: response.content_type,
-            last_modified: response.last_modified,
-            final_uri: response.final_uri,
-            body: response.body,
-        }),
-        Err(e) => fetch_error_response(e),
+        Ok(response) => {
+            // One retrieval, and the bytes it brought back. Charged after the fact because the
+            // size is not knowable before it: see `limit`.
+            if let Some(client) = client {
+                state.limiter.charge(client, 1, response.body.len() as u64);
+            }
+            HttpResponse::Ok().json(FetchResponseBody {
+                status: response.status,
+                content_type: response.content_type,
+                last_modified: response.last_modified,
+                final_uri: response.final_uri,
+                body: response.body,
+            })
+        }
+        Err(e) => {
+            // A refused or failed retrieval still reached for the network, or asked this service
+            // to, so it is charged as one. Not charging would make a stream of refusals the
+            // cheapest way to use the relay.
+            if let Some(client) = client {
+                state.limiter.charge(client, 1, 0);
+            }
+            fetch_error_response(e)
+        }
     }
 }
 
@@ -88,7 +115,18 @@ async fn fetch(
 ///
 /// Nothing is requested over the connection and nothing is parsed here: the handshake completes,
 /// what the peer sent is returned, and judging it is the client's job.
-async fn tls(state: web::Data<ServiceState>, body: web::Json<PeekRequestBody>) -> impl Responder {
+async fn tls(
+    req: HttpRequest,
+    state: web::Data<ServiceState>,
+    body: web::Json<PeekRequestBody>,
+) -> impl Responder {
+    let client = client_address(&req);
+    if let Some(client) = client {
+        if let Err(limited) = state.limiter.admit(client) {
+            return rate_limited_response(limited);
+        }
+    }
+
     if !state.config.allow_tls_peek {
         return HttpResponse::NotFound().json(ErrorBody::new(
             "this deployment does not make handshakes on a client's behalf",
@@ -100,6 +138,13 @@ async fn tls(state: web::Data<ServiceState>, body: web::Json<PeekRequestBody>) -
         uri: body.normalized_uri(),
         timeout: None,
     };
+
+    // A handshake is an outbound connection made on the client's behalf, so it counts as a
+    // retrieval even though it fetches nothing. Charged whatever the outcome, for the same reason a
+    // failed fetch is.
+    if let Some(client) = client {
+        state.limiter.charge(client, 1, 0);
+    }
 
     match state.relay.peek(&request).await {
         Ok(response) => HttpResponse::Ok().json(PeekResponseBody {
@@ -133,6 +178,40 @@ fn fetch_error_response(error: FetchError) -> HttpResponse {
             HttpResponse::InternalServerError().json(ErrorBody::new(error.to_string()))
         }
     }
+}
+
+/// The address a request came from, which is the only client identity the service has.
+///
+/// `None` when the connection has no peer address -- a test calling a handler directly, or a
+/// transport that is not TCP. Such a request is not rate limited rather than being refused: there
+/// is nothing to count it against, and refusing would break the tests that exercise handlers
+/// without a socket.
+fn client_address(req: &HttpRequest) -> Option<IpAddr> {
+    req.peer_addr().map(|address| address.ip())
+}
+
+/// Refuses a request that is over a limit.
+///
+/// 429 with `Retry-After`, and the body says which limit and for how long. A client that is told
+/// only "too many requests" retries immediately into another refusal; one told the number waits.
+/// The wording matters more than usual here because the browser renders this message where it
+/// renders a retrieval failure, and a rate limit read as an unreachable repository sends someone
+/// debugging their PKI instead of their usage.
+fn rate_limited_response(limited: RateLimited) -> HttpResponse {
+    let seconds = limited.retry_after.as_secs().max(1);
+    warn!(
+        "Refused a request: {} within {}s, {seconds}s until the window resets",
+        limited.dimension.describe(),
+        limited.window_secs
+    );
+    HttpResponse::TooManyRequests()
+        .insert_header((header::RETRY_AFTER, seconds.to_string()))
+        .json(ErrorBody::new(format!(
+            "this service is rate limited and you are over it: {} within {} seconds. \
+             Retry in {seconds} second(s).",
+            limited.dimension.describe(),
+            limited.window_secs
+        )))
 }
 
 /// Lists the stores the service holds, in the shape the browser application's selector consumes.
@@ -216,9 +295,17 @@ fn client_holds(req: &HttpRequest, etag: &str) -> bool {
 
 /// Validates the certificates in the request.
 async fn validate(
+    req: HttpRequest,
     state: web::Data<ServiceState>,
     body: web::Json<ValidateRequestBody>,
 ) -> impl Responder {
+    let client = client_address(&req);
+    if let Some(client) = client {
+        if let Err(limited) = state.limiter.admit(client) {
+            return rate_limited_response(limited);
+        }
+    }
+
     if !state.config.enable_validation {
         return HttpResponse::NotFound().json(ErrorBody::new(
             "this deployment does not accept certificates for validation",
@@ -240,6 +327,13 @@ async fn validate(
     };
 
     let outcome = orchestrate::validate(&state, input).await;
+    // What the run actually retrieved, rather than what a validation might cost. A run that
+    // chased nothing and found its revocation data at hand is charged for nothing beyond the
+    // request itself, which is what keeps a folder of certificates affordable.
+    if let Some(client) = client {
+        let Spend { retrievals, bytes } = outcome.spend;
+        state.limiter.charge(client, retrievals, bytes);
+    }
     // A report describing a run that could not be carried out is a bad request rather than a
     // failure of the service: it says the caller sent something the service would not act on.
     let mut response = match outcome.report.error.is_some() {
