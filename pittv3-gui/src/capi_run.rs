@@ -5,20 +5,27 @@
 //! chain engine through [`pittv3_capi`] instead. The point is a second opinion on one set of inputs:
 //! where the two validators disagree, the inputs are not the variable.
 //!
-//! Results are rendered as log lines rather than into the Results view's report. A
-//! [`CapiVerification`] is not a `Pittv3Report` and squeezing one into the other would mean
-//! inventing a `PathValidationStatus` for conditions CAPI has and certval does not — see
-//! `pittv3_capi::types`. A dedicated pane is the right home for this and is worth building; lines
-//! are what it takes to have the button working without one.
+//! Results are not folded into the Results view's report. A [`CapiVerification`] is not a
+//! `Pittv3Report`, and squeezing one into the other would mean inventing a `PathValidationStatus`
+//! for conditions CAPI has and certval does not — see `pittv3_capi::types`. They go instead to the
+//! CAPI pane, in `capi_view`, and to the log lines [`CapiRunResult::to_lines`] writes.
+//!
+//! Both surfaces describe one run, so the words they describe it in live here rather than in either
+//! of them: [`rollup`] reduces an outcome to the six [`TargetStatus`] values and [`rollup_label`]
+//! names it, once, for the badge and the log line alike. That is a rollup of an outcome and not a
+//! translation of a condition — the conditions themselves stay in Windows' own vocabulary on both
+//! surfaces, for the reason `pittv3_capi::types` gives.
 
 use std::fs;
 use std::path::Path;
 
 use pittv3_capi::RevocationChecking;
-use pittv3_capi::{verify, CapiOptions, CapiVerification, CapiVerifyError};
+use pittv3_capi::{verify, CapiError, CapiOptions, CapiVerification, CapiVerifyError};
+use pittv3_gui_lib::gui_results::status_parts;
 use pittv3_gui_lib::settings_store::{FileSettingsStore, SettingsStore};
 use pittv3_lib::args::Pittv3Args;
 use pittv3_lib::der_or_pem::certs_in;
+use pittv3_lib::report::TargetStatus;
 use pittv3_lib::std_utils::{cbor_cert_store_certs, cbor_ta_store_anchors};
 
 /// Which trust the chain engine is asked to use.
@@ -279,27 +286,6 @@ pub struct CapiRunResult {
 }
 
 impl CapiRunResult {
-    /// Targets the engine found a clean path for.
-    pub fn valid(&self) -> usize {
-        self.targets
-            .iter()
-            .filter(|t| matches!(&t.outcome, Ok(v) if v.validated))
-            .count()
-    }
-
-    /// Targets the engine judged and faulted.
-    pub fn invalid(&self) -> usize {
-        self.targets
-            .iter()
-            .filter(|t| matches!(&t.outcome, Ok(v) if !v.validated))
-            .count()
-    }
-
-    /// Targets the engine would not judge at all, which is not the same as judging them invalid.
-    pub fn refused(&self) -> usize {
-        self.targets.iter().filter(|t| t.outcome.is_err()).count()
-    }
-
     /// Whether the run asked for its own anchors and had none to use -- the one state that warns.
     pub fn fell_back(&self) -> bool {
         self.trust == EffectiveTrust::NoAnchorsToUse
@@ -345,7 +331,17 @@ impl CapiRunResult {
             lines.push(format!("CAPI: {}", target.label));
             match &target.outcome {
                 Ok(result) => lines.extend(describe(result)),
-                Err(e) => lines.push(format!("  the chain engine gave no verdict: {e}")),
+                // The rollup first, as for a target the engine did judge, then the refusal in
+                // its own words. `TargetNotParsed` is a statement about the file and rolls up to
+                // one; the rest are about the run and roll up to nothing, which is what "No
+                // verdict" says.
+                Err(e) => {
+                    lines.push(format!(
+                        "  result: {}",
+                        rollup_label(rollup(&target.outcome))
+                    ));
+                    lines.push(format!("  {e}"));
+                }
             }
         }
 
@@ -372,13 +368,17 @@ impl CapiRunResult {
     }
 
     /// The closing line. Counts rather than a verdict: a run over a folder has no single answer.
+    ///
+    /// Counted by the rollup the pane badges and printed in the same words, so the summary strip on
+    /// screen and the last line of a saved log cannot say different things about one run. Outcomes
+    /// that did not occur are left out rather than printed as zeros, which is how the strip does it.
     fn summary(&self) -> String {
-        let mut s = format!("CAPI: {} valid, {} invalid", self.valid(), self.invalid());
-        let refused = self.refused();
-        if refused > 0 {
-            s.push_str(&format!(", {refused} with no verdict"));
-        }
-        s
+        let counts = rollup_counts(&self.targets);
+        let parts: Vec<String> = counts
+            .iter()
+            .map(|(status, count)| format!("{count} {}", rollup_label(*status)))
+            .collect();
+        format!("CAPI: {}", parts.join(", "))
     }
 }
 
@@ -450,6 +450,158 @@ pub fn execute(args: &Pittv3Args, trust: CapiTrust) -> CapiRunResult {
     }
 }
 
+/// Error flags the rollup tests for by name, so `pittv3_capi::ERROR_FLAGS` stays the one definition
+/// of each: the bit the rollup reads and the chip a reader sees cannot come to disagree.
+const REVOKED: &str = "CERT_TRUST_IS_REVOKED";
+
+/// The engine reached no anchor. Not a fault in the certificate -- see [`rollup_verification`].
+pub const PARTIAL_CHAIN: &str = "CERT_TRUST_IS_PARTIAL_CHAIN";
+
+/// The two ways the engine says it could not settle a revocation status. Neither is a fault in the
+/// certificate, which is the whole reason they are set aside from the rest of the mask.
+const REVOCATION_UNDETERMINED: &[&str] = &[
+    "CERT_TRUST_REVOCATION_STATUS_UNKNOWN",
+    "CERT_TRUST_IS_OFFLINE_REVOCATION",
+];
+
+/// The word for an outcome the engine would not produce at all.
+pub const NO_VERDICT: &str = "No verdict";
+
+/// Whether an `HRESULT` says the certificate is revoked, by the name this build gives it.
+///
+/// Used for the policy check's code and for `CERT_REVOCATION_INFO::dwRevocationResult`, which are
+/// one namespace.
+pub fn says_revoked(err: &CapiError) -> bool {
+    matches!(err.name(), Some("CRYPT_E_REVOKED" | "CERT_E_REVOKED"))
+}
+
+/// Whether an `HRESULT` says revocation could not be settled, as distinct from a verdict about the
+/// certificate.
+fn says_revocation_undetermined(err: &CapiError) -> bool {
+    matches!(
+        err.name(),
+        Some("CRYPT_E_REVOCATION_OFFLINE" | "CERT_E_REVOCATION_FAILURE")
+    )
+}
+
+/// One verdict as the six-value rollup both the pane and the log report it by.
+///
+/// Not a translation of a CAPI condition into a certval one -- `pittv3_capi::types` is right that
+/// there is no such mapping, and nothing here attempts one. It is a rollup of an *outcome* into the
+/// six [`TargetStatus`] values, every CAPI outcome does land in one of the six, and the conditions
+/// that produced it are reported underneath in Windows' own words either way.
+pub fn rollup_verification(verification: &CapiVerification) -> TargetStatus {
+    if verification.validated {
+        return TargetStatus::Valid;
+    }
+
+    // Revoked first and ahead of every other fault: it is the answer people come to this tool for,
+    // and a revoked certificate in an otherwise broken chain is still revoked. Read across every
+    // chain the engine returned -- a revoked certificate in a chain the engine declined to prefer
+    // is still one this run found.
+    let revoked_element = verification.chains.iter().any(|chain| {
+        chain
+            .elements
+            .iter()
+            .any(|element| element.trust_status.has_named_error(REVOKED))
+    });
+    if revoked_element
+        || verification.trust_status.has_named_error(REVOKED)
+        || verification.policy_error.as_ref().is_some_and(says_revoked)
+    {
+        return TargetStatus::Revoked;
+    }
+
+    // Everything below reads the context's own mask, because that is the mask
+    // [`CapiVerification::validated`] was computed from: the bits that decided this is not `Valid`
+    // are the bits that say why it is not.
+    let context = verification.trust_status;
+
+    // A chain that never reached an anchor reports the absence of a result rather than a fault in
+    // the certificate, which is what certval's `NoPathsFound` says -- and, like it, sends a reader
+    // to the run's trust material rather than to the file. `CERT_TRUST_IS_UNTRUSTED_ROOT` is
+    // deliberately not here: the engine got all the way to a root and was refused it, which is a
+    // verdict about trust rather than a failure to build.
+    if verification.chains.is_empty() || context.has_named_error(PARTIAL_CHAIN) {
+        return TargetStatus::NoPathsFound;
+    }
+
+    // Nothing wrong but a revocation status the engine could not settle. Windows folds that into
+    // the same error mask as a bad signature; certval reports it apart, because a path that is
+    // sound except that a responder would not answer is not the claim that the path is unsound. The
+    // policy check has to agree, since it runs after the build and can fail for its own reasons.
+    let policy_is_revocation_only = match &verification.policy_error {
+        None => true,
+        Some(err) => says_revocation_undetermined(err),
+    };
+    if context.errors_besides(REVOCATION_UNDETERMINED) == 0 && policy_is_revocation_only {
+        return TargetStatus::ValidExceptRevocationUndetermined;
+    }
+
+    TargetStatus::Invalid
+}
+
+/// One target's outcome as the rollup, or `None` when the engine was never reached and there is no
+/// verdict to roll up.
+///
+/// `None` is not a seventh status. certval has no counterpart because a certval run cannot fail
+/// these ways: a store that would not open or an engine that would not start says nothing about the
+/// certificate. [`CapiVerifyError::TargetNotParsed`] is the exception and *is* a statement about the
+/// file, which is exactly what certval calls `ParseError`.
+pub fn rollup(outcome: &Result<CapiVerification, CapiVerifyError>) -> Option<TargetStatus> {
+    match outcome {
+        Err(CapiVerifyError::TargetNotParsed(_)) => Some(TargetStatus::ParseError),
+        Err(_) => None,
+        Ok(verification) => Some(rollup_verification(verification)),
+    }
+}
+
+/// The word for one rollup, which is the word the pane badges and the word the log prints.
+///
+/// One definition, taken from the certval results view's own table, so the two surfaces cannot come
+/// to describe one outcome differently. Only the colour is the pane's to choose.
+pub fn rollup_label(status: Option<TargetStatus>) -> &'static str {
+    match status {
+        Some(status) => status_parts(status).1,
+        None => NO_VERDICT,
+    }
+}
+
+/// The targets in each rollup as `(rollup, count)`, ordered as [`TargetStatus`] declares them,
+/// omitting those that did not occur and putting the refusals last.
+///
+/// One ordering for both surfaces: the pane renders each row as a badge and the log as a phrase.
+/// Counting valid against invalid stopped being an account of a run the moment the rollup gained
+/// the outcomes that are neither.
+pub fn rollup_counts(targets: &[CapiTargetOutcome]) -> Vec<(Option<TargetStatus>, usize)> {
+    let statuses = [
+        TargetStatus::Valid,
+        TargetStatus::ValidExceptRevocationUndetermined,
+        TargetStatus::Revoked,
+        TargetStatus::Invalid,
+        TargetStatus::NoPathsFound,
+        TargetStatus::ParseError,
+    ];
+    let rolled: Vec<Option<TargetStatus>> = targets.iter().map(|t| rollup(&t.outcome)).collect();
+
+    let mut rows: Vec<(Option<TargetStatus>, usize)> = statuses
+        .iter()
+        .filter_map(|status| {
+            let count = rolled.iter().filter(|r| **r == Some(*status)).count();
+            match 0 == count {
+                true => None,
+                false => Some((Some(*status), count)),
+            }
+        })
+        .collect();
+
+    let refused = rolled.iter().filter(|r| r.is_none()).count();
+    if refused > 0 {
+        rows.push((None, refused));
+    }
+    rows
+}
+
 /// Where the policy check laid the blame, rendered for a reader.
 ///
 /// `-1` in either position is the structure's "not applicable", which is a different claim from
@@ -475,9 +627,15 @@ fn describe(result: &CapiVerification) -> Vec<String> {
         ),
     }
 
+    // The rollup the pane badges, in the same words, because a log someone saved and the pane they
+    // were reading have to be one account of one run. `VALID`/`INVALID` could not be: it renders
+    // `CapiVerification::validated`, which folds a revocation status the engine could not settle in
+    // with a bad signature, and a chain that never reached an anchor in with a chain that was
+    // faulted. The flags it was rolled up from are on the line below, which is where a reader
+    // confirms it.
     lines.push(format!(
         "  result: {}",
-        if result.validated { "VALID" } else { "INVALID" }
+        rollup_label(Some(rollup_verification(result)))
     ));
     lines.push(format!(
         "  chain status: {}",
@@ -542,8 +700,9 @@ fn describe(result: &CapiVerification) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use pittv3_capi::{CapiChain, CapiElement, CapiTrustStatus};
 
     /// The instant the PKITS material is valid at, as the other suites use it.
     const TOI: u64 = 1_648_039_783;
@@ -666,10 +825,10 @@ mod tests {
 
         assert!(text.contains("1 trust anchor(s) from this run"), "{text}");
         assert!(text.contains("without revocation checking"), "{text}");
-        assert!(text.contains("result: VALID"), "{text}");
+        assert!(text.contains("result: Valid"), "{text}");
         assert!(text.contains("chain 0 (preferred), 3 element(s)"), "{text}");
         assert!(text.contains("Valid EE Certificate Test1"), "{text}");
-        assert!(text.ends_with("CAPI: 1 valid, 0 invalid"), "{text}");
+        assert!(text.ends_with("CAPI: 1 Valid"), "{text}");
     }
 
     /// The same material against this machine's stores, where the PKITS root is not trusted. The
@@ -685,9 +844,11 @@ mod tests {
         let text = lines.join("\n");
 
         assert!(text.contains("this machine's certificate stores"), "{text}");
-        assert!(text.contains("result: INVALID"), "{text}");
+        // An untrusted root is a verdict about trust rather than a failure to build, so it rolls
+        // up to `Invalid` and not to the absence of a path.
+        assert!(text.contains("result: Invalid"), "{text}");
         assert!(text.contains("CERT_TRUST_IS_UNTRUSTED_ROOT"), "{text}");
-        assert!(text.ends_with("CAPI: 0 valid, 1 invalid"), "{text}");
+        assert!(text.ends_with("CAPI: 1 Invalid"), "{text}");
     }
 
     /// The header says which way revocation went, because the same target can be valid one way and
@@ -793,11 +954,11 @@ mod tests {
         assert!(!text.contains("no trust anchors were gathered"), "{text}");
     }
 
-    /// The pane reads these counts and the log prints them, so they are one computation rather
-    /// than two that can disagree. Refused is counted apart from invalid because the engine
-    /// declining to judge and the engine faulting a path are different findings.
+    /// The pane badges these counts and the log prints them, so they are one computation rather
+    /// than two that can disagree. Bytes CAPI would not read are counted apart from a faulted path,
+    /// because the engine declining to judge and the engine faulting a path are different findings.
     #[test]
-    fn counts_separate_valid_invalid_and_refused() {
+    fn counts_separate_the_outcomes_the_pane_badges() {
         let dir = tempfile::tempdir().unwrap();
         let junk = dir.path().join("junk.crt");
         fs::write(&junk, [0x30u8, 0x03, 0x02, 0x01, 0x00]).unwrap();
@@ -814,16 +975,23 @@ mod tests {
 
         let result = execute(&args, CapiTrust::RunAnchors);
         assert_eq!(result.targets.len(), 3);
-        assert_eq!(result.valid(), 1, "{:?}", result.to_lines());
-        assert_eq!(result.invalid(), 1, "{:?}", result.to_lines());
-        assert_eq!(result.refused(), 1);
+        assert_eq!(
+            rollup_counts(&result.targets),
+            vec![
+                (Some(TargetStatus::Valid), 1),
+                (Some(TargetStatus::Invalid), 1),
+                (Some(TargetStatus::ParseError), 1),
+            ],
+            "{:?}",
+            result.to_lines()
+        );
         assert!(!result.fell_back());
         assert!(result.trust_summary().contains("1 trust anchor"));
 
-        // The summary line is rendered from the same counts.
+        // The summary line is rendered from the same counts, in the same words.
         assert_eq!(
             result.to_lines().last().unwrap(),
-            "CAPI: 1 valid, 1 invalid, 1 with no verdict"
+            "CAPI: 1 Valid, 1 Invalid, 1 Not a certificate"
         );
     }
 
@@ -838,8 +1006,9 @@ mod tests {
         assert_eq!(lines.last().unwrap(), "CAPI: nothing to validate.");
     }
 
-    /// Bytes CAPI refuses are counted apart from an invalid path: "no verdict" and "invalid" are
-    /// different outcomes and a summary that merged them would overstate what the engine said.
+    /// Bytes CAPI refuses are counted apart from an invalid path, and are named for what they are:
+    /// the file could not be read as a certificate, which says nothing about any certificate's
+    /// standing. A summary that merged the two would overstate what the engine said.
     #[test]
     fn a_refused_target_is_counted_apart() {
         let dir = tempfile::tempdir().unwrap();
@@ -854,10 +1023,237 @@ mod tests {
         };
         let lines = execute(&args, CapiTrust::MachineStores).to_lines();
         let text = lines.join("\n");
-        assert!(text.contains("the chain engine gave no verdict"), "{text}");
+        assert!(text.contains("result: Not a certificate"), "{text}");
         assert!(
-            text.ends_with("CAPI: 0 valid, 0 invalid, 1 with no verdict"),
+            text.contains("CAPI would not parse the target as a certificate"),
             "{text}"
         );
+        assert!(text.ends_with("CAPI: 1 Not a certificate"), "{text}");
+    }
+
+    // ------------------------------------------------------------------ the rollup
+
+    const NOT_TIME_VALID: u32 = 0x0000_0001;
+    const REVOKED_BIT: u32 = 0x0000_0004;
+    const UNTRUSTED_ROOT: u32 = 0x0000_0020;
+    const REVOCATION_UNKNOWN_BIT: u32 = 0x0000_0040;
+    const PARTIAL_CHAIN_BIT: u32 = 0x0001_0000;
+    const OFFLINE_REVOCATION: u32 = 0x0100_0000;
+
+    const CRYPT_E_REVOKED: u32 = 0x8009_2010;
+    const CRYPT_E_REVOCATION_OFFLINE: u32 = 0x8009_2013;
+    const CERT_E_UNTRUSTEDROOT: u32 = 0x800B_0109;
+
+    pub(crate) fn element(error: u32) -> CapiElement {
+        CapiElement {
+            cert: None,
+            der: vec![],
+            trust_status: CapiTrustStatus::new(error, 0),
+            revocation: None,
+            extended_error_info: None,
+        }
+    }
+
+    /// One chain of one element, both carrying `error` in a context that carries it too, which is
+    /// the shape the engine reports a single fault in. Shared with the results pane's own tests, so
+    /// the badge and the rollup are exercised against one fixture.
+    pub(crate) fn faulted(error: u32) -> CapiVerification {
+        CapiVerification {
+            target: None,
+            target_der: vec![],
+            chains: vec![CapiChain {
+                index: 0,
+                lower_quality: false,
+                trust_status: CapiTrustStatus::new(error, 0),
+                elements: vec![element(error)],
+            }],
+            trust_status: CapiTrustStatus::new(error, 0),
+            policy_error: None,
+            policy_error_location: None,
+            validated: 0 == error,
+        }
+    }
+
+    fn status_of(verification: CapiVerification) -> Option<TargetStatus> {
+        rollup(&Ok(verification))
+    }
+
+    /// A clean run is `Valid`, which is the one outcome the two surfaces always agreed on.
+    #[test]
+    fn a_clean_run_is_valid() {
+        assert_eq!(status_of(faulted(0)), Some(TargetStatus::Valid));
+    }
+
+    /// The divergence this read backwards. Windows folds "no revocation status" into the same error
+    /// mask as a bad signature, so a chain that is sound except that a responder would not answer
+    /// badged flat red and logged `INVALID`, while the certval tab called it amber. Either flag,
+    /// and both.
+    #[test]
+    fn revocation_alone_is_not_invalid() {
+        for error in [
+            REVOCATION_UNKNOWN_BIT,
+            OFFLINE_REVOCATION,
+            REVOCATION_UNKNOWN_BIT | OFFLINE_REVOCATION,
+        ] {
+            assert_eq!(
+                status_of(faulted(error)),
+                Some(TargetStatus::ValidExceptRevocationUndetermined),
+                "0x{error:08X}"
+            );
+        }
+    }
+
+    /// Anything else in the mask is a real fault and outranks an unsettled revocation status.
+    #[test]
+    fn revocation_plus_a_real_fault_is_invalid() {
+        assert_eq!(
+            status_of(faulted(REVOCATION_UNKNOWN_BIT | NOT_TIME_VALID)),
+            Some(TargetStatus::Invalid)
+        );
+    }
+
+    /// A bit no table names must not be masked away into a revocation-only reading: a flag Windows
+    /// adds after this build would otherwise turn an unknown fault into an almost-clean result.
+    #[test]
+    fn an_unnamed_bit_is_not_a_clean_revocation_result() {
+        assert_eq!(
+            status_of(faulted(REVOCATION_UNKNOWN_BIT | 0x8000_0000)),
+            Some(TargetStatus::Invalid)
+        );
+    }
+
+    /// The policy check runs after the build and can fail for its own reasons, so it has to agree
+    /// before a revocation-only mask reads as one.
+    #[test]
+    fn the_policy_check_has_to_agree() {
+        let mut its_own_complaint = faulted(REVOCATION_UNKNOWN_BIT);
+        its_own_complaint.policy_error = Some(CapiError(CERT_E_UNTRUSTEDROOT));
+        assert_eq!(status_of(its_own_complaint), Some(TargetStatus::Invalid));
+
+        let mut the_same_story = faulted(REVOCATION_UNKNOWN_BIT);
+        the_same_story.policy_error = Some(CapiError(CRYPT_E_REVOCATION_OFFLINE));
+        assert_eq!(
+            status_of(the_same_story),
+            Some(TargetStatus::ValidExceptRevocationUndetermined)
+        );
+    }
+
+    /// Revoked outranks every other fault, from whichever of the three places says so.
+    #[test]
+    fn revoked_outranks_every_other_fault() {
+        assert_eq!(
+            status_of(faulted(REVOKED_BIT | NOT_TIME_VALID)),
+            Some(TargetStatus::Revoked)
+        );
+
+        let mut on_an_element = faulted(NOT_TIME_VALID);
+        on_an_element.chains[0].elements.push(element(REVOKED_BIT));
+        assert_eq!(status_of(on_an_element), Some(TargetStatus::Revoked));
+
+        let mut from_the_policy_check = faulted(NOT_TIME_VALID);
+        from_the_policy_check.policy_error = Some(CapiError(CRYPT_E_REVOKED));
+        assert_eq!(
+            status_of(from_the_policy_check),
+            Some(TargetStatus::Revoked)
+        );
+    }
+
+    /// A revoked certificate in a chain the engine built and declined to prefer is still one this
+    /// run found, which is the predicate the pane has always used.
+    #[test]
+    fn revoked_in_a_lower_quality_chain_still_counts() {
+        let mut verification = faulted(NOT_TIME_VALID);
+        verification.chains.push(CapiChain {
+            index: 1,
+            lower_quality: true,
+            trust_status: CapiTrustStatus::new(REVOKED_BIT, 0),
+            elements: vec![element(REVOKED_BIT)],
+        });
+        assert_eq!(status_of(verification), Some(TargetStatus::Revoked));
+    }
+
+    /// A chain that never reached an anchor reports the absence of a result rather than a fault in
+    /// the certificate, and sends a reader to the run's trust material. So does a run that built no
+    /// chain at all.
+    #[test]
+    fn a_partial_chain_is_no_paths_found() {
+        assert_eq!(
+            status_of(faulted(PARTIAL_CHAIN_BIT | REVOCATION_UNKNOWN_BIT)),
+            Some(TargetStatus::NoPathsFound)
+        );
+
+        let mut nothing_built = faulted(PARTIAL_CHAIN_BIT);
+        nothing_built.chains.clear();
+        assert_eq!(status_of(nothing_built), Some(TargetStatus::NoPathsFound));
+    }
+
+    /// An untrusted root goes the other way on purpose: the engine got all the way to a root and
+    /// was refused it, which is a verdict about trust rather than a failure to build.
+    #[test]
+    fn an_untrusted_root_is_invalid() {
+        assert_eq!(
+            status_of(faulted(UNTRUSTED_ROOT)),
+            Some(TargetStatus::Invalid)
+        );
+    }
+
+    /// Bytes CAPI would not read are a statement about the file, which is what certval calls a
+    /// parse error. Every other refusal is about the run and has no rollup at all.
+    #[test]
+    fn a_refusal_is_a_parse_error_or_no_verdict_at_all() {
+        assert_eq!(
+            rollup(&Err(CapiVerifyError::TargetNotParsed(0x8009_2002))),
+            Some(TargetStatus::ParseError)
+        );
+
+        for error in [
+            CapiVerifyError::ChainBuildFailed(0x800B_010A),
+            CapiVerifyError::PolicyCheckFailed(0x8009_2002),
+            CapiVerifyError::StoreFailed(0x8009_2002),
+            CapiVerifyError::EngineFailed(0x8009_2002),
+            CapiVerifyError::InvalidOid("2.5.29".to_string()),
+            CapiVerifyError::Unsupported,
+        ] {
+            assert_eq!(rollup(&Err(error.clone())), None, "{error}");
+            assert_eq!(rollup_label(rollup(&Err(error.clone()))), "No verdict");
+        }
+    }
+
+    /// The counts are ordered as the statuses are declared, omit what did not occur and put the
+    /// refusals last, so the strip on screen and the log's closing line read the same run the same
+    /// way round.
+    #[test]
+    fn counts_are_ordered_and_omit_what_did_not_occur() {
+        let outcome = |outcome| CapiTargetOutcome {
+            label: "target".to_string(),
+            outcome,
+        };
+        let targets = vec![
+            outcome(Ok(faulted(UNTRUSTED_ROOT))),
+            outcome(Err(CapiVerifyError::Unsupported)),
+            outcome(Ok(faulted(PARTIAL_CHAIN_BIT))),
+            outcome(Ok(faulted(REVOCATION_UNKNOWN_BIT))),
+            outcome(Ok(faulted(0))),
+            outcome(Err(CapiVerifyError::TargetNotParsed(0))),
+            outcome(Ok(faulted(REVOKED_BIT))),
+        ];
+
+        let labels: Vec<&str> = rollup_counts(&targets)
+            .iter()
+            .map(|(status, _)| rollup_label(*status))
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Valid",
+                "Valid (revocation undetermined)",
+                "Revoked",
+                "Invalid",
+                "No paths found",
+                "Not a certificate",
+                "No verdict",
+            ]
+        );
+        assert!(rollup_counts(&targets).iter().all(|(_, n)| 1 == *n));
     }
 }

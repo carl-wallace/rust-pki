@@ -1,8 +1,23 @@
 //! Windows-only: the CAPI results pane.
 //!
-//! Renders a [`CapiRunResult`] in CAPI's own vocabulary. Nothing here maps a chain engine verdict
-//! onto certval's — see `pittv3_capi::types` for why — so what a reader sees is what Windows said,
-//! in the words Windows said it, laid out the way the rest of the application lays out a run.
+//! Renders a [`CapiRunResult`] laid out the way the rest of the application lays out a run.
+//!
+//! # Two vocabularies, and which one is shared
+//!
+//! Windows' own words are never translated. Every flag is reported under the name Windows documents
+//! it by, the policy check's `HRESULT` under its own, and a chain in the order the engine returned
+//! it. `pittv3_capi::types` says why and it still holds: `CERT_TRUST_HAS_EXCLUDED_NAME_CONSTRAINT`
+//! has no `PathValidationStatus` to be, and inventing one would put a fabricated answer in a column
+//! of a comparison.
+//!
+//! The summary badge is a different thing and is shared. It is not a translation of a condition but
+//! a rollup of an *outcome* into the six [`TargetStatus`] values, and every CAPI outcome does land
+//! in one of the six — the way certval's own `NameConstraintsViolation` lands in `Invalid` without
+//! that being a loss. Two panes in one tab strip, describing one run, that give the same outcome
+//! different words and different colours defeat the comparison this application exists to make: a
+//! reader flipping between the tabs reads a difference in rendering as a difference in validation.
+//! So the rollup is drawn with [`status_parts`], which is the certval pane's own definition, and the
+//! flags that produced it sit underneath in Windows' words.
 //!
 //! # Why this is not in `pittv3-gui-lib`
 //!
@@ -20,9 +35,16 @@
 
 use dioxus::prelude::*;
 
-use pittv3_capi::{CapiChain, CapiElement, CapiVerification};
+use pittv3_capi::{
+    CapiChain, CapiElement, CapiError, CapiRevocationInfo, CapiVerification, CapiVerifyError,
+};
+use pittv3_gui_lib::gui_results::status_parts;
+use pittv3_lib::report::TargetStatus;
 
-use crate::capi_run::{blame, CapiRunResult, CapiTargetOutcome, EffectiveTrust};
+use crate::capi_run::{
+    blame, rollup, rollup_counts, rollup_label, says_revoked, CapiRunResult, CapiTargetOutcome,
+    EffectiveTrust, PARTIAL_CHAIN,
+};
 
 /// Styles for the parts of a CAPI verdict the application has no existing class for.
 ///
@@ -73,6 +95,18 @@ pub const CAPI_CSS: &str = r#"
   gap: 0.4rem;
   margin-top: 0.4rem;
 }
+/* Where the engine ranked a chain is not a verdict, so it is deliberately not badge-shaped: an
+   outlined pill cannot be misread as the green that means valid or the red that means invalid
+   beside it. */
+.capi-rank {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
 .capi-order { color: var(--muted); font-size: 0.75rem; margin-left: auto; }
 .capi-lower { margin-top: 0.4rem; }
 .capi-lower > summary { color: var(--muted); cursor: pointer; }
@@ -87,52 +121,89 @@ fn short_flag(name: &str) -> &str {
     name.strip_prefix("CERT_TRUST_").unwrap_or(name)
 }
 
-/// The badge class and word for one target's outcome.
+/// The badge class and word for one rollup, including the refusals that have none.
 ///
-/// Revoked is called out from merely invalid because it is the answer people come to this tool
-/// for. Read off the flag table rather than a literal bit, so the one definition of the flag stays
-/// the one definition.
+/// The word comes from [`rollup_label`], the one definition both surfaces read, so a badge and the
+/// log line for the same target cannot differ. Only the colour is this pane's to choose, and for a
+/// refusal it is the neutral grey the application already uses for "nothing to report here" — not
+/// `badge-unreadable`, which is a claim about the file and would say the wrong thing about a store
+/// that would not open.
+fn badge_parts(status: Option<TargetStatus>) -> (&'static str, &'static str) {
+    let class = match status {
+        Some(status) => status_parts(status).0,
+        None => "badge badge-nopaths",
+    };
+    (class, rollup_label(status))
+}
+
+/// The badge class and word for one target's outcome.
 fn target_badge(
-    outcome: &Result<CapiVerification, pittv3_capi::CapiVerifyError>,
+    outcome: &Result<CapiVerification, CapiVerifyError>,
 ) -> (&'static str, &'static str) {
-    match outcome {
-        Err(_) => ("badge badge-unreadable", "No verdict"),
-        Ok(v) if v.validated => ("badge badge-valid", "Valid"),
-        Ok(v) => {
-            let revoked = v.chains.iter().any(|c| {
-                c.elements.iter().any(|e| {
-                    e.trust_status
-                        .error_names()
-                        .contains(&"CERT_TRUST_IS_REVOKED")
-                })
-            });
-            match revoked {
-                true => ("badge badge-revoked", "Revoked"),
-                false => ("badge badge-invalid", "Invalid"),
-            }
-        }
+    badge_parts(rollup(outcome))
+}
+
+/// The badge class and word for one element's revocation outcome.
+///
+/// Three answers, not two. `dwRevocationResult` is zero for a clean check and an `HRESULT`
+/// otherwise, and `CRYPT_E_REVOKED` is an `HRESULT` — so keying the badge off "is it zero" put a
+/// revoked certificate under the amber word for "could not tell", inside a card whose own header
+/// said Revoked. A matched CRL entry counts as well: the engine found the serial, whatever it went
+/// on to return.
+fn revocation_parts(rev: &CapiRevocationInfo) -> (&'static str, &'static str) {
+    if rev.is_ok() {
+        return ("badge badge-valid", "not revoked");
+    }
+    let found_in_crl = rev.crl.as_ref().is_some_and(|crl| crl.entry.is_some());
+    match found_in_crl || says_revoked(&CapiError(rev.result)) {
+        true => ("badge badge-revoked", "revoked"),
+        false => ("badge badge-undetermined", "undetermined"),
+    }
+}
+
+/// The OCSP OID, the one value Windows documents for `pszRevocationOid`.
+const OCSP_OID: &str = "1.3.6.1.5.5.7.48.1";
+
+/// How the status was reached, for the line beside the badge — the counterpart of the method the
+/// certval pane prints there.
+///
+/// Only the OID Windows documents for this field is given a word; anything else is shown as the OID
+/// rather than guessed at. The CRL structure is deliberately not used to infer one, because Windows
+/// fills it from an OCSP response too, so its presence does not mean a CRL was read.
+fn revocation_method(rev: &CapiRevocationInfo) -> Option<String> {
+    match rev.oid.as_deref()? {
+        OCSP_OID => Some("OCSP".to_string()),
+        other => Some(other.to_string()),
     }
 }
 
 /// The CAPI results pane.
 #[component]
 pub fn CapiResultsView(result: CapiRunResult) -> Element {
-    let valid = result.valid();
-    let invalid = result.invalid();
-    let refused = result.refused();
+    let by_status: Vec<(&str, &str, usize)> = rollup_counts(&result.targets)
+        .into_iter()
+        .map(|(status, count)| {
+            let (class, label) = badge_parts(status);
+            (class, label, count)
+        })
+        .collect();
 
     rsx! {
         style { dangerous_inner_html: CAPI_CSS }
         div { class: "inspect-report",
             TrustBanner { result: result.clone() }
 
-            div { class: "results-summary",
-                span { strong { "{result.targets.len()}" } " target(s)" }
-                span { class: "summary-valid", "{valid} valid" }
-                span { class: "summary-invalid", "{invalid} invalid" }
-                if refused > 0 {
-                    span { "{refused} with no verdict" }
+            // Two strips, as the certval pane has: what the targets came to, then the terms the run
+            // came to it on. The first is drawn from the same rollup the cards below are, so the
+            // count and the card cannot say different things about one target.
+            div { class: "results-summary summary-targets",
+                span { "Targets: {result.targets.len()}" }
+                for (class , label , count) in by_status.iter() {
+                    span { key: "{label}", class: "{class}", "{label}: {count}" }
                 }
+            }
+
+            div { class: "results-summary",
                 if let Some(secs) = result.time_of_interest {
                     span {
                         "as at "
@@ -155,7 +226,7 @@ pub fn CapiResultsView(result: CapiRunResult) -> Element {
             }
 
             for target in result.targets.iter() {
-                TargetCard { target: target.clone() }
+                TargetCard { target: target.clone(), revocation_checked: result.revocation_checked }
             }
         }
     }
@@ -241,7 +312,12 @@ fn TrustBanner(result: CapiRunResult) -> Element {
 
 /// One target, its verdict and the chains the engine built for it.
 #[component]
-fn TargetCard(target: CapiTargetOutcome) -> Element {
+fn TargetCard(
+    target: CapiTargetOutcome,
+    /// The run's revocation scope, threaded down so a certificate with no outcome can say which
+    /// kind of nothing it is. The certval pane's `TargetCard` carries the same for the same reason.
+    revocation_checked: bool,
+) -> Element {
     let (badge_class, badge_label) = target_badge(&target.outcome);
 
     rsx! {
@@ -279,7 +355,7 @@ fn TargetCard(target: CapiTargetOutcome) -> Element {
                     }
 
                     for chain in verification.chains.iter().filter(|c| !c.lower_quality) {
-                        ChainTable { chain: chain.clone() }
+                        ChainTable { chain: chain.clone(), revocation_checked }
                     }
 
                     {
@@ -293,7 +369,7 @@ fn TargetCard(target: CapiTargetOutcome) -> Element {
                             details { class: "capi-lower",
                                 summary { "{lower.len()} lower-quality chain(s) the engine built and did not prefer" }
                                 for chain in lower.iter() {
-                                    ChainTable { chain: chain.clone() }
+                                    ChainTable { chain: chain.clone(), revocation_checked }
                                 }
                             }
                         })
@@ -306,13 +382,27 @@ fn TargetCard(target: CapiTargetOutcome) -> Element {
 
 /// One chain: its own trust status, then a row per certificate.
 #[component]
-fn ChainTable(chain: CapiChain) -> Element {
+fn ChainTable(chain: CapiChain, revocation_checked: bool) -> Element {
+    // The engine was asked for revocation below the root, so the last element of a chain that
+    // reached one has no outcome by design rather than by omission. A partial chain ends somewhere
+    // that is not a root, so nothing in it is exempt.
+    let root_row = match revocation_checked && !chain.trust_status.has_named_error(PARTIAL_CHAIN) {
+        true => chain.elements.len().checked_sub(1),
+        false => None,
+    };
     rsx! {
         div { class: "path-detail",
             div { class: "capi-chain-head",
                 strong { "Chain {chain.index}" }
+                // The chain's own verdict, on the palette the rest of the application uses for one.
+                // Which errors they were is in the chips beside it.
                 span {
-                    class: if chain.lower_quality { "badge badge-nopaths" } else { "badge badge-valid" },
+                    class: if chain.trust_status.is_ok() { "badge badge-valid" } else { "badge badge-invalid" },
+                    if chain.trust_status.is_ok() { "no errors" } else { "errors" }
+                }
+                // Where the engine ranked this chain, which is not a verdict: a preferred chain can
+                // be thoroughly broken, and a green badge reading "preferred" said it was not.
+                span { class: "capi-rank",
                     if chain.lower_quality { "lower quality" } else { "preferred" }
                 }
                 span { class: "hint", "{chain.elements.len()} certificate(s)" }
@@ -334,7 +424,11 @@ fn ChainTable(chain: CapiChain) -> Element {
                 }
                 tbody {
                     for (i , element) in chain.elements.iter().enumerate() {
-                        ElementRow { index: i, element: element.clone() }
+                        ElementRow {
+                            index: i,
+                            element: element.clone(),
+                            is_root_row: root_row == Some(i),
+                        }
                     }
                 }
             }
@@ -344,7 +438,13 @@ fn ChainTable(chain: CapiChain) -> Element {
 
 /// One certificate within a chain.
 #[component]
-fn ElementRow(index: usize, element: CapiElement) -> Element {
+fn ElementRow(
+    index: usize,
+    element: CapiElement,
+    /// Whether this is the root of a complete chain in a run that checked revocation below it, and
+    /// so has no revocation outcome by design.
+    is_root_row: bool,
+) -> Element {
     let failed = !element.trust_status.is_ok();
     rsx! {
         tr { class: if failed { "row-failure" } else { "" },
@@ -372,12 +472,27 @@ fn ElementRow(index: usize, element: CapiElement) -> Element {
             }
             td {
                 match &element.revocation {
-                    None => rsx! { span { class: "hint", "not checked" } },
-                    Some(rev) => rsx! {
-                        span {
-                            class: if rev.is_ok() { "badge badge-valid" } else { "badge badge-undetermined" },
-                            if rev.is_ok() { "Good" } else { "Not determined" }
+                    // The root of a complete chain was excluded from checking rather than missed, so
+                    // it gets the dash the certval pane leaves on its trust anchor row. Anything
+                    // else with no outcome was not looked at, which is a different fact and says so.
+                    None if is_root_row => rsx! { "\u{2014}" },
+                    None => rsx! {
+                        span { class: "badge badge-nopaths", "not checked" }
+                    },
+                    Some(rev) => {
+                        let (badge_class, badge_label) = revocation_parts(rev);
+                        let method = revocation_method(rev);
+                        rsx! {
+                        // The method beside the badge rather than inside it, as the certval pane
+                        // does it: a pill has to stay on one line to keep its shape.
+                        span { class: "rev-outcome",
+                            span { class: badge_class, "{badge_label}" }
+                            if let Some(method) = method {
+                                span { class: "rev-method", "{method}" }
+                            }
                         }
+                        // The engine's own sentence, for whatever it said beyond the three-way
+                        // answer above.
                         if !rev.is_ok() {
                             div { class: "hint", "{rev.describe()}" }
                         }
@@ -396,7 +511,7 @@ fn ElementRow(index: usize, element: CapiElement) -> Element {
                                 }
                             }
                         }
-                    },
+                    }}
                 }
             }
         }
@@ -434,5 +549,130 @@ fn FlagChips(status: pittv3_capi::CapiTrustStatus, errors_only: bool) -> Element
                 {format!("unrecognized 0x{unknown:08X}")}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capi_run::tests::faulted;
+    use pittv3_capi::{CapiCrlEntry, CapiCrlInfo};
+
+    const REVOKED_BIT: u32 = 0x0000_0004;
+    const UNTRUSTED_ROOT: u32 = 0x0000_0020;
+    const REVOCATION_UNKNOWN_BIT: u32 = 0x0000_0040;
+    const PARTIAL_CHAIN_BIT: u32 = 0x0001_0000;
+
+    const CRYPT_E_REVOKED: u32 = 0x8009_2010;
+    const CRYPT_E_NO_REVOCATION_CHECK: u32 = 0x8009_2012;
+    const CRYPT_E_REVOCATION_OFFLINE: u32 = 0x8009_2013;
+
+    /// Every rollup is drawn with the certval pane's own class and word. That is the whole point:
+    /// one outcome cannot wear two colours across the tab strip.
+    #[test]
+    fn badges_come_from_the_certval_table() {
+        assert_eq!(
+            target_badge(&Ok(faulted(0))),
+            status_parts(TargetStatus::Valid)
+        );
+        assert_eq!(
+            target_badge(&Ok(faulted(REVOCATION_UNKNOWN_BIT))),
+            status_parts(TargetStatus::ValidExceptRevocationUndetermined)
+        );
+        assert_eq!(
+            target_badge(&Ok(faulted(REVOKED_BIT))),
+            status_parts(TargetStatus::Revoked)
+        );
+        assert_eq!(
+            target_badge(&Ok(faulted(PARTIAL_CHAIN_BIT))),
+            status_parts(TargetStatus::NoPathsFound)
+        );
+        assert_eq!(
+            target_badge(&Ok(faulted(UNTRUSTED_ROOT))),
+            status_parts(TargetStatus::Invalid)
+        );
+        assert_eq!(
+            target_badge(&Err(CapiVerifyError::TargetNotParsed(0))),
+            status_parts(TargetStatus::ParseError)
+        );
+    }
+
+    /// A run failure is not a claim about the file, so it does not get the class that makes one.
+    #[test]
+    fn a_run_failure_is_not_badged_as_an_unreadable_file() {
+        let (class, label) = target_badge(&Err(CapiVerifyError::StoreFailed(0)));
+        assert_eq!((class, label), ("badge badge-nopaths", "No verdict"));
+        assert_ne!(class, status_parts(TargetStatus::ParseError).0);
+    }
+
+    /// `dwRevocationResult` is an `HRESULT` and `CRYPT_E_REVOKED` is one, so testing it for zero
+    /// put a revoked certificate under the amber word for "could not tell" — inside a card whose
+    /// own header said Revoked.
+    #[test]
+    fn a_revoked_certificate_is_not_undetermined() {
+        let revoked = CapiRevocationInfo {
+            result: CRYPT_E_REVOKED,
+            ..Default::default()
+        };
+        assert_eq!(
+            revocation_parts(&revoked),
+            ("badge badge-revoked", "revoked")
+        );
+
+        // A matched entry counts as well: the engine found the serial, whatever it went on to
+        // return for the check as a whole.
+        let matched = CapiRevocationInfo {
+            result: CRYPT_E_NO_REVOCATION_CHECK,
+            crl: Some(CapiCrlInfo {
+                entry: Some(CapiCrlEntry {
+                    serial: "0A".to_string(),
+                    revocation_date: None,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            revocation_parts(&matched),
+            ("badge badge-revoked", "revoked")
+        );
+
+        let offline = CapiRevocationInfo {
+            result: CRYPT_E_REVOCATION_OFFLINE,
+            ..Default::default()
+        };
+        assert_eq!(
+            revocation_parts(&offline),
+            ("badge badge-undetermined", "undetermined")
+        );
+
+        assert_eq!(
+            revocation_parts(&CapiRevocationInfo::default()),
+            ("badge badge-valid", "not revoked")
+        );
+    }
+
+    /// The method is a word for the one OID Windows documents in this field and the OID itself for
+    /// anything else, rather than being inferred from the CRL structure — which Windows fills from
+    /// an OCSP response too.
+    #[test]
+    fn the_revocation_method_is_named_or_shown_raw() {
+        let ocsp = CapiRevocationInfo {
+            oid: Some(OCSP_OID.to_string()),
+            ..Default::default()
+        };
+        assert_eq!(revocation_method(&ocsp).as_deref(), Some("OCSP"));
+
+        let unnamed = CapiRevocationInfo {
+            oid: Some("1.2.3.4".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(revocation_method(&unnamed).as_deref(), Some("1.2.3.4"));
+
+        let crl_only = CapiRevocationInfo {
+            crl: Some(CapiCrlInfo::default()),
+            ..Default::default()
+        };
+        assert_eq!(revocation_method(&crl_only), None);
     }
 }
