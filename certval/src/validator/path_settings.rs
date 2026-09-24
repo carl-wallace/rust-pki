@@ -278,7 +278,11 @@ pub const PS_MAX_PATH_LENGTH_CONSTRAINT: u8 = 15;
 /// `PS_CRL_TIMEOUT_DEFAULT` sets the maximum amount of time to spend downloading a CRL expressed in seconds.
 pub static PS_CRL_TIMEOUT_DEFAULT: Duration = Duration::from_secs(60);
 
-/// `PS_CRL_TIMEOUT` is used to a u64 that expresses the maximum amount of time to spend downloading a CRL expressed in seconds.
+/// `PS_CRL_TIMEOUT` bounds the time spent downloading a CRL from a distribution point, connection
+/// setup included. The default is [`PS_CRL_TIMEOUT_DEFAULT`].
+///
+/// Applied per request, so it overrides any client-level timeout on a client supplied through
+/// `HttpClientSource`: reqwest lets a per-request bound win over the client's own.
 pub static PS_CRL_TIMEOUT: &str = "psCrlTimeout";
 
 /// `PS_OCSP_TIMEOUT` bounds the time spent on a single OCSP request, connection setup included. It
