@@ -236,6 +236,7 @@ async fn post_ocsp(
     pe: &PkiEnvironment,
     uri_to_check: &str,
     enc_ocsp_req: &[u8],
+    timeout: Duration,
     max_bytes: u64,
 ) -> Result<Vec<u8>> {
     let client = match pe.http_client() {
@@ -250,7 +251,7 @@ async fn post_ocsp(
         .post(uri_to_check)
         .body(enc_ocsp_req.to_vec())
         .header(CONTENT_TYPE, "application/ocsp-request")
-        .timeout(Duration::from_secs(10))
+        .timeout(timeout)
         .send()
         .await
     {
@@ -522,6 +523,7 @@ pub async fn send_ocsp_request(
         pe,
         uri_to_check,
         enc_ocsp_req.as_slice(),
+        cps.get_ocsp_timeout(),
         cps.get_max_ocsp_fetch_bytes(),
     )
     .await
