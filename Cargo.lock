@@ -5204,6 +5204,7 @@ dependencies = [
  "anyhow",
  "base64ct",
  "certval 0.2.0-pre",
+ "clap",
  "cms",
  "der",
  "dioxus",

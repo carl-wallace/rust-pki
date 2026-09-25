@@ -1627,6 +1627,9 @@ mod tests {
     /// takes a folder of DER anchors and would reject it.
     #[test]
     fn the_replay_command_names_the_flags_the_cli_defines() {
+        use clap::Parser;
+        use pittv3_lib::args::Pittv3Args;
+
         let inputs = RunInputs {
             anchors: Some(b"anchors".to_vec()),
             graph: Some(b"graph".to_vec()),
@@ -1637,22 +1640,39 @@ mod tests {
             store: Some("dod_nipr_prod".to_string()),
             ..Default::default()
         };
-        let command = command_text(&inputs);
+        let paths = vec![vec![
+            (PATH_LOG_NAME.to_string(), b"m".to_vec()),
+            ("1-crl.crl".to_string(), b"a-crl".to_vec()),
+        ]];
+        let rendered = render_replay_command(&paths, &inputs);
 
-        // Every flag points into the subtree that actually holds the file: what the run was given
-        // under `inputs/`, what it worked out under `derived/`.
-        assert!(command.contains("--ta-cbor inputs/ta.cbor"), "{command}");
-        assert!(command.contains("-b inputs/ca.cbor"), "{command}");
-        assert!(command.contains("-s inputs/settings.json"), "{command}");
-        assert!(
-            command.contains("--end-entity-folder inputs/ee"),
-            "{command}"
-        );
-        assert!(command.contains("-v"), "{command}");
+        // Split on whitespace, which the bundle's fixed file names permit -- none of them carries a
+        // space, and that is part of why they are fixed rather than taken from what a run was given.
+        let line = rendered
+            .lines()
+            .find(|l| l.starts_with("pittv3"))
+            .unwrap_or_else(|| panic!("no command line in:\n{rendered}"));
+        let args = Pittv3Args::try_parse_from(line.split_whitespace())
+            .unwrap_or_else(|e| panic!("pittv3 rejects its own replay command: {line}\n{e}"));
+
+        // Every flag points into the subtree that actually holds the file -- what the run was given
+        // under `inputs/`, what it worked out under `derived/` -- and lands on the argument that
+        // reads that shape. Asserted on the parsed arguments rather than on the text, so a flag
+        // renamed in `args.rs` fails here rather than in someone's bundle.
+        assert_eq!(args.ta_cbor.as_deref(), Some("inputs/ta.cbor"));
+        assert_eq!(args.cbor.as_deref(), Some("inputs/ca.cbor"));
+        assert_eq!(args.settings.as_deref(), Some("inputs/settings.json"));
+        assert_eq!(args.end_entity_folder.as_deref(), Some("inputs/ee"));
+        assert_eq!(args.time_of_interest, 1_788_356_707);
+        assert_eq!(args.rev_inputs, ["derived/revocation"]);
+        assert!(args.validate_all);
+        // `--ta-cbor` and not `-t`: the latter reads a folder of DER anchors and would be handed a
+        // CBOR store. Both parse, so only the field says which one the command chose.
+        assert!(args.ta_folder.is_none());
+        // `--rev` and not `--crl-folder`: the index prunes what it is pointed at.
+        assert!(args.crl_folder.is_none());
         // the store label is a note to a reader, not an input the command can take
-        assert!(command.contains("dod_nipr_prod"), "{command}");
-        // `-t` would be handed a file it cannot read
-        assert!(!command.contains(" -t "), "{command}");
+        assert!(rendered.contains("dod_nipr_prod"), "{rendered}");
     }
 
     /// A bundle without the environment is still worth saving, but the file that tells a reader
