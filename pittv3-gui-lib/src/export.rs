@@ -415,7 +415,7 @@ pub fn zip_bundle(
         // than about either half of it.
         add(
             format!("{name}/{COMMAND_NAME}"),
-            render_replay_command(inputs).as_bytes(),
+            render_replay_command(paths, inputs).as_bytes(),
         )?;
         for (file, bytes) in given_entries(inputs)
             .iter()
@@ -565,6 +565,21 @@ fn render_readme(paths: &[Vec<ExportEntry>], inputs: &RunInputs, run_ms: Option<
     ));
 
     out.push_str(&format!(
+        "\nPinning the clock is only half of it. A pinned time also discards revocation data \n\
+         published after it -- correctly, since judging a moment with data published later would \n\
+         be the bug -- so a replay that re-fetches settles fewer certificates the longer this \n\
+         bundle sits. Supply the archived artifacts along with the time; see \"Checking revocation \n\
+         without fetching anything\" below. The command in {COMMAND_NAME} names them when this \n\
+         bundle has them.\n"
+    ));
+
+    out.push_str(
+        "\nThis is how to replay an archived run, not how to run PITTv3. Pinning a time of \n\
+         interest is almost always wrong otherwise -- validation is normally a question about now \n\
+         -- and belongs to the cases deliberately about a past moment, such as code signing.\n",
+    );
+
+    out.push_str(&format!(
         "\nCommand line\n------------\n\
          Run the command in {COMMAND_NAME}, from inside this folder.\n"
     ));
@@ -601,7 +616,10 @@ fn render_readme(paths: &[Vec<ExportEntry>], inputs: &RunInputs, run_ms: Option<
          --------------------------------------------\n\
          {DERIVED_DIR}/{REVOCATION_DIR}/{CRL_DIR}/ and {DERIVED_DIR}/{REVOCATION_DIR}/{OCSP_DIR}/ hold the revocation artifacts \n\
          this run used, gathered out of the path folders. Supply them on the controls that take \n\
-         CRLs and OCSP responses and a replay checks revocation from what is here, without \n\
+         CRLs and OCSP responses -- on the command line that is `--rev`, which reads what it is \n\
+         given and leaves it alone, unlike `--crl-folder`, an index a run writes to and prunes of \n\
+         anything not valid at the time of interest -- and a replay checks revocation from what is \n\
+         here, without \n\
          reaching a responder or a distribution point -- which is what a browser with no retrieval \n\
          service can do, and what makes a replay give the same answer later as the network moves \n\
          on. The same bytes are under {PATHS_DIR}/ beside the path each one settled.\n\
@@ -980,7 +998,19 @@ const CERT_SUFFIXES: [&str; 6] = [".der", ".cer", ".crt", ".pem", ".p7c", ".p7b"
 /// `-i` is always present. Without it a replay defaults the time of interest to whenever the replay
 /// happens, which silently makes it a different run -- the one failure mode most likely to be
 /// mistaken for a real difference in behavior.
-fn render_replay_command(inputs: &RunInputs) -> String {
+///
+/// `--rev` accompanies it whenever the bundle carries revocation artifacts, because pinning the
+/// clock alone makes a replay *decay*: a pinned time correctly discards every artifact published
+/// after it, so a replay that re-fetches finds newer CRLs and responses and settles fewer
+/// certificates the longer the bundle sits. Measured on one bundle re-run three times across half
+/// an hour: 57/4/1 valid-revoked-undetermined, then 56/4/2, then 55/4/3, drifting purely with one
+/// repository publishing a CRL six minutes after the pinned moment. The two flags are halves of one
+/// thing and are written together.
+///
+/// `--rev` rather than `--crl-folder`, which is an index a run writes to and prunes of anything not
+/// valid at the time of interest -- pointed at a bundle it would delete the bundle's own evidence.
+/// Artifacts named to `--rev` are read and left alone.
+fn render_replay_command(paths: &[Vec<ExportEntry>], inputs: &RunInputs) -> String {
     let has_settings = inputs
         .settings
         .as_ref()
@@ -1025,6 +1055,13 @@ fn render_replay_command(inputs: &RunInputs) -> String {
         cmd.push_str(&format!(" --end-entity-folder {INPUTS_DIR}/{EE_DIR}"));
     }
     cmd.push_str(&format!(" -i {}", inputs.time_of_interest));
+    // One entry for the subtree rather than one per kind: `--rev` traverses a folder and sorts what
+    // it finds by content, so naming the parent covers both and stays right if either half is
+    // empty. Only when there is something to name -- an empty folder is reported as an error by the
+    // reader, and a command that logs an error on a good bundle teaches a reader to ignore errors.
+    if !revocation_entries(paths).is_empty() {
+        cmd.push_str(&format!(" --rev {DERIVED_DIR}/{REVOCATION_DIR}"));
+    }
     if inputs.validate_all {
         cmd.push_str(" -v");
     }
@@ -1276,7 +1313,7 @@ mod tests {
 
     /// Helper: the replay command's text.
     fn command_text(inputs: &RunInputs) -> String {
-        render_replay_command(inputs)
+        render_replay_command(&[], inputs)
     }
 
     /// Helper: every entry name in an archive, sorted.
@@ -1894,6 +1931,43 @@ mod tests {
         assert!(!command.contains("inputs/ta.cbor"), "{command}");
         assert!(!command.contains("inputs/settings.json"), "{command}");
         assert!(!command.contains(" -v"), "{command}");
+        // nothing was examined, so there is nothing to supply and naming an empty folder would
+        // make the command log an error on a sound bundle
+        assert!(!command.contains("--rev"), "{command}");
+    }
+
+    /// Pinning the clock without supplying the data makes a replay decay: the pinned time correctly
+    /// discards every artifact published after it, so a re-fetching replay settles fewer
+    /// certificates the longer the bundle sits. The two flags are halves of one thing.
+    #[test]
+    fn the_replay_command_supplies_the_archived_revocation_data_with_the_pinned_clock() {
+        let paths = vec![vec![
+            (PATH_LOG_NAME.to_string(), b"m".to_vec()),
+            ("1-crl.crl".to_string(), b"a-crl".to_vec()),
+            ("2-ocsp-0.ocspResp".to_string(), b"a-response".to_vec()),
+        ]];
+        let inputs = RunInputs {
+            time_of_interest: 1_788_356_707,
+            ..Default::default()
+        };
+
+        let command = render_replay_command(&paths, &inputs);
+        assert!(command.contains("-i 1788356707"), "{command}");
+        // the subtree, not one entry per kind: `--rev` traverses and sorts by content
+        assert!(
+            command.contains(&format!("--rev {DERIVED_DIR}/{REVOCATION_DIR}")),
+            "{command}"
+        );
+        // never the index, which prunes what it is pointed at
+        assert!(!command.contains("--crl-folder"), "{command}");
+
+        // artifacts the bundle deliberately leaves behind are not artifacts to replay from
+        let unusable = vec![vec![
+            ("3-crl.crl.txt".to_string(), b"see http://...".to_vec()),
+            ("3-ocsp-0.failed.ocspResp".to_string(), b"bad".to_vec()),
+        ]];
+        let command = render_replay_command(&unusable, &inputs);
+        assert!(!command.contains("--rev"), "{command}");
     }
 
     /// A target is named by whatever named it -- a path on the desktop, an upload in the browser --
