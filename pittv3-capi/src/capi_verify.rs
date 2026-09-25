@@ -910,12 +910,14 @@ mod tests {
             .has_info(CERT_TRUST_IS_SELF_SIGNED));
     }
 
-    /// The same target with no anchors supplied: the PKITS root is not in this machine's store, so
-    /// the chain still builds but terminates in an untrusted root. This is the shape of a real
-    /// "Validate Using CAPI" run against material the platform does not trust, and it confirms a
-    /// failed path is a verdict rather than an error.
+    /// The same target with no anchors supplied, so the engine judges it by this machine's stores.
+    ///
+    /// No verdict is asserted: it depends on what those stores hold, and they vary from machine to
+    /// machine on purpose. What does not vary is that the run comes back as a verdict rather than
+    /// an error, with a chain that starts at the target -- the shape of a real "Validate Using CAPI"
+    /// run with the checkbox off, whichever way the verdict goes.
     #[test]
-    fn pkits_target_is_untrusted_against_machine_stores() {
+    fn pkits_target_gets_a_verdict_against_machine_stores() {
         let options = CapiOptions {
             revocation: RevocationChecking::None,
             time_of_interest: Some(TOI),
@@ -925,15 +927,14 @@ mod tests {
             ],
             ..Default::default()
         };
-        let result = verify(&pkits("ValidCertificatePathTest1EE.crt"), &options).unwrap();
+        let target = pkits("ValidCertificatePathTest1EE.crt");
+        let result = verify(&target, &options).unwrap();
 
-        assert!(!result.validated);
-        assert!(
-            result.trust_status.has_error(CERT_TRUST_IS_UNTRUSTED_ROOT),
-            "expected an untrusted root; got {}",
-            result.trust_status.describe()
+        let chain = result.chains.first().expect("a chain was built");
+        assert_eq!(
+            chain.elements[0].der, target,
+            "the chain starts at the target"
         );
-        assert!(!result.chains.is_empty(), "a chain was still built");
         assert!(result.target.is_some(), "the target parsed here as well");
     }
 
