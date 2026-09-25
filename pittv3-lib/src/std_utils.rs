@@ -151,18 +151,31 @@ pub fn load_ca_inputs<'a>(
         }
 
         let from_cbor_store = cert_source.len() == before && Path::new(path).is_file();
+        // How many certificates this store holds. `push` skips one the source already has, so
+        // the number logged below is how many an earlier input had not already supplied, and a
+        // store can hold hundreds and supply none.
+        let mut held = None;
+        // Whether this is the store whose partial paths were taken. Only a store that finds the
+        // source empty can be, and `adopted_at` stays set for the rest of the loop -- so every
+        // store after it was logging that first store's path count beside its own certificates,
+        // which is how a sound merge of fourteen stores came to report the same six paths for
+        // all of them.
+        let mut paths_adopted_here = false;
         if from_cbor_store {
             if 0 == before {
                 if let Some(store) = cbor_cert_store(path) {
+                    held = Some(store.len());
                     // Only claim the graph if the store actually carries paths. A store exported
                     // without them is certificates in a different container, and adopting it would
                     // otherwise leave the run with no graph at all.
                     if store.num_partial_paths() > 0 {
                         adopted_at = Some(store.len());
+                        paths_adopted_here = true;
                     }
                     *cert_source = store;
                 }
             } else if let Some(certs) = cbor_cert_store_certs(path) {
+                held = Some(certs.len());
                 for cf in certs {
                     cert_source.push(cf);
                 }
@@ -192,18 +205,25 @@ pub fn load_ca_inputs<'a>(
         let contributed = cert_source.len() - before;
         if from_installroot {
             info!(
-                "Read {contributed} CA certificate(s) from the InstallRoot stream at {path}, \
+                "Added {contributed} CA certificate(s) from the InstallRoot stream at {path}, \
                  signatures not verified"
             );
-        } else if from_cbor_store && adopted_at.is_some() {
+        } else if from_cbor_store && paths_adopted_here {
+            // Of the lines here, the only one that can state a path count: this store was the
+            // sole contributor, so the source's paths are the store's. Regeneration reports its
+            // own count (`edit.rs`), and a store that needs none reports it through `inspect`.
             info!(
                 "Read {contributed} certificate(s) and {} partial path(s) from the CBOR store at {path}",
                 cert_source.num_partial_paths()
             );
         } else if from_cbor_store {
-            info!("Read {contributed} certificate(s) from the CBOR store at {path}");
+            info!(
+                "Added {contributed} of {} certificate(s) from the CBOR store at {path}; \
+                 its partial paths were not taken",
+                held.unwrap_or(contributed)
+            );
         } else {
-            info!("Read {contributed} certificate(s) from {path}");
+            info!("Added {contributed} certificate(s) from {path}");
         }
     }
 
@@ -257,11 +277,15 @@ pub fn push_trust_anchor_input(
     // which is what `ta_cbor` does with the same bytes.
     if named_file && ta_store.len() == before {
         if let Some(anchors) = cbor_ta_store_anchors(path) {
+            // How many anchors this store holds. `push` skips one the source already has, so
+            // the number logged below is how many an earlier input had not already supplied: a
+            // 318 KB store loaded after the Microsoft set supplied none of its own.
+            let held = anchors.len();
             for cf in anchors {
                 ta_store.push(cf);
             }
             info!(
-                "Read {} trust anchor(s) from the CBOR store at {path}",
+                "Added {} of {held} trust anchor(s) from the CBOR store at {path}",
                 ta_store.len() - before
             );
         }
@@ -274,12 +298,13 @@ pub fn push_trust_anchor_input(
     #[cfg(feature = "installroot")]
     if named_file && ta_store.len() == before {
         if let Some(inputs) = crate::installroot::read_installroot(pe, path) {
+            let held = inputs.anchors.len();
             for cf in inputs.anchors {
                 ta_store.push(cf);
             }
             info!(
-                "Read {} trust anchor(s) and {} CA certificate(s) from the InstallRoot stream at \
-                 {path}, signatures not verified",
+                "Added {} of {held} trust anchor(s) and {} CA certificate(s) from the InstallRoot \
+                 stream at {path}, signatures not verified",
                 ta_store.len() - before,
                 inputs.cas.len()
             );

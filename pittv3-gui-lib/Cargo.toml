@@ -76,6 +76,12 @@ installroot = ["pittv3-lib/installroot"]
 
 [dev-dependencies]
 base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }
+# The replay command a bundle ships is parsed back with pittv3's own derived parser, so the flags
+# the test asserts are the definitions rather than a second list that can drift from them. `std`
+# because every flag the command emits is gated behind it, `clap` because that is what derives the
+# parser. Dev-dependencies, so neither joins the library graph the frontends are built from.
+clap = { version = "4.6.2", features = ["std", "derive"] }
+pittv3-lib = { path = "../pittv3-lib", features = ["clap", "std"] }
 
 [package.metadata.docs.rs]
 all-features = true
