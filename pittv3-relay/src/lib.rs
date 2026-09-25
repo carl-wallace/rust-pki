@@ -117,7 +117,10 @@ pub enum FetchError {
     /// are reported, as text where they are printable, because that is what identifies the real
     /// answer: a login page, a JSON error, a CDN block notice.
     ///
-    /// See [`looks_like_an_encoded_artifact`] for what this does and does not establish.
+    /// Named rather than linked, since `looks_like_an_encoded_artifact` is private and a public
+    /// item cannot link to one: the check asks whether the body opens as DER, PEM or bare base64,
+    /// never what the structure means. What a certificate, CRL or OCSP response *is* remains
+    /// certval's business and deliberately not this crate's.
     NotAnArtifact(String),
     /// The retrieval failed at the transport, e.g., connection refused or a TLS failure.
     Transport(String),
