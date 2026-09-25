@@ -11,6 +11,7 @@ use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use log::warn;
 use serde::Serialize;
 
+use pittv3_gui_lib::retrieval::is_usable_artifact;
 use pittv3_relay::{FetchError, FetchRequest, PeekRequest};
 
 use crate::config::ServiceState;
@@ -90,6 +91,37 @@ async fn fetch(
             if let Some(client) = client {
                 state.limiter.charge(client, 1, response.body.len() as u64);
             }
+
+            // Charged before this, deliberately: a caller does not get free retrievals by asking
+            // for things that are refused here, which would otherwise be the cheapest way to use
+            // the endpoint as a probe.
+            //
+            // An endpoint that returns whatever a public host sends is an open relay, and nothing
+            // about the *request* can distinguish one use from another, since a repository URI
+            // looks like any other URI. What can be distinguished is the answer: a run can fold a
+            // certificate, a CRL or an OCSP response and nothing else, so anything else is not
+            // something this service was asked to be. The body is discarded and the status says
+            // the repository is at fault, which it is -- it answered 2xx with something that is
+            // not an artifact.
+            //
+            // Only a successful response is judged. A 404's HTML body is not an artifact either,
+            // and saying so would replace the status the caller actually needs with a complaint
+            // about encoding.
+            if (200..300).contains(&response.status)
+                && !response.body.is_empty()
+                && !is_usable_artifact(&response.body)
+            {
+                warn!(
+                    "Discarding {} bytes from {}: not a certificate, CRL or OCSP response",
+                    response.body.len(),
+                    response.final_uri
+                );
+                return HttpResponse::BadGateway().json(ErrorBody::new(format!(
+                    "{} answered with something that is not a certificate, CRL or OCSP response",
+                    response.final_uri
+                )));
+            }
+
             HttpResponse::Ok().json(FetchResponseBody {
                 status: response.status,
                 content_type: response.content_type,
@@ -170,7 +202,10 @@ fn fetch_error_response(error: FetchError) -> HttpResponse {
         FetchError::Timeout(_) => {
             HttpResponse::GatewayTimeout().json(ErrorBody::new(error.to_string()))
         }
-        FetchError::TooLarge(_) | FetchError::Transport(_) => {
+        // NotAnArtifact joins these because it is the repository's problem in exactly the same
+        // sense: it answered, and what it answered with is not an artifact. A 200 carrying a
+        // login page is a gateway failure wearing a success code.
+        FetchError::TooLarge(_) | FetchError::Transport(_) | FetchError::NotAnArtifact(_) => {
             HttpResponse::BadGateway().json(ErrorBody::new(error.to_string()))
         }
         FetchError::Setup(_) => {

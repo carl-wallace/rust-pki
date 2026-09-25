@@ -5258,6 +5258,7 @@ dependencies = [
 name = "pittv3-relay"
 version = "0.2.0-pre.2"
 dependencies = [
+ "base64ct",
  "log",
  "reqwest 0.13.4",
  "rustls",

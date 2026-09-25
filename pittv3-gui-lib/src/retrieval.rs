@@ -39,6 +39,56 @@ use pittv3_lib::ocsp_match::{answered_cert_ids, answers_about, SHA1_CERT_ID_OID}
 
 use crate::validate::{certs_in, maybe_pem, PreparedValidation};
 
+/// Whether a retrieved body is something a run could use, which is the rule an open fetch endpoint
+/// needs and the only one it can apply without knowing what was asked for.
+///
+/// **Composed from the parsers the frontends already fold with**, so it cannot refuse a body a run
+/// would have accepted: [`certificates_in`] for anything carrying certificates (a bare DER or PEM
+/// certificate, a `.p7c` or `.p7b` message, bare base64 as DoD and FPKI tools publish it), a CRL,
+/// and an OCSP response. A body satisfying none of those is not an artifact any caller could fold,
+/// whatever it is.
+///
+/// **Why an endpoint wants this.** A relay bounded only by scheme, port, address and size will
+/// retrieve any public content within those bounds, from the deployment's own address and under
+/// its name. Refusing what no run could use is what separates a PKI relay from an open proxy, and
+/// it cannot be done by inspecting the request, because a repository URI looks like any other URI.
+///
+/// **An OCSP response is accepted whatever it reports.** `tryLater` and `unauthorized` are answers
+/// a caller needs to see, so this asks only whether the bytes are a response, never whether they
+/// are a useful one -- which is [`answered_cert_ids`]'s question and belongs to the fold, not here.
+///
+/// The cost is parsing a body twice, once to decide and once to use. That is the price of the
+/// endpoint not being an open relay, and it is paid on retrieval rather than on validation.
+pub fn is_usable_artifact(body: &[u8]) -> bool {
+    if !certificates_in(body).is_empty() {
+        return true;
+    }
+    if crl_in(body).is_some() {
+        return true;
+    }
+    use der::Decode;
+    x509_ocsp::OcspResponse::from_der(body).is_ok()
+}
+
+/// A CRL in either encoding, as [`MemoryCrlSource`] takes one.
+fn crl_in(body: &[u8]) -> Option<Vec<u8>> {
+    use der::Decode;
+    use x509_cert::certificate::Raw;
+    use x509_cert::crl::CertificateList;
+
+    // `Raw`, as every CRL path in certval decodes under. `Rfc5280` enforces constraints `Raw` does
+    // not, so reading here under the stricter profile would refuse CRLs the revocation checker
+    // goes on to accept -- the same profile trap that once dropped certificates with a serial
+    // longer than the RFC allows.
+    if CertificateList::<Raw>::from_der(body).is_ok() {
+        return Some(body.to_vec());
+    }
+    let der = maybe_pem(body).ok()?;
+    CertificateList::<Raw>::from_der(&der)
+        .is_ok()
+        .then_some(der)
+}
+
 /// Extracts the certificates from a retrieved body, which by convention is either a single
 /// DER-encoded certificate or a certs-only SignedData message, i.e., a `.p7c`. The message form is
 /// tried first because both begin with a SEQUENCE and only the message parses as one.
@@ -798,4 +848,42 @@ mod tests {
     // The store's own behaviour -- issuer matching, refusing a body that is not a CRL, clones
     // sharing contents, and `add_crl` through the trait -- is tested in certval beside the type,
     // against real CRL and certificate fixtures. What stays here is this crate's upload path.
+
+    /// Everything a run can fold is accepted, in every encoding a repository publishes. This is
+    /// the direction that matters most: the check guards an endpoint, so a false refusal makes a
+    /// working repository look unreachable, which is how every over-eager rule proposed for this
+    /// has failed.
+    #[test]
+    fn every_artifact_a_run_can_fold_is_usable() {
+        use base64ct::{Base64, Encoding as _};
+
+        let cert = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der");
+        let cert_pem = include_bytes!("../../certval/tests/examples/amazon.com/2-target.pem");
+        let crl_der = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.der.crl");
+        let crl_pem = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.pem.crl");
+        let ocsp = include_bytes!("../../certval/tests/examples/ocsp_dod/47-ocsp-resp.der");
+
+        assert!(is_usable_artifact(cert), "a DER certificate");
+        assert!(is_usable_artifact(cert_pem), "a PEM certificate");
+        assert!(is_usable_artifact(crl_der), "a DER CRL");
+        assert!(is_usable_artifact(crl_pem), "a PEM CRL");
+        assert!(is_usable_artifact(ocsp), "an OCSP response");
+
+        // Bare base64 with no armor, as DoD and FPKI tools publish it.
+        let bare = Base64::encode_string(cert);
+        assert!(is_usable_artifact(bare.as_bytes()), "bare base64");
+    }
+
+    /// And the direction the endpoint exists for: an answer no run could fold is not something
+    /// this service was asked to retrieve, whatever else it may be.
+    #[test]
+    fn an_answer_no_run_could_fold_is_not_usable() {
+        assert!(!is_usable_artifact(
+            b"<!DOCTYPE html><html><body>Sign in</body></html>"
+        ));
+        assert!(!is_usable_artifact(b"{\"error\":\"forbidden\"}"));
+        assert!(!is_usable_artifact(b"Not Found"));
+        assert!(!is_usable_artifact(&[0u8; 512]));
+        assert!(!is_usable_artifact(b""));
+    }
 }
