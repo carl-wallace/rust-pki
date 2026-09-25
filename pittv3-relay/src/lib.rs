@@ -112,6 +112,16 @@ pub enum FetchError {
     TooLarge(u64),
     /// The request body exceeded the cap.
     RequestTooLarge(usize),
+    /// A successful response carried a body that is not an encoded ASN.1 artifact in any of the
+    /// three encodings a repository publishes, so it is not what was asked for. The opening bytes
+    /// are reported, as text where they are printable, because that is what identifies the real
+    /// answer: a login page, a JSON error, a CDN block notice.
+    ///
+    /// Named rather than linked, since `looks_like_an_encoded_artifact` is private and a public
+    /// item cannot link to one: the check asks whether the body opens as DER, PEM or bare base64,
+    /// never what the structure means. What a certificate, CRL or OCSP response *is* remains
+    /// certval's business and deliberately not this crate's.
+    NotAnArtifact(String),
     /// The retrieval failed at the transport, e.g., connection refused or a TLS failure.
     Transport(String),
     /// The HTTP client could not be constructed, e.g., the TLS backend failed to initialize.
@@ -124,6 +134,9 @@ impl core::fmt::Display for FetchError {
             FetchError::Policy(e) => write!(f, "refused by policy: {e}"),
             FetchError::Timeout(after) => write!(f, "timed out after {after:?}"),
             FetchError::TooLarge(cap) => write!(f, "response exceeded the {cap}-byte cap"),
+            FetchError::NotAnArtifact(opening) => {
+                write!(f, "response is not DER, PEM or base64; it begins {opening}")
+            }
             FetchError::RequestTooLarge(cap) => write!(f, "request exceeded the {cap}-byte cap"),
             FetchError::Transport(e) => write!(f, "transport failure: {e}"),
             FetchError::Setup(e) => write!(f, "could not build an HTTP client: {e}"),
@@ -238,6 +251,21 @@ impl Relay {
         let last_modified = header_string(&response, reqwest::header::LAST_MODIFIED);
         let body = read_capped_body(response, max_bytes, &request.uri, timeout).await?;
 
+        // Only for a response that claims to have succeeded. A non-2xx status is information the
+        // caller wants -- a 404 tells a user the repository moved -- and refusing its HTML body
+        // would replace a useful status with a complaint about encoding. An empty body is left
+        // alone for the same reason: the status describes it better than this can.
+        if (200..300).contains(&status)
+            && !body.is_empty()
+            && !looks_like_an_encoded_artifact(&body)
+        {
+            debug!(
+                "Discarded the body from {} as no encoded artifact",
+                request.uri
+            );
+            return Err(FetchError::NotAnArtifact(describe_opening(&body)));
+        }
+
         Ok(FetchResponse {
             status,
             content_type,
@@ -339,6 +367,91 @@ fn header_string(
 ///
 /// `Content-Length` is supplied by the responder and absent on chunked responses, so it serves only
 /// as a fast-fail hint; the running count over the streamed chunks is the guard that matters.
+/// Whether a body begins as an encoded ASN.1 artifact, in any of the three encodings a repository
+/// publishes: raw DER, PEM, or bare base64 with no armour.
+///
+/// **This is what keeps the relay from being an open proxy.** Scheme, port and address limits say
+/// *where* it may fetch, and nothing says *what* may come back, so without this a caller can
+/// retrieve any public content up to the byte cap and the deployment is the fetcher of record.
+/// Every artifact a repository publishes is an ASN.1 SEQUENCE in one of these three wrappings, so
+/// admitting them and refusing the rest is the narrowest rule that does not have to enumerate the
+/// repositories of the world.
+///
+/// **It is an encoding check, not a content check.** `0x30` is the tag for a constructed SEQUENCE
+/// and says nothing about what the structure contains; what a certificate, CRL or OCSP response
+/// *means* is certval's business and deliberately not this crate's. Note `0x30` is also ASCII
+/// `'0'`, so a body opening with that digit is admitted: this is a cheap prefix filter, not a
+/// parser, and its job is to refuse the HTML page rather than to prove the bytes are a certificate.
+///
+/// Bare base64 is accepted because DoD and FPKI tooling publishes it, and a relay admitting only
+/// DER and PEM would silently discard material the rest of the stack reads today
+/// (`pittv3_lib::der_or_pem::decode_bare_base64`). It is checked by decoding the first four
+/// characters and looking for the SEQUENCE tag, rather than by matching a prefix like `MII`, which
+/// would cover only the two-byte-length case and guess at the others.
+/// The pre-encapsulation boundary, the same prefix `pittv3_lib::der_or_pem` matches, so the two
+/// cannot disagree about whether a buffer is armored. Five hyphens is what RFC 7468 requires and
+/// what that decoder accepts; a body with any other count is refused there too, so refusing it
+/// here costs nothing.
+const ARMOR: &[u8] = b"-----BEGIN";
+
+fn looks_like_an_encoded_artifact(body: &[u8]) -> bool {
+    if body.first() == Some(&0x30) {
+        return true;
+    }
+    // Searched within an opening window rather than required at byte zero: RFC 7468 permits text
+    // before the encapsulation boundary and tools emit it, so `pittv3_lib::der_or_pem` looks for
+    // the armor anywhere in the buffer. Matching only at the front would refuse a body the rest of
+    // the stack reads. The window is what keeps that from becoming a hole: a preamble is short,
+    // while armor appended to the end of an arbitrary blob is how this check would be evaded.
+    const PREAMBLE: usize = 1024;
+    let window = &body[..body.len().min(PREAMBLE)];
+    if window.windows(ARMOR.len()).any(|w| w == ARMOR) {
+        return true;
+    }
+
+    // Bare base64 gets the same allowance, for the same reason: the first four characters after
+    // any preamble, not the first four characters of the body.
+    let after_preamble = match window.windows(ARMOR.len()).position(|w| w == ARMOR) {
+        Some(i) => &body[i..],
+        None => body,
+    };
+    let head: Vec<u8> = after_preamble
+        .iter()
+        .copied()
+        .filter(|b| !b.is_ascii_whitespace() && *b != b'-')
+        .take(4)
+        .collect();
+    if head.len() < 4 {
+        return false;
+    }
+    match core::str::from_utf8(&head) {
+        Ok(text) => {
+            use base64ct::Encoding as _;
+            matches!(base64ct::Base64::decode_vec(text), Ok(d) if d.first() == Some(&0x30))
+        }
+        Err(_) => false,
+    }
+}
+
+/// The opening of a body, as the shortest thing that identifies what was really served.
+///
+/// Printable ASCII is returned as text, because that is the case worth reading: `<!DOCTYPE html`
+/// or `{"error"` names the answer immediately. Anything else is reported as hex, since a
+/// half-decoded binary prefix tells a reader less than the bytes do.
+fn describe_opening(body: &[u8]) -> String {
+    const WINDOW: usize = 24;
+    let head = &body[..body.len().min(WINDOW)];
+    if head.iter().all(|b| b.is_ascii_graphic() || *b == b' ') {
+        format!("{:?}", String::from_utf8_lossy(head))
+    } else {
+        head.iter().fold(String::new(), |mut acc, b| {
+            use core::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+    }
+}
+
 async fn read_capped_body(
     mut response: reqwest::Response,
     max_bytes: u64,
@@ -399,6 +512,67 @@ mod tests {
         // trusted to stay in step by inspection.
         assert_eq!(narrowed(Some(1_024u64), 16 * 1024), 1_024);
         assert_eq!(narrowed(Some(u64::MAX), 16 * 1024), 16 * 1024);
+    }
+
+    /// The three encodings a repository publishes, and the things it serves instead when it is
+    /// not serving the artifact. This is the rule that keeps the relay from being an open proxy,
+    /// so both directions matter: admitting all three, and refusing the rest.
+    #[test]
+    fn a_body_is_recognized_as_an_encoded_artifact_or_refused() {
+        // DER: the tag for a constructed SEQUENCE, which every published artifact is.
+        assert!(looks_like_an_encoded_artifact(&[0x30, 0x82, 0x01, 0x0a]));
+        // PEM, including the leading whitespace servers introduce and PEM readers tolerate.
+        assert!(looks_like_an_encoded_artifact(
+            b"-----BEGIN CERTIFICATE-----\nMIIB"
+        ));
+        assert!(looks_like_an_encoded_artifact(
+            b"\r\n  -----BEGIN X509 CRL-----"
+        ));
+
+        // Bare base64, which DoD and FPKI tooling publishes. `MII` is the two-byte-length case
+        // and `MIG` the one-byte; both decode to the SEQUENCE tag, which is what is checked
+        // rather than the prefix.
+        assert!(looks_like_an_encoded_artifact(b"MIIBkTCCATegAwIBAgI"));
+        assert!(looks_like_an_encoded_artifact(b"MIGfMA0GCSqGSIb3DQ"));
+        // And wrapped, as those tools emit it.
+        assert!(looks_like_an_encoded_artifact(b"  MIIB\nkTCC\nATeg"));
+
+        // What a repository returns when it is not serving the artifact.
+        assert!(!looks_like_an_encoded_artifact(b"<!DOCTYPE html><html>"));
+        assert!(!looks_like_an_encoded_artifact(
+            b"{\"error\":\"not found\"}"
+        ));
+        assert!(!looks_like_an_encoded_artifact(b"Not Found"));
+        assert!(!looks_like_an_encoded_artifact(b""));
+        // Whitespace is skipped for the text encodings and not for DER, where a leading byte is
+        // data rather than layout.
+        assert!(!looks_like_an_encoded_artifact(&[0x20, 0x30, 0x82]));
+
+        // A preamble before the boundary is permitted by RFC 7468 and emitted by real tools, so
+        // it must not cost a repository its artifact. `der_or_pem` finds the armor anywhere.
+        assert!(looks_like_an_encoded_artifact(
+            b"Subject: CN=Example CA\nIssuer: CN=Example Root\n\n-----BEGIN CERTIFICATE-----\nMIIB"
+        ));
+        // But only within the opening window: armor appended to a blob is how this would be
+        // evaded, and that is the case the bound exists for.
+        let mut blob = vec![b'x'; 4096];
+        blob.extend_from_slice(b"-----BEGIN CERTIFICATE-----");
+        assert!(!looks_like_an_encoded_artifact(&blob));
+    }
+
+    /// The opening is reported so a reader learns what was really served. Text stays text, because
+    /// `<!DOCTYPE html` names the answer at a glance; anything else is hex, because a half-decoded
+    /// binary prefix says less than the bytes.
+    #[test]
+    fn the_opening_of_a_rejected_body_identifies_it() {
+        assert_eq!(
+            describe_opening(b"<!DOCTYPE html><html lang=\"en\">"),
+            "\"<!DOCTYPE html><html lan\""
+        );
+        assert_eq!(describe_opening(&[0x00, 0x01, 0xff]), "0001ff");
+        // Short bodies are not padded, and the window bounds long ones.
+        assert_eq!(describe_opening(b"nope"), "\"nope\"");
+        assert_eq!(describe_opening(&[b'a'; 100]).len(), 26);
     }
 
     #[tokio::test]

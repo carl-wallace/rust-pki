@@ -33,6 +33,10 @@ reqwest = { version = "0.13.4" }
 rustls = { version = "0.23.42", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["logging", "ring", "tls12"] }
 serde = { version = "1.0.228", features = ["derive"] }
+# Encoding only, and the same crate the rest of the workspace uses so one resolves. Recognizing
+# base64 is not knowing what a certificate is: some DoD and FPKI tools publish artifacts as bare
+# base64 with no armour, and a relay that admitted only DER and PEM would discard them.
+base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }
 # "net" for the address resolution the policy performs itself before a socket is opened, "time" for
 # the per-request timeout.
 tokio = { version = "1.52.3", features = ["net", "time"] }

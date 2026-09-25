@@ -37,6 +37,14 @@ pub enum PolicyError {
     Address(IpAddr),
     /// Redirect encountered when redirects are not permitted, or the hop limit was exhausted.
     Redirect(String),
+    /// URI carries credentials in its authority, as with `https://user:secret@repo.example/ca.crl`.
+    ///
+    /// Refused rather than stripped. A PKI repository URI does not carry credentials -- no AIA,
+    /// SIA, CRL distribution point or OCSP responder URI in a real certificate has them -- so
+    /// accepting one means a caller can hand this service a secret to deliver somewhere, which is
+    /// not retrieval. The host reported is the one that would have been contacted, since the point
+    /// of the form is that it is not the one a reader sees.
+    Userinfo(String),
 }
 
 impl core::fmt::Display for PolicyError {
@@ -50,6 +58,9 @@ impl core::fmt::Display for PolicyError {
             PolicyError::Resolution(h) => write!(f, "could not resolve host: {h}"),
             PolicyError::Address(a) => write!(f, "address not permitted: {a}"),
             PolicyError::Redirect(u) => write!(f, "redirect not permitted: {u}"),
+            PolicyError::Userinfo(h) => {
+                write!(f, "URI carries credentials; host would have been {h}")
+            }
         }
     }
 }
@@ -155,6 +166,16 @@ impl NetworkPolicy {
             Some(h) => h.to_ascii_lowercase(),
             None => return Err(PolicyError::MissingHost),
         };
+
+        // Ahead of the host lists, because the reason to refuse is not which host it names. A URI
+        // of the form `https://crl.disa.mil@evil.example/` reads as one host and resolves to
+        // another, so a deployment that logs or displays what it was asked for reports the part
+        // before the `@` while contacting the part after it. The host checks below are correct
+        // about `evil.example`; everything a person reads is not.
+        if !url.username().is_empty() || url.password().is_some() {
+            debug!("Rejected {uri} because it carries credentials in its authority");
+            return Err(PolicyError::Userinfo(host));
+        }
         if self
             .deny_hosts
             .iter()
@@ -379,6 +400,33 @@ mod tests {
             let parsed: IpAddr = addr.parse().unwrap();
             assert!(is_public_address(parsed), "{addr} should be reachable");
         }
+    }
+
+    /// Credentials in the authority are refused, and the refusal names the host that would have
+    /// been contacted rather than the one the URI appears to name. The second assertion is the
+    /// reason the first one matters: the host checks are already correct about `evil.example`, so
+    /// nothing here is about reaching a forbidden destination. It is about a caller handing the
+    /// relay a secret to deliver, and about every log line that echoes the URI reading as DISA.
+    #[test]
+    fn check_uri_refuses_credentials_in_the_authority() {
+        let policy = NetworkPolicy::default();
+
+        assert_eq!(
+            policy
+                .check_uri("https://user:secret@repo.example/ca.crl")
+                .unwrap_err(),
+            PolicyError::Userinfo("repo.example".to_string())
+        );
+        // A username with no password is the same capability and the same misreading.
+        assert_eq!(
+            policy
+                .check_uri("https://crl.disa.mil@evil.example/ca.crl")
+                .unwrap_err(),
+            PolicyError::Userinfo("evil.example".to_string())
+        );
+        // An `@` that is not an authority delimiter belongs to the path, and is left alone: a
+        // repository is free to serve one.
+        assert!(policy.check_uri("http://repo.example/a@b/ca.crl").is_ok());
     }
 
     #[test]
