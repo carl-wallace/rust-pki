@@ -2484,7 +2484,7 @@ pub(crate) fn App() -> Element {
                                     label: "CAPI uses this run's trust anchors",
                                     name: "capi-own-anchors",
                                     sig: s_capi_own_anchors,
-                                    title: "On hands this run's trust anchors to the Windows chain engine as its only roots, so both validators judge the same material and a difference in the answer is a difference between them. Off asks whether this machine would accept the certificate, using the Windows certificate stores — which is the question PITTv2's CAPI panel asked.",
+                                    title: "On: the Windows chain engine uses this run's trust anchors as its only roots, and is given this run's CA certificates as intermediates. Windows may still take intermediates from this machine's CA store or fetch them through AIA, so a difference from certval can come from the intermediates each one had as well as from the validators themselves. Off: whether this machine would accept the certificate, using only the Windows certificate stores — the question PITTv2's CAPI panel asked.",
                                 }
                             }
                             RunButton {

@@ -31,9 +31,15 @@ use pittv3_lib::std_utils::{cbor_cert_store_certs, cbor_ta_store_anchors};
 /// Which trust the chain engine is asked to use.
 ///
 /// The checkbox beside the button. Both answers are worth having and they answer different
-/// questions: [`RunAnchors`] asks whether this material validates, and [`MachineStores`] asks
-/// whether *this machine* would accept the target, which is what PITTv2's CAPI panel asked and what
-/// a reader chasing a real application's failure wants to know.
+/// questions: [`RunAnchors`] asks whether the target validates to this run's anchors, and
+/// [`MachineStores`] asks whether *this machine* would accept the target, which is what PITTv2's
+/// CAPI panel asked and what a reader chasing a real application's failure wants to know.
+///
+/// [`RunAnchors`] replaces only the roots. Windows rejects an engine that has both an exclusive
+/// root store and a restricted store for everything else, and in exclusive-root mode it still
+/// searches this machine's CA store and follows AIA for intermediates. So a path can include
+/// intermediates the run never supplied, and a disagreement with certval can come from the
+/// intermediates each one had as well as from the validators themselves.
 ///
 /// [`RunAnchors`]: CapiTrust::RunAnchors
 /// [`MachineStores`]: CapiTrust::MachineStores
@@ -92,30 +98,24 @@ pub fn gather(args: &Pittv3Args, trust: CapiTrust) -> CapiRunInputs {
     cert_paths.extend(args.ca_folder.iter());
     cert_paths.extend(args.ca_inputs.iter());
 
-    let mut additional_certs = vec![];
-    for p in cert_paths {
-        collect_ders(Path::new(p), Shape::Certificates, &mut additional_certs);
-    }
-
     let anchor_sources: Vec<String> = anchor_paths.iter().map(|p| (*p).clone()).collect();
 
-    let trust_anchors = match trust {
-        CapiTrust::MachineStores => {
-            // The anchors still go in, as candidates rather than as trust. Without them a chain
-            // that needs the store's intermediate to reach a machine-trusted root cannot be built,
-            // and the run would report a partial chain about the material rather than an answer
-            // about this machine.
-            for p in anchor_paths {
-                collect_ders(Path::new(p), Shape::Anchors, &mut additional_certs);
-            }
-            vec![]
-        }
+    // The anchor and CA inputs are read only when the run's own material is what is being tested.
+    // With the checkbox off the question is whether *this machine* would accept the target, so the
+    // engine builds from the Current User root and intermediate stores alone. Offering the run's
+    // CA pool as candidates here would answer for a chain this machine could not build by itself.
+    let (trust_anchors, additional_certs) = match trust {
+        CapiTrust::MachineStores => (vec![], vec![]),
         CapiTrust::RunAnchors => {
+            let mut additional_certs = vec![];
+            for p in cert_paths {
+                collect_ders(Path::new(p), Shape::Certificates, &mut additional_certs);
+            }
             let mut anchors = vec![];
             for p in anchor_paths {
                 collect_ders(Path::new(p), Shape::Anchors, &mut anchors);
             }
-            anchors
+            (anchors, additional_certs)
         }
     };
 
@@ -797,19 +797,19 @@ pub(crate) mod tests {
         assert_eq!(inputs.additional_certs.len(), 1);
     }
 
-    /// With the machine's stores chosen, nothing is trusted by the run — but the anchors still go
-    /// in as candidates, so a chain that needs one to reach a machine-trusted root can still be
-    /// built.
+    /// With the machine's stores chosen, the run contributes its targets and nothing else: neither
+    /// its anchors nor its CA pool reach the engine, as trust or as candidates.
     #[test]
-    fn machine_stores_trust_nothing_from_the_run_but_still_take_its_certificates() {
+    fn machine_stores_take_nothing_from_the_run_but_its_targets() {
         let args = args_for(
             &["ValidCertificatePathTest1EE.crt"],
             &["TrustAnchorRootCertificate.crt"],
             &["GoodCACert.crt"],
         );
         let inputs = gather(&args, CapiTrust::MachineStores);
+        assert_eq!(inputs.targets.len(), 1);
         assert!(inputs.trust_anchors.is_empty());
-        assert_eq!(inputs.additional_certs.len(), 2);
+        assert!(inputs.additional_certs.is_empty());
     }
 
     /// The end-to-end shape the button produces for a path that validates.
@@ -831,24 +831,31 @@ pub(crate) mod tests {
         assert!(text.ends_with("CAPI: 1 Valid"), "{text}");
     }
 
-    /// The same material against this machine's stores, where the PKITS root is not trusted. The
-    /// run still has an answer, and the answer names the reason.
+    /// The same material against this machine's stores, with the run's own CA and anchor withheld.
+    ///
+    /// No verdict is asserted: it depends on what the Current User stores hold, and those vary from
+    /// machine to machine on purpose. What does not vary is that the run says whose trust it used
+    /// and that it supplied nothing of its own.
     #[test]
-    fn an_untrusted_run_says_why() {
+    fn a_machine_stores_run_supplies_nothing_of_its_own() {
         let args = args_for(
             &["ValidCertificatePathTest1EE.crt"],
             &["TrustAnchorRootCertificate.crt"],
             &["GoodCACert.crt"],
         );
-        let lines = execute(&args, CapiTrust::MachineStores).to_lines();
+        let result = execute(&args, CapiTrust::MachineStores);
+        let lines = result.to_lines();
         let text = lines.join("\n");
 
-        assert!(text.contains("this machine's certificate stores"), "{text}");
-        // An untrusted root is a verdict about trust rather than a failure to build, so it rolls
-        // up to `Invalid` and not to the absence of a path.
-        assert!(text.contains("result: Invalid"), "{text}");
-        assert!(text.contains("CERT_TRUST_IS_UNTRUSTED_ROOT"), "{text}");
-        assert!(text.ends_with("CAPI: 1 Invalid"), "{text}");
+        assert_eq!(result.trust, EffectiveTrust::MachineStores);
+        assert_eq!(result.supporting_count, 0);
+        assert!(
+            lines[0].contains("this machine's certificate stores, with 0 supporting"),
+            "{text}"
+        );
+        assert!(!result.fell_back(), "{text}");
+        assert_eq!(result.targets.len(), 1);
+        assert!(text.contains("result: "), "{text}");
     }
 
     /// The header says which way revocation went, because the same target can be valid one way and
