@@ -1,11 +1,11 @@
 //! CRLs held in memory for the revocation checker to consult
 //!
-//! This lives apart from `crl_source` -- named rather than linked, since that module is gated on
-//! `std` and the link would not resolve in the builds this one exists for -- for the reason
-//! [`revocation_cache`](crate::source::revocation_cache) does: it needs nothing that one needs. A
-//! CRL here is a buffer in a vector, with no filesystem and no network behind it, so it is
-//! available wherever revocation checking is — including targets that take this crate without
-//! `std`, which is where a folder of files cannot follow.
+//! This lives apart from `crl_source` for the reason `revocation_cache` does: it needs nothing that
+//! one needs. Both are named rather than linked, because `crl_source` is gated on `std` and
+//! `revocation_cache` on `revocation`, while this module is ungated, so neither link would resolve
+//! in the builds this one exists for. A CRL here is a buffer in a vector, with no filesystem and no
+//! network behind it, so it is available wherever revocation checking is — including targets that
+//! take this crate without `std`, which is where a folder of files cannot follow.
 //!
 //! That absence is the whole reason this exists. A caller that retrieves CRLs itself — a browser
 //! frontend fetching through a relay, a service handed revocation data with the request, a test

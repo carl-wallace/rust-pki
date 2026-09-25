@@ -65,7 +65,7 @@ default alongside `webpki`), `pqc`, `webpki`, `capi`, `rsa`, `eddsa` and `sha1_s
 are off by default; a build takes only the algorithms it intends to trust. `sha1_sig` admits
 sha1WithRSAEncryption signatures, for certificates still in service that carry them.
 
-### Trust material and certificate sources
+### Trust anchor and certificate sources
 
 Trust anchors and intermediate CA certificates load from folders or individual files, DER or PEM,
 including PEM files holding several concatenated objects. A **CBOR store** serializes a set of CA

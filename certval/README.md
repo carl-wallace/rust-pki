@@ -50,6 +50,16 @@ Other:
 The suite of [PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3) applications uses the `certval` library and can serve as sample code for usage in command
 line, desktop, and WASM contexts.
 
+## Trust stores
+
+`certval` takes trust anchors and CA certificates; it does not ship any. The
+[certval-stores](https://github.com/carl-wallace/certval-stores) family supplies them as provider
+crates — one per trust community, each embedding anchors and a CA store with partial paths already
+computed, composable into a `PkiEnvironment`. Nothing in a consumer's build fetches anything: the
+material is committed, and refreshing it from its publisher happens in that repository rather than
+at build time. How that works, and what signs each source, is
+[MAINTENANCE.md](https://github.com/carl-wallace/certval-stores/blob/main/MAINTENANCE.md).
+
 ## ⚠️ Security Warning
 
 The implementation contained in this crate has never been independently audited.
