@@ -1516,9 +1516,9 @@
     CN=www.intel.com,OU=OnDie CA Root Cert Signing,O=Intel Corporation,L=Santa Clara,ST=CA,C=US  sha256:beb40bb7507b33967226aa80e084749fbb6593893c642e818d682e9a8d07fc24
     CN=www.intel.com,OU=TPM EK root cert signing,O=Intel Corporation,L=Santa Clara,ST=CA,C=US  sha256:2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0
   ta_store  tpm_ta.cbor  42526 bytes  sha256:e511b7c2ac7f3dafecce458cedf0d889b53aca55cd70227802ca7c5fc084d97d
-  ca_store  tpm_ca.cbor  4444170 bytes  sha256:12f37de5f679e98c6484886ad581ef72eb678987aaab79d131e217ad7de91056
+  ca_store  tpm_ca.cbor  3742268 bytes  sha256:9f1657bc70ee59f1b3442014803a21adf116afe597915e12c45a88016fa48135
 
-[webpki]  collected=2026-08-13
+[webpki]  collected=2026-09-25
   anchors 170
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
@@ -1691,5 +1691,5 @@
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
   ta_store  webpki_ta.cbor  188725 bytes  sha256:dfb2612adbcbda6f751171b25fb29ce8e67006238564c18f771948a2edaf6d1d
-  ca_store  webpki_ca.cbor  3884820 bytes  sha256:28389ad02cae49f530f099f7491eae3f80f94682b2158e06cb863b5f5de544ce
+  ca_store  webpki_ca.cbor  3892257 bytes  sha256:658b9e8a0bad553aa1d4c405dee6c138fd08ddc67c029ea9e489977870a5f0ca
 
