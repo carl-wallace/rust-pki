@@ -923,6 +923,31 @@ fn process_ocsp_response_internal(
     }
 }
 
+/// The revocation status an OCSP exchange settles, given what [`send_ocsp_request`] returned.
+///
+/// Two outcomes settle a status and nothing else does. A response that validated settles the status
+/// it carries, and a revoked verdict is authoritative because it survived responder authorization
+/// and signature verification: no other responder can un-revoke a certificate.
+///
+/// Every other outcome leaves the status undetermined, whichever error shape it arrives in. A
+/// refused response is not an answer, and treating one as an answer is the opposite of fail-closed:
+/// [`check_revocation`](crate::check_revocation) fails a path only on
+/// `RevocationStatusNotDetermined`, so a status taken from a response that was rejected for an
+/// unsupported critical extension, or for a signature that did not verify, would pass the
+/// certificate and suppress the CRL distribution point fallback besides. The statuses that can
+/// arrive this way are `UnprocessedCriticalExtension` from either critical extension check, and
+/// whatever the signature callback reports for a response that carries no candidate certificates.
+#[cfg(feature = "remote")]
+fn status_settled_by(outcome: &Result<()>) -> PathValidationStatus {
+    match outcome {
+        Ok(()) => PathValidationStatus::Valid,
+        Err(Error::PathValidation(PathValidationStatus::CertificateRevoked)) => {
+            PathValidationStatus::CertificateRevoked
+        }
+        Err(_e) => PathValidationStatus::RevocationStatusNotDetermined,
+    }
+}
+
 #[cfg(feature = "remote")]
 pub(crate) async fn check_revocation_ocsp(
     pe: &PkiEnvironment,
@@ -942,14 +967,12 @@ pub(crate) async fn check_revocation_ocsp(
         );
     } else {
         for aia in ocsp_aias {
-            match send_ocsp_request(pe, cps, aia.as_str(), target_cert, issuer, cpr, pos).await {
-                Ok(_r) => target_status = PathValidationStatus::Valid,
-                Err(e) => {
-                    if let Error::PathValidation(pvs) = e {
-                        target_status = pvs;
-                    }
-                }
-            };
+            let outcome =
+                send_ocsp_request(pe, cps, aia.as_str(), target_cert, issuer, cpr, pos).await;
+            if let Err(e) = &outcome {
+                debug!("OCSP response from {} was not usable: {e}", aia.as_str());
+            }
+            target_status = status_settled_by(&outcome);
             if target_status != PathValidationStatus::RevocationStatusNotDetermined {
                 info!(
                         "Determined revocation status ({}) using OCSP for certificate issued to {} via {}",
@@ -1160,6 +1183,64 @@ mod tests {
     // where it would be unused in every build that is not running these tests.
     #[cfg(all(feature = "std", feature = "rsa"))]
     use crate::ExtensionProcessing;
+
+    // ------------------------------------------------------------------------------------------
+    // Which outcomes settle a status (status_settled_by) - fully deterministic, no network.
+    // ------------------------------------------------------------------------------------------
+
+    /// A refused response must not settle a status. Only a validated response does, and a revoked
+    /// verdict from one is authoritative.
+    ///
+    /// The three `PathValidation` cases are the ones that reach here from a real exchange, and the
+    /// reason this rule is load-bearing: a status adopted from a refused response is not
+    /// `RevocationStatusNotDetermined`, which is the only status `check_revocation` fails a path on,
+    /// so it would pass the certificate and suppress the CRL distribution point fallback as well.
+    #[cfg(feature = "remote")]
+    #[test]
+    fn only_a_validated_response_settles_a_status() {
+        use PathValidationStatus::*;
+
+        assert_eq!(Valid, status_settled_by(&Ok(())));
+        assert_eq!(
+            CertificateRevoked,
+            status_settled_by(&Err(Error::PathValidation(CertificateRevoked)))
+        );
+
+        // Either critical extension check, before and after signature verification.
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::PathValidation(UnprocessedCriticalExtension)))
+        );
+        // A response carrying no candidate certificates whose signature did not verify, and one
+        // whose key or signature would not decode.
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::PathValidation(SignatureVerificationFailure)))
+        );
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::PathValidation(EncodingError)))
+        );
+
+        // The error shapes that were already handled correctly, kept so a refactor cannot quietly
+        // start reading a status out of one.
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::OcspResponseError))
+        );
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::NetworkError))
+        );
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::Unrecognized))
+        );
+        assert_eq!(
+            RevocationStatusNotDetermined,
+            status_settled_by(&Err(Error::PathValidation(RevocationStatusNotDetermined)))
+        );
+    }
 
     // ------------------------------------------------------------------------------------------
     // Nonce policy (nonce_acceptable) - fully deterministic, no network.
