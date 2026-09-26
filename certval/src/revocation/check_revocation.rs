@@ -269,14 +269,13 @@ pub async fn check_revocation(
         statuses.push(cur_status);
     }
 
-    if statuses.contains(&RevocationStatusNotDetermined) {
+    // Valid is the only status that settles a position, so a position holding anything else is one
+    // whose status this path does not know. Written as "not Valid" rather than "is
+    // RevocationStatusNotDetermined" so a source that returns some third status cannot turn into a
+    // pass; revoked never reaches here, since every source returns as soon as it sees one.
+    if let Some(pos) = statuses.iter().position(|s| *s != Valid) {
         cpr.set_validation_status(RevocationStatusNotDetermined);
-        if let Some(pos) = statuses
-            .iter()
-            .position(|s| *s == RevocationStatusNotDetermined)
-        {
-            cpr.set_failure_index(pos as u32 + 1);
-        }
+        cpr.set_failure_index(pos as u32 + 1);
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         Ok(())
@@ -460,14 +459,11 @@ pub fn check_revocation_local(
         statuses.push(cur_status);
     }
 
-    if statuses.contains(&RevocationStatusNotDetermined) {
+    // Same rule as the retrieving variant above: only Valid settles a position, so a third status
+    // from any source is an undetermined position rather than a pass.
+    if let Some(pos) = statuses.iter().position(|s| *s != Valid) {
         cpr.set_validation_status(RevocationStatusNotDetermined);
-        if let Some(pos) = statuses
-            .iter()
-            .position(|s| *s == RevocationStatusNotDetermined)
-        {
-            cpr.set_failure_index(pos as u32 + 1);
-        }
+        cpr.set_failure_index(pos as u32 + 1);
         Err(Error::PathValidation(RevocationStatusNotDetermined))
     } else {
         cpr.set_validation_status(Valid);
