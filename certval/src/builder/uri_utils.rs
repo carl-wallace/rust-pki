@@ -18,6 +18,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "remote")] {
         use crate::{Error, PkiEnvironment, Result};
+        use crate::builder::file_utils::now_unix_secs;
         use crate::source::cert_source::CertFile;
         use crate::util::pdv_utilities::{
             is_self_issued, is_self_signed_with_buffer, trim_to_outer_der_sequence, valid_at_time,
@@ -421,10 +422,11 @@ pub async fn fetch_to_buffer(
     buffers: &mut dyn CertVector,
     start_index: usize,
     last_mod_map: &mut BTreeMap<String, String>,
-    blocklist: &mut Vec<String>,
+    blocklist: &mut BTreeMap<String, u64>,
     time_of_interest: TimeOfInterest,
     timeout: Duration,
     max_bytes: u64,
+    blocklist_ttl: Duration,
 ) -> Result<()> {
     // Downloaded artifacts are saved for future use, create a path object for that folder. An empty
     // folder means the caller has nowhere to keep them -- a run writing fetched certificates to a
@@ -458,7 +460,7 @@ pub async fn fetch_to_buffer(
     // already processed.
     for target in uris.iter().skip(start_index) {
         // skip targets that have been placed on the blocklist (like URIs from an intranet)
-        if blocklist.contains(target) {
+        if blocklist.contains_key(target) {
             error!("Skipping due to blocklist: {target}");
             continue;
         }
@@ -664,9 +666,7 @@ pub async fn fetch_to_buffer(
             }
             Err(e) => {
                 error!("Failed to process {target} with {}", error_chain(&e));
-                if !blocklist.contains(target) {
-                    blocklist.push(target.clone());
-                }
+                blocklist.insert(target.clone(), now_unix_secs() + blocklist_ttl.as_secs());
             }
         }
     }

@@ -181,6 +181,7 @@ pub async fn build_graph_from(
                 toi,
                 cps.get_aia_timeout(),
                 cps.get_max_aia_fetch_bytes(),
+                cps.get_uri_blocklist_ttl(),
             )
             .await;
             if let Err(e) = r {
