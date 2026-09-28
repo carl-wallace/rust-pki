@@ -141,6 +141,33 @@ pub(crate) fn num_kids_is_zero(pool: &PolicyPool, index: usize) -> bool {
 /// no children is pruned on a later pass (the cascade). The outer loop repeats full passes over the
 /// rows until one removes nothing, so every newly-childless parent is caught regardless of the
 /// order in which rows are visited.
+/// Deletes the nodes in `row` whose `valid_policy` is `oid`, stripping each from its parents' child
+/// lists as it goes. RFC 5280 6.1.4(b)(2)(i).
+///
+/// The child lists are what (ii) reads to decide whether a parent has become childless, and what
+/// [`harvest_valid_policy_node_set`] walks at wrap-up, so a node deleted from its row and left in a
+/// parent's list is deleted and still reachable.
+pub(crate) fn delete_nodes_with_policy(
+    pool: &PolicyPool,
+    row: &mut PolicyTreeRow,
+    oid: ObjectIdentifier,
+) {
+    row.retain(|node_index| {
+        if !row_elem_is_policy(pool, node_index, oid) {
+            return true;
+        }
+        if let Some(parents) = &pool[*node_index].parent {
+            for parent_index in parents.borrow().iter() {
+                pool[*parent_index]
+                    .children
+                    .borrow_mut()
+                    .retain(|c| c != node_index);
+            }
+        }
+        false
+    });
+}
+
 pub(crate) fn prune_childless_nodes(
     pool: &PolicyPool,
     valid_policy_graph: &mut [PolicyTreeRow],
@@ -312,6 +339,30 @@ mod tests {
             pool.len(),
             MAX_POLICY_POOL_NODES,
             "pool must not grow past the cap"
+        );
+    }
+
+    // A node deleted because its policy was mapped has to leave its parents' child lists as well as
+    // its row: (ii) decides childlessness from those lists and the wrap-up harvest walks them, so a
+    // node removed from the row alone is deleted and still reachable.
+    #[test]
+    fn deleting_a_mapped_policy_strips_the_node_from_its_parents() {
+        let mapped = ObjectIdentifier::new_unwrap("1.2.3.1");
+        let other = ObjectIdentifier::new_unwrap("1.2.3.2");
+
+        let mut pool: PolicyPool = Vec::new();
+        push_policy_node(&mut pool, node(other, 0, None, vec![1, 2])).unwrap();
+        push_policy_node(&mut pool, node(mapped, 1, Some(vec![0]), vec![])).unwrap();
+        push_policy_node(&mut pool, node(other, 1, Some(vec![0]), vec![])).unwrap();
+
+        let mut row: PolicyTreeRow = vec![1, 2];
+        delete_nodes_with_policy(&pool, &mut row, mapped);
+
+        assert_eq!(row, vec![2], "the mapped node leaves the row");
+        assert_eq!(
+            *pool[0].children.borrow(),
+            vec![2],
+            "and leaves its parent's children, so the parent's count reflects the deletion"
         );
     }
 

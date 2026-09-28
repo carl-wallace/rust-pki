@@ -520,6 +520,52 @@ pub(crate) fn descended_from_rfc822(prev_name: &Ia5String, new_name: &Ia5String)
     descended_from_rfc822_str(prev_name.as_ref(), new_name.as_ref())
 }
 
+/// True when `hay` ends with `needle`, comparing ASCII case-insensitively.
+fn ends_with_ignore_ascii_case(hay: &str, needle: &str) -> bool {
+    let (hay, needle) = (hay.as_bytes(), needle.as_bytes());
+    hay.len() >= needle.len() && hay[hay.len() - needle.len()..].eq_ignore_ascii_case(needle)
+}
+
+/// `rfc822_constraint_contains` returns true when every mailbox `cand` permits is also permitted by
+/// `base`, both being rfc822Name *constraints* rather than names.
+///
+/// [`descended_from_rfc822`] answers a different question, whether one mailbox falls within a
+/// constraint, and so requires its candidate to be a mailbox. Intersecting two permitted subtrees
+/// (RFC 5280 6.1.4(g)) compares constraint against constraint, where either side may be a mailbox,
+/// a host, or a domain carrying a leading period.
+pub(crate) fn rfc822_constraint_contains(base: &str, cand: &str) -> bool {
+    // Neither side is a mailbox, a host or a domain, so it holds nothing and nothing holds it.
+    if base.matches('@').count() > 1 || cand.matches('@').count() > 1 {
+        return false;
+    }
+
+    let cand_host = match cand.split_once('@') {
+        Some((_, host)) => host,
+        None => cand,
+    };
+
+    match base.split_once('@') {
+        // A mailbox constraint permits exactly one mailbox, so only that same mailbox is within
+        // it. Local parts compare exactly and host parts case-insensitively (RFC 5280 7.5).
+        Some((base_local, base_host)) => match cand.split_once('@') {
+            Some((cand_local, cand_host)) => {
+                base_local == cand_local && base_host.eq_ignore_ascii_case(cand_host)
+            }
+            None => false,
+        },
+        None if base.starts_with('.') => {
+            // A domain constraint covers the hosts within it, so it holds any candidate whose host
+            // part ends with it. A candidate domain carries its own leading period and compares
+            // the same way, which makes an equal pair true and leaves the domain's own host, which
+            // does not end with a period plus itself, outside.
+            ends_with_ignore_ascii_case(cand_host, base)
+        }
+        // A host constraint covers the mailboxes on that one host, so a candidate domain, which
+        // covers hosts beneath it, is never within it.
+        None => !cand.starts_with('.') && cand_host.eq_ignore_ascii_case(base),
+    }
+}
+
 /// `descended_from_rfc822_str` is the string-valued core of [`descended_from_rfc822`]. Pure string
 /// comparison, so it needs no std.
 pub(crate) fn descended_from_rfc822_str(base: &str, cand: &str) -> bool {

@@ -396,7 +396,7 @@ pub fn check_certificate_policies_graph(
                     //     (i)    delete each node of depth i in the valid_policy_tree
                     //            where ID-P is the valid_policy.
                     for m in mappings {
-                        valid_policy_graph[i].retain(|x| !row_elem_is_policy(pm, x, m.0))
+                        delete_nodes_with_policy(pm, &mut valid_policy_graph[i], m.0);
                     }
 
                     //     (ii)   If there is a node in the valid_policy_tree of depth

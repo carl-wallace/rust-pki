@@ -325,6 +325,19 @@ fn has_trailing_dot(subtrees: &Option<GeneralSubtrees>) -> bool {
         .is_some_and(|s| s.iter().any(|gs| general_name_has_trailing_dot(&gs.base)))
 }
 
+/// `has_leading_dot_dns_name` returns true if any subtree base is a dNSName beginning with a
+/// period. RFC 5280 4.2.1.10 gives dNSName constraints no such form: a constraint is a domain and
+/// already covers its subdomains, so the leading period has no meaning to attach to. rfc822Name and
+/// uniformResourceIdentifier are left alone, where the leading period is the specified domain form.
+fn has_leading_dot_dns_name(subtrees: &Option<GeneralSubtrees>) -> bool {
+    subtrees.as_ref().is_some_and(|s| {
+        s.iter().any(|gs| match &gs.base {
+            GeneralName::DnsName(dns) => dns.as_str().starts_with('.'),
+            _ => false,
+        })
+    })
+}
+
 /// Ceiling on the work performed matching one certificate's subjectAltName against the operative
 /// name-constraints state. Matching visits every SAN entry against every accumulated constraint, so
 /// the cost scales with the product of the two counts. A path of certificate authorities that each
@@ -508,6 +521,22 @@ pub fn check_names(
                 // conforming to begin with, and they do not occur in practice.
                 if has_min_or_max(&nc.permitted_subtrees) || has_min_or_max(&nc.excluded_subtrees) {
                     log_error_for_ca(ca_cert, "unsupported minimum/maximum in name constraints");
+                    cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+                    cpr.set_failure_index(pos as u32 + 1);
+                    return Err(Error::PathValidation(
+                        PathValidationStatus::NameConstraintsViolation,
+                    ));
+                }
+
+                // A dNSName constraint beginning with a period is nonconforming in the same way,
+                // and matches nothing: the label-boundary check in `descended_from_host` compares
+                // the byte before the match, which for such a base is a label character rather
+                // than the separator. Left unrejected, a permitted subtree would refuse every
+                // dNSName and an excluded one would exclude nothing.
+                if has_leading_dot_dns_name(&nc.permitted_subtrees)
+                    || has_leading_dot_dns_name(&nc.excluded_subtrees)
+                {
+                    log_error_for_ca(ca_cert, "leading period in dNSName name constraint");
                     cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
                     cpr.set_failure_index(pos as u32 + 1);
                     return Err(Error::PathValidation(
@@ -1163,4 +1192,43 @@ mod tests {
             "the live count must trip the budget once constraints accumulate"
         );
     }
+}
+
+// A dNSName constraint with a leading period matches nothing: `descended_from_host` requires the
+// byte before the suffix match to be the label separator, which for such a base is a label
+// character instead. Left to run, a permitted subtree of that shape refuses every dNSName and an
+// excluded one excludes nothing, so it is refused the way a trailing period is. The leading period
+// is the specified domain form for rfc822Name and URI, which keep it.
+#[test]
+fn a_leading_period_is_rejected_for_dns_names_only() {
+    use der::asn1::Ia5String;
+    use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
+
+    fn subtree(gn: GeneralName) -> Option<GeneralSubtrees> {
+        Some(vec![GeneralSubtree {
+            base: gn,
+            minimum: 0,
+            maximum: None,
+        }])
+    }
+
+    let dns = subtree(GeneralName::DnsName(
+        Ia5String::new(".example.com").unwrap(),
+    ));
+    assert!(has_leading_dot_dns_name(&dns));
+
+    let rfc822 = subtree(GeneralName::Rfc822Name(
+        Ia5String::new(".example.com").unwrap(),
+    ));
+    assert!(!has_leading_dot_dns_name(&rfc822));
+
+    let uri = subtree(GeneralName::UniformResourceIdentifier(
+        Ia5String::new(".example.com").unwrap(),
+    ));
+    assert!(!has_leading_dot_dns_name(&uri));
+
+    let plain = subtree(GeneralName::DnsName(Ia5String::new("example.com").unwrap()));
+    assert!(!has_leading_dot_dns_name(&plain));
+
+    assert!(!has_leading_dot_dns_name(&None));
 }
