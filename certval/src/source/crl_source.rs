@@ -297,13 +297,15 @@ impl CheckRemoteResource for RemoteStatus {
             if last_modified_map.is_empty() {
                 self.load_lmm(&mut last_modified_map);
             }
-            if let std::collections::btree_map::Entry::Vacant(e) =
-                last_modified_map.entry(uri.to_string())
-            {
-                e.insert(last_modified.to_string());
-                serde_json::to_string(&last_modified_map.deref()).ok()
-            } else {
+            // Insert unconditionally, and serialize only when the value moved. The map is
+            // written whole, so a write on every fetch would be a write per CRL check; a CA that
+            // reissues supplies a new Last-Modified, which is the case the conditional request
+            // exists for.
+            let previous = last_modified_map.insert(uri.to_string(), last_modified.to_string());
+            if previous.as_deref() == Some(last_modified) {
                 None
+            } else {
+                serde_json::to_string(&last_modified_map.deref()).ok()
             }
         };
 
@@ -868,6 +870,30 @@ mod tests {
         let rs2 = RemoteStatus::new(folder);
         assert_eq!(rs2.get_last_modified(uri), Some(value.to_string()));
         assert_eq!(rs2.get_last_modified("http://example.test/other"), None);
+    }
+
+    // A CA that reissues its CRL supplies a new Last-Modified, and the stored value has to follow
+    // it. Otherwise every later fetch sends the first value and is answered with the whole CRL, so
+    // the conditional request works exactly once per URI, between the first fetch and the first
+    // reissue.
+    #[test]
+    fn a_rotated_crl_replaces_the_stored_last_modified() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let uri = "http://example.test/crl";
+        let first = "Mon, 01 Jan 2035 00:00:00 GMT";
+        let second = "Tue, 02 Jan 2035 00:00:00 GMT";
+
+        std::fs::write(crl_path(folder, uri), b"not a real CRL").unwrap();
+
+        let rs = RemoteStatus::new(folder);
+        rs.set_last_modified(uri, first);
+        rs.set_last_modified(uri, second);
+        assert_eq!(rs.get_last_modified(uri), Some(second.to_string()));
+
+        // The replacement reached disk, so the next process sends the new value too.
+        let rs2 = RemoteStatus::new(folder);
+        assert_eq!(rs2.get_last_modified(uri), Some(second.to_string()));
     }
 
     // A last-modified value is a claim that a CRL is on disk, and the claim is checked. Without
