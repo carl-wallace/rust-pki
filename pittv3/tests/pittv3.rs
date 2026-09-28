@@ -1609,6 +1609,57 @@ fn cleanup_tests() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `--cleanup` paired with an error folder moves the rejected files into that folder.
+///
+/// The destination used to be built by applying `file_name()` to `error_folder.join(path)`, which
+/// reduced it to a bare name and left `fs::rename` to resolve it against the process working
+/// directory, so the files landed wherever the binary was launched from and the error folder stayed
+/// empty. The third assertion below is the one that caught it.
+#[cfg(feature = "rsa")]
+#[test]
+fn cleanup_moves_rejects_to_error_folder() -> Result<(), Box<dyn std::error::Error>> {
+    let source = Path::new("tests/examples/cleanup_move_test");
+    let errors = Path::new("tests/examples/cleanup_move_errors");
+    let rejected = ["expired.der", "malformed.der", "ee.der", "selfsigned.der"];
+
+    let _ = fs::remove_dir_all(source);
+    let _ = fs::remove_dir_all(errors);
+    fs::create_dir_all(source)?;
+    // `errors` is deliberately not created here: the cleanup is expected to create it.
+    for name in rejected {
+        fs::copy(Path::new("tests/examples").join(name), source.join(name))?;
+        // Clear anything an earlier failing run deposited where the defect put these.
+        let _ = fs::remove_file(name);
+    }
+
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("-c").arg(source);
+    cmd.arg("--cleanup");
+    cmd.arg("-o").arg(errors);
+    // The exit status is left alone: the run carries on past cleanup into a validation with no
+    // trust anchors, and what that reports is a separate question.
+    cmd.output()?;
+
+    for name in rejected {
+        assert!(
+            errors.join(name).is_file(),
+            "{name} is not in the error folder"
+        );
+        assert!(
+            !source.join(name).exists(),
+            "{name} was left in the folder being cleaned"
+        );
+        assert!(
+            !Path::new(name).exists(),
+            "{name} landed in the working directory"
+        );
+    }
+
+    fs::remove_dir_all(source)?;
+    fs::remove_dir_all(errors)?;
+    Ok(())
+}
+
 #[cfg(feature = "rsa")]
 #[test]
 fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error>> {
