@@ -66,6 +66,11 @@ use crate::{
 
 use ciborium::from_reader;
 
+/// The largest a DER-encoded certificate may declare itself to be when read as a CBOR sequence of
+/// bytes. Not a size a certificate is expected to reach; it is the point past which a declared
+/// length is a statement about the encoding rather than about a certificate.
+const MAX_DER_BYTES: usize = 16 * 1024 * 1024;
+
 /// The CertFile struct associates a string, notionally containing a filename or URI, with a vector
 /// of bytes. The vector of bytes is assumed to contain a binary DER encoded certificate.
 #[derive(Clone, Serialize, Deserialize)]
@@ -125,7 +130,21 @@ fn deserialize_der<'de, D: Deserializer<'de>>(
             self,
             mut seq: A,
         ) -> core::result::Result<Vec<u8>, A::Error> {
-            let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            // The element count comes from the array header and nothing has checked it against
+            // the bytes that follow, while both apps offer this decoder whatever a user chose to
+            // open. A declared length is therefore refused rather than allocated from, so it costs
+            // nothing before the bytes arrive. The ceiling sits well above any certificate: the
+            // largest Classic McEliece public key is about 1.3 MB, and the signatures that drive
+            // the other PQC sizes are far smaller.
+            if seq
+                .size_hint()
+                .is_some_and(|declared| declared > MAX_DER_BYTES)
+            {
+                return Err(serde::de::Error::custom(
+                    "declared length exceeds any certificate",
+                ));
+            }
+            let mut out = Vec::new();
             while let Some(b) = seq.next_element::<u8>()? {
                 out.push(b);
             }
@@ -2282,6 +2301,56 @@ fn signature_cache_speeds_up_verification() {
     assert!(
         cached < uncached,
         "cached ({cached:?}) should be faster than uncached ({uncached:?})"
+    );
+}
+
+// `deserialize_der` reads a DER certificate as either a CBOR byte string or, for stores written
+// before it became one, a sequence of integers. The sequence arm sizes its vector from the element
+// count in the array header, which is a number the encoding supplies and nothing has checked. Both
+// frontends offer this decoder whatever a user uploaded, to decide whether a dropped file is a
+// store, so the declared length is attacker-chosen. A length above `isize::MAX` panics on the
+// allocation; one merely enormous aborts the process through `handle_alloc_error`, which no caller
+// can contain, and on wasm the memory cap puts that within easy reach.
+#[cfg(feature = "std")]
+#[test]
+fn an_absurd_declared_length_is_refused_rather_than_allocated() {
+    // {"filename": "x", "bytes": <array declaring 2^63 elements, none present>}
+    let mut cbor: Vec<u8> = vec![0xA2];
+    cbor.push(0x68);
+    cbor.extend_from_slice(b"filename");
+    cbor.push(0x61);
+    cbor.push(b'x');
+    cbor.push(0x65);
+    cbor.extend_from_slice(b"bytes");
+    cbor.push(0x9B);
+    cbor.extend_from_slice(&(1u64 << 63).to_be_bytes());
+
+    let r: core::result::Result<CertFile, _> = from_reader(cbor.as_slice());
+    assert!(
+        r.is_err(),
+        "an array header declaring more elements than the input holds must be an error"
+    );
+
+    // And the guard is what refuses it, not the loop reaching the end of the input: with nothing
+    // pre-allocated an absurd declaration would otherwise arrive as a plain truncation, which says
+    // nothing about the declaration and would pass whether or not the ceiling existed.
+    let mut over: Vec<u8> = vec![0xA2];
+    over.push(0x68);
+    over.extend_from_slice(b"filename");
+    over.push(0x61);
+    over.push(b'x');
+    over.push(0x65);
+    over.extend_from_slice(b"bytes");
+    over.push(0x9B);
+    over.extend_from_slice(&((MAX_DER_BYTES as u64) + 1).to_be_bytes());
+
+    let r: core::result::Result<CertFile, _> = from_reader(over.as_slice());
+    let e = r
+        .err()
+        .expect("a declaration past the ceiling must be refused");
+    assert!(
+        alloc::format!("{e}").contains("declared length"),
+        "the ceiling must be what refuses it, got: {e}"
     );
 }
 

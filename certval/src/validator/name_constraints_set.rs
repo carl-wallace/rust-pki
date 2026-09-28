@@ -634,11 +634,19 @@ impl NameConstraintsSet {
                     } else {
                         for prev_name in &self.rfc822_name {
                             if let GeneralName::Rfc822Name(prev_rfc822) = &prev_name.base {
+                                // Constraint against constraint, not name against constraint:
+                                // either side may be a mailbox, a host or a domain.
                                 if new_name == prev_name
-                                    || descended_from_rfc822(prev_rfc822, new_rfc822)
+                                    || rfc822_constraint_contains(
+                                        prev_rfc822.as_ref(),
+                                        new_rfc822.as_ref(),
+                                    )
                                 {
                                     new_set.push(new_name.clone());
-                                } else if descended_from_rfc822(new_rfc822, prev_rfc822) {
+                                } else if rfc822_constraint_contains(
+                                    new_rfc822.as_ref(),
+                                    prev_rfc822.as_ref(),
+                                ) {
                                     new_set.push(prev_name.clone());
                                 }
                             }
@@ -1649,4 +1657,102 @@ fn intersection_tests() {
         .unwrap()
         .unwrap();
     assert_eq!(perm_set3, perm_set3_copy);
+}
+
+// The six rfc822 constraint form pairs, compared constraint against constraint. Intersecting two
+// permitted subtrees is not the same question as deciding whether a mailbox falls within one, and
+// the name-side test refuses any candidate that is not a mailbox, so using it here emptied the
+// bucket for every pair that was not byte-identical.
+#[test]
+fn rfc822_constraint_containment_covers_every_form_pair() {
+    // domain holds host, host below it
+    assert!(rfc822_constraint_contains(
+        ".forces.gc.ca",
+        "mail.forces.gc.ca"
+    ));
+    // domain holds domain beneath it, and itself
+    assert!(rfc822_constraint_contains(".gc.ca", ".forces.gc.ca"));
+    assert!(rfc822_constraint_contains(".gc.ca", ".gc.ca"));
+    // domain holds a mailbox on a host within it
+    assert!(rfc822_constraint_contains(
+        ".forces.gc.ca",
+        "x@mail.forces.gc.ca"
+    ));
+    // host holds a mailbox on that host, and itself
+    assert!(rfc822_constraint_contains("forces.gc.ca", "x@forces.gc.ca"));
+    assert!(rfc822_constraint_contains("forces.gc.ca", "FORCES.GC.CA"));
+    // mailbox holds only the same mailbox, host part case-insensitively
+    assert!(rfc822_constraint_contains(
+        "x@forces.gc.ca",
+        "x@FORCES.GC.CA"
+    ));
+
+    // A domain does not hold its own host: ".d" covers hosts within d, not d itself.
+    assert!(!rfc822_constraint_contains(".forces.gc.ca", "forces.gc.ca"));
+    // A host does not hold the domain beneath it, which covers hosts the host does not.
+    assert!(!rfc822_constraint_contains("forces.gc.ca", ".forces.gc.ca"));
+    // Nothing broader is held by something narrower.
+    assert!(!rfc822_constraint_contains(
+        "mail.forces.gc.ca",
+        ".forces.gc.ca"
+    ));
+    assert!(!rfc822_constraint_contains(
+        "x@forces.gc.ca",
+        "forces.gc.ca"
+    ));
+    // A label boundary is required, so a suffix that is not one does not match.
+    assert!(!rfc822_constraint_contains(".gc.ca", "notgc.ca"));
+    // Local parts compare exactly.
+    assert!(!rfc822_constraint_contains(
+        "x@forces.gc.ca",
+        "y@forces.gc.ca"
+    ));
+    // A malformed constraint holds nothing and is held by nothing.
+    assert!(!rfc822_constraint_contains("a@b@c", "x@c"));
+    assert!(!rfc822_constraint_contains(".c", "a@b@c"));
+}
+
+// The intersection of a domain constraint with a host beneath it is the host, not NULL. The
+// allied-partner cross-certificates carry rfc822 constraints in both forms, so a subordinate that
+// narrows one to the other is the shape this has to survive.
+#[cfg(feature = "std")]
+#[test]
+fn rfc822_intersection_of_domain_and_host_keeps_the_host() {
+    use crate::path_settings::*;
+
+    let settings_domain = NameConstraintsSettings {
+        rfc822_name: Some(vec![".forces.gc.ca".to_string()]),
+        ..Default::default()
+    };
+    let settings_host = NameConstraintsSettings {
+        rfc822_name: Some(vec!["mail.forces.gc.ca".to_string()]),
+        ..Default::default()
+    };
+
+    let mut cps_domain = CertificationPathSettings::default();
+    cps_domain.set_initial_permitted_subtrees(settings_domain);
+    let mut cps_host = CertificationPathSettings::default();
+    cps_host.set_initial_permitted_subtrees(settings_host);
+
+    let mut bufs1 = BTreeMap::new();
+    let mut state = cps_domain
+        .get_initial_permitted_subtrees_as_set(&mut bufs1)
+        .unwrap()
+        .unwrap();
+    let mut bufs2 = BTreeMap::new();
+    let narrower = cps_host
+        .get_initial_permitted_subtrees_as_set(&mut bufs2)
+        .unwrap()
+        .unwrap();
+
+    state.calculate_intersection(&narrower.rfc822_name);
+    assert!(
+        !state.rfc822_name_null,
+        "a domain intersected with a host beneath it is that host, not an empty permitted set"
+    );
+    let result = name_constraints_set_to_name_constraints_settings(&state).unwrap();
+    assert_eq!(
+        result.rfc822_name,
+        Some(vec!["mail.forces.gc.ca".to_string()])
+    );
 }
