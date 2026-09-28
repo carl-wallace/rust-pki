@@ -25,9 +25,10 @@ cfg_if! {
         use alloc::collections::BTreeMap;
         use der::{Decode, Encode};
         use x509_cert::certificate::{CertificateInner,Raw};
+        use sha2::{Digest, Sha256};
         use std::fs::File;
         use std::io::Write;
-        use std::path::{PathBuf, Path};
+        use std::path::{Component, PathBuf, Path};
         use std::str::FromStr;
         use std::sync::OnceLock;
         use std::time::Duration;
@@ -371,6 +372,38 @@ fn save_cert(
     saved
 }
 
+/// What marks a name in the download folder as this URI's, carried by every name
+/// [`artifact_name`] builds for it.
+#[cfg(feature = "remote")]
+fn artifact_tag(uri: &str) -> String {
+    buffer_to_hex(&Sha256::digest(uri.as_bytes())[..8])
+}
+
+/// The name an artifact fetched from `uri` is kept under in the download folder.
+///
+/// The last segment of the response URL is kept so the folder stays readable, and a digest of the
+/// requested URI is inserted ahead of the extension so two URIs ending in the same segment name two
+/// files. The digest is over the URI the run asked for rather than the one the response came from,
+/// because that is the key the artifact and last-modified maps are kept under, and it is a 304 for
+/// that key which reads these files back.
+///
+/// A segment that is anything but a single ordinary component is set aside rather than joined: on
+/// Windows a segment such as `C:foo` carries a drive prefix, which `Path::join` treats as replacing
+/// the download folder.
+#[cfg(feature = "remote")]
+fn artifact_name(segment: &str, uri: &str) -> String {
+    let mut components = Path::new(segment).components();
+    let segment = match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => segment,
+        _ => "tmp.bin",
+    };
+    let tag = artifact_tag(uri);
+    match segment.rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem}-{tag}.{ext}"),
+        None => format!("{segment}-{tag}"),
+    }
+}
+
 /// fetch_to_buffer takes an array of URIs to process along with with a folder name and buffer array
 /// to receive downloaded certificates.
 ///
@@ -439,7 +472,13 @@ pub async fn fetch_to_buffer(
         // made -- the same outcome without a wasted round trip, and it cannot strand material.
         let readable: Vec<String> = match (path, artifacts.get(target)) {
             (Some(folder), Some(names)) => {
-                let all_present = names.iter().all(|n| folder.join(n).is_file());
+                // A name recorded before artifacts were named per URI carries no tag, and the file
+                // it points at may be another URI's. Counting those as absent costs one
+                // unconditional fetch, after which the map holds names this URI owns.
+                let tag = artifact_tag(target);
+                let all_present = names
+                    .iter()
+                    .all(|n| n.contains(&tag) && folder.join(n).is_file());
                 match all_present {
                     true => names.clone(),
                     false => vec![],
@@ -539,7 +578,7 @@ pub async fn fetch_to_buffer(
                     continue;
                 }
 
-                let fname = path.map(|p| p.join(fname_from_response));
+                let fname = path.map(|p| p.join(artifact_name(fname_from_response, target)));
 
                 match read_capped_body(response, max_bytes, target).await {
                     Ok(bytes) => {
@@ -683,5 +722,79 @@ pub fn collect_uris_from_aia_and_sia_from_ta(cert: &PDVTrustAnchorChoice, uris: 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "remote")]
+    use super::artifact_name;
+
+    /// Generic names such as `ca.p7c` and `cacert.crt` recur across unrelated PKIs, and the file
+    /// written for one URI used to be the file a 304 for the other read back.
+    #[cfg(feature = "remote")]
+    #[test]
+    fn uris_sharing_a_segment_name_two_files() {
+        let a = artifact_name("ca.p7c", "http://a.example/pki/ca.p7c");
+        let b = artifact_name("ca.p7c", "http://b.example/pki/ca.p7c");
+        assert_ne!(a, b);
+        assert!(a.starts_with("ca-") && a.ends_with(".p7c"), "{a}");
+        assert!(b.starts_with("ca-") && b.ends_with(".p7c"), "{b}");
+    }
+
+    /// Every Let's Encrypt intermediate publishes its caIssuers as a bare host with a trailing
+    /// slash, so each one arrives with no segment at all and is offered here as `tmp.bin`.
+    #[cfg(feature = "remote")]
+    #[test]
+    fn uris_with_no_segment_name_two_files() {
+        let r10 = artifact_name("tmp.bin", "http://r10.i.lencr.org/");
+        let r11 = artifact_name("tmp.bin", "http://r11.i.lencr.org/");
+        assert_ne!(r10, r11);
+        assert!(r10.starts_with("tmp-") && r10.ends_with(".bin"), "{r10}");
+    }
+
+    #[cfg(feature = "remote")]
+    #[test]
+    fn a_segment_without_an_extension_keeps_none() {
+        let name = artifact_name("cacert", "http://example.test/cacert");
+        assert!(name.starts_with("cacert-"), "{name}");
+        assert!(!name.contains('.'), "{name}");
+    }
+
+    /// The artifact map records what a URI wrote and a later 304 reads those names back, so the
+    /// name has to be a function of the URI alone.
+    #[cfg(feature = "remote")]
+    #[test]
+    fn one_uri_names_one_file() {
+        let uri = "http://example.test/pki/ca.p7c";
+        assert_eq!(artifact_name("ca.p7c", uri), artifact_name("ca.p7c", uri));
+    }
+
+    /// The read-back of a 304 accepts only names carrying this tag, so every name built for a URI
+    /// has to carry it.
+    #[cfg(feature = "remote")]
+    #[test]
+    fn every_name_carries_the_uri_tag() {
+        let uri = "http://example.test/pki/ca.p7c";
+        let tag = super::artifact_tag(uri);
+        assert!(artifact_name("ca.p7c", uri).contains(&tag));
+        assert!(artifact_name("cacert", uri).contains(&tag));
+        assert!(artifact_name("..", uri).contains(&tag));
+    }
+
+    #[cfg(feature = "remote")]
+    #[test]
+    fn a_segment_that_is_not_one_ordinary_component_is_set_aside() {
+        let name = artifact_name("..", "http://example.test/whatever");
+        assert!(name.starts_with("tmp-") && name.ends_with(".bin"), "{name}");
+    }
+
+    /// `Path::join` treats a drive-prefixed component as replacing what it is joined to, so such a
+    /// segment would write outside the download folder.
+    #[cfg(all(feature = "remote", windows))]
+    #[test]
+    fn a_drive_prefixed_segment_is_set_aside() {
+        let name = artifact_name("C:foo", "http://example.test/C:foo");
+        assert!(name.starts_with("tmp-") && name.ends_with(".bin"), "{name}");
     }
 }

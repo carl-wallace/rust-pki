@@ -1977,20 +1977,22 @@ pub fn cleanup_tas(
     } // end for entry in WalkDir::new(certs_folder)
 }
 
-fn delete_or_move_file(error_folder: &str, path: &Path, filename: &str) {
+fn delete_or_move_file(error_folder: &str, path: &Path, filename_to_log: &str) {
     if error_folder.is_empty() {
         //delete file
         let r = fs::remove_file(path);
         if let Err(e) = r {
-            println!("Failed to delete {filename} with {e:?}");
-            error!("Failed to delete {filename} with {e:?}");
+            println!("Failed to delete {filename_to_log} with {e:?}");
+            error!("Failed to delete {filename_to_log} with {e:?}");
         }
-    } else if let Some(new_filename) = Path::new(error_folder).join(path).file_name() {
+    } else if let Some(base) = path.file_name() {
         // move file
-        let r = fs::rename(filename, new_filename);
-        if let Err(e) = r {
-            println!("Failed to delete {filename} with {e:?}");
-            error!("Failed to delete {filename} with {e:?}");
+        if let Err(e) = fs::create_dir_all(error_folder) {
+            println!("Failed to create {error_folder} with {e:?}");
+            error!("Failed to create {error_folder} with {e:?}");
+        } else if let Err(e) = fs::rename(path, Path::new(error_folder).join(base)) {
+            println!("Failed to move {filename_to_log} with {e:?}");
+            error!("Failed to move {filename_to_log} with {e:?}");
         }
     }
 }

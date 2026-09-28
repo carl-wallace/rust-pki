@@ -15,13 +15,15 @@ use certval::CertSource;
 ///
 /// Selecting a different PKI simply replaces the entry.
 ///
-/// A caller does not have to invalidate this. The key covers the inputs, the settings and the time
-/// of interest, so anything that would make the entry the wrong answer keys differently and misses.
+/// A caller does not have to invalidate this. The key covers the inputs and the settings, so a
+/// change to the PKI or to how it is assembled keys differently and misses.
 /// [`clear`](PreparedGraph::clear) exists to release the memory, not to preserve correctness.
 ///
-/// One thing it does not cover, which it inherits from the key it shares with the graph on disk: the
-/// download folder feeds the graph but is not keyed, so certificates a dynamic build fetched on an
-/// earlier run reach a rebuild and do not reach a hit.
+/// Two things the key does not cover, both inherited from the key it shares with the graph on disk.
+/// The time of interest is deliberately outside it: what this maps is a hierarchy of CAs, and a run
+/// asks about that hierarchy at whatever time it names. The download folder feeds the graph but is
+/// not keyed, so certificates a dynamic build fetched on an earlier run reach a rebuild and do not
+/// reach a hit.
 #[derive(Default)]
 pub struct PreparedGraph {
     /// `None` until a run has prepared something. Poisoning is ignored throughout: a panic in one
