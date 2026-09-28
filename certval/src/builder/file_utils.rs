@@ -25,6 +25,9 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use std::fs::File;
 
+#[cfg(feature = "std")]
+use std::time::{SystemTime, UNIX_EPOCH};
+
 /// `ta_folder_to_vec` is used to help process a folder containing DER-encoded trust anchor files
 /// for use as a trust anchor source.
 ///
@@ -387,27 +390,43 @@ pub fn read_last_modified_map(fname: &str) -> BTreeMap<String, String> {
     BTreeMap::new()
 }
 
-/// `read_blocklist` accepts a string containing the name of a file that notionally contains JSON data
-/// that represents a blocklist and returns a vector of strings representing URIs that have been placed
-/// on the blocklist.
+/// Seconds since the Unix epoch, the clock a blocklist entry's expiry is set from and read
+/// against.
+#[cfg(feature = "std")]
+pub(crate) fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default()
+}
+
+/// `read_blocklist` accepts a string containing the name of a file that notionally contains JSON
+/// data that represents a blocklist and returns the URIs on it that are still blocked, each with
+/// the time it stops being blocked.
 ///
-/// A sample blocklist is shown below. Note, each entry is a full URI, not a hostname.
+/// A sample blocklist is shown below. Each entry is a full URI, not a hostname, and the value is
+/// the time the entry expires, in seconds since the Unix epoch.
 ///
 /// ```json
-/// ["http://example.com/issuedby/IssuedByExampleCA.p7c",
-/// "http://example.com/issuedby/IssuedToExampleCA.p7c"]
+/// {"http://example.com/issuedby/IssuedByExampleCA.p7c":1758931200,
+/// "http://example.com/issuedby/IssuedToExampleCA.p7c":1758934800}
 /// ```
+///
+/// A file written before entries carried an expiry is a JSON array, which does not parse as this
+/// map and so reads as an empty blocklist. Each URI on it is therefore tried once more, and
+/// whatever still fails is recorded again with an expiry of its own.
 #[cfg(feature = "std")]
-pub fn read_blocklist(fname: &str) -> Vec<String> {
-    if Path::exists(Path::new(fname)) {
-        if let Ok(json) = get_file_as_byte_vec(Path::new(fname)) {
-            let r: SerdeResult<Vec<String>> = serde_json::from_slice(&json);
-            if let Ok(blocklist) = r {
-                return blocklist;
-            }
-        }
-    }
-    vec![]
+pub fn read_blocklist(fname: &str) -> BTreeMap<String, u64> {
+    let Ok(json) = get_file_as_byte_vec(Path::new(fname)) else {
+        return BTreeMap::new();
+    };
+    let r: SerdeResult<BTreeMap<String, u64>> = serde_json::from_slice(&json);
+    let Ok(mut blocklist) = r else {
+        return BTreeMap::new();
+    };
+    let now = now_unix_secs();
+    blocklist.retain(|_, expires_at| *expires_at > now);
+    blocklist
 }
 
 /// `get_file_as_byte_vec` takes a Path containing a file name and returns a vector of bytes containing

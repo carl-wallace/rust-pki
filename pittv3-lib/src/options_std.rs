@@ -692,6 +692,7 @@ async fn options_std_inner(
                         TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                         cps.get_aia_timeout(),
                         cps.get_max_aia_fetch_bytes(),
+                        cps.get_uri_blocklist_ttl(),
                     )
                     .await;
                     if let Err(e) = r {
@@ -1437,6 +1438,7 @@ async fn generate_and_validate(
                     TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
                     cps.get_aia_timeout(),
                     cps.get_max_aia_fetch_bytes(),
+                    cps.get_uri_blocklist_ttl(),
                 )
                 .await;
 

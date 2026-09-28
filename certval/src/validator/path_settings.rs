@@ -314,6 +314,22 @@ pub static PS_AIA_TIMEOUT: &str = "psAiaTimeout";
 /// one much larger one.
 pub static PS_AIA_TIMEOUT_DEFAULT: Duration = Duration::from_secs(10);
 
+/// `PS_URI_BLOCKLIST_TTL` bounds how long a URI stays on the fetch blocklist after the transport
+/// failure that put it there. The blocklist spares a run from re-requesting what did not answer
+/// last time; the bound is what keeps a DNS hiccup, a refused connection during an outage or one
+/// [`PS_AIA_TIMEOUT`] from removing a repository for good. The default is
+/// [`PS_URI_BLOCKLIST_TTL_DEFAULT`].
+///
+/// Entries that have outlived it are dropped when the list is read, so a URI that answers on the
+/// next run simply leaves, and one that fails again is recorded afresh.
+pub static PS_URI_BLOCKLIST_TTL: &str = "psUriBlocklistTtl";
+
+/// Default value for [`PS_URI_BLOCKLIST_TTL`]: one hour. Each expired entry costs at most one
+/// request bounded by [`PS_AIA_TIMEOUT`], which is what an hour is trading against: long enough
+/// that a run repeated within the hour pays nothing, short enough that a repository reachable again
+/// is chased again the same day.
+pub static PS_URI_BLOCKLIST_TTL_DEFAULT: Duration = Duration::from_secs(60 * 60);
+
 /// `PS_CHECK_REVOCATION_STATUS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is true. When true, certification path validation should perform
 /// revocation status checks via available means, i.e., CRLs, OCSP, etc.
@@ -765,6 +781,7 @@ cps_gets_and_sets_with_default!(
 cps_gets_and_sets_with_default!(PS_CRL_TIMEOUT, Duration, PS_CRL_TIMEOUT_DEFAULT);
 cps_gets_and_sets_with_default!(PS_OCSP_TIMEOUT, Duration, PS_OCSP_TIMEOUT_DEFAULT);
 cps_gets_and_sets_with_default!(PS_AIA_TIMEOUT, Duration, PS_AIA_TIMEOUT_DEFAULT);
+cps_gets_and_sets_with_default!(PS_URI_BLOCKLIST_TTL, Duration, PS_URI_BLOCKLIST_TTL_DEFAULT);
 
 cps_gets_and_sets_with_default!(PS_CHECK_REVOCATION_STATUS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_OCSP_FROM_AIA, bool, true);

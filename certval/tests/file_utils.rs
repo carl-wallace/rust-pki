@@ -97,3 +97,55 @@ fn a_named_file_needs_no_recognized_extension() {
         "a folder walk still passes over a file whose extension says nothing"
     );
 }
+
+/// Seconds since the Unix epoch, the clock `read_blocklist` compares an entry's expiry against.
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+fn write_blocklist(contents: &str) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("blocklist.json");
+    fs::write(&file, contents).unwrap();
+    let name = file.to_str().unwrap().to_string();
+    (dir, name)
+}
+
+#[test]
+fn blocklist_entry_that_has_not_expired_is_kept() {
+    let later = now_secs() + 3600;
+    let (_dir, file) = write_blocklist(&format!(r#"{{"http://example.test/ca.p7c":{later}}}"#));
+    let blocklist = read_blocklist(&file);
+    assert_eq!(1, blocklist.len());
+    assert!(blocklist.contains_key("http://example.test/ca.p7c"));
+}
+
+/// The point of the expiry: a URI blocked by one timeout is tried again rather than removed from
+/// every later run in that folder.
+#[test]
+fn blocklist_entry_that_has_expired_is_dropped() {
+    let earlier = now_secs() - 3600;
+    let (_dir, file) = write_blocklist(&format!(r#"{{"http://example.test/ca.p7c":{earlier}}}"#));
+    let blocklist = read_blocklist(&file);
+    assert!(blocklist.is_empty());
+}
+
+/// A file written before entries carried an expiry is a JSON array. Reading it as an empty
+/// blocklist is what retries the URIs a prior version blocked for good.
+#[test]
+fn blocklist_written_without_expiries_is_read_as_empty() {
+    let (_dir, file) = write_blocklist(r#"["http://example.test/ca.p7c"]"#);
+    let blocklist = read_blocklist(&file);
+    assert!(blocklist.is_empty());
+}
+
+#[test]
+fn absent_blocklist_reads_as_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("blocklist.json");
+    let blocklist = read_blocklist(file.to_str().unwrap());
+    assert!(blocklist.is_empty());
+}
