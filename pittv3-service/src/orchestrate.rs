@@ -18,7 +18,9 @@ use certval::{
 // The fold half of a retrieving run is shared with the browser rather than kept here: the two tiers
 // have to agree about what a retrieved body contained, and the surest way for them to agree is for
 // there to be one implementation of it.
-use pittv3_gui_lib::retrieval::{add_crl, candidate_certificates_in, harvest_revocation_work};
+use pittv3_gui_lib::retrieval::{
+    add_crl, candidate_certificates_in, harvest_revocation_work, insert_status_response,
+};
 use pittv3_gui_lib::validate::{prepare_validation, validate_prepared, PreparedValidation};
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
@@ -294,8 +296,10 @@ async fn retrieve_revocation_data(
                     ));
                     continue;
                 }
-                ocsp_sink.insert(item.key.clone(), response.body);
-                responses += 1;
+                match insert_status_response(ocsp_sink, &item.key, response.body) {
+                    Ok(()) => responses += 1,
+                    Err(why) => notes.push(format!("{}: {why}", item.uri)),
+                }
             }
             Err(e) => {
                 budget.spend(0);

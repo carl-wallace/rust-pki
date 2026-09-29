@@ -16,8 +16,8 @@
 use core::time::Duration;
 
 use pittv3_gui_lib::retrieval::{
-    add_crl, candidate_certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem,
-    OcspResponses,
+    add_crl, candidate_certificates_in, harvest_chase_uris, insert_status_response,
+    MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
 use pittv3_lib::uri_check::{FetchOutcome, UriFetcher};
@@ -742,8 +742,12 @@ pub async fn retrieve_ocsp(
                     )));
                     continue;
                 }
-                sink.insert(item.key.clone(), response.body);
-                added += 1;
+                match insert_status_response(sink, &item.key, response.body) {
+                    Ok(()) => added += 1,
+                    // The responder answered, but with a refusal rather than a status. Saying so
+                    // and moving on leaves the certificate's next responder free to be asked.
+                    Err(why) => notes.push(err(format!("{}: {why}", item.uri))),
+                }
             }
             Err(RelayError::RateLimited { retry_after, .. }) => {
                 budget.rate_limited(retry_after);

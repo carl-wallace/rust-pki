@@ -754,7 +754,7 @@ pub fn load_revocation_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> R
                 out.crls.push(bytes);
                 continue;
             }
-            match crate::ocsp_match::answered_cert_ids(bytes.as_slice()) {
+            match crate::ocsp_match::cert_ids_from_response(bytes.as_slice()) {
                 Ok(_) => out.ocsp_responses.push(bytes),
                 // The OCSP reader's message is the more specific of the two -- it distinguishes
                 // "not an OCSP response" from a response that reports an error status or answers
@@ -798,7 +798,7 @@ impl RevocationInputs {
 /// other certificate.
 #[cfg(all(feature = "std", feature = "revocation"))]
 fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
-    use crate::ocsp_match::{answered_cert_ids, answers_about};
+    use crate::ocsp_match::{answers_about, cert_ids_from_response};
 
     if responses.is_empty() {
         return;
@@ -806,7 +806,7 @@ fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
 
     let mut parsed = vec![];
     for bytes in responses {
-        match answered_cert_ids(bytes.as_slice()) {
+        match cert_ids_from_response(bytes.as_slice()) {
             Ok(ids) => parsed.push((ids, bytes)),
             Err(why) => error!("Failed to read a provided OCSP response for stapling: {why}"),
         }
