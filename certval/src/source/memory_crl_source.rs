@@ -71,15 +71,29 @@ impl MemoryCrlSource {
     /// A body that does not decode is reported rather than stored: a distribution point serving
     /// something else is worth a note in the run, and keeping it would only produce a more
     /// confusing failure later, inside `process_crl`.
+    ///
+    /// **A CRL already held is held once.** This source outlives the run that filled it — a browser
+    /// folds its uploads in on every click and a checker adds what it fetched — and every copy is
+    /// returned by [`get_crls`](CrlSource::get_crls) for every certificate it might cover and
+    /// verified again inside `process_crl`. A 9.5 MB DoD CRL offered twice is otherwise 19 MB of
+    /// heap and twice the signature verifications, in a wasm32 address space with a 4 GB ceiling
+    /// and no way to recover but a reload.
+    ///
+    /// Compared by bytes, and by length before that, so distinct CRLs cost a length check apiece.
+    /// A repeat still reports `true`: the question is whether a CRL arrived, and one did.
     pub fn add(&self, bytes: &[u8]) -> bool {
         let Ok(crl) = CertificateList::<Raw>::from_der(bytes) else {
             return false;
         };
-        let stored = StoredCrl {
-            bytes: bytes.to_vec(),
-            issuer: crl.tbs_cert_list.issuer.clone(),
-        };
-        self.crls.with_write(|crls| crls.push(stored));
+        self.crls.with_write(|crls| {
+            if crls.iter().any(|c| c.bytes == bytes) {
+                return;
+            }
+            crls.push(StoredCrl {
+                bytes: bytes.to_vec(),
+                issuer: crl.tbs_cert_list.issuer.clone(),
+            });
+        });
         true
     }
 
@@ -167,6 +181,27 @@ mod tests {
         // but the issuer does not match, so it is not a candidate at all.
         assert!(source.get_crls(&digicert).unwrap().is_empty());
         assert_eq!(source.get_all_crls().unwrap().len(), 1);
+    }
+
+    /// A source outlives the run that filled it, so the same CRL arrives again: a browser folds its
+    /// uploads in on every click, and the checker adds what it fetched when no cache is holding it.
+    /// Every copy would be returned for every candidate certificate and verified again.
+    #[test]
+    fn the_same_crl_offered_twice_is_held_once() {
+        let source = MemoryCrlSource::new();
+        assert!(source.add(AMAZON_CRL));
+        assert!(source.add(AMAZON_CRL), "a repeat is still a CRL");
+        assert_eq!(source.len(), 1);
+
+        let amazon = parse_cert(ISSUED_BY_AMAZON, "1.der").expect("fixture parses");
+        assert_eq!(source.get_crls(&amazon).unwrap().len(), 1);
+
+        // Through the trait as well, which is the path the revocation checker takes.
+        let crl = CertificateList::<Raw>::from_der(AMAZON_CRL).expect("fixture decodes");
+        source
+            .add_crl(AMAZON_CRL, &crl, "http://crl.example/amazon.crl")
+            .expect("a decodable CRL is accepted");
+        assert_eq!(source.len(), 1);
     }
 
     /// The path certval itself drives: the revocation checker hands over a CRL it retrieved, and a
