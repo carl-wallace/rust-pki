@@ -276,7 +276,7 @@ impl FetchBudget {
     /// Records the bytes a retrieval moved, for a caller that has already charged the retrieval.
     ///
     /// A request and its response are two amounts of one fetch, and the allowance
-    /// [`FetchBudget::for_certificates`] promises is counted in fetches, so charging the fetch
+    /// [`RelayFetcher::for_certificates`] promises is counted in fetches, so charging the fetch
     /// again when the bytes arrive would halve it.
     fn spend_bytes(&mut self, bytes: usize) {
         self.bytes = self.bytes.saturating_sub(bytes);
