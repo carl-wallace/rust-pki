@@ -406,6 +406,7 @@ fn generate_then_validate_one() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen1.cbor");
         cmd.arg("-t").arg("tests/examples/ta_store_one");
+        cmd.arg("-i").arg("1749917849");
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-d").arg(dp.to_str().unwrap());
@@ -493,6 +494,7 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_one");
+        cmd.arg("-i").arg("1749917849");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-y");
         cmd.arg("-s")
@@ -672,6 +674,7 @@ fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
+        cmd.arg("-i").arg("1749917849");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -870,6 +873,7 @@ fn absent_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         // Same as above but without the validate_all flag, so only one path should be returned.
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("-t").arg("tests/examples/2025/ta_store_two");
+        cmd.arg("-i").arg("1749917849");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");
@@ -997,6 +1001,7 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/regen3.cbor");
         cmd.arg("-t").arg("tests/examples/2025/ta_store_three");
+        cmd.arg("-i").arg("1749917849");
         cmd.arg("-d").arg(dp.to_str().unwrap());
         cmd.arg("-s")
             .arg("tests/examples/disable_revocation_checking.json");

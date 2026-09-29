@@ -24,7 +24,7 @@ use pittv3_capi::{verify, CapiError, CapiOptions, CapiVerification, CapiVerifyEr
 use pittv3_gui_lib::gui_results::status_parts;
 use pittv3_gui_lib::settings_store::{FileSettingsStore, SettingsStore};
 use pittv3_lib::args::Pittv3Args;
-use pittv3_lib::der_or_pem::certs_in;
+use pittv3_lib::der_or_pem::candidate_certs_in;
 use pittv3_lib::report::TargetStatus;
 use pittv3_lib::std_utils::{cbor_cert_store_certs, cbor_ta_store_anchors};
 
@@ -157,7 +157,7 @@ fn collect_ders(path: &Path, shape: Shape, out: &mut Vec<Vec<u8>>) {
 
     let name = path.to_string_lossy().to_string();
     // A store is not a certificate, and the two arrive through the same rows. Tried first because
-    // `certs_in` would otherwise hand the CBOR back as one unparseable object.
+    // `candidate_certs_in` would otherwise hand the CBOR back as one unparseable object.
     if shape == Shape::Anchors {
         if let Some(anchors) = cbor_ta_store_anchors(&name) {
             out.extend(anchors.into_iter().map(|cf| cf.bytes));
@@ -172,7 +172,7 @@ fn collect_ders(path: &Path, shape: Shape, out: &mut Vec<Vec<u8>>) {
     let Ok(bytes) = fs::read(path) else {
         return;
     };
-    if let Ok(certs) = certs_in(&bytes) {
+    if let Ok(certs) = candidate_certs_in(&bytes) {
         out.extend(certs);
     }
 }
@@ -199,7 +199,7 @@ fn collect_labeled(path: &Path, out: &mut Vec<(String, Vec<u8>)>) {
     let Ok(bytes) = fs::read(path) else {
         return;
     };
-    let Ok(certs) = certs_in(&bytes) else {
+    let Ok(certs) = candidate_certs_in(&bytes) else {
         return;
     };
     let name = path.to_string_lossy().to_string();
@@ -1020,7 +1020,7 @@ pub(crate) mod tests {
     fn a_refused_target_is_counted_apart() {
         let dir = tempfile::tempdir().unwrap();
         let junk = dir.path().join("junk.crt");
-        // Leading 0x30 so `certs_in` hands it on as a certificate and CAPI is the one to refuse it.
+        // Leading 0x30 so `candidate_certs_in` hands it on as a certificate and CAPI is the one to refuse it.
         fs::write(&junk, [0x30u8, 0x03, 0x02, 0x01, 0x00]).unwrap();
 
         let args = Pittv3Args {

@@ -16,7 +16,7 @@
 use core::time::Duration;
 
 use pittv3_gui_lib::retrieval::{
-    certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
+    candidate_certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
 use pittv3_lib::uri_check::{FetchOutcome, UriFetcher};
@@ -597,7 +597,7 @@ pub async fn chase_certificates(
                         )));
                         continue;
                     }
-                    let certs = certificates_in(&response.body);
+                    let certs = candidate_certificates_in(&response.body);
                     if certs.is_empty() {
                         notes.push(err(format!("{uri} served no certificate")));
                         continue;

@@ -60,10 +60,18 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
         .ok_or(Error::Unrecognized)
 }
 
-/// Returns every certificate a caller's buffer carries, in DER, whatever container it arrived in.
+/// Returns every object a caller's buffer carries in a certificate position, in DER, whatever
+/// container it arrived in.
 ///
-/// [`maybe_pem`] answers "what encoding is this one object in"; this answers "what certificates are
-/// in this file", which is the question a trust-anchor or CA input actually asks. The two differ for
+/// **Candidates, because nothing here parses a certificate.** The containers are parsed, their
+/// members are not: `certs_from_signed_data` collects each member of a `CertificateSet` as the
+/// bytes it arrived in, deliberately, since re-encoding one would break its signature. A caller
+/// that needs to know it holds a certificate decodes what comes back. Three call sites fold the
+/// output into a `CertSource`, which does that decoding; a caller deciding something about a buffer
+/// has to do it itself.
+///
+/// [`maybe_pem`] answers "what encoding is this one object in"; this answers "what objects are in
+/// this file", which is the question a trust-anchor or CA input actually asks. The two differ for
 /// exactly the containers that hold more than one certificate: a certs-only PKCS#7 message (`.p7c`
 /// or `.p7b`, how DoD PKE publishes cross-certificate and CA bundles) and a concatenated PEM
 /// bundle. Passing either to `maybe_pem` yields well-formed DER that is not a certificate, or only
@@ -77,7 +85,7 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
 /// rather than decoding here keeps one implementation of "what objects are in this file"; it is also
 /// the more forgiving decoder, which matters because some DoD and FPKI tools wrap base64 at a width
 /// strict RFC 7468 rejects.
-pub fn certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+pub fn candidate_certs_in(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
     // Trimmed before anything reads it, rather than in the bare-DER branch below, because the
     // container check comes first and parses strictly: a `.p7c` with a trailing newline would fail
     // it, fall through, and be handed back whole as though the message were a certificate. That is
@@ -154,9 +162,9 @@ mod tests {
             "maybe_pem trims the newline"
         );
         assert_eq!(
-            certs_in(&slop).unwrap(),
+            candidate_certs_in(&slop).unwrap(),
             vec![der.clone()],
-            "certs_in trims the newline"
+            "candidate_certs_in trims the newline"
         );
 
         // The same file base64-encoded with the byte inside the encoding, which is how it arrives
@@ -180,14 +188,14 @@ mod tests {
         let mut slop = p7c.to_vec();
         slop.push(b'\n');
         assert_eq!(
-            certs_in(&slop).unwrap(),
-            certs_in(p7c).unwrap(),
+            candidate_certs_in(&slop).unwrap(),
+            candidate_certs_in(p7c).unwrap(),
             "the container still expands to its six certificates"
         );
-        assert_eq!(6, certs_in(&slop).unwrap().len());
+        assert_eq!(6, candidate_certs_in(&slop).unwrap().len());
     }
 
-    /// The reason `certs_in` exists rather than callers using `maybe_pem`: a `.p7c` passes
+    /// The reason `candidate_certs_in` exists rather than callers using `maybe_pem`: a `.p7c` passes
     /// `maybe_pem` unchanged, because it is well-formed DER starting with SEQUENCE. It is just not
     /// a certificate, so every caller that assumed one got nothing and said nothing.
     #[test]
@@ -198,18 +206,18 @@ mod tests {
             p7c.to_vec(),
             "maybe_pem hands back the container, which is the bug this closes"
         );
-        assert_eq!(6, certs_in(p7c).unwrap().len());
+        assert_eq!(6, candidate_certs_in(p7c).unwrap().len());
 
         let der = include_bytes!("../../certval/tests/examples/amazon.com/2-target.der").to_vec();
         let pem = include_bytes!("../../certval/tests/examples/amazon.com/2-target.pem").to_vec();
         assert_eq!(
             vec![der.clone()],
-            certs_in(&der).unwrap(),
+            candidate_certs_in(&der).unwrap(),
             "a bare certificate is one cert"
         );
         assert_eq!(
             vec![der],
-            certs_in(&pem).unwrap(),
+            candidate_certs_in(&pem).unwrap(),
             "and so is its PEM encoding"
         );
     }
@@ -223,17 +231,17 @@ mod tests {
         let der = include_bytes!("../../certval/tests/examples/caCertsIssuedTofbcag4.p7c");
         let pem = pem_rfc7468::encode_string("PKCS7", pem_rfc7468::LineEnding::LF, der).unwrap();
 
-        let from_der = certs_in(der).unwrap();
+        let from_der = candidate_certs_in(der).unwrap();
         assert_eq!(6, from_der.len());
         assert_eq!(
             from_der,
-            certs_in(pem.as_bytes()).unwrap(),
+            candidate_certs_in(pem.as_bytes()).unwrap(),
             "the armor is an encoding of the container, not a certificate"
         );
         assert_eq!(
             maybe_pem(pem.as_bytes()).unwrap(),
             der.to_vec(),
-            "maybe_pem still hands back the container, which is what certs_in must not do"
+            "maybe_pem still hands back the container, which is what candidate_certs_in must not do"
         );
     }
 
@@ -259,7 +267,10 @@ mod tests {
             armor(&ee)
         );
 
-        assert_eq!(vec![ta, ca, ee], certs_in(bundle.as_bytes()).unwrap());
+        assert_eq!(
+            vec![ta, ca, ee],
+            candidate_certs_in(bundle.as_bytes()).unwrap()
+        );
     }
 
     /// A bundle may mix the two: an armored container beside a bare certificate. Each block is
@@ -276,26 +287,28 @@ mod tests {
             pem_rfc7468::encode_string("CERTIFICATE", pem_rfc7468::LineEnding::LF, &ee).unwrap()
         );
 
-        let certs = certs_in(mixed.as_bytes()).unwrap();
+        let certs = candidate_certs_in(mixed.as_bytes()).unwrap();
         assert_eq!(7, certs.len(), "six from the container plus the bare one");
         assert_eq!(ee, certs[6]);
     }
 
     /// The multi-object decoder passes unarmored bytes through as a single object, which for an
     /// upload would turn an unreadable file into one certificate-shaped entry that fails silently
-    /// somewhere else. `certs_in` has to refuse it here, where the caller still has a name to put
+    /// somewhere else. `candidate_certs_in` has to refuse it here, where the caller still has a name to put
     /// in the message.
     #[test]
     fn an_unreadable_upload_is_an_error_not_an_object() {
-        assert!(certs_in(b"").is_err());
-        assert!(certs_in(b"not a certificate in any encoding").is_err());
+        assert!(candidate_certs_in(b"").is_err());
+        assert!(candidate_certs_in(b"not a certificate in any encoding").is_err());
         assert!(
-            certs_in(b"-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----")
-                .is_err(),
+            candidate_certs_in(
+                b"-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----"
+            )
+            .is_err(),
             "armor alone does not make a file readable"
         );
         assert!(
-            certs_in(b"dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_err(),
+            candidate_certs_in(b"dGhpc0lzVmFsaWRCYXNlNjRUZXh0").is_err(),
             "and accepting unarmored base64 does not admit text that merely decodes"
         );
     }
@@ -319,7 +332,7 @@ mod tests {
         );
 
         assert_eq!(
-            certs_in(b64.as_bytes()).unwrap(),
+            candidate_certs_in(b64.as_bytes()).unwrap(),
             vec![der.clone()],
             "and the bundle entry point agrees with the single-object one"
         );
@@ -366,7 +379,7 @@ mod tests {
                     "wrapped at {width} with {name} endings, still the same certificate"
                 );
                 assert_eq!(
-                    certs_in(armored.as_bytes()).unwrap(),
+                    candidate_certs_in(armored.as_bytes()).unwrap(),
                     vec![der.clone()],
                     "and the bundle entry point agrees at {width} with {name} endings"
                 );

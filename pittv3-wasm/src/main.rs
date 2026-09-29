@@ -25,7 +25,7 @@ use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckIntro, UriCheckResults};
 use pittv3_gui_lib::settings_store::SettingsStore;
-use pittv3_gui_lib::validate::{certs_in, inspect, InspectRequest, Inspected};
+use pittv3_gui_lib::validate::{candidate_certs_in, inspect, InspectRequest, Inspected};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
@@ -566,7 +566,7 @@ fn App() -> Element {
                 }
                 continue;
             }
-            // Before certs_in, which hands back any DER SEQUENCE whole as though it were a
+            // Before candidate_certs_in, which hands back any DER SEQUENCE whole as though it were a
             // certificate. A stream's Root message is what counts as a trust anchor here; its CA
             // message is counted with the intermediates below, where it is also used.
             if let Some(inputs) = installroot_from_bytes(&pe, name, bytes) {
@@ -575,7 +575,7 @@ fn App() -> Element {
                 }
                 continue;
             }
-            if let Ok(ders) = certs_in(bytes) {
+            if let Ok(ders) = candidate_certs_in(bytes) {
                 for der in ders {
                     ta_store.push(CertFile {
                         filename: name.clone(),
@@ -603,7 +603,7 @@ fn App() -> Element {
                 }
                 continue;
             }
-            if let Ok(ders) = certs_in(bytes) {
+            if let Ok(ders) = candidate_certs_in(bytes) {
                 for der in ders {
                     cert_source.push(CertFile {
                         filename: name.clone(),
