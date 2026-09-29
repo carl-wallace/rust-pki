@@ -9,8 +9,9 @@
 //!    [`harvest_revocation_work`]);
 //! 2. **fetch**, asynchronously and by whatever means the frontend has — the relay in a browser, a
 //!    direct client on a server. Nothing in this crate takes part;
-//! 3. **fold**, synchronously: turn a retrieved body into certificates ([`certificates_in`]) or put
-//!    a CRL somewhere the revocation checker will look ([`MemoryCrlSource`]).
+//! 3. **fold**, synchronously: turn a retrieved body into certificates
+//!    ([`candidate_certificates_in`]) or put a CRL somewhere the revocation checker will look
+//!    ([`MemoryCrlSource`]).
 //!
 //! Everything here is therefore feature-free and frontend-free: a browser and a server running the
 //! same loop over the same functions cannot reach different conclusions about a certificate, which
@@ -37,16 +38,23 @@ use der::Encode;
 #[cfg(feature = "revocation")]
 use pittv3_lib::ocsp_match::{answered_cert_ids, answers_about, SHA1_CERT_ID_OID};
 
-use crate::validate::{certs_in, maybe_pem, PreparedValidation};
+use crate::validate::{candidate_certs_in, maybe_pem, PreparedValidation};
 
 /// Whether a retrieved body is something a run could use, which is the rule an open fetch endpoint
 /// needs and the only one it can apply without knowing what was asked for.
 ///
 /// **Composed from the parsers the frontends already fold with**, so it cannot refuse a body a run
-/// would have accepted: [`certificates_in`] for anything carrying certificates (a bare DER or PEM
+/// would have accepted: [`candidate_certificates_in`] for anything carrying certificates (a bare DER or PEM
 /// certificate, a `.p7c` or `.p7b` message, bare base64 as DoD and FPKI tools publish it), a CRL,
 /// and an OCSP response. A body satisfying none of those is not an artifact any caller could fold,
 /// whatever it is.
+///
+/// **Each arm decodes, none sniffs.** The encodings are resolved first, by the same branches the
+/// input paths use, and what reaches the three tests is DER either way; the tests then ask whether
+/// that DER is a certificate, a CRL or an OCSP response. `candidate_certs_in` identifies a bare DER object by
+/// its leading tag alone, `0x30` being ASCII `'0'`, so the certificate arm decodes what comes back
+/// rather than counting it. A `.p7c` has already been decoded as a `ContentInfo` by then, and its
+/// members are what get tested.
 ///
 /// **Why an endpoint wants this.** A relay bounded only by scheme, port, address and size will
 /// retrieve any public content within those bounds, from the deployment's own address and under
@@ -60,7 +68,10 @@ use crate::validate::{certs_in, maybe_pem, PreparedValidation};
 /// The cost is parsing a body twice, once to decide and once to use. That is the price of the
 /// endpoint not being an open relay, and it is paid on retrieval rather than on validation.
 pub fn is_usable_artifact(body: &[u8]) -> bool {
-    if !certificates_in(body).is_empty() {
+    if candidate_certificates_in(body)
+        .iter()
+        .any(|der| is_certificate(der))
+    {
         return true;
     }
     if crl_in(body).is_some() {
@@ -68,6 +79,23 @@ pub fn is_usable_artifact(body: &[u8]) -> bool {
     }
     use der::Decode;
     x509_ocsp::OcspResponse::from_der(body).is_ok()
+}
+
+/// Whether one buffer [`candidate_certificates_in`] returned is a certificate.
+///
+/// `candidate_certs_in` identifies a bare DER object by its leading tag and hands the bytes back for the
+/// caller to decode, which every folding caller then does. This is that decode, under `Raw`, the
+/// profile [`parse_cert`] decodes under: reading here under `Rfc5280` would refuse certificates the
+/// path builder goes on to accept, the same profile trap `crl_in` avoids below. `CertificateInner`
+/// rather than `parse_cert` itself because a gate wants the answer, not a `PDVCertificate` and a
+/// log line per body that turns out to be a CRL.
+///
+/// A message carrying several objects is usable when any one of them is a certificate, which is
+/// what the fold does with it: the good members are taken and the rest ignored.
+fn is_certificate(der: &[u8]) -> bool {
+    use der::Decode;
+    use x509_cert::certificate::{CertificateInner, Raw};
+    CertificateInner::<Raw>::from_der(der).is_ok()
 }
 
 /// A CRL in either encoding, as [`MemoryCrlSource`] takes one.
@@ -89,14 +117,18 @@ fn crl_in(body: &[u8]) -> Option<Vec<u8>> {
         .then_some(der)
 }
 
-/// Extracts the certificates from a retrieved body, which by convention is either a single
-/// DER-encoded certificate or a certs-only SignedData message, i.e., a `.p7c`. The message form is
-/// tried first because both begin with a SEQUENCE and only the message parses as one.
-pub fn certificates_in(body: &[u8]) -> Vec<Vec<u8>> {
+/// Extracts the objects a retrieved body carries in certificate positions, which by convention is
+/// either a single DER-encoded certificate or a certs-only SignedData message, i.e., a `.p7c`. The
+/// message form is tried first because both begin with a SEQUENCE and only the message parses as
+/// one.
+///
+/// Candidates, as [`candidate_certs_in`] explains: the container is parsed and its members are not,
+/// so a caller deciding something about a body decodes them itself ([`is_certificate`]).
+pub fn candidate_certificates_in(body: &[u8]) -> Vec<Vec<u8>> {
     // Shares the decoder with the trust-anchor and CA inputs rather than carrying its own. It also
     // gains PEM as a side effect, which this had never handled: a repository serving a PEM
     // certificate produced nothing here while the same bytes uploaded by hand worked.
-    certs_in(body).unwrap_or_default()
+    candidate_certs_in(body).unwrap_or_default()
 }
 
 /// Collects the authority and subject information access URIs carried by `certs`, deduplicated and
@@ -584,8 +616,8 @@ mod tests {
 
     #[test]
     fn a_body_that_is_neither_a_certificate_nor_a_message_yields_nothing() {
-        assert!(certificates_in(b"not der at all").is_empty());
-        assert!(certificates_in(&[]).is_empty());
+        assert!(candidate_certificates_in(b"not der at all").is_empty());
+        assert!(candidate_certificates_in(&[]).is_empty());
     }
 
     #[test]
@@ -885,5 +917,17 @@ mod tests {
         assert!(!is_usable_artifact(b"Not Found"));
         assert!(!is_usable_artifact(&[0u8; 512]));
         assert!(!is_usable_artifact(b""));
+    }
+
+    /// The bodies that reach the bare-DER arm without being certificates. `0x30` is ASCII `'0'`,
+    /// so a JSON document that begins with a digit zero has a certificate's leading tag, and a
+    /// well-formed SEQUENCE carrying an integer is DER without being any artifact a run can fold.
+    #[test]
+    fn a_body_shaped_like_der_is_not_an_artifact_by_its_first_byte() {
+        assert!(!is_usable_artifact(b"0 is the first byte of this reply"));
+        assert!(!is_usable_artifact(b"0000000000"));
+        assert!(!is_usable_artifact(&[0x30, 0x03, 0x02, 0x01, 0x01]));
+        // The other tag the bare-DER arm answers to.
+        assert!(!is_usable_artifact(&[0xA2, 0x03, 0x02, 0x01, 0x01]));
     }
 }

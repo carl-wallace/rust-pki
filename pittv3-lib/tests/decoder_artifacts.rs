@@ -3,7 +3,7 @@
 //! There are two routes into the same certval, because the two frontends arrive differently: the
 //! desktop has a filesystem and reads through `get_file_as_byte_vec_pem` → [`decode_pem_to_der`]
 //! (or `get_file_as_der_certs_pem` → [`decode_pem_to_ders`]), while the browser has only bytes and
-//! reaches `der_or_pem` ([`maybe_pem`] / [`certs_in`]). Three times now a tolerance for real-world
+//! reaches `der_or_pem` ([`maybe_pem`] / [`candidate_certs_in`]). Three times now a tolerance for real-world
 //! garbage has landed on whichever route hit it first and silently not existed on the other:
 //!
 //! - 2026-08-20 — a PEM target validated normally while contributing nothing to the revocation
@@ -26,7 +26,7 @@
 
 use base64ct::{Base64, Encoding};
 use certval::{decode_pem_to_der, decode_pem_to_ders};
-use pittv3_lib::der_or_pem::{certs_in, maybe_pem};
+use pittv3_lib::der_or_pem::{candidate_certs_in, maybe_pem};
 
 const CERT: &[u8] = include_bytes!("../../certval/tests/examples/ee.der");
 const CERT2: &[u8] = include_bytes!("../../certval/tests/examples/DigiCertGlobalCAG2.der");
@@ -147,7 +147,7 @@ fn every_spelling_of_one_certificate_reaches_the_same_der() {
 
 // --- bundles ------------------------------------------------------------------------------------
 
-/// The same for containers. `certs_in` and `decode_pem_to_ders` answer the same question — what
+/// The same for containers. `candidate_certs_in` and `decode_pem_to_ders` answer the same question — what
 /// certificates does this file hold — so they have to answer it the same way.
 #[test]
 fn every_spelling_of_a_bundle_reaches_the_same_certificates() {
@@ -175,7 +175,7 @@ fn every_spelling_of_a_bundle_reaches_the_same_certificates() {
     ];
 
     for (name, bytes, expected) in spellings {
-        let browser = certs_in(&bytes)
+        let browser = candidate_certs_in(&bytes)
             .unwrap_or_else(|e| panic!("{name}: the browser route refused it: {e:?}"));
         let desktop = decode_pem_to_ders(&bytes)
             .unwrap_or_else(|e| panic!("{name}: the desktop route refused it: {e:?}"));
@@ -209,7 +209,7 @@ fn what_is_not_an_object_is_refused_by_the_certificate_route_and_passed_on_by_th
             "{name}: the certificate route must refuse it"
         );
         assert!(
-            certs_in(&bytes).is_err(),
+            candidate_certs_in(&bytes).is_err(),
             "{name}: the certificate route must refuse it"
         );
         assert!(
@@ -244,7 +244,7 @@ fn leading_noise_is_tolerated_by_the_container_decoders_and_not_the_single_objec
         );
         assert_eq!(
             vec![CERT.to_vec()],
-            certs_in(&bytes).unwrap_or_else(|e| panic!("{name}: {e:?}")),
+            candidate_certs_in(&bytes).unwrap_or_else(|e| panic!("{name}: {e:?}")),
             "{name}: the container route steps over it"
         );
     }
@@ -255,7 +255,7 @@ fn leading_noise_is_tolerated_by_the_container_decoders_and_not_the_single_objec
 // Each states the intended result rather than the current one, so removing the `#[ignore]` is the
 // acceptance criterion for the fix rather than a second edit someone has to remember.
 
-/// `certs_in` trims before the container check; `decode_pem_to_ders` runs `certs_from_signed_data`
+/// `candidate_certs_in` trims before the container check; `decode_pem_to_ders` runs `certs_from_signed_data`
 /// on untrimmed bytes, that strict parse fails, and the whole SignedData comes back as though it
 /// were one certificate. Six certificates arrive as one unusable object — the 2026-08-25 failure,
 /// reached by the route that was not fixed.
@@ -267,17 +267,17 @@ fn leading_noise_is_tolerated_by_the_container_decoders_and_not_the_single_objec
 #[ignore = "known divergence: decode_pem_to_ders does not trim before the container check"]
 fn a_container_with_trailing_bytes_expands_on_both_routes() {
     let bytes = followed_by(P7C, b"\n");
-    assert_eq!(P7C_CERTS, certs_in(&bytes).unwrap().len());
+    assert_eq!(P7C_CERTS, candidate_certs_in(&bytes).unwrap().len());
     assert_eq!(P7C_CERTS, decode_pem_to_ders(&bytes).unwrap().len());
 }
 
-/// Same shape one branch along: after decoding bare base64, `certs_in` asks again whether the
+/// Same shape one branch along: after decoding bare base64, `candidate_certs_in` asks again whether the
 /// result is a container and `decode_pem_to_ders` does not, so it returns the SignedData whole.
 #[test]
 #[ignore = "known divergence: decode_pem_to_ders does not re-check for a container after base64"]
 fn a_container_in_bare_base64_expands_on_both_routes() {
     let bytes = bare_base64(P7C);
-    assert_eq!(P7C_CERTS, certs_in(&bytes).unwrap().len());
+    assert_eq!(P7C_CERTS, candidate_certs_in(&bytes).unwrap().len());
     assert_eq!(P7C_CERTS, decode_pem_to_ders(&bytes).unwrap().len());
 }
 
@@ -292,7 +292,7 @@ fn a_container_in_bare_base64_expands_on_both_routes() {
 #[test]
 fn a_byte_order_mark_does_not_hide_the_certificate() {
     let bytes = preceded_by(b"\xef\xbb\xbf", &armor("CERTIFICATE", CERT, 64, false));
-    assert_eq!(vec![CERT.to_vec()], certs_in(&bytes).unwrap());
+    assert_eq!(vec![CERT.to_vec()], candidate_certs_in(&bytes).unwrap());
     assert_eq!(vec![CERT.to_vec()], decode_pem_to_ders(&bytes).unwrap());
 }
 
@@ -307,6 +307,6 @@ fn a_byte_order_mark_does_not_hide_the_certificate() {
 #[ignore = "known gap: concatenated bare DER is truncated to its first object on both routes"]
 fn concatenated_bare_der_yields_every_object() {
     let bytes = followed_by(CERT, CERT2);
-    assert_eq!(2, certs_in(&bytes).unwrap().len());
+    assert_eq!(2, candidate_certs_in(&bytes).unwrap().len());
     assert_eq!(2, decode_pem_to_ders(&bytes).unwrap().len());
 }

@@ -18,7 +18,7 @@ use certval::{
 // The fold half of a retrieving run is shared with the browser rather than kept here: the two tiers
 // have to agree about what a retrieved body contained, and the surest way for them to agree is for
 // there to be one implementation of it.
-use pittv3_gui_lib::retrieval::{certificates_in, harvest_revocation_work};
+use pittv3_gui_lib::retrieval::{candidate_certificates_in, harvest_revocation_work};
 use pittv3_gui_lib::validate::{prepare_validation, validate_prepared, PreparedValidation};
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
@@ -447,7 +447,10 @@ async fn chase(
                 continue;
             }
 
-            for (index, der) in certificates_in(&response.body).into_iter().enumerate() {
+            for (index, der) in candidate_certificates_in(&response.body)
+                .into_iter()
+                .enumerate()
+            {
                 if cas.iter().any(|(_, existing)| *existing == der) {
                     continue;
                 }
@@ -532,9 +535,12 @@ mod tests {
     fn a_bare_certificate_and_a_message_both_yield_certificates() {
         // Neither parses as a message, so the SEQUENCE fallback applies to the first and the
         // second is not a certificate at all.
-        assert_eq!(certificates_in(&[0x30, 0x03, 0x02, 0x01, 0x01]).len(), 1);
-        assert!(certificates_in(b"<html>not a certificate</html>").is_empty());
-        assert!(certificates_in(&[]).is_empty());
+        assert_eq!(
+            candidate_certificates_in(&[0x30, 0x03, 0x02, 0x01, 0x01]).len(),
+            1
+        );
+        assert!(candidate_certificates_in(b"<html>not a certificate</html>").is_empty());
+        assert!(candidate_certificates_in(&[]).is_empty());
     }
 
     #[test]

@@ -41,7 +41,7 @@ fn err(text: String) -> ResultLine {
 /// Two copies is how the 2026-08-20 bug got in: `validate_target` decoded PEM and the harvest did
 /// not, so a PEM target validated normally and contributed nothing to retrieve. Having one is the
 /// point — a caller cannot reach for the wrong one if there is only one.
-pub use pittv3_lib::der_or_pem::{certs_in, maybe_pem};
+pub use pittv3_lib::der_or_pem::{candidate_certs_in, maybe_pem};
 
 /// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
 /// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass
@@ -309,7 +309,7 @@ fn assemble(
             }
             continue;
         }
-        // Before certs_in, which returns any DER SEQUENCE whole as though it were a certificate:
+        // Before candidate_certs_in, which returns any DER SEQUENCE whole as though it were a certificate:
         // a stream is a SEQUENCE, so it would be claimed there and pushed as a certificate-shaped
         // nothing rather than reaching this.
         #[cfg(feature = "installroot")]
@@ -325,10 +325,10 @@ fn assemble(
             )));
             continue;
         }
-        // certs_in rather than maybe_pem: a `.p7c` of cross-certificates and a concatenated PEM
+        // candidate_certs_in rather than maybe_pem: a `.p7c` of cross-certificates and a concatenated PEM
         // bundle each hold several anchors, and taking only the first (or the container itself)
         // fails quietly later rather than here.
-        match certs_in(bytes) {
+        match candidate_certs_in(bytes) {
             Ok(ders) => {
                 let count = ders.len();
                 for (i, der) in ders.into_iter().enumerate() {
@@ -383,7 +383,7 @@ fn assemble(
             )));
             continue;
         }
-        match certs_in(bytes) {
+        match candidate_certs_in(bytes) {
             Ok(ders) => {
                 let count = ders.len();
                 for (i, der) in ders.into_iter().enumerate() {
@@ -505,7 +505,7 @@ pub fn inspect(
 
     let mut target_paths = None;
     if let Some((name, bytes)) = &request.paths_for_target {
-        // maybe_pem rather than certs_in: this asks about one certificate, so a bundle has no
+        // maybe_pem rather than candidate_certs_in: this asks about one certificate, so a bundle has no
         // reading here that is not a guess at which member was meant.
         match maybe_pem(bytes).and_then(|der| parse_cert(&der, name)) {
             Ok(target) => {
