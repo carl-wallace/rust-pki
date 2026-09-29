@@ -123,7 +123,7 @@ fn crl_in(body: &[u8]) -> Option<Vec<u8>> {
 /// one.
 ///
 /// Candidates, as [`candidate_certs_in`] explains: the container is parsed and its members are not,
-/// so a caller deciding something about a body decodes them itself ([`is_certificate`]).
+/// so a caller deciding something about a body decodes them itself.
 pub fn candidate_certificates_in(body: &[u8]) -> Vec<Vec<u8>> {
     // Shares the decoder with the trust-anchor and CA inputs rather than carrying its own. It also
     // gains PEM as a side effect, which this had never handled: a repository serving a PEM
