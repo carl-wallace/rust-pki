@@ -32,6 +32,7 @@ use crate::{
     },
     retained::RetainedPath,
     stats::{PVStats, PathValidationStats, PathValidationStatsGroup},
+    time::time_of_interest_from_secs,
 };
 
 #[cfg(feature = "revocation")]
@@ -522,6 +523,9 @@ pub fn count_trust_anchor_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -
 /// A value certval will not take as a time disables the check rather than substituting one: the
 /// alternative is counting against *some other* moment, and a count that quietly answers a
 /// different question than it was asked is worse than one that checks nothing.
+///
+/// Every other caller refuses such a value ([`time_of_interest_from_secs`]), which a count cannot
+/// do: the only number it has to return is zero, and zero reads as "these inputs are empty".
 #[cfg(feature = "std")]
 fn counting_time_of_interest(time_of_interest: u64) -> TimeOfInterest {
     match TimeOfInterest::from_unix_secs(time_of_interest) {
@@ -2012,13 +2016,15 @@ pub fn cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
     } else {
         ""
     };
-    cleanup_certs(
-        pe,
-        ca_folder,
-        error_folder,
-        args.report_only,
-        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-    );
+    let toi = match time_of_interest_from_secs(args.time_of_interest) {
+        Ok(toi) => toi,
+        Err(msg) => {
+            println!("{msg}");
+            error!("{msg}");
+            return;
+        }
+    };
+    cleanup_certs(pe, ca_folder, error_folder, args.report_only, toi);
 }
 
 /// `ta_cleanup` implements the `ta-cleanup` option using [`cleanup_tas`] for support.
@@ -2036,13 +2042,15 @@ pub fn ta_cleanup(pe: &PkiEnvironment, args: &Pittv3Args) {
     } else {
         ""
     };
-    cleanup_tas(
-        pe,
-        ta_folder,
-        error_folder,
-        args.report_only,
-        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-    );
+    let toi = match time_of_interest_from_secs(args.time_of_interest) {
+        Ok(toi) => toi,
+        Err(msg) => {
+            println!("{msg}");
+            error!("{msg}");
+            return;
+        }
+    };
+    cleanup_tas(pe, ta_folder, error_folder, args.report_only, toi);
 }
 
 /// Outcome of a folder maintenance action: how many files it removed, and how many it could not.
@@ -2126,12 +2134,16 @@ pub fn cleanup_crls(folder: &str, toi_secs: u64) -> FolderMaintenance {
 /// Wraps [`cleanup_certs`] so a frontend needs no `PkiEnvironment` of its own, and counts what
 /// changed by comparing the folder before and after — `cleanup_certs` reports through the log
 /// rather than returning, and a button needs something to say.
+///
+/// A time this cannot use is an error rather than a removal pass with validity unchecked: this
+/// deletes files, and which files it deletes is the question the time answers.
 #[cfg(feature = "std")]
+// certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
 pub fn cleanup_certificate_folder(
     folder: &str,
     error_folder: &str,
     toi_secs: u64,
-) -> FolderMaintenance {
+) -> core::result::Result<FolderMaintenance, String> {
     let count = || {
         WalkDir::new(folder)
             .into_iter()
@@ -2139,15 +2151,14 @@ pub fn cleanup_certificate_folder(
             .filter(|e| !e.file_type().is_dir())
             .count()
     };
+    let toi = time_of_interest_from_secs(toi_secs)?;
     let before = count();
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    let toi =
-        TimeOfInterest::from_unix_secs(toi_secs).unwrap_or_else(|_| TimeOfInterest::disabled());
     cleanup_certs(&pe, folder, error_folder, false, toi);
     let after = count();
     let removed = before.saturating_sub(after);
-    FolderMaintenance { removed, failed: 0 }
+    Ok(FolderMaintenance { removed, failed: 0 })
 }
 
 /// Removes every file in `folder`, leaving the folder itself. Subfolders are traversed.

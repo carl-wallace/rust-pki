@@ -136,6 +136,7 @@ use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
+use crate::time::time_of_interest_from_secs;
 use crate::uri_check::UriCheckReports;
 
 /// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
@@ -332,7 +333,11 @@ pub fn assemble_for_diagnostics(
     };
 
     let mut cps = CertificationPathSettings::new();
-    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
+    // Established once, here, so everything below reads the time from the settings rather than
+    // converting the argument again and risking a different answer.
+    cps.set_time_of_interest(
+        time_of_interest_from_secs(args.time_of_interest).map_err(InspectError::Failed)?,
+    );
 
     let mut pe = PkiEnvironment::default();
 
@@ -689,7 +694,7 @@ async fn options_std_inner(
                         0,
                         &mut lmm,
                         &mut blocklist,
-                        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                        cps.get_time_of_interest(),
                         cps.get_aia_timeout(),
                         cps.get_max_aia_fetch_bytes(),
                         cps.get_uri_blocklist_ttl(),
@@ -751,10 +756,7 @@ async fn options_std_inner(
 
             let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
             if let Ok(target_cert) = parsed_cert {
-                cert_source.log_paths_for_target(
-                    &target_cert,
-                    TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
-                );
+                cert_source.log_paths_for_target(&target_cert, cps.get_time_of_interest());
             }
         }
         if let Some(leaf_ca_index) = args.list_partial_paths_for_leaf_ca {
@@ -998,7 +1000,10 @@ async fn generate_and_validate(
     }
 
     if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
-        cps.set_time_of_interest(TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap());
+        match time_of_interest_from_secs(args.time_of_interest) {
+            Ok(toi) => cps.set_time_of_interest(toi),
+            Err(msg) => return ValidationReport::failed(msg),
+        }
     }
 
     // Keyed here, on the settings as read, because what follows adjusts them for the run — setting
@@ -1408,7 +1413,7 @@ async fn generate_and_validate(
                         &pe,
                         &download_folder,
                         &mut cert_source,
-                        TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                        cps.get_time_of_interest(),
                     )
                     .is_err()
                     {
@@ -1435,7 +1440,7 @@ async fn generate_and_validate(
                     },
                     &mut lmm,
                     &mut blocklist,
-                    TimeOfInterest::from_unix_secs(args.time_of_interest).unwrap(),
+                    cps.get_time_of_interest(),
                     cps.get_aia_timeout(),
                     cps.get_max_aia_fetch_bytes(),
                     cps.get_uri_blocklist_ttl(),

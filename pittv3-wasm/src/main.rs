@@ -33,6 +33,7 @@ use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{
     attribute_unretrieved_to_limit, RevocationStatus, TargetReport, ValidationReport,
 };
+use pittv3_lib::time::time_of_interest_from_secs;
 use pittv3_lib::uri_check::{
     anchor_certificate_der, check_uris_in_cert, UriCheckOptions, UriCheckReport, UriCheckReports,
 };
@@ -238,9 +239,11 @@ fn run_settings(
     model: &SettingsModel,
     tier: Tier,
     supplied_revocation_data: bool,
-) -> CertificationPathSettings {
+) -> Result<CertificationPathSettings, String> {
     let mut cps = CertificationPathSettings::default();
-    model.apply(&mut cps);
+    // A run does not start on settings that could not be applied. The time of interest is the one
+    // setting that can fail, and it decides whether validity is checked for the whole run.
+    model.apply(&mut cps)?;
     if model.time_of_interest.is_none() {
         if let Ok(toi) = TimeOfInterest::from_unix_secs(now_as_unix_epoch()) {
             cps.set_time_of_interest(toi);
@@ -253,7 +256,7 @@ fn run_settings(
     if model.check_revocation_status.is_none() {
         cps.set_check_revocation_status(tier.retrieves() || supplied_revocation_data);
     }
-    cps
+    Ok(cps)
 }
 
 fn main() {
@@ -955,7 +958,9 @@ fn App() -> Element {
     // failure the user cannot see.
     let mut persist_settings = move |model: &SettingsModel| -> Result<(), String> {
         let mut cps = settings_base().unwrap_or_else(|| LocalStorageSettingsStore.load());
-        model.apply(&mut cps);
+        // Nothing is stored when the model will not apply, so what is saved is always a settings
+        // map a run could be started from.
+        model.apply(&mut cps)?;
         let outcome = LocalStorageSettingsStore.save(&cps);
         if outcome.is_ok() {
             // Everything the loaded file carried is in local storage now, so the base has nothing
@@ -1115,7 +1120,17 @@ fn App() -> Element {
             return;
         };
         let candidates =
-            cleanup_candidates(inspected, insp_toi().unwrap_or_else(now_as_unix_epoch));
+            match cleanup_candidates(inspected, insp_toi().unwrap_or_else(now_as_unix_epoch)) {
+                Ok(candidates) => candidates,
+                Err(msg) => {
+                    drop(held);
+                    insp_notes.write().push(ResultLine {
+                        class: "err",
+                        text: msg,
+                    });
+                    return;
+                }
+            };
         drop(held);
         let mut edits = insp_edits.write();
         for index in candidates {
@@ -1239,7 +1254,10 @@ fn App() -> Element {
         // merge over, so a downloaded file carries what an imported one brought even when the form
         // has no field for it.
         let mut cps = settings_base().unwrap_or_else(|| LocalStorageSettingsStore.load());
-        settings().apply(&mut cps);
+        if let Err(msg) = settings().apply(&mut cps) {
+            settings_status.set(msg);
+            return;
+        }
         let json = serde_json::to_string_pretty(&cps).unwrap_or_default();
         let uri = format!(
             "data:application/json;charset=utf-8,{}",
@@ -1383,7 +1401,17 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
+        let cps = match run_settings(&settings(), tier(), have_revocation_uploads()) {
+            Ok(cps) => cps,
+            Err(msg) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                view.set(View::Results);
+                return;
+            }
+        };
         for (name, bytes) in loaded_zips() {
             let (reports, lines) = validate_hackathon_zip(&name, bytes, &cps, validate_all());
             notes.write().extend(lines);
@@ -1441,10 +1469,17 @@ fn App() -> Element {
         // constraint settings have no bearing. Built here rather than taken from the settings so an
         // inspection cannot quietly depend on one of them later.
         let mut cps = CertificationPathSettings::new();
-        if let Ok(toi) =
-            TimeOfInterest::from_unix_secs(insp_toi().unwrap_or_else(now_as_unix_epoch))
-        {
-            cps.set_time_of_interest(toi);
+        match time_of_interest_from_secs(insp_toi().unwrap_or_else(now_as_unix_epoch)) {
+            Ok(toi) => cps.set_time_of_interest(toi),
+            Err(msg) => {
+                insp_notes.set(vec![ResultLine {
+                    class: "err",
+                    text: msg,
+                }]);
+                insp_inspected.set(None);
+                insp_running.set(false);
+                return;
+            }
         }
 
         match inspect(store, &file_tas, &file_cas, &cps, &request) {
@@ -1480,8 +1515,16 @@ fn App() -> Element {
         // nothing is validated here, so nothing a path must satisfy has any bearing on what is
         // built. Built here rather than taken from the settings so it cannot come to depend on one.
         let mut cps = CertificationPathSettings::new();
-        if let Ok(t) = TimeOfInterest::from_unix_secs(toi) {
-            cps.set_time_of_interest(t);
+        match time_of_interest_from_secs(toi) {
+            Ok(t) => cps.set_time_of_interest(t),
+            Err(msg) => {
+                insp_notes.set(vec![ResultLine {
+                    class: "err",
+                    text: msg,
+                }]);
+                gen_running.set(false);
+                return;
+            }
         }
 
         // What a chase brings back is an input to the store being built and nothing more: it joins
@@ -1534,7 +1577,18 @@ fn App() -> Element {
         // The desktop reaches the same place from the other side: its screen runs inside
         // `build_graph` as the folder is read, so its report has nothing left to mark.
         let mut edits = StagedEdits::default();
-        for index in cleanup_candidates(&inspected, toi) {
+        let screen = match cleanup_candidates(&inspected, toi) {
+            Ok(candidates) => candidates,
+            Err(msg) => {
+                insp_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                gen_running.set(false);
+                return;
+            }
+        };
+        for index in screen {
             edits.toggle_cert(index);
         }
         let screened = edits.certs_removed();
@@ -1625,7 +1679,18 @@ fn App() -> Element {
         #[cfg(target_family = "wasm")]
         gloo_timers::future::TimeoutFuture::new(16).await;
 
-        let cps = run_settings(&settings(), tier(), have_revocation_uploads());
+        let cps = match run_settings(&settings(), tier(), have_revocation_uploads()) {
+            Ok(cps) => cps,
+            Err(msg) => {
+                notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                validating.set(false);
+                view.set(View::Results);
+                return;
+            }
+        };
         // What this run resolved, kept for the report. `run_settings` is where the unstated default
         // is decided -- a run that cannot obtain revocation data does not check -- so this is the
         // answer after that decision rather than the preference that went into it.
@@ -3110,7 +3175,8 @@ mod tests {
     /// `RevocationStatusNotDetermined` for want of data the page cannot obtain.
     #[test]
     fn revocation_checking_is_off_unless_asked_for_in_the_local_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Local, false);
+        let cps =
+            run_settings(&SettingsModel::default(), Tier::Local, false).expect("defaults apply");
         assert!(!cps.get_check_revocation_status());
     }
 
@@ -3120,7 +3186,8 @@ mod tests {
     /// consulted, which reads as `RevocationStatusNotDetermined` and looks like the staple failed.
     #[test]
     fn supplied_revocation_data_turns_checking_on_in_the_local_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Local, true);
+        let cps =
+            run_settings(&SettingsModel::default(), Tier::Local, true).expect("defaults apply");
         assert!(cps.get_check_revocation_status());
     }
 
@@ -3128,7 +3195,8 @@ mod tests {
     /// so the unstated preference reverses. This is the one setting whose default the tier moves.
     #[test]
     fn revocation_checking_is_on_unless_refused_in_the_relayed_tier() {
-        let cps = run_settings(&SettingsModel::default(), Tier::Relayed, false);
+        let cps =
+            run_settings(&SettingsModel::default(), Tier::Relayed, false).expect("defaults apply");
         assert!(cps.get_check_revocation_status());
     }
 
@@ -3141,16 +3209,22 @@ mod tests {
             check_revocation_status: Some(true),
             ..SettingsModel::default()
         };
-        assert!(run_settings(&asked_for, Tier::Local, false).get_check_revocation_status());
+        assert!(run_settings(&asked_for, Tier::Local, false)
+            .expect("settings apply")
+            .get_check_revocation_status());
 
         let refused = SettingsModel {
             check_revocation_status: Some(false),
             ..SettingsModel::default()
         };
-        assert!(!run_settings(&refused, Tier::Relayed, false).get_check_revocation_status());
+        assert!(!run_settings(&refused, Tier::Relayed, false)
+            .expect("settings apply")
+            .get_check_revocation_status());
 
         // An upload does not override a refusal: the user said no.
-        assert!(!run_settings(&refused, Tier::Local, true).get_check_revocation_status());
+        assert!(!run_settings(&refused, Tier::Local, true)
+            .expect("settings apply")
+            .get_check_revocation_status());
     }
 
     /// The tier is what the settings form's per-capability notices key off, so the two have to move

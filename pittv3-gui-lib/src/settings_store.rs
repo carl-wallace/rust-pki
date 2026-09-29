@@ -16,7 +16,9 @@
 
 use certval::CertificationPathSettings;
 #[cfg(feature = "std")]
-use certval::{TimeOfInterest, PS_RETRIEVE_FROM_AIA_SIA_HTTP, PS_TIME_OF_INTEREST};
+use certval::{PS_RETRIEVE_FROM_AIA_SIA_HTTP, PS_TIME_OF_INTEREST};
+#[cfg(feature = "std")]
+use pittv3_lib::time::time_of_interest_from_secs;
 
 /// The settings a frontend may offer beside a run rather than only on the settings form.
 ///
@@ -92,8 +94,7 @@ pub fn save_common_settings(path: &str, edited: CommonSettings) -> Result<bool, 
     }
     match edited.time_of_interest {
         Some(secs) => {
-            let toi = TimeOfInterest::from_unix_secs(secs)
-                .map_err(|e| format!("Unusable time of interest: {e}"))?;
+            let toi = time_of_interest_from_secs(secs)?;
             if !cps.0.contains_key(PS_TIME_OF_INTEREST) || cps.get_time_of_interest() != toi {
                 cps.set_time_of_interest(toi);
                 changed = true;
