@@ -426,21 +426,32 @@ fn dedup_in_place(uris: &mut Vec<String>) {
 // Re-exported rather than renamed so the frontends keep the name they already use.
 pub use certval::MemoryCrlSource;
 
-/// Adds a CRL the user supplied by hand, accepting either DER or PEM.
+/// Adds a CRL to a source, accepting either DER or PEM.
+///
+/// [`MemoryCrlSource::add`] takes DER, and a distribution point serving PEM is rare but real: some
+/// FPKI participant repositories do. Every path that puts a CRL in front of the checker goes
+/// through here, so a repository and a hand-picked file are read the same way, and what
+/// [`is_usable_artifact`] is willing to call a CRL is what a source is willing to hold.
+///
+/// Returns whether it was a CRL at all — bytes that are not one are reported rather than stored,
+/// for the same reason [`MemoryCrlSource::add`] reports it.
+pub fn add_crl(source: &MemoryCrlSource, bytes: &[u8]) -> bool {
+    if source.add(bytes) {
+        return true;
+    }
+    match decode_pem_to_der(bytes) {
+        Ok(der) => source.add(&der),
+        Err(_) => false,
+    }
+}
+
+/// Adds a CRL the user supplied by hand.
 ///
 /// This is the no-network counterpart to retrieving one: the checker cannot tell the difference,
 /// because both end up in the same [`MemoryCrlSource`] and are judged the same way by certval's
-/// `process_crl`. Returns whether it was a CRL at all — a file that is not one is reported rather
-/// than stored, for the same reason [`MemoryCrlSource::add`] reports it.
+/// `process_crl`.
 pub fn add_uploaded_crl(prepared: &PreparedValidation, bytes: &[u8]) -> bool {
-    if prepared.crl_source().add(bytes) {
-        return true;
-    }
-    // parse the CRL with both DER and PEM supported
-    match decode_pem_to_der(bytes) {
-        Ok(der) => prepared.crl_source().add(&der),
-        Err(_) => false,
-    }
+    add_crl(prepared.crl_source(), bytes)
 }
 
 /// What offering an uploaded OCSP response to a run came to.
@@ -687,6 +698,29 @@ mod tests {
             prepared.crl_source().len(),
             "every encoding decoded but not all of them were stored"
         );
+    }
+
+    /// What the relay filter is willing to call a CRL is what a source is willing to hold. The two
+    /// disagreed for PEM, so a distribution point serving it was fetched, admitted by the filter and
+    /// then reported as having served no CRL. Some FPKI participant repositories serve PEM.
+    #[test]
+    fn a_crl_the_filter_accepts_is_one_a_source_will_hold() {
+        let der = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.der.crl");
+        let pem = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.pem.crl");
+
+        for (what, bytes) in [("DER", der.as_slice()), ("PEM", pem.as_slice())] {
+            let source = MemoryCrlSource::new();
+            assert!(
+                is_usable_artifact(bytes),
+                "the filter refused a CRL as {what}"
+            );
+            assert!(add_crl(&source, bytes), "a source refused a CRL as {what}");
+            assert_eq!(
+                1,
+                source.len(),
+                "a CRL as {what} was accepted but not stored"
+            );
+        }
     }
 
     #[cfg(feature = "revocation")]

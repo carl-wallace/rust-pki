@@ -18,7 +18,7 @@ use certval::{
 // The fold half of a retrieving run is shared with the browser rather than kept here: the two tiers
 // have to agree about what a retrieved body contained, and the surest way for them to agree is for
 // there to be one implementation of it.
-use pittv3_gui_lib::retrieval::{candidate_certificates_in, harvest_revocation_work};
+use pittv3_gui_lib::retrieval::{add_crl, candidate_certificates_in, harvest_revocation_work};
 use pittv3_gui_lib::validate::{prepare_validation, validate_prepared, PreparedValidation};
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
@@ -362,7 +362,7 @@ async fn retrieve_revocation_data(
                     notes.push(format!("{uri} answered with status {}", response.status));
                     continue;
                 }
-                match crl_sink.add(&response.body) {
+                match add_crl(crl_sink, &response.body) {
                     true => added += 1,
                     false => notes.push(format!("{uri} did not serve a CRL")),
                 }
