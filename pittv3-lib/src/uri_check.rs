@@ -1161,8 +1161,11 @@ mod remote_impl {
         blocklist: &[String],
     ) -> UriCheckReport {
         let mut cps = CertificationPathSettings::default();
-        if let Ok(toi) = TimeOfInterest::from_unix_secs(time_of_interest) {
-            cps.set_time_of_interest(toi);
+        // Refused rather than left at the default, which is the current time: a check that silently
+        // ran as of now would report what the URIs say about a moment the caller did not name.
+        match crate::time::time_of_interest_from_secs(time_of_interest) {
+            Ok(toi) => cps.set_time_of_interest(toi),
+            Err(msg) => return UriCheckReport::failed(msg),
         }
         let mut pe = PkiEnvironment::default();
         pe.populate_5280_pki_environment();

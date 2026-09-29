@@ -9,6 +9,7 @@
 //! and shared by the desktop and web frontends.
 
 use certval::*;
+use pittv3_lib::time::time_of_interest_from_secs;
 
 /// Composed presentation of the revocation-checking settings as a single mode selection.
 ///
@@ -184,7 +185,18 @@ impl SettingsModel {
     /// Applies the model to a settings map: `Some` fields are written and `None` fields are
     /// removed, so the map's covered settings match the model exactly afterwards. Settings the
     /// model does not cover are preserved.
-    pub fn apply(&self, cps: &mut CertificationPathSettings) {
+    ///
+    /// Fails, leaving `cps` as it found it, when the model carries a time of interest certval will
+    /// not take. That setting decides whether validity is checked at all, so it is resolved before
+    /// anything is written.
+    // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+    pub fn apply(&self, cps: &mut CertificationPathSettings) -> core::result::Result<(), String> {
+        // Resolved first, so a refusal leaves the map untouched.
+        let toi = match self.time_of_interest {
+            Some(secs) => Some(time_of_interest_from_secs(secs)?),
+            None => None,
+        };
+
         fn set_or_remove<T>(
             cps: &mut CertificationPathSettings,
             key: &str,
@@ -279,14 +291,8 @@ impl SettingsModel {
             &self.forbid_self_signed_ee,
             |c, v| c.set_forbid_self_signed_ee(v),
         );
-        match self.time_of_interest {
-            Some(secs) => {
-                let toi = match TimeOfInterest::from_unix_secs(secs) {
-                    Ok(toi) => toi,
-                    Err(_e) => TimeOfInterest::disabled(),
-                };
-                cps.set_time_of_interest(toi);
-            }
+        match toi {
+            Some(toi) => cps.set_time_of_interest(toi),
             None => {
                 cps.0.remove(PS_TIME_OF_INTEREST);
             }
@@ -366,13 +372,14 @@ impl SettingsModel {
         set_or_remove(cps, PS_CBOR_TA_STORE, &self.cbor_ta_store, |c, v| {
             c.set_cbor_ta_store(v)
         });
+        Ok(())
     }
 
     /// Prepares a settings map containing exactly the `Some` fields of the model
-    pub fn to_cps(&self) -> CertificationPathSettings {
+    pub fn to_cps(&self) -> core::result::Result<CertificationPathSettings, String> {
         let mut cps = CertificationPathSettings::new();
-        self.apply(&mut cps);
-        cps
+        self.apply(&mut cps)?;
+        Ok(cps)
     }
 
     /// Derives the composed [`RevocationMode`] from the individual revocation settings, using
@@ -466,7 +473,7 @@ mod tests {
             Some(ks)
         };
 
-        let cps = model.to_cps();
+        let cps = model.to_cps().expect("the model applies");
         let round_tripped = SettingsModel::from_cps(&cps);
         assert_eq!(model, round_tripped);
     }
@@ -486,7 +493,7 @@ mod tests {
             check_crldp_http: Some(false),
             ..Default::default()
         };
-        model.apply(&mut cps);
+        model.apply(&mut cps).expect("the model applies");
 
         // check_revocation_status was None in the model, so the key is gone (default applies)
         assert!(!cps.0.contains_key(PS_CHECK_REVOCATION_STATUS));
@@ -514,7 +521,9 @@ mod tests {
             CertificationPathProcessingTypes::U64(1024),
         );
 
-        SettingsModel::default().apply(&mut cps);
+        SettingsModel::default()
+            .apply(&mut cps)
+            .expect("defaults apply");
 
         assert_eq!(
             cps.0.keys().collect::<Vec<_>>(),

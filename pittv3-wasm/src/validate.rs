@@ -401,7 +401,7 @@ mod tests {
             ..SettingsModel::default()
         };
         let mut cps = CertificationPathSettings::default();
-        model.apply(&mut cps);
+        model.apply(&mut cps).expect("zero is a time");
         cps.set_check_revocation_status(false);
         cps
     }
@@ -524,7 +524,7 @@ mod tests {
             ..SettingsModel::default()
         };
         let mut cps = CertificationPathSettings::default();
-        model.apply(&mut cps);
+        model.apply(&mut cps).expect("the model applies");
         let json = serde_json::to_string(&cps).unwrap();
         // current certval stores the time of interest as the TimeOfInterest variant (a bare u64),
         // not the legacy psTimeOfInterest {"U64": ...} form that predates the TimeOfInterest type

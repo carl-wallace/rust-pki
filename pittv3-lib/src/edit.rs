@@ -23,10 +23,11 @@ use alloc::vec::Vec;
 
 use certval::{
     CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings,
-    PkiEnvironment, TaSource, TimeOfInterest,
+    PkiEnvironment, TaSource,
 };
 
 use crate::inspect::Inspected;
+use crate::time::time_of_interest_from_secs;
 
 // Generation reads material from paths, so it is a std-only errand. Marking and applying marks are
 // not: the browser edits a store it already holds.
@@ -135,9 +136,7 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
     // the same setup `generate` does before building.
     let mut cps = read_settings(&args.settings)
         .map_err(|e| format!("failed to parse settings file: {e:?}"))?;
-    if let Ok(toi) = TimeOfInterest::from_unix_secs(args.time_of_interest) {
-        cps.set_time_of_interest(toi);
-    }
+    cps.set_time_of_interest(time_of_interest_from_secs(args.time_of_interest)?);
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
     // `dynamic_build` is what decides whether a build grows the graph, here as on the command
@@ -219,12 +218,15 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
 /// Self-*signed*, which verifies the signature, rather than self-issued, which only compares the
 /// names: a key-rollover certificate is self-issued and legitimate, and the command line keeps it.
 /// Verifying needs an environment, so one is built here rather than asked of the caller.
-pub fn cleanup_candidates(inspected: &Inspected, time_of_interest: u64) -> Vec<usize> {
+pub fn cleanup_candidates(
+    inspected: &Inspected,
+    time_of_interest: u64,
+) -> Result<Vec<usize>, String> {
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
-    let toi = TimeOfInterest::from_unix_secs(time_of_interest).ok();
-
-    let checks_validity = toi.map(|t| !t.is_disabled()).unwrap_or(false);
+    // Zero disables the validity check, which is a choice a caller makes. A number certval will
+    // not take is refused, since validity decides which rows this marks.
+    let checks_validity = !time_of_interest_from_secs(time_of_interest)?.is_disabled();
 
     let mut candidates = vec![];
     for row in &inspected.report.certs {
@@ -256,7 +258,7 @@ pub fn cleanup_candidates(inspected: &Inspected, time_of_interest: u64) -> Vec<u
             candidates.push(row.index);
         }
     }
-    candidates
+    Ok(candidates)
 }
 
 /// A store written out of an edited pool: the two halves, and what the writing did.
@@ -298,11 +300,11 @@ pub fn apply_edits(
     edits: &StagedEdits,
     time_of_interest: u64,
 ) -> Result<EditedStore, String> {
-    // Seconds rather than a `TimeOfInterest`, because the frontends carry the time as a number and
-    // neither depends on certval directly. Zero is the disabled value, which is what a caller that
-    // does not want validity considered passes.
-    let toi = TimeOfInterest::from_unix_secs(time_of_interest)
-        .map_err(|e| format!("{time_of_interest} is not a time this can use: {e:?}"))?;
+    // Seconds rather than a `TimeOfInterest`, because a form field, a settings file and a command
+    // line argument all carry the time as a number. Zero is the disabled value, which is what a
+    // caller that does not want validity considered passes; anything certval will not take is
+    // refused rather than standing in for it.
+    let toi = time_of_interest_from_secs(time_of_interest)?;
     let mut cps = CertificationPathSettings::new();
     cps.set_time_of_interest(toi);
 
@@ -378,7 +380,7 @@ mod tests {
         let unrelated = include_bytes!("../../certval/tests/examples/DigiCertGlobalCAG2.der");
 
         let mut cps = CertificationPathSettings::new();
-        cps.set_time_of_interest(TimeOfInterest::disabled());
+        cps.set_time_of_interest(certval::TimeOfInterest::disabled());
 
         let mut anchors = TaSource::new();
         anchors.push(CertFile {
@@ -501,7 +503,7 @@ mod tests {
     #[test]
     fn the_cleanup_rule_names_the_certificates_the_command_line_would_remove() {
         let inspected = store();
-        let candidates = cleanup_candidates(&inspected, 0);
+        let candidates = cleanup_candidates(&inspected, 0).expect("zero is a time");
         assert!(
             !candidates.contains(&0),
             "Good CA is a CA, is not self-signed, and should survive: {candidates:?}"
@@ -515,7 +517,7 @@ mod tests {
     fn marking_the_candidates_removes_them() {
         let inspected = store();
         let mut edits = StagedEdits::default();
-        for index in cleanup_candidates(&inspected, 0) {
+        for index in cleanup_candidates(&inspected, 0).expect("zero is a time") {
             edits.toggle_cert(index);
         }
         let before = inspected.report.certs.len();

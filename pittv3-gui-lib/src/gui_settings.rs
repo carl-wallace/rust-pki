@@ -30,6 +30,8 @@ use dioxus::prelude::*;
 use certval::{NameConstraintsSettings, OcspNonceSetting};
 use x509_cert::ext::pkix::KeyUsages;
 
+use pittv3_lib::time::{time_of_interest_from_secs, MAX_TIME_OF_INTEREST_SECS};
+
 use crate::gui_rows::{datetime_local_to_epoch, epoch_to_datetime_local};
 use crate::gui_settings_model::{RevocationMode, SettingsModel};
 
@@ -123,6 +125,9 @@ pub fn TimeOfInterestRow(
     #[props(default)] title: String,
 ) -> Element {
     let display = value.map(|v| v.to_string()).unwrap_or_default();
+    // What a refused entry is told. A value certval cannot take is not accepted and turned into
+    // something else, so the box has to say why it did not take what was typed.
+    let mut refused = use_signal(String::new);
     // Empty while the value is absent or disabled (0), so the picker does not claim a time that is
     // not in effect.
     let picker = match value {
@@ -137,15 +142,23 @@ pub fn TimeOfInterestRow(
             input {
                                 r#type: "number",
                                 min: "0",
+                                max: "{MAX_TIME_OF_INTEREST_SECS}",
                                 value: display,
                                 placeholder: "run time",
                                 title: "Unix epoch seconds. Leave it blank to judge against now or 0 to disable validity checks, resolved when the run starts.",
                                 oninput: move |ev| {
                                     let v = ev.value();
                                     if v.trim().is_empty() {
+                                        refused.set(String::new());
                                         onchange.call(None);
                                     } else if let Ok(parsed) = v.trim().parse::<u64>() {
-                                        onchange.call(Some(parsed));
+                                        match time_of_interest_from_secs(parsed) {
+                                            Ok(_) => {
+                                                refused.set(String::new());
+                                                onchange.call(Some(parsed));
+                                            }
+                                            Err(msg) => refused.set(msg),
+                                        }
                                     }
                                 },
                             }
@@ -185,6 +198,9 @@ pub fn TimeOfInterestRow(
                                     "default: the time of the run"
                                 }
                             }
+            if !refused().is_empty() {
+                p { class: "hint capability-notice", "{refused}" }
+            }
         }
     }
 }
@@ -1110,7 +1126,13 @@ pub fn EditSettingsFile(
         let store = FileSettingsStore::new(save_path.clone());
         // start from the stored contents so settings not surfaced in the form are preserved
         let mut cps = store.load();
-        edited.apply(&mut cps);
+        // Nothing is written when the edits cannot be applied: the file keeps what it had and the
+        // edits stay in the form, the same way a failed write is handled below.
+        if let Err(e) = edited.apply(&mut cps) {
+            error!("{e}");
+            status.set(e);
+            return;
+        }
         if let Err(e) = store.save(&cps) {
             error!("{e}");
             // the edits stay in the form rather than being lost with the file they could not reach

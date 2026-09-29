@@ -60,6 +60,7 @@ use pittv3_lib::std_utils::{cleanup_certificate_folder, cleanup_crls, purge_fold
 use pittv3_lib::std_utils::{
     count_end_entity_inputs, count_revocation_inputs, count_trust_anchor_inputs,
 };
+use pittv3_lib::time::time_of_interest_from_secs;
 use pittv3_lib::uri_check::{check_uris_from_bytes, UriCheckReport};
 use pittv3_lib::RevocationCache;
 
@@ -1694,6 +1695,18 @@ pub(crate) fn App() -> Element {
     let current_args = move || -> Result<Pittv3Args, String> {
         let (store_ta_cbor, store_cbor) = stores::materialize(s_store())?;
 
+        // Checked here, where there is somewhere to say so. The run resolves this argument deep
+        // inside `options_std`, on a worker thread whose only channel back is the report, and the
+        // receiving loop treats a closed channel as nothing to show.
+        // A box that does not parse at all is the empty box, which means the time of the run.
+        let time_of_interest = match s_time_of_interest().parse::<u64>() {
+            Ok(secs) => {
+                time_of_interest_from_secs(secs)?;
+                secs
+            }
+            Err(_e) => get_now_as_unix_epoch(),
+        };
+
         Ok(Pittv3Args {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
@@ -1718,9 +1731,7 @@ pub(crate) fn App() -> Element {
             #[cfg(all(windows, feature = "capi"))]
             capi_ca_store_rw: stores::capi_stores(s_store()).2,
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
-            time_of_interest: s_time_of_interest()
-                .parse::<u64>()
-                .unwrap_or_else(|_| get_now_as_unix_epoch()),
+            time_of_interest,
             logging_config: path_or_none(s_logging_config),
             error_folder: path_or_none(s_error_folder),
             download_folder: path_or_none(s_download_folder),
@@ -2018,12 +2029,22 @@ pub(crate) fn App() -> Element {
         let Some(inspected) = held.as_ref() else {
             return;
         };
-        let candidates = cleanup_candidates(
+        let candidates = match cleanup_candidates(
             inspected,
             s_inspect_toi()
                 .parse::<u64>()
                 .unwrap_or_else(|_| get_now_as_unix_epoch()),
-        );
+        ) {
+            Ok(candidates) => candidates,
+            Err(msg) => {
+                drop(held);
+                s_inspect_notes.write().push(ResultLine {
+                    class: "err",
+                    text: msg,
+                });
+                return;
+            }
+        };
         drop(held);
         let mut edits = s_inspect_edits.write();
         for index in candidates {
@@ -3010,15 +3031,19 @@ pub(crate) fn App() -> Element {
                                         button {
                                             title: "Removes certificates a run could not use: unparseable, not valid at the time of interest, self-signed, or not a CA. Moved to the error folder rather than deleted whenever one is set, which it is by default.",
                                             onclick: move |_| {
-                                                let m = cleanup_certificate_folder(
+                                                match cleanup_certificate_folder(
                                                     &s_download_folder(),
                                                     &s_error_folder(),
                                                     s_time_of_interest()
                                                         .parse()
                                                         .unwrap_or_else(|_| get_now_as_unix_epoch()),
-                                                );
-                                                s_folder_status
-                                                    .set(format!("Removed {} downloaded certificate(s).", m.removed));
+                                                ) {
+                                                    Ok(m) => {
+                                                        s_folder_status
+                                                            .set(format!("Removed {} downloaded certificate(s).", m.removed))
+                                                    }
+                                                    Err(msg) => s_folder_status.set(msg),
+                                                }
                                             },
                                             "Remove unusable"
                                         }
