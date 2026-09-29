@@ -1250,10 +1250,24 @@ pub const SINGLE_CERT_EXTENSIONS: &[&str] = &["der", "crt", "cer", "pem"];
 ///
 /// `None` rather than an empty vector distinguishes "not this format" from "this format, no
 /// certificates in it", so a caller can fall through to its own single-object handling.
+///
+/// BER is accepted as well as DER, at both levels. A signer writing a message as it goes has no
+/// length to put up front and emits indefinite lengths, which is legal for PKCS#7 and is refused by
+/// a DER reader; the certificates inside such a message are the same certificates. DER is tried
+/// first, so nothing about a conforming message changes.
 pub fn certs_from_signed_data(bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
-    let ci = ContentInfo::from_der(bytes).ok()?;
+    let ci = match ContentInfo::from_der(bytes) {
+        Ok(ci) => ci,
+        Err(_e) => ContentInfo::from_ber(bytes).ok()?,
+    };
     let content = ci.content.to_der().ok()?;
-    let sd = SignedDataDeferAll::from_der(content.as_slice()).ok()?;
+    let sd = match SignedDataDeferAll::from_der(content.as_slice()) {
+        Ok(sd) => sd,
+        // The outer wrapper being definite-length says nothing about the inner one: re-encoding
+        // `content` above puts a definite length on the value, and whatever indefinite lengths it
+        // carries are still inside it.
+        Err(_e) => SignedDataDeferAll::from_ber(content.as_slice()).ok()?,
+    };
     Some(sd.certificates?.0)
 }
 
@@ -2093,4 +2107,45 @@ fn algorithm_oids_resolve_to_names_rather_than_dotted_numbers() {
     // An OID with no name is reported as absent rather than guessed at, which is what lets the
     // caller fall back to the dotted form deliberately.
     assert!(oid_lookup(&ObjectIdentifier::new_unwrap("1.2.3.4.5")).is_err());
+}
+
+/// Re-encodes a DER TLV's outermost length as BER's indefinite form, leaving the value alone.
+///
+/// `30 LL <value>` becomes `30 80 <value> 00 00`, which is the same structure written the way a
+/// signer with nothing buffered writes it. Built here rather than committed as a file so the BER
+/// case is demonstrably the same message as the DER one beside it.
+#[cfg(test)]
+fn as_indefinite_length(der: &[u8]) -> Vec<u8> {
+    let len_byte = der[1];
+    let header = if len_byte < 0x80 {
+        2
+    } else {
+        2 + (len_byte & 0x7f) as usize
+    };
+    let mut out = alloc::vec![der[0], 0x80];
+    out.extend_from_slice(&der[header..]);
+    out.extend_from_slice(&[0x00, 0x00]);
+    out
+}
+
+/// A certs-only message written in BER carries the same certificates as one written in DER.
+///
+/// The `.p7c` that DoD PKE publishes is DER, so the BER spelling is made from it here. What the
+/// test pins is that the two spellings yield identical certificate bytes, and that a DER reader
+/// alone would have produced nothing from the second.
+#[test]
+fn a_ber_certs_only_message_yields_the_same_certificates() {
+    use der::Decode;
+
+    let p7c = include_bytes!("../../tests/examples/caCertsIssuedTofbcag4.p7c");
+    let from_der = certs_from_signed_data(p7c).expect("the published message is DER");
+
+    let ber = as_indefinite_length(p7c);
+    assert!(
+        ContentInfo::from_der(&ber).is_err(),
+        "the BER spelling is not readable as DER, which is what makes this worth accepting"
+    );
+
+    let from_ber = certs_from_signed_data(&ber).expect("the same message, written in BER");
+    assert_eq!(from_der, from_ber);
 }

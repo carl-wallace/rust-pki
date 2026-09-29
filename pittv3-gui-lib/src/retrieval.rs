@@ -36,7 +36,7 @@ use der::Encode;
 // Deciding which certificate a response answers about lives in pittv3-lib so the command line and
 // the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
 #[cfg(feature = "revocation")]
-use pittv3_lib::ocsp_match::{answered_cert_ids, answers_about, SHA1_CERT_ID_OID};
+use pittv3_lib::ocsp_match::{answers_about, cert_ids_from_response, SHA1_CERT_ID_OID};
 
 use crate::validate::{candidate_certs_in, maybe_pem, PreparedValidation};
 
@@ -63,7 +63,7 @@ use crate::validate::{candidate_certs_in, maybe_pem, PreparedValidation};
 ///
 /// **An OCSP response is accepted whatever it reports.** `tryLater` and `unauthorized` are answers
 /// a caller needs to see, so this asks only whether the bytes are a response, never whether they
-/// are a useful one -- which is [`answered_cert_ids`]'s question and belongs to the fold, not here.
+/// are a useful one -- which is [`cert_ids_from_response`]'s question and belongs to the fold, not here.
 ///
 /// The cost is parsing a body twice, once to decide and once to use. That is the price of the
 /// endpoint not being an open relay, and it is paid on retrieval rather than on validation.
@@ -235,9 +235,10 @@ impl OcspResponses {
         OcspResponses::default()
     }
 
-    /// Records a retrieved response. The bytes are not examined here: certval's
-    /// `process_ocsp_response` decides whether they answer anything, and it does so with the path
-    /// and the settings in hand, which this has neither of.
+    /// Records a retrieved response. Whether it answers *this* path is certval's
+    /// `process_ocsp_response` to decide, with the path and the settings in hand, which this has
+    /// neither of; whether it carries certificate status at all is
+    /// [`insert_status_response`]'s question, and every retrieving caller goes through that.
     pub fn insert(&self, key: OcspKey, response: Vec<u8>) {
         if let Ok(mut guard) = self.responses.write() {
             guard.insert(key, response);
@@ -426,21 +427,32 @@ fn dedup_in_place(uris: &mut Vec<String>) {
 // Re-exported rather than renamed so the frontends keep the name they already use.
 pub use certval::MemoryCrlSource;
 
-/// Adds a CRL the user supplied by hand, accepting either DER or PEM.
+/// Adds a CRL to a source, accepting either DER or PEM.
+///
+/// [`MemoryCrlSource::add`] takes DER, and a distribution point serving PEM is rare but real: some
+/// FPKI participant repositories do. Every path that puts a CRL in front of the checker goes
+/// through here, so a repository and a hand-picked file are read the same way, and what
+/// [`is_usable_artifact`] is willing to call a CRL is what a source is willing to hold.
+///
+/// Returns whether it was a CRL at all — bytes that are not one are reported rather than stored,
+/// for the same reason [`MemoryCrlSource::add`] reports it.
+pub fn add_crl(source: &MemoryCrlSource, bytes: &[u8]) -> bool {
+    if source.add(bytes) {
+        return true;
+    }
+    match decode_pem_to_der(bytes) {
+        Ok(der) => source.add(&der),
+        Err(_) => false,
+    }
+}
+
+/// Adds a CRL the user supplied by hand.
 ///
 /// This is the no-network counterpart to retrieving one: the checker cannot tell the difference,
 /// because both end up in the same [`MemoryCrlSource`] and are judged the same way by certval's
-/// `process_crl`. Returns whether it was a CRL at all — a file that is not one is reported rather
-/// than stored, for the same reason [`MemoryCrlSource::add`] reports it.
+/// `process_crl`.
 pub fn add_uploaded_crl(prepared: &PreparedValidation, bytes: &[u8]) -> bool {
-    if prepared.crl_source().add(bytes) {
-        return true;
-    }
-    // parse the CRL with both DER and PEM supported
-    match decode_pem_to_der(bytes) {
-        Ok(der) => prepared.crl_source().add(&der),
-        Err(_) => false,
-    }
+    add_crl(prepared.crl_source(), bytes)
 }
 
 /// What offering an uploaded OCSP response to a run came to.
@@ -450,6 +462,30 @@ pub struct OcspStapleOutcome {
     pub matched: usize,
     /// What happened, in terms a user can act on.
     pub notes: Vec<String>,
+}
+
+/// Stores a response a responder returned, when it carries certificate status.
+///
+/// `tryLater`, `unauthorized` and `internalError` are answers, and they are carried inside an HTTP
+/// 200 — that is how RFC 6960 §4.2.1 says to send them — so a response that arrived says nothing
+/// about a certificate until its status is read. The sink is
+/// keyed by what a response is about and outlives a click, and [`OcspResponses::contains`] is what
+/// stops a run asking a second responder something it has already been told. Storing a refusal
+/// therefore spends the certificate's remaining responders on it and keeps doing so until the
+/// environment is rebuilt.
+///
+/// Reports what a caller should say: `Ok(())` when the response is held, `Err` naming what the
+/// responder reported, which is the same reading [`staple_uploaded_ocsp`] applies to an uploaded
+/// file, so both intake paths agree about what counts as an answer.
+#[cfg(feature = "revocation")]
+pub fn insert_status_response(
+    sink: &OcspResponses,
+    key: &OcspKey,
+    response: Vec<u8>,
+) -> core::result::Result<(), String> {
+    cert_ids_from_response(&response)?;
+    sink.insert(key.clone(), response);
+    Ok(())
 }
 
 /// Files an OCSP response the user supplied by hand against whichever certificates it answers
@@ -476,7 +512,7 @@ pub fn staple_uploaded_ocsp(
 ) -> OcspStapleOutcome {
     let mut out = OcspStapleOutcome::default();
 
-    let answered = match answered_cert_ids(response) {
+    let answered = match cert_ids_from_response(response) {
         Ok(ids) => ids,
         Err(note) => {
             out.notes.push(note);
@@ -682,22 +718,47 @@ mod tests {
                 "an uploaded CRL as {what} was refused"
             );
         }
+        // One CRL, offered four ways. Each was accepted, which the loop above asserts; the source
+        // holds it once, which is `MemoryCrlSource::add` comparing bytes.
         assert_eq!(
-            4,
+            1,
             prepared.crl_source().len(),
-            "every encoding decoded but not all of them were stored"
+            "Adding the same CRL with four different encodings should result in one stored CRL"
         );
+    }
+
+    /// What the relay filter is willing to call a CRL is what a source is willing to hold. The two
+    /// disagreed for PEM, so a distribution point serving it was fetched, admitted by the filter and
+    /// then reported as having served no CRL. Some FPKI participant repositories serve PEM.
+    #[test]
+    fn a_crl_the_filter_accepts_is_one_a_source_will_hold() {
+        let der = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.der.crl");
+        let pem = include_bytes!("../../certval/tests/examples/pem_crl/AmazonRootCA1.pem.crl");
+
+        for (what, bytes) in [("DER", der.as_slice()), ("PEM", pem.as_slice())] {
+            let source = MemoryCrlSource::new();
+            assert!(
+                is_usable_artifact(bytes),
+                "the filter refused a CRL as {what}"
+            );
+            assert!(add_crl(&source, bytes), "a source refused a CRL as {what}");
+            assert_eq!(
+                1,
+                source.len(),
+                "a CRL as {what} was accepted but not stored"
+            );
+        }
     }
 
     #[cfg(feature = "revocation")]
     #[test]
     fn a_file_that_is_not_an_ocsp_response_is_named_as_such() {
         assert_eq!(
-            answered_cert_ids(b"not an ocsp response"),
+            cert_ids_from_response(b"not an ocsp response"),
             Err("Not an OCSP response".to_string())
         );
         assert_eq!(
-            answered_cert_ids(&[]),
+            cert_ids_from_response(&[]),
             Err("Not an OCSP response".to_string())
         );
     }
@@ -710,11 +771,46 @@ mod tests {
         // OCSPResponse ::= SEQUENCE { responseStatus OCSPResponseStatus } with status
         // malformedRequest(1) and no responseBytes -- the shortest well-formed refusal.
         let refusal = [0x30u8, 0x03, 0x0A, 0x01, 0x01];
-        let err = answered_cert_ids(&refusal).unwrap_err();
+        let err = cert_ids_from_response(&refusal).unwrap_err();
         assert!(
-            err.contains("rather than an answer"),
+            err.contains("no certificate status"),
             "unexpected note: {err}"
         );
+    }
+
+    /// A responder that declines still answers, inside an HTTP 200, so the body that arrives is a
+    /// well-formed OCSP response carrying no certificate status. Storing one fills the slot
+    /// [`OcspResponses::contains`] reads, and the sink outlives the click: the certificate's other
+    /// responders are never asked and the next click skips the request it just re-emitted.
+    #[cfg(feature = "revocation")]
+    #[test]
+    fn a_refusal_is_not_stored_and_a_status_response_is() {
+        use certval::parse_cert;
+
+        let ca = include_bytes!("../../certval/tests/examples/amazon.com/1.der");
+        let ta = include_bytes!("../../certval/tests/examples/amazon.com/0-ta.der");
+        let ca_ocsp =
+            include_bytes!("../../certval/tests/examples/amazon.com/1-ocsp.ocspResp").to_vec();
+
+        let cert = parse_cert(ca, "1.der").expect("the captured intermediate parses");
+        let issuer = parse_cert(ta, "0-ta.der").expect("the captured anchor parses");
+        let key = OcspKey::new(&cert, issuer.decoded()).expect("both re-encode");
+
+        // The shortest well-formed refusal: malformedRequest(1) and no responseBytes.
+        let refusal = [0x30u8, 0x03, 0x0A, 0x01, 0x01];
+
+        let sink = OcspResponses::new();
+        let err = insert_status_response(&sink, &key, refusal.to_vec())
+            .expect_err("a refusal carries no certificate status");
+        assert!(err.contains("no certificate status"), "{err}");
+        assert!(
+            !sink.contains(&key),
+            "a refusal in the sink stops the next responder being asked"
+        );
+
+        insert_status_response(&sink, &key, ca_ocsp).expect("a real response is stored");
+        assert!(sink.contains(&key));
+        assert_eq!(1, sink.len());
     }
 
     /// The end-to-end claim: a real OCSP response, handed over as a file, is matched to the

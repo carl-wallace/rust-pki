@@ -19,7 +19,11 @@ rust-version = "1.85"
 x509-cert = { version = "0.3.0", default-features = false, features = ["hazmat","pem"] }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
 cms = "0.3.0-pre.2"
-der = { version="0.8.1", features = ["alloc", "derive", "flagset", "oid"] }
+# `ber` for `certs_from_signed_data`: a certs-only PKCS#7 message is the one artifact a repository
+# plausibly publishes in BER, since a signer streaming one has no length to write up front. It is
+# declared here rather than left to `cms`, which happens to turn it on today: a feature this crate
+# calls `from_ber` under is this crate's to state.
+der = { version="0.8.1", features = ["alloc", "ber", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 # base64ct is no_std+alloc capable, so it is a non-optional dependency (used by the lenient PEM
 # decoder in pdv_utilities, which must be available in no_std builds too).

@@ -16,7 +16,8 @@
 use core::time::Duration;
 
 use pittv3_gui_lib::retrieval::{
-    candidate_certificates_in, harvest_chase_uris, MemoryCrlSource, OcspRequestItem, OcspResponses,
+    add_crl, candidate_certificates_in, harvest_chase_uris, insert_status_response,
+    MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
 use pittv3_lib::uri_check::{FetchOutcome, UriFetcher};
@@ -269,6 +270,15 @@ impl FetchBudget {
     /// Records a completed retrieval.
     fn spend(&mut self, bytes: usize) {
         self.fetches = self.fetches.saturating_sub(1);
+        self.spend_bytes(bytes);
+    }
+
+    /// Records the bytes a retrieval moved, for a caller that has already charged the retrieval.
+    ///
+    /// A request and its response are two amounts of one fetch, and the allowance
+    /// [`RelayFetcher::for_certificates`] promises is counted in fetches, so charging the fetch
+    /// again when the bytes arrive would halve it.
+    fn spend_bytes(&mut self, bytes: usize) {
         self.bytes = self.bytes.saturating_sub(bytes);
     }
 }
@@ -668,7 +678,7 @@ pub async fn retrieve_crls(
                     )));
                     continue;
                 }
-                match sink.add(&response.body) {
+                match add_crl(sink, &response.body) {
                     true => added += 1,
                     false => notes.push(err(format!("{uri} did not serve a CRL"))),
                 }
@@ -732,8 +742,12 @@ pub async fn retrieve_ocsp(
                     )));
                     continue;
                 }
-                sink.insert(item.key.clone(), response.body);
-                added += 1;
+                match insert_status_response(sink, &item.key, response.body) {
+                    Ok(()) => added += 1,
+                    // The responder answered, but with a refusal rather than a status. Saying so
+                    // and moving on leaves the certificate's next responder free to be asked.
+                    Err(why) => notes.push(err(format!("{}: {why}", item.uri))),
+                }
             }
             Err(RelayError::RateLimited { retry_after, .. }) => {
                 budget.rate_limited(retry_after);
@@ -813,11 +827,20 @@ impl RelayFetcher {
     }
 
     /// Records a retrieval and reports whether it was permitted to happen at all.
+    ///
+    /// Called once per request. What comes back is charged with [`RelayFetcher::charge_bytes`],
+    /// which leaves the fetch count alone.
     fn afford(&self, bytes: usize) -> bool {
         let mut budget = self.budget.borrow_mut();
         let allowed = budget.available();
         budget.spend(bytes);
         allowed
+    }
+
+    /// Charges the bytes a response brought back against the retrieval [`RelayFetcher::afford`]
+    /// already counted.
+    fn charge_bytes(&self, bytes: usize) {
+        self.budget.borrow_mut().spend_bytes(bytes);
     }
 }
 
@@ -842,7 +865,7 @@ impl UriFetcher for RelayFetcher {
             // The status is reported by the checker, not translated here: a 404 on an authority
             // information access URI is a fact about the certificate, and the grid says so.
             Ok(r) if r.status == 200 => {
-                self.afford(r.body.len());
+                self.charge_bytes(r.body.len());
                 FetchOutcome {
                     ok: true,
                     body: r.body,
@@ -872,7 +895,7 @@ impl UriFetcher for RelayFetcher {
         let elapsed_ms = start.elapsed().as_millis() as u64;
         match outcome {
             Ok(r) if r.status == 200 => {
-                self.afford(r.body.len());
+                self.charge_bytes(r.body.len());
                 FetchOutcome {
                     ok: true,
                     body: r.body,
@@ -959,6 +982,19 @@ mod tests {
         for _ in 0..MAX_FETCHES {
             assert!(budget.available());
             budget.spend(1);
+        }
+        assert!(!budget.available(), "a spent fetch budget stops retrieval");
+    }
+
+    /// A request and the bytes it brings back are one retrieval. Charging the fetch on the way out
+    /// and again on the way in halves the allowance `for_certificates` computes.
+    #[test]
+    fn bytes_charged_after_a_request_are_not_a_second_retrieval() {
+        let mut budget = FetchBudget::new();
+        for _ in 0..MAX_FETCHES {
+            assert!(budget.available());
+            budget.spend(0);
+            budget.spend_bytes(1);
         }
         assert!(!budget.available(), "a spent fetch budget stops retrieval");
     }

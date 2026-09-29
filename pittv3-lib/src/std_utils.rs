@@ -754,7 +754,7 @@ pub fn load_revocation_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> R
                 out.crls.push(bytes);
                 continue;
             }
-            match crate::ocsp_match::answered_cert_ids(bytes.as_slice()) {
+            match crate::ocsp_match::cert_ids_from_response(bytes.as_slice()) {
                 Ok(_) => out.ocsp_responses.push(bytes),
                 // The OCSP reader's message is the more specific of the two -- it distinguishes
                 // "not an OCSP response" from a response that reports an error status or answers
@@ -798,7 +798,7 @@ impl RevocationInputs {
 /// other certificate.
 #[cfg(all(feature = "std", feature = "revocation"))]
 fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
-    use crate::ocsp_match::{answered_cert_ids, answers_about};
+    use crate::ocsp_match::{answers_about, cert_ids_from_response};
 
     if responses.is_empty() {
         return;
@@ -806,7 +806,7 @@ fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
 
     let mut parsed = vec![];
     for bytes in responses {
-        match answered_cert_ids(bytes.as_slice()) {
+        match cert_ids_from_response(bytes.as_slice()) {
             Ok(ids) => parsed.push((ids, bytes)),
             Err(why) => error!("Failed to read a provided OCSP response for stapling: {why}"),
         }
@@ -1544,9 +1544,8 @@ pub async fn validate_cert_folder(
 /// As [`validate_cert_folder`], additionally pushing each validated path onto `retain` when one is
 /// given, so the artifacts behind a folder run can be exported without validating a second time.
 ///
-/// The sink is reborrowed rather than moved on the way down: a folder holding folders recurses, and
-/// each file in each of them contributes to the one collection the caller passed in.
-#[async_recursion::async_recursion]
+/// The sink is reborrowed rather than moved: every file the walk reaches, at whatever depth,
+/// contributes to the one collection the caller passed in.
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_arguments)]
 // See `validate_cert_bytes_retaining`: `uri_reports` is mutated only under `remote`.
@@ -1566,26 +1565,14 @@ pub async fn validate_cert_folder_retaining(
         match entry {
             Ok(e) => {
                 let path = e.path();
+                // `WalkDir` descends on its own, so every file in every subfolder arrives here and a
+                // directory entry is the traversal passing through. Walking it again reached a file
+                // once per route to it -- a certificate four levels down was validated eight times,
+                // measured, and its no-paths diagnosis written eight times with it.
                 if e.file_type().is_dir() {
-                    if let Some(s) = path.to_str() {
-                        if s != certs_folder {
-                            validate_cert_folder_retaining(
-                                pe,
-                                cps,
-                                s,
-                                stats,
-                                opts,
-                                fresh_uris,
-                                threshold,
-                                retain.as_deref_mut(),
-                                uri_reports.as_deref_mut(),
-                            )
-                            .await;
-                        }
-                    } else {
-                        error!("Skipping file due to invalid Unicode in name",);
-                    }
-                } else {
+                    continue;
+                }
+                {
                     let mut do_validate = false;
                     if let Some(filename) = path.to_str() {
                         if let Some(ext) = path.extension().and_then(OsStr::to_str) {
@@ -1828,14 +1815,13 @@ pub fn cleanup_certs(
         match entry {
             Ok(e) => {
                 let path = e.path();
+                // `WalkDir` descends on its own; walking a directory again visited each file
+                // below it once per route to it, deleting on the first visit and reporting
+                // "Failed to read target file" on the rest.
                 if e.file_type().is_dir() {
-                    if let Some(s) = path.to_str() {
-                        if s != certs_folder {
-                            info!("Recursing {}", path.display());
-                            cleanup_certs(pe, s, error_folder, report_only, t);
-                        }
-                    }
-                } else {
+                    continue;
+                }
+                {
                     let filename = path.to_str().unwrap_or("");
                     if let Some(ext) = path.extension().and_then(OsStr::to_str) {
                         // Single, not bundle: this decides keep-or-delete per file, which has no
@@ -1923,14 +1909,11 @@ pub fn cleanup_tas(
         match entry {
             Ok(e) => {
                 let path = e.path();
+                // As `cleanup_certs`: the walk is already transitive.
                 if e.file_type().is_dir() {
-                    if let Some(s) = path.to_str() {
-                        if s != tas_folder {
-                            info!("Recursing {}", path.display());
-                            cleanup_tas(_pe, s, error_folder, report_only, t);
-                        }
-                    }
-                } else {
+                    continue;
+                }
+                {
                     let filename = path.to_str().unwrap_or("");
                     if let Some(ext) = e.path().extension().and_then(OsStr::to_str) {
                         // Single, not bundle: as with cleanup_certs, the keep-or-delete decision

@@ -32,15 +32,20 @@ use x509_ocsp::{BasicOcspResponse, CertId, OcspRequest, OcspResponse, OcspRespon
 /// match can say why a response that is otherwise about the right certificate could not be matched.
 pub const SHA1_CERT_ID_OID: &str = "1.3.14.3.2.26";
 
-/// Reads the `CertID`s an OCSP response answers about, or says why it answers about none.
+/// Reads the `CertID`s an OCSP response reports certificate status for, or says why it reports none.
+///
+/// A responder that will not say anything about a certificate still answers the request:
+/// `tryLater`, `unauthorized` and the rest are `OCSPResponseStatus` values carried in a well-formed
+/// response, and `successful` is the one that brings a `BasicOCSPResponse` with the per-certificate
+/// statuses in it. So the question here is narrower than whether the responder replied.
 ///
 /// Depends only on the bytes: everything it can reject, it rejects without a path or an environment
 /// in sight. The `Err` string is written to be shown to a user as-is.
-pub fn answered_cert_ids(bytes: &[u8]) -> Result<Vec<CertId>, String> {
+pub fn cert_ids_from_response(bytes: &[u8]) -> Result<Vec<CertId>, String> {
     let response = OcspResponse::from_der(bytes).map_err(|_| "Not an OCSP response".to_string())?;
     if response.response_status != OcspResponseStatus::Successful {
         return Err(format!(
-            "OCSP response reports {:?} rather than an answer",
+            "OCSP responder reported {:?}, which carries no certificate status",
             response.response_status
         ));
     }
@@ -57,7 +62,7 @@ pub fn answered_cert_ids(bytes: &[u8]) -> Result<Vec<CertId>, String> {
         .map(|single| single.cert_id.clone())
         .collect();
     match ids.is_empty() {
-        true => Err("OCSP response answers about no certificate".to_string()),
+        true => Err("OCSP response contains no certificate IDs".to_string()),
         false => Ok(ids),
     }
 }
