@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 
 pub use budget::{BudgetExhausted, ChaseBudget, ChaseBudgetLimits, FetchBudget};
 pub use peek::{PeekRequest, PeekResponse};
-pub use policy::{is_public_address, CheckedUri, NetworkPolicy, PolicyError, PolicyResolver};
+pub use policy::{
+    check_content_type, is_public_address, CheckedUri, NetworkPolicy, PolicyError, PolicyResolver,
+    OCSP_REQUEST_CONTENT_TYPE,
+};
 
 /// Verbs PKI retrieval needs. `GET` covers certificates and CRLs named by authority information
 /// access, subject information access and CRL distribution point extensions; `POST` covers OCSP,
@@ -70,7 +73,7 @@ impl FetchRequest {
             uri: uri.into(),
             method: FetchMethod::Post,
             body: Some(request),
-            content_type: Some("application/ocsp-request".to_string()),
+            content_type: Some(OCSP_REQUEST_CONTENT_TYPE.to_string()),
             ..Default::default()
         }
     }
@@ -240,6 +243,7 @@ impl Relay {
     /// cap applied as it streams.
     pub async fn fetch(&self, request: &FetchRequest) -> Result<FetchResponse, FetchError> {
         let dest = self.policy.check_uri(&request.uri)?;
+        check_content_type(request.method, request.content_type.as_deref())?;
 
         let body = request.body.clone().unwrap_or_default();
         if body.len() > self.budget.max_request_bytes {
@@ -670,6 +674,44 @@ mod tests {
             matches!(err, FetchError::Policy(_)),
             "expected a policy refusal, got {err}"
         );
+    }
+
+    #[test]
+    fn only_an_ocsp_request_may_be_posted() {
+        use FetchMethod::{Get, Post};
+        assert!(check_content_type(Post, Some("application/ocsp-request")).is_ok());
+        assert!(check_content_type(Post, Some("Application/OCSP-Request ; x=y")).is_ok());
+        assert!(check_content_type(Get, None).is_ok());
+        assert!(check_content_type(Get, Some("text/plain")).is_ok());
+
+        for refused in [
+            None,
+            Some("application/x-www-form-urlencoded"),
+            Some("application/json"),
+            Some("application/ocsp-response"),
+            Some("application/ocsp-request-x"),
+        ] {
+            let err = check_content_type(Post, refused).unwrap_err();
+            assert_eq!(
+                err,
+                PolicyError::ContentType(refused.unwrap_or("none").to_string())
+            );
+        }
+    }
+
+    /// Refused before a socket is opened, so the refusal is the policy's and not the network's.
+    #[tokio::test]
+    async fn refuses_a_post_that_is_not_an_ocsp_request() {
+        let relay = Relay::new(NetworkPolicy::default(), FetchBudget::default()).unwrap();
+        let request = FetchRequest {
+            content_type: Some("application/x-www-form-urlencoded".to_string()),
+            ..FetchRequest::ocsp("http://ocsp.example.com/", b"a=b".to_vec())
+        };
+        let err = relay.fetch(&request).await.unwrap_err();
+        assert!(matches!(
+            err,
+            FetchError::Policy(PolicyError::ContentType(_))
+        ));
     }
 
     #[tokio::test]
