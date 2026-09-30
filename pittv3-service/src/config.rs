@@ -18,8 +18,8 @@ use crate::stores::StoreCatalog;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RateWindow {
-    /// Length of the period in seconds. Must be above zero while limiting is enabled: a period of
-    /// zero resets on every request and would enforce nothing.
+    /// Length of the period in seconds. A period of zero would reset on every request and enforce
+    /// nothing, so it is replaced by the window's default at startup, with a warning.
     pub seconds: u64,
     /// Calls to the service permitted in the period.
     pub requests: u64,
@@ -84,7 +84,8 @@ pub struct RateLimits {
     ///
     /// The table is attack surface of its own: a client holding a range of addresses can present a
     /// fresh one per request. The cap is what stops the limiter becoming the memory exhaustion it
-    /// exists to prevent. Must be above zero while limiting is enabled.
+    /// exists to prevent. Unlike the count limits in a window, 0 here does not mean unbounded; it is
+    /// replaced by the default at startup, with a warning.
     pub max_tracked_clients: usize,
     /// How many leading bits of an IPv6 address identify one client.
     ///
@@ -102,27 +103,39 @@ pub struct RateLimits {
 }
 
 impl RateLimits {
-    /// Refuses settings that would silently enforce nothing while claiming to be enabled, so a
-    /// deployment finds out at startup rather than by never refusing anyone.
-    pub fn check(&self) -> Result<(), String> {
+    /// Replaces settings that would silently enforce nothing with their defaults, returning a note
+    /// for each so the replacement is logged rather than the service refusing to start.
+    ///
+    /// A window of 0 seconds resets on every request and would refuse no one, so it takes that
+    /// window's default length. A `max_tracked_clients` of 0 is not unbounded, unlike the count
+    /// limits, so it takes the default cap.
+    pub fn replace_unusable_values(&mut self) -> Vec<String> {
+        let mut notes = vec![];
         if !self.enabled {
-            return Ok(());
+            return notes;
         }
-        if self.burst.seconds == 0 || self.sustained.seconds == 0 {
-            return Err(
-                "rate_limit: a window of 0 seconds enforces nothing; set seconds above zero, or \
-                 set enabled to false"
-                    .to_string(),
-            );
+        let defaults = RateLimits::default();
+        for (name, window, default) in [
+            ("burst", &mut self.burst, &defaults.burst),
+            ("sustained", &mut self.sustained, &defaults.sustained),
+        ] {
+            if window.seconds == 0 {
+                window.seconds = default.seconds;
+                notes.push(format!(
+                    "rate_limit.{name}.seconds of 0 would enforce nothing; using {}",
+                    default.seconds
+                ));
+            }
         }
         if self.max_tracked_clients == 0 {
-            return Err(
-                "rate_limit: max_tracked_clients of 0 tracks no one; set it above zero, or set \
-                 enabled to false"
-                    .to_string(),
-            );
+            self.max_tracked_clients = defaults.max_tracked_clients;
+            notes.push(format!(
+                "rate_limit.max_tracked_clients of 0 is not unbounded, unlike the count limits; \
+                 using {}",
+                defaults.max_tracked_clients
+            ));
         }
-        Ok(())
+        notes
     }
 }
 
@@ -349,28 +362,36 @@ mod config_tests {
         }
     }
 
-    /// A zero window or a zero client cap is refused while limiting is on, and allowed when it is
-    /// off, since nothing reads them then.
+    /// A zero window or a zero client cap takes its default while limiting is on, with a note for
+    /// each, and is left alone when limiting is off, since nothing reads it then.
     #[test]
-    fn limits_that_enforce_nothing_are_refused() {
-        assert!(RateLimits::default().check().is_ok());
-        let zero_window = RateLimits {
+    fn unusable_limits_take_their_defaults() {
+        let defaults = RateLimits::default();
+        assert!(RateLimits::default().replace_unusable_values().is_empty());
+
+        let mut zeroed = RateLimits {
             burst: RateWindow {
                 seconds: 0,
                 ..RateWindow::default()
             },
-            ..RateLimits::default()
-        };
-        assert!(zero_window.check().is_err());
-        let zero_cap = RateLimits {
+            sustained: RateWindow {
+                seconds: 0,
+                ..defaults.sustained.clone()
+            },
             max_tracked_clients: 0,
             ..RateLimits::default()
         };
-        assert!(zero_cap.check().is_err());
-        let off = RateLimits {
+        assert_eq!(zeroed.replace_unusable_values().len(), 3);
+        assert_eq!(zeroed.burst.seconds, defaults.burst.seconds);
+        assert_eq!(zeroed.sustained.seconds, defaults.sustained.seconds);
+        assert_eq!(zeroed.max_tracked_clients, defaults.max_tracked_clients);
+
+        let mut off = RateLimits {
             enabled: false,
-            ..zero_cap
+            max_tracked_clients: 0,
+            ..RateLimits::default()
         };
-        assert!(off.check().is_ok());
+        assert!(off.replace_unusable_values().is_empty());
+        assert_eq!(off.max_tracked_clients, 0);
     }
 }
