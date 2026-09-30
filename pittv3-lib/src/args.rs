@@ -114,12 +114,21 @@ pub struct Pittv3Args {
     pub cbor: Option<String>,
 
     /// Time to use for path validation expressed as the number of seconds since Unix epoch
-    /// (defaults to current system time).
+    /// (defaults to current system time). A time given here wins over one in a settings file; the
+    /// default gives way to it.
     #[cfg_attr(
         feature = "clap",
         arg(short = 'i', long, default_value_t = get_now_as_unix_epoch(), help_heading = "COMMON OPTIONS")
     )]
     pub time_of_interest: u64,
+
+    /// Whether `time_of_interest` was given rather than taken from its default, which is what
+    /// decides whether it wins over a settings file's time. The default is always present, so the
+    /// value alone cannot say. The binary sets this from where clap says the value came from, and
+    /// the desktop app when its time box holds a time.
+    #[cfg_attr(feature = "clap", arg(skip))]
+    #[serde(default)]
+    pub time_of_interest_given: bool,
 
     /// Full path and filename of YAML-formatted configuration file for log4rs logging mechanism.
     /// See <https://docs.rs/log4rs/latest/log4rs/> for details.

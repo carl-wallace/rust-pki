@@ -16,7 +16,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use certval::TimeOfInterest;
+use certval::{CertificationPathSettings, TimeOfInterest, PS_TIME_OF_INTEREST};
 
 /// The largest value [`TimeOfInterest::from_unix_secs`] accepts, 9999-12-31T23:59:59Z.
 ///
@@ -50,6 +50,22 @@ pub fn time_of_interest_from_secs(secs: u64) -> Result<TimeOfInterest, String> {
             Err(msg)
         }
     }
+}
+
+/// Sets the time a run validates against from `secs`, the time of interest a caller carries.
+///
+/// A time that was `given` wins over one the settings already state. One that was not, a default,
+/// gives way to the settings, since a default is present whether or not anyone chose it and would
+/// otherwise replace every settings file's pinned time with the current one.
+pub fn apply_time_of_interest(
+    cps: &mut CertificationPathSettings,
+    secs: u64,
+    given: bool,
+) -> Result<(), String> {
+    if given || !cps.0.contains_key(PS_TIME_OF_INTEREST) {
+        cps.set_time_of_interest(time_of_interest_from_secs(secs)?);
+    }
+    Ok(())
 }
 
 /// 2000-01-01T00:00:00Z, the earliest a millisecond reading has to land for the hint to be worth
@@ -91,5 +107,33 @@ mod tests {
         let err =
             time_of_interest_from_secs(MAX_TIME_OF_INTEREST_SECS + 100).expect_err("out of range");
         assert!(!err.contains("milliseconds"), "{err}");
+    }
+
+    /// A given time wins over the settings' own; a default gives way to it, and fills the gap
+    /// when the settings state none.
+    #[test]
+    fn a_given_time_wins_and_a_default_gives_way() {
+        const PINNED: u64 = 1_646_567_209;
+        const ARGUMENT: u64 = 1_749_917_849;
+        let pinned = || {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(TimeOfInterest::from_unix_secs(PINNED).unwrap());
+            cps
+        };
+
+        let mut cps = pinned();
+        apply_time_of_interest(&mut cps, ARGUMENT, true).unwrap();
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), ARGUMENT);
+
+        let mut cps = pinned();
+        apply_time_of_interest(&mut cps, ARGUMENT, false).unwrap();
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), PINNED);
+
+        let mut cps = CertificationPathSettings::new();
+        apply_time_of_interest(&mut cps, ARGUMENT, false).unwrap();
+        assert_eq!(cps.get_time_of_interest().as_unix_secs(), ARGUMENT);
+
+        let mut cps = pinned();
+        assert!(apply_time_of_interest(&mut cps, MAX_TIME_OF_INTEREST_SECS + 1, true).is_err());
     }
 }

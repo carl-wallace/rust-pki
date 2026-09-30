@@ -24,7 +24,7 @@
 //!
 //! COMMON OPTIONS:
 //!   -i, --time-of-interest <TIME_OF_INTEREST>
-//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 0]
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time). A time given here wins over one in a settings file; the default gives way to it. [default: 0]
 //!
 //! VALIDATION:
 //!       --validate-all  Flag that indicates all available certification paths compiled into the app should be validated for each target, instead of stopping after finding first valid path

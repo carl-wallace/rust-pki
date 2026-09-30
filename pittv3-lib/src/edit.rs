@@ -136,7 +136,11 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
     // the same setup `generate` does before building.
     let mut cps = read_settings(&args.settings)
         .map_err(|e| format!("failed to parse settings file: {e:?}"))?;
-    cps.set_time_of_interest(time_of_interest_from_secs(args.time_of_interest)?);
+    crate::time::apply_time_of_interest(
+        &mut cps,
+        args.time_of_interest,
+        args.time_of_interest_given,
+    )?;
     let mut pe = PkiEnvironment::default();
     pe.populate_5280_pki_environment();
     // `dynamic_build` is what decides whether a build grows the graph, here as on the command
