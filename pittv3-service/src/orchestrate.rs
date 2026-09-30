@@ -302,7 +302,7 @@ async fn retrieve_revocation_data(
                 }
             }
             Err(e) => {
-                budget.spend(0);
+                budget.spend(e.bytes_read());
                 notes.push(format!("could not reach {}: {e}", item.uri));
             }
         }
@@ -372,7 +372,7 @@ async fn retrieve_revocation_data(
                 }
             }
             Err(e) => {
-                budget.spend(0);
+                budget.spend(e.bytes_read());
                 notes.push(format!("could not retrieve {uri}: {e}"));
             }
         }
@@ -440,7 +440,7 @@ async fn chase(
             let response = match relay.fetch(&request).await {
                 Ok(r) => r,
                 Err(e) => {
-                    budget.spend(0);
+                    budget.spend(e.bytes_read());
                     notes.push(format!("could not retrieve {uri}: {e}"));
                     continue;
                 }

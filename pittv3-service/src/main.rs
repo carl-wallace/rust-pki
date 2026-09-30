@@ -151,7 +151,8 @@ async fn main() -> std::io::Result<()> {
     match rate.enabled {
         true => info!(
             "Per-client limits: {} request(s), {} retrieval(s), {} byte(s) per {}s; \
-             {} request(s), {} retrieval(s), {} byte(s) per {}s; tracking at most {} client(s)",
+             {} request(s), {} retrieval(s), {} byte(s) per {}s; tracking at most {} client(s), \
+             IPv6 clients by /{}",
             rate.burst.requests,
             rate.burst.retrievals,
             rate.burst.bytes,
@@ -160,7 +161,8 @@ async fn main() -> std::io::Result<()> {
             rate.sustained.retrievals,
             rate.sustained.bytes,
             rate.sustained.seconds,
-            rate.max_tracked_clients
+            rate.max_tracked_clients,
+            rate.ipv6_prefix_len.min(128)
         ),
         // Worth a warning rather than an info line on a service that can be reached from anywhere:
         // it is a deliberate posture for a single user or an isolated network, and a surprise

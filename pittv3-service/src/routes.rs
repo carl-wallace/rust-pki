@@ -132,10 +132,11 @@ async fn fetch(
         }
         Err(e) => {
             // A refused or failed retrieval still reached for the network, or asked this service
-            // to, so it is charged as one. Not charging would make a stream of refusals the
-            // cheapest way to use the relay.
+            // to, so it is charged as one, with whatever it received. Not charging would make a
+            // stream of refusals the cheapest way to use the relay, and a large response refused
+            // for what it contains the cheapest way to spend its bandwidth.
             if let Some(client) = client {
-                state.limiter.charge(client, 1, 0);
+                state.limiter.charge(client, 1, e.bytes_read());
             }
             fetch_error_response(e)
         }
@@ -199,13 +200,15 @@ fn fetch_error_response(error: FetchError) -> HttpResponse {
         FetchError::RequestTooLarge(_) => {
             HttpResponse::PayloadTooLarge().json(ErrorBody::new(error.to_string()))
         }
-        FetchError::Timeout(_) => {
+        FetchError::Timeout { .. } => {
             HttpResponse::GatewayTimeout().json(ErrorBody::new(error.to_string()))
         }
         // NotAnArtifact joins these because it is the repository's problem in exactly the same
         // sense: it answered, and what it answered with is not an artifact. A 200 carrying a
         // login page is a gateway failure wearing a success code.
-        FetchError::TooLarge(_) | FetchError::Transport(_) | FetchError::NotAnArtifact(_) => {
+        FetchError::TooLarge { .. }
+        | FetchError::Transport { .. }
+        | FetchError::NotAnArtifact { .. } => {
             HttpResponse::BadGateway().json(ErrorBody::new(error.to_string()))
         }
         FetchError::Setup(_) => {

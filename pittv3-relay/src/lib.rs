@@ -106,10 +106,21 @@ pub enum FetchError {
     /// The exchange did not complete within the time allowed, which is reported: "timed out" alone
     /// leaves a caller unable to tell a host that is slow from one that never answers, and unable
     /// to tell either from a budget set too low.
-    Timeout(Duration),
+    Timeout {
+        /// The time allowed.
+        after: Duration,
+        /// Body bytes received before the time ran out.
+        read: u64,
+    },
     /// The response body exceeded the cap, either as claimed by `Content-Length` or as observed
     /// while streaming. The cap that was exceeded is reported.
-    TooLarge(u64),
+    TooLarge {
+        /// The cap that was exceeded.
+        cap: u64,
+        /// Body bytes received before the cap was found to be exceeded: none when
+        /// `Content-Length` claimed too much, up to the cap plus one chunk when streaming did.
+        read: u64,
+    },
     /// The request body exceeded the cap.
     RequestTooLarge(usize),
     /// A successful response carried a body that is not an encoded ASN.1 artifact in any of the
@@ -121,9 +132,19 @@ pub enum FetchError {
     /// item cannot link to one: the check asks whether the body opens as DER, PEM or bare base64,
     /// never what the structure means. What a certificate, CRL or OCSP response *is* remains
     /// certval's business and deliberately not this crate's.
-    NotAnArtifact(String),
+    NotAnArtifact {
+        /// The body's opening bytes, as text where printable and hex otherwise.
+        opening: String,
+        /// The whole body, which was received before it could be judged.
+        read: u64,
+    },
     /// The retrieval failed at the transport, e.g., connection refused or a TLS failure.
-    Transport(String),
+    Transport {
+        /// What failed.
+        reason: String,
+        /// Body bytes received before the failure, if it came while reading the body.
+        read: u64,
+    },
     /// The HTTP client could not be constructed, e.g., the TLS backend failed to initialize.
     Setup(String),
 }
@@ -132,19 +153,37 @@ impl core::fmt::Display for FetchError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             FetchError::Policy(e) => write!(f, "refused by policy: {e}"),
-            FetchError::Timeout(after) => write!(f, "timed out after {after:?}"),
-            FetchError::TooLarge(cap) => write!(f, "response exceeded the {cap}-byte cap"),
-            FetchError::NotAnArtifact(opening) => {
+            FetchError::Timeout { after, .. } => write!(f, "timed out after {after:?}"),
+            FetchError::TooLarge { cap, .. } => write!(f, "response exceeded the {cap}-byte cap"),
+            FetchError::NotAnArtifact { opening, .. } => {
                 write!(f, "response is not DER, PEM or base64; it begins {opening}")
             }
             FetchError::RequestTooLarge(cap) => write!(f, "request exceeded the {cap}-byte cap"),
-            FetchError::Transport(e) => write!(f, "transport failure: {e}"),
+            FetchError::Transport { reason, .. } => write!(f, "transport failure: {reason}"),
             FetchError::Setup(e) => write!(f, "could not build an HTTP client: {e}"),
         }
     }
 }
 
 impl std::error::Error for FetchError {}
+
+impl FetchError {
+    /// Response bytes received before the retrieval failed.
+    ///
+    /// A refusal raised after the body arrived, or while it was arriving, still cost what was
+    /// received. A caller keeping a byte budget charges this on the error path as it charges the
+    /// body's length on success; otherwise a large response that is refused costs nothing, and
+    /// the byte limit does not limit.
+    pub fn bytes_read(&self) -> u64 {
+        match self {
+            FetchError::Timeout { read, .. }
+            | FetchError::TooLarge { read, .. }
+            | FetchError::NotAnArtifact { read, .. }
+            | FetchError::Transport { read, .. } => *read,
+            FetchError::Policy(_) | FetchError::RequestTooLarge(_) | FetchError::Setup(_) => 0,
+        }
+    }
+}
 
 impl From<PolicyError> for FetchError {
     fn from(e: PolicyError) -> Self {
@@ -226,7 +265,10 @@ impl Relay {
             Ok(r) => r,
             Err(e) if e.is_timeout() => {
                 debug!("Retrieval of {} timed out after {timeout:?}", request.uri);
-                return Err(FetchError::Timeout(timeout));
+                return Err(FetchError::Timeout {
+                    after: timeout,
+                    read: 0,
+                });
             }
             Err(e) => {
                 debug!(
@@ -240,7 +282,10 @@ impl Relay {
                 // repository that is down.
                 return match policy_error_in(&e) {
                     Some(pe) => Err(FetchError::Policy(pe)),
-                    None => Err(FetchError::Transport(e.to_string())),
+                    None => Err(FetchError::Transport {
+                        reason: e.to_string(),
+                        read: 0,
+                    }),
                 };
             }
         };
@@ -263,7 +308,10 @@ impl Relay {
                 "Discarded the body from {} as no encoded artifact",
                 request.uri
             );
-            return Err(FetchError::NotAnArtifact(describe_opening(&body)));
+            return Err(FetchError::NotAnArtifact {
+                opening: describe_opening(&body),
+                read: body.len() as u64,
+            });
         }
 
         Ok(FetchResponse {
@@ -461,7 +509,10 @@ async fn read_capped_body(
     if let Some(len) = response.content_length() {
         if len > max_bytes {
             debug!("{uri} reported a {len}-byte body exceeding the {max_bytes}-byte cap");
-            return Err(FetchError::TooLarge(max_bytes));
+            return Err(FetchError::TooLarge {
+                cap: max_bytes,
+                read: 0,
+            });
         }
     }
 
@@ -469,20 +520,32 @@ async fn read_capped_body(
     loop {
         match response.chunk().await {
             Ok(Some(chunk)) => {
-                if buf.len() as u64 + chunk.len() as u64 > max_bytes {
+                let read = buf.len() as u64 + chunk.len() as u64;
+                if read > max_bytes {
                     debug!("{uri} streamed a body exceeding the {max_bytes}-byte cap");
-                    return Err(FetchError::TooLarge(max_bytes));
+                    return Err(FetchError::TooLarge {
+                        cap: max_bytes,
+                        read,
+                    });
                 }
                 buf.extend_from_slice(&chunk);
             }
             Ok(None) => break,
-            Err(e) if e.is_timeout() => return Err(FetchError::Timeout(timeout)),
+            Err(e) if e.is_timeout() => {
+                return Err(FetchError::Timeout {
+                    after: timeout,
+                    read: buf.len() as u64,
+                })
+            }
             Err(e) => {
                 debug!(
                     "Failed to read the body from {uri} with {}",
                     error_chain(&e)
                 );
-                return Err(FetchError::Transport(e.to_string()));
+                return Err(FetchError::Transport {
+                    reason: e.to_string(),
+                    read: buf.len() as u64,
+                });
             }
         }
     }

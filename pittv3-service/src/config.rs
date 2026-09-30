@@ -85,6 +85,19 @@ pub struct RateLimits {
     /// fresh one per request. The cap is what stops the limiter becoming the memory exhaustion it
     /// exists to prevent.
     pub max_tracked_clients: usize,
+    /// How many leading bits of an IPv6 address identify one client.
+    ///
+    /// An IPv6 client is normally assigned a whole prefix rather than one address, 64 bits at the
+    /// least, and can present any address within it. Counted by full address, each request could
+    /// arrive as a stranger. So an IPv6 address is counted by its first `ipv6_prefix_len` bits,
+    /// and everything beneath that is one client. IPv4 addresses are counted whole.
+    ///
+    /// 64 is the smallest prefix a network is normally given. A client holding a wider one, a /56
+    /// or /48 is common, can still arrive as 256 or 65,536 clients; lowering this counts those as
+    /// one, at the cost of also joining the unrelated clients a provider numbered from the same
+    /// range.
+    /// Values above 128 are read as 128.
+    pub ipv6_prefix_len: u8,
 }
 
 impl Default for RateLimits {
@@ -99,6 +112,7 @@ impl Default for RateLimits {
                 bytes: 4 * 1024 * 1024 * 1024,
             },
             max_tracked_clients: 10_000,
+            ipv6_prefix_len: 64,
         }
     }
 }
