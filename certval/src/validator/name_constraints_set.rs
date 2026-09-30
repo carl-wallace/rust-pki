@@ -874,7 +874,7 @@ fn get_cidr_for_subtree(ip_bytes: &[u8]) -> Result<IpCidr> {
         let mut tmp_addr: [u8; 4] = Default::default();
         tmp_addr.copy_from_slice(&ip_bytes[..4]);
         let addr = Ipv4Addr::from(tmp_addr);
-        match Ipv4Cidr::new(addr, count_bits(&ip_bytes[4..])) {
+        match Ipv4Cidr::new(addr, count_bits(&ip_bytes[4..])?) {
             Ok(cidr) => Ok(IpCidr::from(cidr)),
             Err(_e) => Err(Error::ParseError),
         }
@@ -882,7 +882,7 @@ fn get_cidr_for_subtree(ip_bytes: &[u8]) -> Result<IpCidr> {
         let mut tmp_addr: [u8; 16] = Default::default();
         tmp_addr.copy_from_slice(&ip_bytes[..16]);
         let addr = Ipv6Addr::from(tmp_addr);
-        match Ipv6Cidr::new(addr, count_bits(&ip_bytes[16..])) {
+        match Ipv6Cidr::new(addr, count_bits(&ip_bytes[16..])?) {
             Ok(cidr) => Ok(IpCidr::from(cidr)),
             Err(_e) => Err(Error::ParseError),
         }
@@ -1133,19 +1133,25 @@ pub fn name_constraints_settings_to_name_constraints_set(
     })
 }
 
-fn count_bits(buf: &[u8]) -> u8 {
+/// The prefix length of a subnet mask: its leading one bits. A mask with a one bit after the first
+/// zero is not a prefix at all, and is refused rather than read as the shorter prefix before the
+/// gap, which would widen the subtree.
+fn count_bits(buf: &[u8]) -> Result<u8> {
     let mut num_bits = 0;
-    let bits = vec![0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
+    let mut in_prefix = true;
     for byte in buf {
-        for check in &bits {
-            if check & byte == *check {
+        for shift in (0..8).rev() {
+            let set = byte & (1 << shift) != 0;
+            if in_prefix && set {
                 num_bits += 1;
+            } else if set {
+                return Err(Error::ParseError);
             } else {
-                return num_bits;
+                in_prefix = false;
             }
         }
     }
-    num_bits
+    Ok(num_bits)
 }
 
 fn set_bits(buf: &[u8], num_bits: u8) -> Vec<u8> {
@@ -1173,10 +1179,26 @@ fn set_bits_count_bits_round_trip() {
     // (as before this test existed), a /15 mask read back as /8, widening the
     // permitted IP set.
     for prefix in [0u8, 1, 7, 8, 9, 15, 16, 24, 31, 32] {
-        assert_eq!(count_bits(&set_bits(&[0u8; 4], prefix)), prefix);
+        assert_eq!(count_bits(&set_bits(&[0u8; 4], prefix)), Ok(prefix));
     }
     assert_eq!(set_bits(&[0u8; 4], 15), vec![0xFF, 0xFE, 0x00, 0x00]);
     assert_eq!(set_bits(&[0u8; 4], 9), vec![0xFF, 0x80, 0x00, 0x00]);
+}
+
+#[test]
+fn non_contiguous_mask_is_refused() {
+    // Read as a prefix up to the gap, FF 00 FF 00 would be /8 and permit 10.0.0.0/8 where the
+    // constraint's author wrote something else entirely.
+    assert_eq!(
+        count_bits(&[0xFF, 0x00, 0xFF, 0x00]),
+        Err(Error::ParseError)
+    );
+    assert_eq!(
+        count_bits(&[0xFF, 0x7F, 0x00, 0x00]),
+        Err(Error::ParseError)
+    );
+    assert!(get_cidr_for_subtree(&[10, 0, 0, 0, 0xFF, 0x00, 0xFF, 0x00]).is_err());
+    assert!(get_cidr_for_subtree(&[10, 0, 0, 0, 0xFF, 0x00, 0x00, 0x00]).is_ok());
 }
 
 /// Renders a [`NameConstraintsSet`] as its serializable [`NameConstraintsSettings`] equivalent, e.g.,
@@ -1241,12 +1263,12 @@ pub fn name_constraints_set_to_name_constraints_settings(
                         let mut tmp_addr: [u8; 4] = Default::default();
                         tmp_addr.copy_from_slice(&ip_bytes[..4]);
                         let addr = Ipv4Addr::from(tmp_addr);
-                        format!("{}/{}", addr, count_bits(&ip_bytes[4..]))
+                        format!("{}/{}", addr, count_bits(&ip_bytes[4..])?)
                     } else if ip_bytes.len() == 32 {
                         let mut tmp_addr: [u8; 16] = Default::default();
                         tmp_addr.copy_from_slice(&ip_bytes[..16]);
                         let addr = Ipv6Addr::from(tmp_addr);
-                        format!("{}/{}", addr, count_bits(&ip_bytes[16..]))
+                        format!("{}/{}", addr, count_bits(&ip_bytes[16..])?)
                     } else {
                         return Err(Error::ParseError);
                     };

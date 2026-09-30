@@ -18,7 +18,8 @@ use crate::stores::StoreCatalog;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RateWindow {
-    /// Length of the period in seconds.
+    /// Length of the period in seconds. A period of zero would reset on every request and enforce
+    /// nothing, so it is replaced by the window's default at startup, with a warning.
     pub seconds: u64,
     /// Calls to the service permitted in the period.
     pub requests: u64,
@@ -83,7 +84,8 @@ pub struct RateLimits {
     ///
     /// The table is attack surface of its own: a client holding a range of addresses can present a
     /// fresh one per request. The cap is what stops the limiter becoming the memory exhaustion it
-    /// exists to prevent.
+    /// exists to prevent. Unlike the count limits in a window, 0 here does not mean unbounded; it is
+    /// replaced by the default at startup, with a warning.
     pub max_tracked_clients: usize,
     /// How many leading bits of an IPv6 address identify one client.
     ///
@@ -98,6 +100,43 @@ pub struct RateLimits {
     /// range.
     /// Values above 128 are read as 128.
     pub ipv6_prefix_len: u8,
+}
+
+impl RateLimits {
+    /// Replaces settings that would silently enforce nothing with their defaults, returning a note
+    /// for each so the replacement is logged rather than the service refusing to start.
+    ///
+    /// A window of 0 seconds resets on every request and would refuse no one, so it takes that
+    /// window's default length. A `max_tracked_clients` of 0 is not unbounded, unlike the count
+    /// limits, so it takes the default cap.
+    pub fn replace_unusable_values(&mut self) -> Vec<String> {
+        let mut notes = vec![];
+        if !self.enabled {
+            return notes;
+        }
+        let defaults = RateLimits::default();
+        for (name, window, default) in [
+            ("burst", &mut self.burst, &defaults.burst),
+            ("sustained", &mut self.sustained, &defaults.sustained),
+        ] {
+            if window.seconds == 0 {
+                window.seconds = default.seconds;
+                notes.push(format!(
+                    "rate_limit.{name}.seconds of 0 would enforce nothing; using {}",
+                    default.seconds
+                ));
+            }
+        }
+        if self.max_tracked_clients == 0 {
+            self.max_tracked_clients = defaults.max_tracked_clients;
+            notes.push(format!(
+                "rate_limit.max_tracked_clients of 0 is not unbounded, unlike the count limits; \
+                 using {}",
+                defaults.max_tracked_clients
+            ));
+        }
+        notes
+    }
 }
 
 impl Default for RateLimits {
@@ -277,7 +316,7 @@ impl ServiceState {
 
 #[cfg(test)]
 mod config_tests {
-    use super::ServiceConfig;
+    use super::{RateLimits, RateWindow, ServiceConfig};
     use std::path::PathBuf;
 
     /// The contract a deployment relies on: `client_dir` set in the configuration file alone, with
@@ -321,5 +360,38 @@ mod config_tests {
                 "{wrong} should not have set client_dir"
             );
         }
+    }
+
+    /// A zero window or a zero client cap takes its default while limiting is on, with a note for
+    /// each, and is left alone when limiting is off, since nothing reads it then.
+    #[test]
+    fn unusable_limits_take_their_defaults() {
+        let defaults = RateLimits::default();
+        assert!(RateLimits::default().replace_unusable_values().is_empty());
+
+        let mut zeroed = RateLimits {
+            burst: RateWindow {
+                seconds: 0,
+                ..RateWindow::default()
+            },
+            sustained: RateWindow {
+                seconds: 0,
+                ..defaults.sustained.clone()
+            },
+            max_tracked_clients: 0,
+            ..RateLimits::default()
+        };
+        assert_eq!(zeroed.replace_unusable_values().len(), 3);
+        assert_eq!(zeroed.burst.seconds, defaults.burst.seconds);
+        assert_eq!(zeroed.sustained.seconds, defaults.sustained.seconds);
+        assert_eq!(zeroed.max_tracked_clients, defaults.max_tracked_clients);
+
+        let mut off = RateLimits {
+            enabled: false,
+            max_tracked_clients: 0,
+            ..RateLimits::default()
+        };
+        assert!(off.replace_unusable_values().is_empty());
+        assert_eq!(off.max_tracked_clients, 0);
     }
 }

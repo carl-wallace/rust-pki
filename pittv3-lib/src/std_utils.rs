@@ -717,9 +717,9 @@ fn dynamic_build_state(_opts: &ValidateOpts) -> Option<bool> {
 /// anticipate. Deciding from the bytes cannot fail that way, and a file that is neither is reported
 /// and skipped.
 ///
-/// This is read-only. It is the non-destructive counterpart of `crl_folder`, which is an *index*:
-/// that folder is written as well as read, and indexing deletes any CRL not valid at the time of
-/// interest. An artifact named here is used and left alone.
+/// This is read-only. It is the counterpart of `crl_folder`, which is an *index*: that folder is
+/// written as well as read, receiving the CRLs a run fetches. An artifact named here is used and
+/// left alone.
 #[cfg(all(feature = "std", feature = "revocation"))]
 pub fn load_revocation_inputs<'a>(paths: impl IntoIterator<Item = &'a str>) -> RevocationInputs {
     use x509_cert::certificate::Raw;

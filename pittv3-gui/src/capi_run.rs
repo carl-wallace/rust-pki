@@ -123,8 +123,8 @@ pub fn gather(args: &Pittv3Args, trust: CapiTrust) -> CapiRunInputs {
         targets,
         trust_anchors,
         additional_certs,
-        // Zero is the command line's "unset"; the desktop always fills it, but this reads the
-        // argument rather than the control, so it handles the argument's range.
+        // Zero is passed as unset, which CAPI reads as now. certval reads the same zero as validity
+        // checking off, so a time of interest of 0 has the two sides validating differently.
         time_of_interest: (args.time_of_interest != 0).then_some(args.time_of_interest),
         anchor_sources,
     }
