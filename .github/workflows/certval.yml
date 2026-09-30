@@ -58,6 +58,10 @@ jobs:
   # (revocation.rs, rfc822_dn_name_constraints.rs, the pkits_2048 std variants)
   # otherwise runs on dev machines only. This job executes it. Verified to need
   # no network and no RUST_MIN_STACK override (2026-07-20).
+  #
+  # sha1_sig is here because --each-feature only ever runs it alone. remote is not: the
+  # remote-gated blocks in certval's own tests fetch live OCSP and CRL data, and the remote+rsa
+  # combination is exercised by pittv3's tests, whose default features carry both.
   test-combined:
     runs-on: ubuntu-latest
     strategy:
@@ -70,7 +74,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo test -p certval --features std,rsa,revocation,pqc,eddsa
+      - run: cargo test -p certval --features std,rsa,revocation,pqc,eddsa,sha1_sig
 
   # Windows is not a portability afterthought here. The CAPI store support is Windows-only code no
   # other leg compiles, and the SLH-DSA stack reserve in .cargo/config.toml is a Windows-only link
