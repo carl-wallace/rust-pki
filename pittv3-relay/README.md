@@ -28,7 +28,10 @@ allowlist, resolves each hostname itself and rejects addresses that are loopback
 link-local, unique-local, multicast or otherwise not a public destination, and then connects to the
 addresses it resolved rather than resolving a second time inside the HTTP client. A handshake goes
 through the same checks, so it cannot reach a host, an address or a port a retrieval could not. Redirects are
-refused unless a limit is configured, and each hop is checked afresh. Budgets bound the size of a
+followed up to a configured limit, ten by default, and each hop is checked afresh. A `POST` is
+refused unless its content type is `application/ocsp-request`. A response is returned with its
+body only when its status is 2xx, and that body must open as DER, PEM or base64; any other status
+comes back without a body. Budgets bound the size of a
 response, the time a request may take, and the size of a request body.
 
 The public surface is a plain function taking a request description and returning bytes, with no

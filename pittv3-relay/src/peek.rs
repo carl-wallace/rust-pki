@@ -159,8 +159,11 @@ impl Relay {
 
         let Some(stream) = established else {
             return match answered_badly {
-                Some(e) => Err(FetchError::Transport(e)),
-                None => Err(FetchError::Timeout(timeout)),
+                Some(reason) => Err(FetchError::Transport { reason, read: 0 }),
+                None => Err(FetchError::Timeout {
+                    after: timeout,
+                    read: 0,
+                }),
             };
         };
 
@@ -175,9 +178,10 @@ impl Relay {
         // abstract and useless here, and reporting an empty list would leave the caller to guess
         // whether the connection or the parsing failed.
         if certificates.is_empty() {
-            return Err(FetchError::Transport(format!(
-                "{host} completed a handshake without presenting a certificate"
-            )));
+            return Err(FetchError::Transport {
+                reason: format!("{host} completed a handshake without presenting a certificate"),
+                read: 0,
+            });
         }
         // Named rather than debug-printed: `TLSv1_3` is the enum's spelling, "TLS 1.3" is the
         // protocol's, and this string is shown to a person.

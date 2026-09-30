@@ -58,8 +58,9 @@ async fn health() -> impl Responder {
 
 /// Retrieves one artifact on a client's behalf.
 ///
-/// The response carries whatever the repository said, including a status this service would
+/// The response carries the status the repository answered with, including one this service would
 /// consider a failure, because the client is the one that knows what a 404 on a given URI means.
+/// It carries a body only with a 2xx status.
 /// Only a refusal to make the request at all, or a failure to complete it, becomes an error here.
 async fn fetch(
     req: HttpRequest,
@@ -104,9 +105,8 @@ async fn fetch(
             // the repository is at fault, which it is -- it answered 2xx with something that is
             // not an artifact.
             //
-            // Only a successful response is judged. A 404's HTML body is not an artifact either,
-            // and saying so would replace the status the caller actually needs with a complaint
-            // about encoding.
+            // Only a successful response is judged, because only a successful response arrives
+            // from the relay with a body.
             if (200..300).contains(&response.status)
                 && !response.body.is_empty()
                 && !is_usable_artifact(&response.body)
@@ -132,10 +132,11 @@ async fn fetch(
         }
         Err(e) => {
             // A refused or failed retrieval still reached for the network, or asked this service
-            // to, so it is charged as one. Not charging would make a stream of refusals the
-            // cheapest way to use the relay.
+            // to, so it is charged as one, with whatever it received. Not charging would make a
+            // stream of refusals the cheapest way to use the relay, and a large response refused
+            // for what it contains the cheapest way to spend its bandwidth.
             if let Some(client) = client {
-                state.limiter.charge(client, 1, 0);
+                state.limiter.charge(client, 1, e.bytes_read());
             }
             fetch_error_response(e)
         }
@@ -199,13 +200,15 @@ fn fetch_error_response(error: FetchError) -> HttpResponse {
         FetchError::RequestTooLarge(_) => {
             HttpResponse::PayloadTooLarge().json(ErrorBody::new(error.to_string()))
         }
-        FetchError::Timeout(_) => {
+        FetchError::Timeout { .. } => {
             HttpResponse::GatewayTimeout().json(ErrorBody::new(error.to_string()))
         }
         // NotAnArtifact joins these because it is the repository's problem in exactly the same
         // sense: it answered, and what it answered with is not an artifact. A 200 carrying a
         // login page is a gateway failure wearing a success code.
-        FetchError::TooLarge(_) | FetchError::Transport(_) | FetchError::NotAnArtifact(_) => {
+        FetchError::TooLarge { .. }
+        | FetchError::Transport { .. }
+        | FetchError::NotAnArtifact { .. } => {
             HttpResponse::BadGateway().json(ErrorBody::new(error.to_string()))
         }
         FetchError::Setup(_) => {

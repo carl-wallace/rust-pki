@@ -14,6 +14,33 @@ use std::sync::Arc;
 use log::debug;
 use serde::{Deserialize, Serialize};
 
+use crate::FetchMethod;
+
+/// The content type of an OCSP request (RFC 6960 appendix A.1), the only body a `POST` may carry.
+pub const OCSP_REQUEST_CONTENT_TYPE: &str = "application/ocsp-request";
+
+/// Refuses a `POST` that is not an OCSP request by its content type. A `GET` carries no body and
+/// passes.
+///
+/// The media type is compared without parameters and without regard to case, as RFC 9110 has it.
+/// The body itself is not examined: what a certificate, CRL or OCSP message *is* is certval's
+/// business and not this crate's.
+pub fn check_content_type(
+    method: FetchMethod,
+    content_type: Option<&str>,
+) -> Result<(), PolicyError> {
+    if method != FetchMethod::Post {
+        return Ok(());
+    }
+    let media_type = content_type.map(|t| t.split(';').next().unwrap_or_default().trim());
+    match media_type {
+        Some(t) if t.eq_ignore_ascii_case(OCSP_REQUEST_CONTENT_TYPE) => Ok(()),
+        _ => Err(PolicyError::ContentType(
+            content_type.unwrap_or("none").to_string(),
+        )),
+    }
+}
+
 /// Reasons a URI or a resolved address is refused. These are returned to a caller as a refusal to
 /// retrieve, and are deliberately specific enough to diagnose a misconfigured deployment while
 /// naming nothing about the network the service runs on beyond what the requester already supplied.
@@ -45,6 +72,13 @@ pub enum PolicyError {
     /// not retrieval. The host reported is the one that would have been contacted, since the point
     /// of the form is that it is not the one a reader sees.
     Userinfo(String),
+    /// A `POST` whose content type is not `application/ocsp-request`, reported as supplied, or as
+    /// `none` when there was none.
+    ///
+    /// OCSP is the only request PKI retrieval sends a body with, so a `POST` of anything else is
+    /// not retrieval. Without this the relay would deliver any body, under any content type, to
+    /// any public host, as the sender of record.
+    ContentType(String),
 }
 
 impl core::fmt::Display for PolicyError {
@@ -61,6 +95,10 @@ impl core::fmt::Display for PolicyError {
             PolicyError::Userinfo(h) => {
                 write!(f, "URI carries credentials; host would have been {h}")
             }
+            PolicyError::ContentType(t) => write!(
+                f,
+                "POST is permitted only as {OCSP_REQUEST_CONTENT_TYPE}, not {t}"
+            ),
         }
     }
 }

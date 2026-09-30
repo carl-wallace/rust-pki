@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 
 pub use budget::{BudgetExhausted, ChaseBudget, ChaseBudgetLimits, FetchBudget};
 pub use peek::{PeekRequest, PeekResponse};
-pub use policy::{is_public_address, CheckedUri, NetworkPolicy, PolicyError, PolicyResolver};
+pub use policy::{
+    check_content_type, is_public_address, CheckedUri, NetworkPolicy, PolicyError, PolicyResolver,
+    OCSP_REQUEST_CONTENT_TYPE,
+};
 
 /// Verbs PKI retrieval needs. `GET` covers certificates and CRLs named by authority information
 /// access, subject information access and CRL distribution point extensions; `POST` covers OCSP,
@@ -70,7 +73,7 @@ impl FetchRequest {
             uri: uri.into(),
             method: FetchMethod::Post,
             body: Some(request),
-            content_type: Some("application/ocsp-request".to_string()),
+            content_type: Some(OCSP_REQUEST_CONTENT_TYPE.to_string()),
             ..Default::default()
         }
     }
@@ -81,7 +84,7 @@ impl FetchRequest {
 /// The status is reported as it arrived rather than being turned into an error, because a caller
 /// distinguishes cases the relay cannot: a 404 from an authority information access URI is a broken
 /// certificate, a 304 answers a conditional request, and a 503 is worth retrying later. The body is
-/// returned as bytes and is not parsed here.
+/// returned as bytes and is not parsed here, and only with a 2xx status.
 #[derive(Clone, Debug)]
 pub struct FetchResponse {
     /// HTTP status code.
@@ -94,7 +97,7 @@ pub struct FetchResponse {
     /// URI the response came from, which differs from the requested URI when a redirect was
     /// followed.
     pub final_uri: String,
-    /// Response body.
+    /// Response body. Empty for any status other than 2xx, whose body is not read.
     pub body: Vec<u8>,
 }
 
@@ -106,10 +109,21 @@ pub enum FetchError {
     /// The exchange did not complete within the time allowed, which is reported: "timed out" alone
     /// leaves a caller unable to tell a host that is slow from one that never answers, and unable
     /// to tell either from a budget set too low.
-    Timeout(Duration),
+    Timeout {
+        /// The time allowed.
+        after: Duration,
+        /// Body bytes received before the time ran out.
+        read: u64,
+    },
     /// The response body exceeded the cap, either as claimed by `Content-Length` or as observed
     /// while streaming. The cap that was exceeded is reported.
-    TooLarge(u64),
+    TooLarge {
+        /// The cap that was exceeded.
+        cap: u64,
+        /// Body bytes received before the cap was found to be exceeded: none when
+        /// `Content-Length` claimed too much, up to the cap plus one chunk when streaming did.
+        read: u64,
+    },
     /// The request body exceeded the cap.
     RequestTooLarge(usize),
     /// A successful response carried a body that is not an encoded ASN.1 artifact in any of the
@@ -121,9 +135,19 @@ pub enum FetchError {
     /// item cannot link to one: the check asks whether the body opens as DER, PEM or bare base64,
     /// never what the structure means. What a certificate, CRL or OCSP response *is* remains
     /// certval's business and deliberately not this crate's.
-    NotAnArtifact(String),
+    NotAnArtifact {
+        /// The body's opening bytes, as text where printable and hex otherwise.
+        opening: String,
+        /// The whole body, which was received before it could be judged.
+        read: u64,
+    },
     /// The retrieval failed at the transport, e.g., connection refused or a TLS failure.
-    Transport(String),
+    Transport {
+        /// What failed.
+        reason: String,
+        /// Body bytes received before the failure, if it came while reading the body.
+        read: u64,
+    },
     /// The HTTP client could not be constructed, e.g., the TLS backend failed to initialize.
     Setup(String),
 }
@@ -132,19 +156,37 @@ impl core::fmt::Display for FetchError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             FetchError::Policy(e) => write!(f, "refused by policy: {e}"),
-            FetchError::Timeout(after) => write!(f, "timed out after {after:?}"),
-            FetchError::TooLarge(cap) => write!(f, "response exceeded the {cap}-byte cap"),
-            FetchError::NotAnArtifact(opening) => {
+            FetchError::Timeout { after, .. } => write!(f, "timed out after {after:?}"),
+            FetchError::TooLarge { cap, .. } => write!(f, "response exceeded the {cap}-byte cap"),
+            FetchError::NotAnArtifact { opening, .. } => {
                 write!(f, "response is not DER, PEM or base64; it begins {opening}")
             }
             FetchError::RequestTooLarge(cap) => write!(f, "request exceeded the {cap}-byte cap"),
-            FetchError::Transport(e) => write!(f, "transport failure: {e}"),
+            FetchError::Transport { reason, .. } => write!(f, "transport failure: {reason}"),
             FetchError::Setup(e) => write!(f, "could not build an HTTP client: {e}"),
         }
     }
 }
 
 impl std::error::Error for FetchError {}
+
+impl FetchError {
+    /// Response bytes received before the retrieval failed.
+    ///
+    /// A refusal raised after the body arrived, or while it was arriving, still cost what was
+    /// received. A caller keeping a byte budget charges this on the error path as it charges the
+    /// body's length on success; otherwise a large response that is refused costs nothing, and
+    /// the byte limit does not limit.
+    pub fn bytes_read(&self) -> u64 {
+        match self {
+            FetchError::Timeout { read, .. }
+            | FetchError::TooLarge { read, .. }
+            | FetchError::NotAnArtifact { read, .. }
+            | FetchError::Transport { read, .. } => *read,
+            FetchError::Policy(_) | FetchError::RequestTooLarge(_) | FetchError::Setup(_) => 0,
+        }
+    }
+}
 
 impl From<PolicyError> for FetchError {
     fn from(e: PolicyError) -> Self {
@@ -201,6 +243,7 @@ impl Relay {
     /// cap applied as it streams.
     pub async fn fetch(&self, request: &FetchRequest) -> Result<FetchResponse, FetchError> {
         let dest = self.policy.check_uri(&request.uri)?;
+        check_content_type(request.method, request.content_type.as_deref())?;
 
         let body = request.body.clone().unwrap_or_default();
         if body.len() > self.budget.max_request_bytes {
@@ -226,7 +269,10 @@ impl Relay {
             Ok(r) => r,
             Err(e) if e.is_timeout() => {
                 debug!("Retrieval of {} timed out after {timeout:?}", request.uri);
-                return Err(FetchError::Timeout(timeout));
+                return Err(FetchError::Timeout {
+                    after: timeout,
+                    read: 0,
+                });
             }
             Err(e) => {
                 debug!(
@@ -240,7 +286,10 @@ impl Relay {
                 // repository that is down.
                 return match policy_error_in(&e) {
                     Some(pe) => Err(FetchError::Policy(pe)),
-                    None => Err(FetchError::Transport(e.to_string())),
+                    None => Err(FetchError::Transport {
+                        reason: e.to_string(),
+                        read: 0,
+                    }),
                 };
             }
         };
@@ -249,21 +298,34 @@ impl Relay {
         let final_uri = response.url().to_string();
         let content_type = header_string(&response, reqwest::header::CONTENT_TYPE);
         let last_modified = header_string(&response, reqwest::header::LAST_MODIFIED);
+
+        // A status other than 2xx is returned without its body, which is not read at all. The
+        // status is what a caller wants -- a 404 says nothing is where the certificate points --
+        // and no caller reads the page that came with it. Returning that page would let any
+        // public host serve arbitrary content through the relay by answering with an error status.
+        if !(200..300).contains(&status) {
+            debug!("Returned status {status} from {}", request.uri);
+            return Ok(FetchResponse {
+                status,
+                content_type,
+                last_modified,
+                final_uri,
+                body: Vec::new(),
+            });
+        }
+
         let body = read_capped_body(response, max_bytes, &request.uri, timeout).await?;
 
-        // Only for a response that claims to have succeeded. A non-2xx status is information the
-        // caller wants -- a 404 tells a user the repository moved -- and refusing its HTML body
-        // would replace a useful status with a complaint about encoding. An empty body is left
-        // alone for the same reason: the status describes it better than this can.
-        if (200..300).contains(&status)
-            && !body.is_empty()
-            && !looks_like_an_encoded_artifact(&body)
-        {
+        // An empty body is left alone: the status describes it better than this can.
+        if !body.is_empty() && !looks_like_an_encoded_artifact(&body) {
             debug!(
                 "Discarded the body from {} as no encoded artifact",
                 request.uri
             );
-            return Err(FetchError::NotAnArtifact(describe_opening(&body)));
+            return Err(FetchError::NotAnArtifact {
+                opening: describe_opening(&body),
+                read: body.len() as u64,
+            });
         }
 
         Ok(FetchResponse {
@@ -461,7 +523,10 @@ async fn read_capped_body(
     if let Some(len) = response.content_length() {
         if len > max_bytes {
             debug!("{uri} reported a {len}-byte body exceeding the {max_bytes}-byte cap");
-            return Err(FetchError::TooLarge(max_bytes));
+            return Err(FetchError::TooLarge {
+                cap: max_bytes,
+                read: 0,
+            });
         }
     }
 
@@ -469,20 +534,32 @@ async fn read_capped_body(
     loop {
         match response.chunk().await {
             Ok(Some(chunk)) => {
-                if buf.len() as u64 + chunk.len() as u64 > max_bytes {
+                let read = buf.len() as u64 + chunk.len() as u64;
+                if read > max_bytes {
                     debug!("{uri} streamed a body exceeding the {max_bytes}-byte cap");
-                    return Err(FetchError::TooLarge(max_bytes));
+                    return Err(FetchError::TooLarge {
+                        cap: max_bytes,
+                        read,
+                    });
                 }
                 buf.extend_from_slice(&chunk);
             }
             Ok(None) => break,
-            Err(e) if e.is_timeout() => return Err(FetchError::Timeout(timeout)),
+            Err(e) if e.is_timeout() => {
+                return Err(FetchError::Timeout {
+                    after: timeout,
+                    read: buf.len() as u64,
+                })
+            }
             Err(e) => {
                 debug!(
                     "Failed to read the body from {uri} with {}",
                     error_chain(&e)
                 );
-                return Err(FetchError::Transport(e.to_string()));
+                return Err(FetchError::Transport {
+                    reason: e.to_string(),
+                    read: buf.len() as u64,
+                });
             }
         }
     }
@@ -607,6 +684,44 @@ mod tests {
             matches!(err, FetchError::Policy(_)),
             "expected a policy refusal, got {err}"
         );
+    }
+
+    #[test]
+    fn only_an_ocsp_request_may_be_posted() {
+        use FetchMethod::{Get, Post};
+        assert!(check_content_type(Post, Some("application/ocsp-request")).is_ok());
+        assert!(check_content_type(Post, Some("Application/OCSP-Request ; x=y")).is_ok());
+        assert!(check_content_type(Get, None).is_ok());
+        assert!(check_content_type(Get, Some("text/plain")).is_ok());
+
+        for refused in [
+            None,
+            Some("application/x-www-form-urlencoded"),
+            Some("application/json"),
+            Some("application/ocsp-response"),
+            Some("application/ocsp-request-x"),
+        ] {
+            let err = check_content_type(Post, refused).unwrap_err();
+            assert_eq!(
+                err,
+                PolicyError::ContentType(refused.unwrap_or("none").to_string())
+            );
+        }
+    }
+
+    /// Refused before a socket is opened, so the refusal is the policy's and not the network's.
+    #[tokio::test]
+    async fn refuses_a_post_that_is_not_an_ocsp_request() {
+        let relay = Relay::new(NetworkPolicy::default(), FetchBudget::default()).unwrap();
+        let request = FetchRequest {
+            content_type: Some("application/x-www-form-urlencoded".to_string()),
+            ..FetchRequest::ocsp("http://ocsp.example.com/", b"a=b".to_vec())
+        };
+        let err = relay.fetch(&request).await.unwrap_err();
+        assert!(matches!(
+            err,
+            FetchError::Policy(PolicyError::ContentType(_))
+        ));
     }
 
     #[tokio::test]

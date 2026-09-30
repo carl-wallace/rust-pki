@@ -14,6 +14,12 @@
 //! met. That is why the defaults are generous, why exceeding one is a refusal that expires rather
 //! than a ban, and why no penalty escalates. A stricter limiter would mostly punish strangers.
 //!
+//! IPv6 errs the other way. A client is assigned a prefix, not an address, and may present any
+//! address within it, so a full address would let one client arrive as a stranger on every
+//! request. An IPv6 address is therefore counted by its prefix, 64 bits by default
+//! ([`RateLimits::ipv6_prefix_len`]), and an IPv4 address carried in IPv6 form is counted as the
+//! IPv4 address it is.
+//!
 //! # Two windows
 //!
 //! A single window forces a bad trade: wide enough for a legitimate burst is useless against
@@ -168,7 +174,7 @@ impl ClientState {
 #[derive(Debug)]
 pub struct RateLimiter {
     limits: RateLimits,
-    clients: Mutex<HashMap<IpAddr, ClientState>>,
+    clients: Mutex<HashMap<ClientRateLimitKey, ClientState>>,
 }
 
 impl RateLimiter {
@@ -194,6 +200,7 @@ impl RateLimiter {
         if !self.limits.enabled {
             return Ok(());
         }
+        let client = ClientRateLimitKey::new(client, self.limits.ipv6_prefix_len);
         let now = Instant::now();
         let mut clients = match self.clients.lock() {
             Ok(c) => c,
@@ -229,6 +236,7 @@ impl RateLimiter {
         if !self.limits.enabled || (retrievals == 0 && bytes == 0) {
             return;
         }
+        let client = ClientRateLimitKey::new(client, self.limits.ipv6_prefix_len);
         let now = Instant::now();
         let mut clients = match self.clients.lock() {
             Ok(c) => c,
@@ -279,7 +287,7 @@ impl RateLimiter {
     /// prevent. Entries whose long window has fully elapsed are dropped first, since those carry no
     /// counts worth keeping; if none has, the least recently seen goes, which is the client least
     /// likely to be mid-burst.
-    fn evict_if_full(&self, clients: &mut HashMap<IpAddr, ClientState>, now: Instant) {
+    fn evict_if_full(&self, clients: &mut HashMap<ClientRateLimitKey, ClientState>, now: Instant) {
         if clients.len() < self.limits.max_tracked_clients {
             return;
         }
@@ -294,6 +302,32 @@ impl RateLimiter {
             .map(|(key, _)| *key)
         {
             clients.remove(&oldest);
+        }
+    }
+}
+
+/// What a client's spending is counted under: an IPv4 address as itself, and an IPv6 address as
+/// its first `ipv6_prefix_len` bits with the rest zeroed. For IPv6 that is a prefix many addresses
+/// share, not the address the client connected from.
+///
+/// A type rather than a bare [`IpAddr`] so the table cannot be consulted with an address that was
+/// never reduced.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ClientRateLimitKey(IpAddr);
+
+impl ClientRateLimitKey {
+    /// An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`), which is how a dual-stack listener presents
+    /// an IPv4 peer, is read as the IPv4 address first. Masked as IPv6 it would fall in
+    /// `::ffff:0:0/96` with every other IPv4 client, and at any prefix of 96 or shorter they would
+    /// all be counted as one.
+    fn new(address: IpAddr, ipv6_prefix_len: u8) -> Self {
+        match address.to_canonical() {
+            IpAddr::V4(v4) => ClientRateLimitKey(IpAddr::V4(v4)),
+            IpAddr::V6(v6) => {
+                let prefix = u32::from(ipv6_prefix_len.min(128));
+                let mask = u128::MAX.checked_shl(128 - prefix).unwrap_or(0);
+                ClientRateLimitKey(IpAddr::V6((u128::from(v6) & mask).into()))
+            }
         }
     }
 }
@@ -328,6 +362,7 @@ mod tests {
                 bytes: 0,
             },
             max_tracked_clients: 4,
+            ipv6_prefix_len: 64,
         }
     }
 
@@ -417,6 +452,52 @@ mod tests {
             "tracked {tracked} clients with a cap of {}",
             limits().max_tracked_clients
         );
+    }
+
+    fn v6(address: &str) -> IpAddr {
+        address.parse().unwrap()
+    }
+
+    /// Addresses within one /64 are one client, so rotating through them does not reset a count.
+    #[test]
+    fn ipv6_addresses_in_one_prefix_share_a_count() {
+        let limiter = RateLimiter::new(limits());
+        for last in 1..=4u16 {
+            let address = IpAddr::from([0x2001, 0xdb8, 0, 1, 0, 0, 0, last]);
+            assert!(limiter.admit(address).is_ok());
+        }
+        let refused = limiter.admit(v6("2001:db8:0:1:ffff::5")).unwrap_err();
+        assert_eq!(refused.dimension, Dimension::Requests);
+        assert!(limiter.admit(v6("2001:db8:0:2::1")).is_ok());
+    }
+
+    /// A charge lands on the prefix too, whichever address within it made the request.
+    #[test]
+    fn a_charge_reaches_the_prefix_not_the_address() {
+        let limiter = RateLimiter::new(limits());
+        assert!(limiter.admit(v6("2001:db8::1")).is_ok());
+        limiter.charge(v6("2001:db8::2"), 6, 0);
+        let refused = limiter.admit(v6("2001:db8::3")).unwrap_err();
+        assert_eq!(refused.dimension, Dimension::Retrievals);
+    }
+
+    #[test]
+    fn client_rate_limit_keys() {
+        let counted = |address: IpAddr, prefix: u8| ClientRateLimitKey::new(address, prefix).0;
+        // IPv4 is counted whole, and an IPv4-mapped address is the IPv4 address, not a member of
+        // ::ffff:0:0/96 alongside every other IPv4 client.
+        assert_eq!(counted(address(7), 64), address(7));
+        assert_eq!(counted(v6("::ffff:203.0.113.7"), 64), address(7));
+        assert_ne!(
+            counted(v6("::ffff:203.0.113.7"), 64),
+            counted(v6("::ffff:203.0.113.8"), 64)
+        );
+        let full = v6("2001:db8:1:2:3:4:5:6");
+        assert_eq!(counted(full, 64), v6("2001:db8:1:2::"));
+        assert_eq!(counted(full, 48), v6("2001:db8:1::"));
+        assert_eq!(counted(full, 128), full);
+        assert_eq!(counted(full, 200), full);
+        assert_eq!(counted(full, 0), v6("::"));
     }
 
     /// A charge for a client the table no longer holds is dropped rather than re-inserting it: an
