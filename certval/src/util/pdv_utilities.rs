@@ -1414,7 +1414,11 @@ pub fn trim_to_outer_der_sequence(mut der: Vec<u8>) -> Vec<u8> {
         for &octet in &der[2..2 + num] {
             len = (len << 8) | octet as usize;
         }
-        2 + num + len
+        // A four-octet length can exceed usize on a 32-bit target; leave that for the decoder too.
+        match len.checked_add(2 + num) {
+            Some(total) => total,
+            None => return der,
+        }
     };
     if total < der.len() {
         der.truncate(total);

@@ -27,7 +27,6 @@ example of driving all of this:
            -f tests/examples/SeparatedPKITS/3
 
 **Each settings file pins `psTimeOfInterest`** (March 2022), which is what makes these
-runs deterministic — and what keeps `pkits_crls` intact. Validating this material at the
-*current* time instead prunes CRLs: a CRL that is stale at the time of interest is
-deleted from the folder given to `--crl-folder` (see `CrlSourceFolders::index_crls`), so
-run these with the supplied settings, or point the CRL folder at a copy.
+runs deterministic. At another time of interest, a CRL that does not cover it is left out
+of the index (though left on disk), so results can differ; run these with the supplied
+settings.

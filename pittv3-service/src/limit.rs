@@ -136,16 +136,16 @@ impl Counts {
         }
     }
 
-    /// The first limit this window is over, if any. A zero limit is unbounded, so an operator can
-    /// cap bytes without capping request count.
+    /// The first limit this window has reached, if any, so a limit of N admits N. A zero limit is
+    /// unbounded, so an operator can cap bytes without capping request count.
     fn exceeded(&self, window: &RateWindow) -> Option<Dimension> {
-        if window.requests > 0 && self.requests > window.requests {
+        if window.requests > 0 && self.requests >= window.requests {
             return Some(Dimension::Requests);
         }
-        if window.retrievals > 0 && self.retrievals > window.retrievals {
+        if window.retrievals > 0 && self.retrievals >= window.retrievals {
             return Some(Dimension::Retrievals);
         }
-        if window.bytes > 0 && self.bytes > window.bytes {
+        if window.bytes > 0 && self.bytes >= window.bytes {
             return Some(Dimension::Bytes);
         }
         None
@@ -210,7 +210,9 @@ impl RateLimiter {
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        self.evict_if_full(&mut clients, now);
+        if !clients.contains_key(&client) {
+            self.evict_if_full(&mut clients, now);
+        }
 
         let state = clients
             .entry(client)
@@ -280,7 +282,11 @@ impl RateLimiter {
         None
     }
 
-    /// Keeps the table bounded.
+    /// Keeps the table bounded, making room for a client it does not yet hold.
+    ///
+    /// Only a new client makes room. Evicting on every request would, once the table is full, drop
+    /// some other client's counts each time a known client returned, and with a cap of one it would
+    /// drop the requester's own, so nothing was ever refused.
     ///
     /// The table is itself attack surface: a client holding a range of addresses can mint a fresh
     /// key per request, so without a cap the limiter becomes the memory exhaustion it exists to
@@ -380,11 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn requests_are_counted_until_the_limit_is_passed() {
+    fn requests_are_counted_until_the_limit_is_reached() {
         let limiter = RateLimiter::new(limits());
-        // Three are allowed, so the fourth is the first over: the check is against what has been
-        // spent already, which is why the limit is reached rather than merely met.
-        for _ in 0..4 {
+        // Three are allowed, so the fourth is refused.
+        for _ in 0..3 {
             assert!(limiter.admit(address(1)).is_ok());
         }
         let refused = limiter.admit(address(1)).unwrap_err();
@@ -462,7 +467,7 @@ mod tests {
     #[test]
     fn ipv6_addresses_in_one_prefix_share_a_count() {
         let limiter = RateLimiter::new(limits());
-        for last in 1..=4u16 {
+        for last in 1..=3u16 {
             let address = IpAddr::from([0x2001, 0xdb8, 0, 1, 0, 0, 0, last]);
             assert!(limiter.admit(address).is_ok());
         }
@@ -498,6 +503,35 @@ mod tests {
         assert_eq!(counted(full, 128), full);
         assert_eq!(counted(full, 200), full);
         assert_eq!(counted(full, 0), v6("::"));
+    }
+
+    /// A known client does not make room for itself. With a cap of one, evicting on every request
+    /// dropped the requester's own entry, so its counts never passed the limit.
+    #[test]
+    fn a_full_table_keeps_the_client_it_already_holds() {
+        let limiter = RateLimiter::new(RateLimits {
+            max_tracked_clients: 1,
+            ..limits()
+        });
+        for _ in 0..3 {
+            assert!(limiter.admit(address(1)).is_ok());
+        }
+        assert!(limiter.admit(address(1)).is_err());
+    }
+
+    /// A known client returning to a full table evicts nobody else.
+    #[test]
+    fn a_known_client_does_not_evict_another() {
+        let limiter = RateLimiter::new(RateLimits {
+            max_tracked_clients: 2,
+            ..limits()
+        });
+        for _ in 0..4 {
+            let _ = limiter.admit(address(1));
+        }
+        assert!(limiter.admit(address(2)).is_ok());
+        assert!(limiter.admit(address(2)).is_ok());
+        assert!(limiter.admit(address(1)).is_err());
     }
 
     /// A charge for a client the table no longer holds is dropped rather than re-inserting it: an

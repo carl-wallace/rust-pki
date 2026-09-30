@@ -102,6 +102,7 @@ fn load_config(args: &Args) -> Result<ServiceConfig, String> {
     if args.no_tls_peek {
         config.allow_tls_peek = false;
     }
+    config.rate_limit.check()?;
     Ok(config)
 }
 

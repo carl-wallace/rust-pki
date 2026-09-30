@@ -18,7 +18,8 @@ use crate::stores::StoreCatalog;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RateWindow {
-    /// Length of the period in seconds.
+    /// Length of the period in seconds. Must be above zero while limiting is enabled: a period of
+    /// zero resets on every request and would enforce nothing.
     pub seconds: u64,
     /// Calls to the service permitted in the period.
     pub requests: u64,
@@ -83,7 +84,7 @@ pub struct RateLimits {
     ///
     /// The table is attack surface of its own: a client holding a range of addresses can present a
     /// fresh one per request. The cap is what stops the limiter becoming the memory exhaustion it
-    /// exists to prevent.
+    /// exists to prevent. Must be above zero while limiting is enabled.
     pub max_tracked_clients: usize,
     /// How many leading bits of an IPv6 address identify one client.
     ///
@@ -98,6 +99,31 @@ pub struct RateLimits {
     /// range.
     /// Values above 128 are read as 128.
     pub ipv6_prefix_len: u8,
+}
+
+impl RateLimits {
+    /// Refuses settings that would silently enforce nothing while claiming to be enabled, so a
+    /// deployment finds out at startup rather than by never refusing anyone.
+    pub fn check(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self.burst.seconds == 0 || self.sustained.seconds == 0 {
+            return Err(
+                "rate_limit: a window of 0 seconds enforces nothing; set seconds above zero, or \
+                 set enabled to false"
+                    .to_string(),
+            );
+        }
+        if self.max_tracked_clients == 0 {
+            return Err(
+                "rate_limit: max_tracked_clients of 0 tracks no one; set it above zero, or set \
+                 enabled to false"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Default for RateLimits {
@@ -277,7 +303,7 @@ impl ServiceState {
 
 #[cfg(test)]
 mod config_tests {
-    use super::ServiceConfig;
+    use super::{RateLimits, RateWindow, ServiceConfig};
     use std::path::PathBuf;
 
     /// The contract a deployment relies on: `client_dir` set in the configuration file alone, with
@@ -321,5 +347,30 @@ mod config_tests {
                 "{wrong} should not have set client_dir"
             );
         }
+    }
+
+    /// A zero window or a zero client cap is refused while limiting is on, and allowed when it is
+    /// off, since nothing reads them then.
+    #[test]
+    fn limits_that_enforce_nothing_are_refused() {
+        assert!(RateLimits::default().check().is_ok());
+        let zero_window = RateLimits {
+            burst: RateWindow {
+                seconds: 0,
+                ..RateWindow::default()
+            },
+            ..RateLimits::default()
+        };
+        assert!(zero_window.check().is_err());
+        let zero_cap = RateLimits {
+            max_tracked_clients: 0,
+            ..RateLimits::default()
+        };
+        assert!(zero_cap.check().is_err());
+        let off = RateLimits {
+            enabled: false,
+            ..zero_cap
+        };
+        assert!(off.check().is_ok());
     }
 }

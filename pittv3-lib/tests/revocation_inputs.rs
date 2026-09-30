@@ -1,7 +1,7 @@
 //! Integration tests for `rev_inputs` — supplying revocation artifacts a run should use.
 //!
 //! Until this existed the only way to hand pittv3 a CRL was `--crl-folder`, which is an *index*:
-//! it is written as well as read, and indexing deletes any CRL not valid at the time of interest.
+//! it is written as well as read, receiving the CRLs a run fetches.
 //! There was no way at all to hand it an OCSP response — `ValidateOpts::crls` and
 //! `CertificationPath::ocsp_responses` were reachable only from in-memory callers, and the CLI set
 //! neither. So a run against captured evidence, or on a machine with no route to a responder, could
@@ -89,7 +89,7 @@ fn without_an_artifact_the_status_is_undetermined() {
 }
 
 /// A CRL named on the arguments is stapled into the path and answers for it. The folder is not
-/// touched: this is the read-only counterpart of `--crl-folder`, which would have deleted from it.
+/// touched: this is the read-only counterpart of `--crl-folder`, which a run adds fetched CRLs to.
 #[test]
 fn supplied_crls_determine_status() {
     let dir = tempfile::tempdir().unwrap();
