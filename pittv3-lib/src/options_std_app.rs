@@ -23,7 +23,7 @@
 //!
 //! COMMON OPTIONS:
 //!   -i, --time-of-interest <TIME_OF_INTEREST>
-//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 1787579866]
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time). A time given here wins over one in a settings file; the default gives way to it. [default: 1787579866]
 //!   -l, --logging-config <LOGGING_CONFIG>
 //!           Full path and filename of YAML-formatted configuration file for log4rs logging mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
 //!   -o, --error-folder <ERROR_FOLDER>

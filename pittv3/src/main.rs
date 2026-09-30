@@ -18,7 +18,12 @@ fn parse_args() -> Pittv3Args {
         .about(env!("CARGO_PKG_DESCRIPTION"))
         .long_about(None)
         .get_matches();
-    Pittv3Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
+    let mut args = Pittv3Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    // -i always has a value, its default included, so only clap knows whether it was typed. A typed
+    // time wins over a settings file's; the default gives way to one.
+    args.time_of_interest_given =
+        matches.value_source("time_of_interest") == Some(clap::parser::ValueSource::CommandLine);
+    args
 }
 
 #[cfg(feature = "std_app")]

@@ -69,7 +69,8 @@ pub fn arg_help(name: &str) -> &'static str {
         ),
         "time-of-interest" => concat!(
             "Time to use for path validation expressed as the number of seconds since Unix epoch ",
-            "(defaults to current system time).",
+            "(defaults to current system time). A time given here wins over one in a settings file; ",
+            "the default gives way to it.",
         ),
         "logging-config" => concat!(
             "Full path and filename of YAML-formatted configuration file for log4rs logging mechanism. ",

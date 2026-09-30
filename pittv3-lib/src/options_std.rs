@@ -33,7 +33,7 @@
 //!   -b, --cbor <CBOR>
 //!           Full path and filename of file to provide and/or receive CBOR-formatted representation of buffers containing binary DER-encoded CA certificates and map containing set of partial certification paths
 //!   -i, --time-of-interest <TIME_OF_INTEREST>
-//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time) [default: 1787579866]
+//!           Time to use for path validation expressed as the number of seconds since Unix epoch (defaults to current system time). A time given here wins over one in a settings file; the default gives way to it. [default: 1787579866]
 //!   -l, --logging-config <LOGGING_CONFIG>
 //!           Full path and filename of YAML-formatted configuration file for log4rs logging mechanism. See <https://docs.rs/log4rs/latest/log4rs/> for details
 //!   -o, --error-folder <ERROR_FOLDER>
@@ -136,7 +136,7 @@ use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
-use crate::time::time_of_interest_from_secs;
+use crate::time::{apply_time_of_interest, time_of_interest_from_secs};
 use crate::uri_check::UriCheckReports;
 
 /// Added to the no-paths diagnosis, and logged where the folder is read, when a trust anchor folder
@@ -999,11 +999,10 @@ async fn generate_and_validate(
         );
     }
 
-    if !cps.0.contains_key(PS_TIME_OF_INTEREST) {
-        match time_of_interest_from_secs(args.time_of_interest) {
-            Ok(toi) => cps.set_time_of_interest(toi),
-            Err(msg) => return ValidationReport::failed(msg),
-        }
+    if let Err(msg) =
+        apply_time_of_interest(&mut cps, args.time_of_interest, args.time_of_interest_given)
+    {
+        return ValidationReport::failed(msg);
     }
 
     // Keyed here, on the settings as read, because what follows adjusts them for the run — setting

@@ -1699,12 +1699,14 @@ pub(crate) fn App() -> Element {
         // inside `options_std`, on a worker thread whose only channel back is the report, and the
         // receiving loop treats a closed channel as nothing to show.
         // A box that does not parse at all is the empty box, which means the time of the run.
-        let time_of_interest = match s_time_of_interest().parse::<u64>() {
+        // A time in the box wins over a settings file's, as `-i` does on the command line; the
+        // empty box gives way to one.
+        let (time_of_interest, time_of_interest_given) = match s_time_of_interest().parse::<u64>() {
             Ok(secs) => {
                 time_of_interest_from_secs(secs)?;
-                secs
+                (secs, true)
             }
-            Err(_e) => get_now_as_unix_epoch(),
+            Err(_e) => (get_now_as_unix_epoch(), false),
         };
 
         Ok(Pittv3Args {
@@ -1732,6 +1734,7 @@ pub(crate) fn App() -> Element {
             capi_ca_store_rw: stores::capi_stores(s_store()).2,
             cbor: store_cbor.or_else(|| path_or_none(s_cbor)),
             time_of_interest,
+            time_of_interest_given,
             logging_config: path_or_none(s_logging_config),
             error_folder: path_or_none(s_error_folder),
             download_folder: path_or_none(s_download_folder),
