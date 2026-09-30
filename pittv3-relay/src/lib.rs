@@ -84,7 +84,7 @@ impl FetchRequest {
 /// The status is reported as it arrived rather than being turned into an error, because a caller
 /// distinguishes cases the relay cannot: a 404 from an authority information access URI is a broken
 /// certificate, a 304 answers a conditional request, and a 503 is worth retrying later. The body is
-/// returned as bytes and is not parsed here.
+/// returned as bytes and is not parsed here, and only with a 2xx status.
 #[derive(Clone, Debug)]
 pub struct FetchResponse {
     /// HTTP status code.
@@ -97,7 +97,7 @@ pub struct FetchResponse {
     /// URI the response came from, which differs from the requested URI when a redirect was
     /// followed.
     pub final_uri: String,
-    /// Response body.
+    /// Response body. Empty for any status other than 2xx, whose body is not read.
     pub body: Vec<u8>,
 }
 
@@ -298,16 +298,26 @@ impl Relay {
         let final_uri = response.url().to_string();
         let content_type = header_string(&response, reqwest::header::CONTENT_TYPE);
         let last_modified = header_string(&response, reqwest::header::LAST_MODIFIED);
+
+        // A status other than 2xx is returned without its body, which is not read at all. The
+        // status is what a caller wants -- a 404 says nothing is where the certificate points --
+        // and no caller reads the page that came with it. Returning that page would let any
+        // public host serve arbitrary content through the relay by answering with an error status.
+        if !(200..300).contains(&status) {
+            debug!("Returned status {status} from {}", request.uri);
+            return Ok(FetchResponse {
+                status,
+                content_type,
+                last_modified,
+                final_uri,
+                body: Vec::new(),
+            });
+        }
+
         let body = read_capped_body(response, max_bytes, &request.uri, timeout).await?;
 
-        // Only for a response that claims to have succeeded. A non-2xx status is information the
-        // caller wants -- a 404 tells a user the repository moved -- and refusing its HTML body
-        // would replace a useful status with a complaint about encoding. An empty body is left
-        // alone for the same reason: the status describes it better than this can.
-        if (200..300).contains(&status)
-            && !body.is_empty()
-            && !looks_like_an_encoded_artifact(&body)
-        {
+        // An empty body is left alone: the status describes it better than this can.
+        if !body.is_empty() && !looks_like_an_encoded_artifact(&body) {
             debug!(
                 "Discarded the body from {} as no encoded artifact",
                 request.uri

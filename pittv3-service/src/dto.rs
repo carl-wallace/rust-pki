@@ -120,7 +120,7 @@ pub struct FetchResponseBody {
     pub last_modified: Option<String>,
     /// URI the response came from, which differs from the request when a redirect was followed.
     pub final_uri: String,
-    /// Response body.
+    /// Response body. Empty for any status other than 2xx.
     #[serde(with = "b64")]
     pub body: Vec<u8>,
 }

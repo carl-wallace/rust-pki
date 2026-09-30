@@ -58,8 +58,9 @@ async fn health() -> impl Responder {
 
 /// Retrieves one artifact on a client's behalf.
 ///
-/// The response carries whatever the repository said, including a status this service would
+/// The response carries the status the repository answered with, including one this service would
 /// consider a failure, because the client is the one that knows what a 404 on a given URI means.
+/// It carries a body only with a 2xx status.
 /// Only a refusal to make the request at all, or a failure to complete it, becomes an error here.
 async fn fetch(
     req: HttpRequest,
@@ -104,9 +105,8 @@ async fn fetch(
             // the repository is at fault, which it is -- it answered 2xx with something that is
             // not an artifact.
             //
-            // Only a successful response is judged. A 404's HTML body is not an artifact either,
-            // and saying so would replace the status the caller actually needs with a complaint
-            // about encoding.
+            // Only a successful response is judged, because only a successful response arrives
+            // from the relay with a body.
             if (200..300).contains(&response.status)
                 && !response.body.is_empty()
                 && !is_usable_artifact(&response.body)
