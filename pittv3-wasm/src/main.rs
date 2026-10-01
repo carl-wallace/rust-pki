@@ -352,16 +352,54 @@ fn confirm_discard_settings() -> bool {
     true
 }
 
-/// Reads all files carried by a form event into (name, bytes) pairs
+/// The largest file an upload control reads.
+///
+/// A file is read whole into wasm memory, and an allocation that fails traps and takes the page
+/// with it. The largest real input is a CRL: one DoD distribution point measured 30.2 MB recently,
+/// and DoD CRLs have reached 100 MB in the past, so this is sized for now rather than for every
+/// CRL there has been.
+const MAX_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Reads all files carried by a form event into (name, bytes) pairs, skipping any larger than
+/// [`MAX_UPLOAD_BYTES`] and saying which.
 async fn read_files(ev: &FormEvent) -> Vec<(String, Vec<u8>)> {
     let mut out = vec![];
+    let mut too_large = vec![];
     for f in ev.files() {
+        // The size the browser reports for the file, known before any of it is read.
+        if f.size() > MAX_UPLOAD_BYTES {
+            too_large.push(f.name());
+            continue;
+        }
         if let Ok(bytes) = f.read_bytes().await {
             out.push((f.name(), bytes.to_vec()));
         }
     }
+    if !too_large.is_empty() {
+        let message = format!(
+            "Not read, larger than the {} MB limit: {}",
+            MAX_UPLOAD_BYTES / (1024 * 1024),
+            too_large.join(", ")
+        );
+        log::warn!("{message}");
+        alert(&message);
+    }
     out
 }
+
+/// Tells the user something they need to see now, at the point they acted.
+///
+/// The browser's own dialog, as for `confirm_discard_settings`: an upload control has nowhere of
+/// its own to put a message, and a skipped file has to be noticed by the person who chose it.
+#[cfg(target_family = "wasm")]
+fn alert(message: &str) {
+    if let Some(w) = web_sys::window() {
+        let _ = w.alert_with_message(message);
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn alert(_message: &str) {}
 
 /// Appends `files` to `sig`, skipping entries already present
 fn extend_unique(mut sig: Signal<Vec<(String, Vec<u8>)>>, files: Vec<(String, Vec<u8>)>) {
