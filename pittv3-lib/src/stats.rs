@@ -15,7 +15,9 @@ pub struct PathValidationStats {
     pub valid_paths_per_target: usize,
     /// Number of certification paths that failed to validate for the target
     pub invalid_paths_per_target: usize,
-    /// Indicates whether the target certificate was determined to be revoked
+    /// Whether a path reported the target itself as revoked. Like a valid path, this is a definite
+    /// answer: a dynamic build stops revisiting the target unless `validate_all` asked for every
+    /// path.
     #[cfg(feature = "std")]
     pub target_is_revoked: bool,
     /// Results for each certification path processed for the target

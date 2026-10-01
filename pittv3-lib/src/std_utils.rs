@@ -1316,8 +1316,12 @@ pub async fn validate_cert_bytes_retaining(
                 // for, unless validate_all asked to see every path regardless.
                 let revoked =
                     e == Error::PathValidation(PathValidationStatus::CertificateRevokedEndEntity);
-                if revoked && !opts.validate_all {
-                    break;
+                if revoked {
+                    // Also settles the target for later dynamic-build passes, which skip it.
+                    stats.target_is_revoked = true;
+                    if !opts.validate_all {
+                        break;
+                    }
                 }
             }
         }
