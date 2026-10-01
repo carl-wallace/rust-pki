@@ -268,20 +268,14 @@ pub async fn options_std_retaining(
     (report, kept)
 }
 
-/// Why assembling a store for a diagnostic command did not work.
-///
-/// Two variants because the command line answers the two differently and always has:
-/// [`Failed`](InspectError::Failed) is a run that could not start and is reported as a failed
-/// report, while [`Reported`](InspectError::Reported) has already been explained to the user and
-/// leaves an empty report behind. A caller that is not the command line can treat both as a
-/// message.
+/// Why assembling a store for a diagnostic command did not work. The command line reports it as a
+/// failed run; a caller that is not the command line can treat it as a message.
 #[cfg(feature = "std")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InspectError {
-    /// The run could not start: a required argument is missing, or a named store will not parse.
+    /// The run could not start: a required input is missing or will not read, or a named store
+    /// will not parse.
     Failed(String),
-    /// Something the user needs told, after which the run stops without a result.
-    Reported(String),
 }
 
 #[cfg(feature = "std")]
@@ -289,7 +283,6 @@ impl core::fmt::Display for InspectError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             InspectError::Failed(msg) => write!(f, "{msg}"),
-            InspectError::Reported(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -345,8 +338,8 @@ pub fn assemble_for_diagnostics(
         Some(cbor_file) => {
             let cbor = read_cbor(&args.cbor);
             if cbor.is_empty() {
-                return Err(InspectError::Reported(format!(
-                    "Failed to read CBOR data from the file located at {cbor_file}"
+                return Err(InspectError::Failed(format!(
+                    "failed to read CBOR data from the file located at {cbor_file}"
                 )));
             }
             match CertSource::new_from_cbor(cbor.as_slice()) {
@@ -394,7 +387,7 @@ pub fn assemble_for_diagnostics(
             .cloned()
             .collect();
         load_capi_ca_stores(&specs, &mut cert_source).map_err(|msg| {
-            InspectError::Reported(format!("Failed to read CA certificates from CAPI: {msg}"))
+            InspectError::Failed(format!("failed to read CA certificates from CAPI: {msg}"))
         })?
     };
     #[cfg(not(all(windows, feature = "capi")))]
@@ -429,8 +422,8 @@ pub fn assemble_for_diagnostics(
     let ta_store = match load_trust_anchors(&pe, args, None) {
         Ok(ta_store) => ta_store,
         Err(msg) => {
-            return Err(InspectError::Reported(format!(
-                "Failed to load trust anchors: {msg}"
+            return Err(InspectError::Failed(format!(
+                "failed to load trust anchors: {msg}"
             )))
         }
     };
@@ -487,8 +480,8 @@ pub fn inspect_args(args: &Pittv3Args) -> core::result::Result<Inspected, Inspec
         let bytes = match get_file_as_byte_vec_pem(Path::new(cert_filename)) {
             Ok(bytes) => bytes,
             Err(_) => {
-                return Err(InspectError::Reported(format!(
-                    "Failed to read file at {cert_filename}"
+                return Err(InspectError::Failed(format!(
+                    "failed to read file at {cert_filename}"
                 )))
             }
         };
@@ -498,8 +491,8 @@ pub fn inspect_args(args: &Pittv3Args) -> core::result::Result<Inspected, Inspec
                     Some(source.paths_for_target(&target, assembled.cps.get_time_of_interest()))
             }
             Err(e) => {
-                return Err(InspectError::Reported(format!(
-                    "Failed to parse {cert_filename} as a certificate: {e:?}"
+                return Err(InspectError::Failed(format!(
+                    "failed to parse {cert_filename} as a certificate: {e:?}"
                 )))
             }
         }
@@ -589,8 +582,7 @@ async fn options_std_inner(
             Ok(Some(ta_store)) => ta_store.log_tas(),
             Ok(None) => {}
             Err(msg) => {
-                println!("Failed to load trust anchors: {msg}");
-                return ValidationReport::default();
+                return ValidationReport::failed(format!("failed to load trust anchors: {msg}"));
             }
         }
 
@@ -599,19 +591,17 @@ async fn options_std_inner(
             match TaSource::new_from_webpki() {
                 Ok(mut ta_store) => {
                     if let Err(e) = ta_store.initialize() {
-                        println!(
-                            "Failed to initialize trust anchor source from webpki-roots with error {e:?}"
-                        );
-                        return ValidationReport::default();
+                        return ValidationReport::failed(format!(
+                            "failed to initialize trust anchor source from webpki-roots with error {e:?}"
+                        ));
                     }
 
                     ta_store.log_tas();
                 }
                 Err(e) => {
-                    println!(
-                        "Failed to create trust anchor source from webpki-roots with error {e:?}"
-                    );
-                    return ValidationReport::default();
+                    return ValidationReport::failed(format!(
+                        "failed to create trust anchor source from webpki-roots with error {e:?}"
+                    ));
                 }
             }
         }
@@ -638,19 +628,14 @@ async fn options_std_inner(
         } = match assemble_for_diagnostics(args) {
             Ok(assembled) => assembled,
             Err(InspectError::Failed(msg)) => return ValidationReport::failed(msg),
-            Err(InspectError::Reported(msg)) => {
-                println!("{msg}");
-                return ValidationReport::default();
-            }
         };
 
         if let Some(index) = args.dump_cert_at_index {
             if index >= cert_source.num_certs() {
-                println!(
-                    "Requested index does not exist. Try again with an index value less than {}",
+                return ValidationReport::failed(format!(
+                    "requested index does not exist. Try again with an index value less than {}",
                     cert_source.num_certs()
-                );
-                return ValidationReport::default();
+                ));
             }
             let c = &cert_source.get_cert_at_index(index);
             if let Some(cert) = c {
@@ -663,8 +648,9 @@ async fn options_std_inner(
                     ));
                 }
             } else {
-                println!("Requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file");
-                return ValidationReport::default();
+                return ValidationReport::failed(
+                    "requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file",
+                );
             }
         }
 
@@ -747,31 +733,35 @@ async fn options_std_inner(
             cert_source.log_partial_paths();
         }
         if let Some(cert_filename) = &args.list_partial_paths_for_target {
-            let target = if let Ok(t) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) {
-                t
-            } else {
-                error!("Failed to read file at {cert_filename}");
-                return ValidationReport::default();
+            let Ok(target) = get_file_as_byte_vec_pem(Path::new(&cert_filename)) else {
+                return ValidationReport::failed(format!("failed to read file at {cert_filename}"));
             };
 
-            let parsed_cert = parse_cert(target.as_slice(), cert_filename.as_str());
-            if let Ok(target_cert) = parsed_cert {
-                cert_source.log_paths_for_target(&target_cert, cps.get_time_of_interest());
+            match parse_cert(target.as_slice(), cert_filename.as_str()) {
+                Ok(target_cert) => {
+                    cert_source.log_paths_for_target(&target_cert, cps.get_time_of_interest())
+                }
+                Err(e) => {
+                    return ValidationReport::failed(format!(
+                        "failed to parse {cert_filename} as a certificate: {e:?}"
+                    ))
+                }
             }
         }
         if let Some(leaf_ca_index) = args.list_partial_paths_for_leaf_ca {
             if leaf_ca_index >= cert_source.num_certs() {
-                println!(
-                    "Requested index does not exist. Try again with an index value less than {}",
+                return ValidationReport::failed(format!(
+                    "requested index does not exist. Try again with an index value less than {}",
                     cert_source.num_certs()
-                );
-                return ValidationReport::default();
+                ));
             }
             let c = &cert_source.get_cert_at_index(leaf_ca_index);
             if let Some(leaf_ca_cert) = c {
                 cert_source.log_paths_for_leaf_ca(leaf_ca_cert);
             } else {
-                println!("Requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file");
+                return ValidationReport::failed(
+                    "requested index does not exist, possibly due to a parsing or validity check error when deserializing the CBOR file",
+                );
             }
         }
     } else if let Some(mozilla_csv) = &args.mozilla_csv {

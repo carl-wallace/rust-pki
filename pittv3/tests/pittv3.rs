@@ -462,8 +462,8 @@ fn empty_cbor1() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
-        cmd.assert().stdout(predicate::str::contains(
-            "Failed to read CBOR data from the file located at",
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "error: failed to read CBOR data from the file located at",
         ));
     }
 
@@ -522,8 +522,8 @@ fn empty_cbor2() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
-        cmd.assert().stdout(predicate::str::contains(
-            "Failed to read CBOR data from the file located at",
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "error: failed to read CBOR data from the file located at",
         ));
     }
 
@@ -583,8 +583,8 @@ fn empty_cbor3() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
-        cmd.assert().stdout(predicate::str::contains(
-            "Failed to read CBOR data from the file located at",
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "error: failed to read CBOR data from the file located at",
         ));
     }
 
@@ -644,8 +644,8 @@ fn empty_cbor4() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = Command::new(cargo::cargo_bin!());
         cmd.arg("--cbor").arg("tests/examples/empty.cbor");
         cmd.arg("--list-name-constraints");
-        cmd.assert().stdout(predicate::str::contains(
-            "Failed to read CBOR data from the file located at",
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "error: failed to read CBOR data from the file located at",
         ));
     }
 
