@@ -539,11 +539,8 @@ pub async fn pkits_guts_pqc(folder: &str) {
             }
 
             if !verified_ta_as_target {
-                let ta_as_cert = parse_cert(
-                    <&[u8]>::clone(&ta.encoded_ta.as_slice()),
-                    "TrustAnchorRootCertificate.crt",
-                )
-                .unwrap();
+                let ta_as_cert =
+                    parse_cert(ta.encoded_ta.as_slice(), "TrustAnchorRootCertificate.crt").unwrap();
                 let cert_path2 =
                     CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
                 let mut cpr = CertificationPathResults::new();
@@ -1142,11 +1139,9 @@ pub async fn pkits_guts(
                 }
 
                 if !verified_ta_as_target {
-                    let ta_as_cert = parse_cert(
-                        <&[u8]>::clone(&ta.encoded_ta.as_slice()),
-                        "TrustAnchorRootCertificate.crt",
-                    )
-                    .unwrap();
+                    let ta_as_cert =
+                        parse_cert(ta.encoded_ta.as_slice(), "TrustAnchorRootCertificate.crt")
+                            .unwrap();
 
                     let cert_path2 =
                         CertificationPath::new(ta, CertificateChain::default(), ta_as_cert);
