@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 
 use certval::{
     CertSource, CertVector, CertificationPathBuilderFormats, CertificationPathSettings,
-    PkiEnvironment, TaSource,
+    DefaultSignatureVerificationCache, PkiEnvironment, TaSource,
 };
 
 use crate::inspect::Inspected;
@@ -142,6 +142,7 @@ pub async fn generate_and_report(args: &Pittv3Args) -> Result<Inspected, String>
         args.time_of_interest_given,
     )?;
     let mut pe = PkiEnvironment::default();
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
     pe.populate_5280_pki_environment();
     // `dynamic_build` is what decides whether a build grows the graph, here as on the command
     // line: `options_std` turns retrieval off when it is absent, and this is the same rule stated
@@ -352,6 +353,7 @@ pub fn apply_edits(
     // Rediscovered against the anchors that survived, since which paths terminate at an anchor
     // depends on which anchors there are.
     let mut pe = PkiEnvironment::default();
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
     pe.populate_5280_pki_environment();
     pe.add_trust_anchor_source(Box::new(ta_store));
     cert_source.find_all_partial_paths(&pe, &cps);
@@ -406,6 +408,7 @@ mod tests {
         certs.initialize(&cps).unwrap();
 
         let mut pe = PkiEnvironment::default();
+        pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
         pe.populate_5280_pki_environment();
         pe.add_trust_anchor_source(Box::new(anchors.clone()));
         certs.find_all_partial_paths(&pe, &cps);

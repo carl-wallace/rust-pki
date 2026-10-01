@@ -4,7 +4,7 @@
 //! [`SettingsModel`] carries one `Option` per setting, where `None` means the setting is absent
 //! from the underlying map (i.e., the certval default applies). [`SettingsModel::from_cps`] and
 //! [`SettingsModel::apply`] translate between the model and a settings map without touching
-//! settings the model does not cover (e.g., `PS_CERTIFICATES`), so editing a file through the
+//! settings the model does not cover (e.g., `PS_URI_BLOCKLIST_TTL`), so editing a file through the
 //! model preserves unknown content. The model is plain data — no UI types — so it is unit-testable
 //! and shared by the desktop and web frontends.
 

@@ -74,12 +74,12 @@ jobs:
       # describes are not. `git diff` names the anchors that moved.
       - name: stores.manifest is in step with the locked providers
         run: git diff --exit-code -- pittv3-wasm/stores.manifest
-      # The crate's unit tests are compiled by no other leg, and were never compiled by any: a
-      # plain `build` skips `#[cfg(test)]` code, and the crate cannot be built for the host at
-      # all, `dioxus-web` needing `web_sys::Window::location`. So they type-checked nowhere, and
-      # a struct gaining a field left their literals broken with nothing to say so. `--no-run`
-      # compiles them and stops; running them needs wasm-bindgen-test and a headless browser,
-      # which is a separate decision.
+      # The crate's unit tests run on the host in the gui job, whose `cargo test` builds pittv3-wasm
+      # together with pittv3-gui and pittv3-gui-lib. Built alone for the host it does not compile,
+      # `dioxus-web` needing `web_sys::Window::location`; in that combined build it does. This leg
+      # compiles the same tests for wasm32, the target the application ships for, where `cfg`
+      # selects different code, and stops: a plain `build` skips `#[cfg(test)]` code, and running
+      # them here would need wasm-bindgen-test and a headless browser.
       - run: cargo test -p pittv3-wasm --target wasm32-unknown-unknown --no-run
 
   # The clippy half of certval.yml's lint jobs, for the five crates it excludes. That exclusion was

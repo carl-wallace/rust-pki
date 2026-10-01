@@ -9,7 +9,7 @@
 //! [`SettingsModel`](crate::gui_settings_model::SettingsModel) on purpose. That type is the format
 //! the CLI's `--settings` argument already reads and the desktop editor already writes, so every
 //! frontend stores, exports and imports the same artifact instead of inventing a private encoding.
-//! Round-tripping through it also preserves settings the form does not surface (`PS_CERTIFICATES`,
+//! Round-tripping through it also preserves settings the form does not surface (`PS_URI_BLOCKLIST_TTL`,
 //! for instance), which a model-shaped store would silently drop.
 //!
 //! This module is Dioxus-free.
@@ -332,7 +332,7 @@ mod tests {
     }
 
     /// The two rows offered beside a run are the same value the settings form edits, so writing one
-    /// has to leave the rest of the file alone. `PS_CERTIFICATES` stands in for the settings the
+    /// has to leave the rest of the file alone. `PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS` stands in for the settings the
     /// form does not surface: round-tripping through the map is what keeps them.
     #[test]
     fn saving_the_common_settings_leaves_every_other_setting_alone() {

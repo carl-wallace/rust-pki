@@ -50,10 +50,8 @@ fn settings_serialization_test() {
     cps.set_check_ocsp_from_aia(false);
     cps.set_check_ocsp_from_aia(false);
     cps.set_retrieve_from_aia_sia_http(false);
-    cps.set_retrieve_from_aia_sia_ldap(false);
     cps.set_check_crls(false);
     cps.set_check_crldp_http(false);
-    cps.set_check_crldp_ldap(false);
     cps.set_crl_grace_periods_as_last_resort(false);
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;

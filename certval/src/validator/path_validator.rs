@@ -14,6 +14,7 @@ use crate::{
 };
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
+use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
@@ -44,6 +45,7 @@ pub const EXTS_OF_INTEREST: &[ObjectIdentifier] = &[
     ID_CE_ISSUING_DISTRIBUTION_POINT,
     ID_CE_CRL_DISTRIBUTION_POINTS,
     ID_CE_FRESHEST_CRL,
+    ID_PKIX_OCSP_NOCHECK,
 ];
 
 //-----------------------------------------------------------------------------

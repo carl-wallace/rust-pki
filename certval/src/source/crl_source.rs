@@ -577,24 +577,10 @@ fn index_crls_internal(
     for entry in WalkDir::new(crls_folder) {
         match entry {
             Ok(e) => {
-                let path = e.path();
+                // `WalkDir` descends into every subfolder itself, so a directory entry needs nothing
+                // further; the CRLs beneath it arrive as entries of their own.
                 if e.file_type().is_dir() {
-                    match path.to_str() {
-                        Some(s) => {
-                            if s != crls_folder {
-                                debug!("Recursing {}", e.path().display());
-                                let r = index_crls_internal(
-                                    s, crl_info, issuer_map, idp_map, skid_map, toi,
-                                );
-                                if r.is_err() {
-                                    continue;
-                                }
-                            }
-                        }
-                        None => {
-                            continue;
-                        }
-                    }
+                    continue;
                 } else {
                     let file_exts = ["crl"];
                     if let Some(ext) = e.path().extension().and_then(OsStr::to_str) {

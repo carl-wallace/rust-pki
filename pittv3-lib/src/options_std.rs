@@ -333,6 +333,7 @@ pub fn assemble_for_diagnostics(
     );
 
     let mut pe = PkiEnvironment::default();
+    pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
 
     let mut cert_source = match &args.cbor {
         Some(cbor_file) => {

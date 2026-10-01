@@ -91,8 +91,8 @@ pub enum OcspNonceSetting {
     /// SendNonceRequireMatch indicates that the OCSP client should include nonce values in OCSP requests
     /// and should fail when responses do not feature the value.
     SendNonceRequireMatch,
-    /// SendNonceRequireMatch indicates that the OCSP client should include nonce values in OCSP requests
-    /// and should not fail when responses do not feature the value.
+    /// SendNonceTolerateMismatchAbsence indicates that the OCSP client should include nonce values in OCSP
+    /// requests and should not fail when responses do not feature the value.
     SendNonceTolerateMismatchAbsence,
 }
 
@@ -201,8 +201,8 @@ pub static PS_INITIAL_POLICY_MAPPING_INHIBIT_INDICATOR: &str =
 /// this setting is set to false.
 pub static PS_INITIAL_INHIBIT_ANY_POLICY_INDICATOR: &str = "psInitialInhibitAnyPolicyIndicator";
 
-/// `PS_INITIAL_POLICY_SET` is used to retrieve an ObjectIdentifierSet value from a [`CertificationPathSettings`]
-/// object. This corresponds to the user-initial-policy-set value described in
+/// `PS_INITIAL_POLICY_SET` is used to retrieve a list of policy OIDs, as dotted-decimal strings, from a
+/// [`CertificationPathSettings`] object; a settings file writes it as `{"Strings": ["2.16.840.1.101.3.2.1.48.1"]}`. This corresponds to the user-initial-policy-set value described in
 /// [RFC 5280 Section 6.1.1]: <https://datatracker.ietf.org/doc/html/rfc5280#section-6.1.1>. By default,
 /// a set containing ANY_POLICY is used.
 pub static PS_INITIAL_POLICY_SET: &str = "psInitialPolicySet";
@@ -237,8 +237,9 @@ pub static PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS: &str = "psEnforceTrustAnchorCons
 /// require checking trust anchor (TA) validity. Turn this value off to refrain from checking TA validity.
 pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidity";
 
-/// `PS_KEY_USAGE` is used to retrieve a u16 value from a [`CertificationPathSettings`] object.
-/// The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
+/// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
+/// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
+/// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
 /// the target certificate, i.e., the target certificate must have a KeyUsage extension with the at
 /// least the bits indicated set. When this is absent, KeyUsage values in the target certificate are
 /// not considered when validating a certification path.
@@ -345,11 +346,6 @@ pub static PS_CHECK_OCSP_FROM_AIA: &str = "psCheckOcspFromAia";
 /// from locations identified by HTTP/HTTPS URIs in AIA extensions.
 pub static PS_RETRIEVE_FROM_AIA_SIA_HTTP: &str = "psRetrieveFromAiaSiaHttp";
 
-/// `PS_RETRIEVE_FROM_AIA_SIA_LDAP` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is false. When true, certification path building should fetch certificates
-/// from locations identified by LDAP URIs in AIA extensions.
-pub static PS_RETRIEVE_FROM_AIA_SIA_LDAP: &str = "psRetrieveFromAiaSiaLdap";
-
 /// `PS_CHECK_CRLS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is true. When true, certification path validation should perform
 /// revocation status checks via available CRLs.
@@ -359,11 +355,6 @@ pub static PS_CHECK_CRLS: &str = "psCheckCrls";
 /// object. The default value is true. When true, certification path building should fetch CRLs
 /// from locations identified by HTTP/HTTPS URIs in AIA extensions.
 pub static PS_CHECK_CRLDP_HTTP: &str = "psCheckCrlDpHttp";
-
-/// `PS_CHECK_CRLDP_LDAP` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is false. When true, certification path building should fetch CRLs
-/// from locations identified by LDAP URIs in AIA extensions.
-pub static PS_CHECK_CRLDP_LDAP: &str = "psCheckCrlDpLdap";
 
 /// `PS_RETAIN_EXPIRED_KEPT_CRLS` is used to retrieve a boolean value from a [`CertificationPathSettings`]
 /// object. The default value is false. It governs only the opt-in in-memory kept-CRL cache (see
@@ -378,8 +369,8 @@ pub static PS_RETAIN_EXPIRED_KEPT_CRLS: &str = "psRetainExpiredKeptCrls";
 /// using grace periods only after exhausting other notionally current options.
 pub static PS_CRL_GRACE_PERIODS_AS_LAST_RESORT: &str = "psCrlGracePeriodsAsLastResort";
 
-/// `PS_OCSP_AIA_NONCE_SETTING` is used to retrieve an i8 value indicating an enumerated value that
-/// determines whether or not OCSP requests associated with OCSP responders arrived at via AIA extensions
+/// `PS_OCSP_AIA_NONCE_SETTING` is used to retrieve an [`OcspNonceSetting`] value that determines whether
+/// or not OCSP requests associated with OCSP responders arrived at via AIA extensions
 /// should include a nonce value.
 pub static PS_OCSP_AIA_NONCE_SETTING: &str = "psOcspAiaNonceSetting";
 
@@ -442,10 +433,6 @@ pub static PS_MAX_AIA_FETCH_BYTES: &str = "psMaxAiaFetchBytes";
 /// Default value for [`PS_MAX_AIA_FETCH_BYTES`]: 4 MiB, above the largest legitimate certificate
 /// (including a Classic McEliece cert) while bounding an unbounded-ingest DoS.
 pub static PS_MAX_AIA_FETCH_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
-
-/// `PS_CERTIFICATES` is used to retrieve a set of potentially useful certificates from a [`CertificationPathSettings`]
-/// object.
-pub static PS_CERTIFICATES: &str = "psCertificates";
 
 /// PS_TRUST_ANCHOR_FOLDER is used to retrieve a String value containing the full path of a folder containing trust anchors
 pub static PS_TRUST_ANCHOR_FOLDER: &str = "psTrustAnchorFolder";
@@ -786,10 +773,8 @@ cps_gets_and_sets_with_default!(PS_URI_BLOCKLIST_TTL, Duration, PS_URI_BLOCKLIST
 cps_gets_and_sets_with_default!(PS_CHECK_REVOCATION_STATUS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_OCSP_FROM_AIA, bool, true);
 cps_gets_and_sets_with_default!(PS_RETRIEVE_FROM_AIA_SIA_HTTP, bool, true);
-cps_gets_and_sets_with_default!(PS_RETRIEVE_FROM_AIA_SIA_LDAP, bool, false);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_HTTP, bool, true);
-cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_LDAP, bool, false);
 cps_gets_and_sets_with_default!(PS_RETAIN_EXPIRED_KEPT_CRLS, bool, false);
 cps_gets_and_sets_with_default!(PS_CRL_GRACE_PERIODS_AS_LAST_RESORT, bool, true);
 cps_gets_and_sets_with_default!(
@@ -811,13 +796,13 @@ cps_gets_and_sets_with_default!(
 );
 cps_gets_and_sets_with_default!(PS_MAX_AIA_FETCH_BYTES, u64, PS_MAX_AIA_FETCH_BYTES_DEFAULT);
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
-// PS_CERTIFICATES (will need lifetime aware macro)
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
 
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
-    /// [`CertificationPathSettings`] map. If present, a u8 value is returned, else None is returned.
+    /// [`CertificationPathSettings`] map. If present, a [`KeyUsageSettings`] flag set is returned, else None
+    /// is returned.
     pub fn get_target_key_usage(&self) -> Option<KeyUsageSettings> {
         if self.0.contains_key(PS_KEY_USAGE) {
             return match &self.0[PS_KEY_USAGE] {
@@ -871,23 +856,42 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
 ///
 /// Not gated on `std`: the names are facts about the format, and a no-std caller writing settings
 /// for someone else to read has the same reason to know them.
-pub const RETIRED_SETTINGS_KEYS: [&str; 2] = ["psLastModifiedMapFile", "psUriBlocklistFile"];
+pub const RETIRED_SETTINGS_KEYS: [&str; 5] = [
+    "psLastModifiedMapFile",
+    "psUriBlocklistFile",
+    "psRetrieveFromAiaSiaLdap",
+    "psCheckCrlDpLdap",
+    "psCertificates",
+];
 
 /// Names a settings file may still carry that no longer do anything.
 ///
-/// Both once pointed the last-modified map and the URI blocklist somewhere other than the folder
-/// whose contents they describe. Those files now live beside that material and cannot be moved: a
-/// map kept apart from the folder it describes can outlive it, and then every URI is answered 304
-/// with nothing on disk to read. A file naming them still parses, so say so rather than ignore it
-/// silently — the value is visibly there and its effect is not.
+/// A file naming them still parses, so say so rather than ignore it silently: the value is visibly
+/// there and its effect is not.
 #[cfg(feature = "std")]
 fn warn_retired_keys(cps: &CertificationPathSettings) {
     for key in RETIRED_SETTINGS_KEYS {
         if cps.0.contains_key(key) {
-            log::warn!(
-                "Ignoring {key}: the last-modified map and the URI blocklist are kept in the folder they describe and can no longer be relocated"
-            );
+            log::warn!("Ignoring {key}: {}", retired_key_reason(key));
         }
+    }
+}
+
+/// Why a retired setting does nothing, in the words the warning uses.
+#[cfg(feature = "std")]
+fn retired_key_reason(key: &str) -> &'static str {
+    match key {
+        // Both once pointed a file somewhere other than the folder whose contents it describes. A
+        // map kept apart from its folder can outlive it, and then every URI is answered 304 with
+        // nothing on disk to read.
+        "psLastModifiedMapFile" | "psUriBlocklistFile" => {
+            "the last-modified map and the URI blocklist are kept in the folder they describe and can no longer be relocated"
+        }
+        "psRetrieveFromAiaSiaLdap" | "psCheckCrlDpLdap" => {
+            "certval does not retrieve from LDAP URIs, so LDAP retrieval cannot be turned on"
+        }
+        "psCertificates" => "certificates are supplied as inputs to a run, not carried in settings",
+        _ => "this setting is no longer used",
     }
 }
 
@@ -927,10 +931,8 @@ fn test_default_gets_cps() {
     assert!(cps.get_check_revocation_status());
     assert!(cps.get_check_ocsp_from_aia());
     assert!(cps.get_retrieve_from_aia_sia_http());
-    assert!(!cps.get_retrieve_from_aia_sia_ldap());
     assert!(cps.get_check_crls());
     assert!(cps.get_check_crldp_http());
-    assert!(!cps.get_check_crldp_ldap());
     assert!(cps.get_crl_grace_periods_as_last_resort());
     assert_eq!(
         OcspNonceSetting::DoNotSendNonce,
@@ -1034,16 +1036,10 @@ fn test_default_sets_cps() {
     cps.set_retrieve_from_aia_sia_http(false);
     assert!(!cps.get_retrieve_from_aia_sia_http());
 
-    cps.set_retrieve_from_aia_sia_ldap(true);
-    assert!(cps.get_retrieve_from_aia_sia_ldap());
-
     cps.set_check_crls(false);
     assert!(!cps.get_check_crls());
     cps.set_check_crldp_http(false);
     assert!(!cps.get_check_crldp_http());
-
-    cps.set_check_crldp_ldap(true);
-    assert!(cps.get_check_crldp_ldap());
 
     cps.set_crl_grace_periods_as_last_resort(false);
     assert!(!cps.get_crl_grace_periods_as_last_resort());

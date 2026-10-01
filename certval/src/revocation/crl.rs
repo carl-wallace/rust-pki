@@ -1217,6 +1217,10 @@ pub(crate) fn process_crl(
     }
 
     if let Some(revoked_certificates) = crl.tbs_cert_list.revoked_certificates {
+        // Every entry is examined, including those after the target's: RFC 5280 §5.3 says a CRL
+        // carrying a critical entry extension the application cannot process MUST NOT be used for
+        // any certificate, so one such entry anywhere makes the whole CRL unusable.
+        let mut target_entry = None;
         for rc in revoked_certificates {
             // if we detect this is an indirect CRL (which should have been determined already by inspection
             // of the IDP extension, discard the CRL. this check could be dropped is sufficiently satisfied
@@ -1227,45 +1231,48 @@ pub(crate) fn process_crl(
                 return Err(Error::UnsupportedIndirectCrl);
             }
 
-            if rc
-                .serial_number
-                .der_cmp(target_cert.decoded().tbs_certificate().serial_number())
-                .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
-                .unwrap_or_default()
-            {
-                // this is probably not a useful check. will change ultimate error from revoked to
-                // status not determined, most likely.
-                if let Err(_e) = check_entry_extensions(&rc) {
-                    info!(
-                        "Discarding CRL from {} due to unrecognized critical CRL entry extension",
-                        name_to_string(&crl.tbs_cert_list.issuer)
-                    );
-                    cpr.add_failed_crl(crl_info.clone(), result_index);
-                    return Err(Error::UnsupportedCrlEntryExtension);
-                }
-
-                match rc.to_der() {
-                    Ok(enc_entry) => {
-                        cpr.add_crl_entry(enc_entry, result_index);
-                    }
-                    Err(e) => {
-                        error!("Failed to encode CRL entry for logging purposes with: {e}");
-                    }
-                };
-
-                if let Some(nu) = crl.tbs_cert_list.next_update {
-                    pe.add_status(
-                        target_cert,
-                        issuer,
-                        nu.to_unix_duration().as_secs(),
-                        PathValidationStatus::CertificateRevoked,
-                    );
-                }
-                cpr.add_crl(crl_info.clone(), result_index);
-                return Err(Error::PathValidation(
-                    PathValidationStatus::CertificateRevoked,
-                ));
+            if check_entry_extensions(&rc).is_err() {
+                info!(
+                    "Discarding CRL from {} due to unrecognized critical CRL entry extension",
+                    name_to_string(&crl.tbs_cert_list.issuer)
+                );
+                cpr.add_failed_crl(crl_info.clone(), result_index);
+                return Err(Error::UnsupportedCrlEntryExtension);
             }
+
+            if target_entry.is_none()
+                && rc
+                    .serial_number
+                    .der_cmp(target_cert.decoded().tbs_certificate().serial_number())
+                    .map(|ordering| matches!(ordering, core::cmp::Ordering::Equal))
+                    .unwrap_or_default()
+            {
+                target_entry = Some(rc);
+            }
+        }
+
+        if let Some(rc) = target_entry {
+            match rc.to_der() {
+                Ok(enc_entry) => {
+                    cpr.add_crl_entry(enc_entry, result_index);
+                }
+                Err(e) => {
+                    error!("Failed to encode CRL entry for logging purposes with: {e}");
+                }
+            };
+
+            if let Some(nu) = crl.tbs_cert_list.next_update {
+                pe.add_status(
+                    target_cert,
+                    issuer,
+                    nu.to_unix_duration().as_secs(),
+                    PathValidationStatus::CertificateRevoked,
+                );
+            }
+            cpr.add_crl(crl_info.clone(), result_index);
+            return Err(Error::PathValidation(
+                PathValidationStatus::CertificateRevoked,
+            ));
         }
     }
     if let Some(nu) = crl.tbs_cert_list.next_update {

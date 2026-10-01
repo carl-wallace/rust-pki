@@ -379,8 +379,14 @@ pub trait CertificateSource {
     fn get_encoded_certificates(&self) -> Result<Vec<Vec<u8>>>;
 
     /// `get_paths_for_target` takes a target certificate and appends the certification paths built
-    /// for it to `paths`, stopping once `paths` holds `threshold` entries. Certificates that are not
-    /// valid at `time_of_interest` are not used.
+    /// for it to `paths`. Certificates that are not valid at `time_of_interest` are not used.
+    ///
+    /// `threshold` selects by position in the certificate pool rather than limiting how many paths
+    /// come back. When it is non-zero, a path is returned only if at least one of its intermediate
+    /// certificates sits at buffer index `threshold` or above, which lets a caller that has just added
+    /// certificates to the pool ask only for the paths those additions make possible. Zero returns every
+    /// path. A path straight from a trust anchor to the target has no intermediates and is always
+    /// returned.
     fn get_paths_for_target(
         &self,
         pe: &PkiEnvironment,
