@@ -485,6 +485,11 @@ fn App() -> Element {
     // moved since -- a report is about the run that made it, not about what is on screen now. `None`
     // until a run has happened, which is also the value a report with no targets carries.
     let mut run_revocation = use_signal(|| None::<bool>);
+    // The time of interest the run that produced `targets` validated at, for the same reason:
+    // stamped from the settings that run resolved, so neither an edit to the form nor the passage of
+    // time (when no time is set, the run used the moment it started) moves it. Every run sets it
+    // before `targets` can hold anything, so the default is never what a report carries.
+    let mut run_time_of_interest = use_signal(|| 0u64);
 
     // The log buffer lives outside dioxus's reactivity, so nothing re-renders when a run fills it.
     // This tick is bumped where the buffer changes, which is what makes the line count on the button
@@ -970,14 +975,6 @@ fn App() -> Element {
         outcome
     };
 
-    // The time a run validates against, for stamping reports: the chosen time of interest, or the
-    // current time when none is set. Mirrors what run_settings materializes into the settings.
-    let effective_toi = move || {
-        settings()
-            .time_of_interest
-            .unwrap_or_else(now_as_unix_epoch)
-    };
-
     // Ensures the selected store's CBOR is available, fetching (and caching) it on first use.
     // Returns the owned (ta, ca) bytes, or None when no store is selected; an Err carries a message
     // to surface. Reads that touch signals are scoped so no guard is held across the await, and the
@@ -1019,8 +1016,11 @@ fn App() -> Element {
     // downloads the accumulated results as a JSON-serialized ValidationReport via a synthesized
     // anchor click
     let save_results = move |_| {
-        let mut report =
-            ValidationReport::from_targets(&targets.read(), effective_toi(), run_revocation());
+        let mut report = ValidationReport::from_targets(
+            &targets.read(),
+            run_time_of_interest(),
+            run_revocation(),
+        );
         report.duration_ms = run_ms();
         let json = serde_json::to_string_pretty(&report).unwrap_or_default();
         let uri = format!(
@@ -1401,7 +1401,9 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = match run_settings(&settings(), tier(), have_revocation_uploads()) {
+        // A zip carries certificates only, and this path neither retrieves nor consults uploaded
+        // revocation data, so an unstated revocation preference resolves to off whatever the tier.
+        let cps = match run_settings(&settings(), Tier::Local, false) {
             Ok(cps) => cps,
             Err(msg) => {
                 notes.write().push(ResultLine {
@@ -1695,6 +1697,7 @@ fn App() -> Element {
         // is decided -- a run that cannot obtain revocation data does not check -- so this is the
         // answer after that decision rather than the preference that went into it.
         run_revocation.set(Some(cps.get_check_revocation_status()));
+        run_time_of_interest.set(cps.get_time_of_interest().as_unix_secs());
 
         // Whether retrieval ran out of room, carried past the block that retrieves so the report
         // built afterwards can attribute what was never asked about. The report cannot know this
@@ -2671,7 +2674,7 @@ fn App() -> Element {
                                     report: {
                                         let mut r = ValidationReport::from_targets(
                                             &targets.read(),
-                                            effective_toi(),
+                                            run_time_of_interest(),
                                             run_revocation(),
                                         );
                                         r.duration_ms = run_ms();

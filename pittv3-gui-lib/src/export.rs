@@ -92,7 +92,8 @@ pub const DEFAULT_EXPORT_NAME: &str = "PITTv3Results";
 /// The stamp is **UTC**, matching the times the manifests inside the archive report, and following
 /// the decision already recorded on `epoch_to_datetime_local`: a browser showing local time while
 /// the desktop showed UTC made one artifact read two ways. Colons are omitted rather than escaped --
-/// they are not legal in a Windows filename.
+/// they are not legal in a Windows filename -- and so are the other characters Windows refuses,
+/// among them `"`, which would also end the string literal the browser builds its download from.
 ///
 /// `secs` is the caller's rather than read here, so one save action stamps its archive and its path
 /// log identically even if it straddles a second, and so the formatting is testable without a clock.
@@ -101,7 +102,7 @@ pub fn stamped_export_name(typed: &str, secs: u64) -> String {
         .trim()
         .chars()
         .map(|c| match c {
-            '/' | '\\' | ':' => '_',
+            '/' | '\\' | ':' | '"' | '<' | '>' | '|' | '?' | '*' => '_',
             c => c,
         })
         .collect();
@@ -1187,11 +1188,13 @@ mod tests {
 
     /// The name reaches a filesystem path and an archive entry, so a separator in it is not a name
     /// but an instruction about where things land. Colons go too: illegal in a Windows filename,
-    /// which is also why the stamp has none.
+    /// which is also why the stamp has none. So do Windows' other refusals, `"` among them, which
+    /// would otherwise end the string literal the browser's download is built in.
     #[test]
     fn separators_are_not_carried_into_the_name() {
         assert!(stamped_export_name("../etc/passwd", WHEN).starts_with(".._etc_passwd-"));
         assert!(stamped_export_name("C:\\runs\\one", WHEN).starts_with("C__runs_one-"));
+        assert!(stamped_export_name("a\"b<c>d|e?f*g", WHEN).starts_with("a_b_c_d_e_f_g-"));
         let stamped = stamped_export_name("anything", WHEN);
         assert!(!stamped.contains(':'), "{stamped}");
         assert!(!stamped.contains('/'), "{stamped}");
