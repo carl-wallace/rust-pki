@@ -134,6 +134,25 @@ pub(crate) fn error_chain(e: &dyn std::error::Error) -> String {
     out
 }
 
+/// The note to log when a response came from somewhere other than the URI asked for, or `None`
+/// when it did not. A repository that redirects -- to another host, another path or another scheme
+/// -- is a fact about that PKI worth reporting, and the client follows the redirect without saying
+/// so.
+///
+/// Compared as parsed URLs, because the client normalizes what it was given (`http://host?x` comes
+/// back as `http://host/?x`) and that is not a redirect. A difference only in a trailing `/` is not
+/// reported either: a responder named by its bare authority does that on every request.
+#[cfg(feature = "remote")]
+pub(crate) fn redirect_note(requested: &str, landed: &reqwest::Url) -> Option<String> {
+    if reqwest::Url::parse(requested).is_ok_and(|asked| &asked == landed) {
+        return None;
+    }
+    if landed.as_str().trim_end_matches('/') == requested.trim_end_matches('/') {
+        return None;
+    }
+    Some(format!("{requested} redirected to {landed}"))
+}
+
 /// Reads a fetched HTTP response body into memory while enforcing `max_bytes` as it streams, so a
 /// hostile or misconfigured responder cannot exhaust memory with an unbounded body. Reading the whole
 /// body up front (reqwest's `bytes()`) allocates it in full before any size or parse check runs, so
@@ -523,6 +542,9 @@ pub async fn fetch_to_buffer(
         let mut content_type = String::new();
         match response {
             Ok(response) => {
+                if let Some(note) = redirect_note(target, response.url()) {
+                    info!("{note}");
+                }
                 let fname_from_response = response
                     .url()
                     .path_segments()

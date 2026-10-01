@@ -255,7 +255,12 @@ async fn post_ocsp(
         .send()
         .await
     {
-        Ok(b) => b,
+        Ok(b) => {
+            if let Some(note) = crate::builder::uri_utils::redirect_note(uri_to_check, b.url()) {
+                info!("{note}");
+            }
+            b
+        }
         Err(e) => {
             debug!(
                 "OCSP request send failed with {}: {uri_to_check}",

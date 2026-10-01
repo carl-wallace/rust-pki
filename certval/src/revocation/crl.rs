@@ -417,6 +417,9 @@ async fn fetch_crl(
     };
     match response {
         Ok(response) => {
+            if let Some(note) = crate::builder::uri_utils::redirect_note(uri, response.url()) {
+                info!("{note}");
+            }
             // seen it before, skip it now
             if 304 == response.status() {
                 return Err(Error::ResourceUnchanged);
