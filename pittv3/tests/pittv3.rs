@@ -1455,6 +1455,20 @@ fn bad_input() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// A run that cannot start reports why on stderr and exits non-zero, rather than printing a line
+/// and exiting 0 as though it had validated something.
+#[test]
+fn no_trust_anchors_is_a_failed_run() {
+    let mut cmd = Command::new(cargo::cargo_bin!());
+    cmd.arg("-s")
+        .arg("tests/examples/disable_revocation_checking.json");
+    cmd.arg("-e").arg("tests/examples/amazon.der");
+    cmd.assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("error: one of the ta_cbor"));
+}
+
 #[cfg(feature = "rsa")]
 #[test]
 fn generate_then_validate_with_different_ta_stores() -> Result<(), Box<dyn std::error::Error>> {

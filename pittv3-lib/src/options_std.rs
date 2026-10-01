@@ -1074,8 +1074,7 @@ async fn generate_and_validate(
         }
         Ok(None) => {}
         Err(msg) => {
-            println!("Failed to load trust anchors: {msg}");
-            return ValidationReport::default();
+            return ValidationReport::failed(format!("failed to load trust anchors: {msg}"));
         }
     }
 
@@ -1094,11 +1093,10 @@ async fn generate_and_validate(
 
     if !ta_store_added {
         #[cfg(feature = "webpki")]
-        error!("One of the ta_cbor, ta_folder, ta_inputs or webpki arguments must be provided");
-
+        let msg = "one of the ta_cbor, ta_folder, ta_inputs or webpki arguments must be provided";
         #[cfg(not(feature = "webpki"))]
-        error!("One of the ta_cbor, ta_folder or ta_inputs arguments must be provided");
-        return ValidationReport::default();
+        let msg = "one of the ta_cbor, ta_folder or ta_inputs arguments must be provided";
+        return ValidationReport::failed(msg);
     };
 
     // Built once and threaded through, rather than derived per target: it carries the revocation
@@ -1230,8 +1228,9 @@ async fn generate_and_validate(
                 // Refused here rather than at the first write: a dynamic build that fetched for a
                 // minute and then could not keep any of it is a worse way to learn this, and the
                 // usual cause -- a machine store without elevation -- is one the user can act on.
-                println!("Failed to open the CAPI store to write to: {msg}");
-                return ValidationReport::default();
+                return ValidationReport::failed(format!(
+                    "failed to open the CAPI store to write to: {msg}"
+                ));
             }
         },
         None => None,
@@ -1350,8 +1349,9 @@ async fn generate_and_validate(
             match load_capi_ca_stores(&specs, &mut cert_source) {
                 Ok(added) => ca_folder_certs += added,
                 Err(msg) => {
-                    println!("Failed to read CA certificates from CAPI: {msg}");
-                    return ValidationReport::default();
+                    return ValidationReport::failed(format!(
+                        "failed to read CA certificates from CAPI: {msg}"
+                    ));
                 }
             }
         }
