@@ -106,6 +106,13 @@ pub struct CapiOptions {
     /// `CERT_CHAIN_PARA::dwUrlRetrievalTimeout`, in milliseconds. Zero means the platform default.
     pub url_retrieval_timeout_ms: u32,
 
+    /// Ask for `CERT_CHAIN_DISABLE_AIA`, so the engine does not fetch issuers named in an
+    /// Authority Information Access extension.
+    ///
+    /// Off by default, as PITTv2 had it. A comparison with certval sets it to match certval, which
+    /// retrieves from AIA only when dynamic building is on.
+    pub disable_aia: bool,
+
     /// Extended key usage OIDs the chain must be good for, as dotted decimal.
     pub requested_usage: Vec<String>,
 
@@ -137,8 +144,11 @@ pub struct CapiOptions {
     ///
     /// Empty means the default chain engine, i.e. this machine's trust — which is the question
     /// "Validate Using CAPI" normally asks. Supplying anchors builds an engine with an exclusive
-    /// root store instead, which is what makes a comparison controlled: put the same anchors to
-    /// both validators and any difference in the answer is a difference between the validators.
+    /// root store instead, so both validators judge against the same anchors. Only the roots are
+    /// replaced: the engine still draws intermediates from this machine's CA store and its cache,
+    /// and from AIA unless [`disable_aia`](Self::disable_aia) is set, so a difference in the answer
+    /// can come from an intermediate certval was never given. The chains the engine reports name
+    /// every certificate it used.
     pub trust_anchors: Vec<Vec<u8>>,
 
     /// Additional intermediate CA certificates to offer the builder, DER-encoded.
@@ -154,6 +164,7 @@ impl Default for CapiOptions {
             revocation: RevocationChecking::ChainExcludeRoot,
             return_lower_quality_chains: true,
             url_retrieval_timeout_ms: 0,
+            disable_aia: false,
             requested_usage: Vec::new(),
             requested_issuance_policy: Vec::new(),
             usage_match: UsageMatch::Or,
@@ -457,6 +468,7 @@ mod tests {
         assert!(!o.build_only);
         assert_eq!(o.revocation, RevocationChecking::ChainExcludeRoot);
         assert!(o.return_lower_quality_chains);
+        assert!(!o.disable_aia);
         assert!(o.ignore_not_time_nested);
         assert_eq!(o.policy, ChainPolicy::Base);
         assert_eq!(o.usage_match, UsageMatch::Or);

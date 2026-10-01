@@ -110,6 +110,9 @@ pub fn verify(
     if options.return_lower_quality_chains {
         flags |= CERT_CHAIN_RETURN_LOWER_QUALITY_CONTEXTS;
     }
+    if options.disable_aia {
+        flags |= CERT_CHAIN_DISABLE_AIA;
+    }
 
     // Held by value so the pointer handed to Win32 stays valid for the duration of the call.
     let toi = options.time_of_interest.map(unix_secs_to_filetime);
