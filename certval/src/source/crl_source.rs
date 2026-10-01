@@ -79,7 +79,6 @@ pub struct RemoteStatus {
     #[readonly]
     pub lmm_folder: String,
 
-    blocklist: RwLock<Blocklist>,
     last_modified_map: RwLock<LastModifiedMap>,
 }
 
@@ -87,8 +86,6 @@ type IssuerMap = BTreeMap<String, Vec<usize>>;
 type SkidMap = BTreeMap<Vec<u8>, Vec<usize>>;
 type DpMap = BTreeMap<Vec<u8>, Vec<usize>>;
 type LastModifiedMap = BTreeMap<String, String>;
-type Blocklist = Vec<String>;
-
 /// Scope key for kept CRL entries. Issuer-qualified so two issuers that share an idp name cannot
 /// collide; the optional idp distinguishes distribution-point partitions within a single issuer.
 /// The verifier SPKI binds the entries to the key that verified the CRL's signature: population
@@ -199,7 +196,6 @@ impl RemoteStatus {
     pub fn new(folder: &str) -> Self {
         RemoteStatus {
             lmm_folder: folder.to_string(),
-            blocklist: RwLock::new(vec![]),
             last_modified_map: RwLock::new(Default::default()),
         }
     }
@@ -217,19 +213,6 @@ impl RemoteStatus {
             }
         }
     }
-    // fn load_blocklist(&self, blocklist: &mut RefMut<'_, Blocklist>) {
-    //     let p = Path::new(&self.crls_folder);
-    //     let blp = p.join("blocklist.json");
-    //     if let Some(blp) = blp.as_path().to_str() {
-    //         let bl = crate::uri_utils::read_blocklist(blp);
-    //         blocklist.clear();
-    //         for i in bl {
-    //             if !blocklist.contains(&i) {
-    //                 blocklist.push(i);
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 impl RemoteStatus {
@@ -315,42 +298,6 @@ impl CheckRemoteResource for RemoteStatus {
             if fs::write(lmmp, json_lmm).is_err() {
                 error!("Unable to write last modified map file",);
             }
-        }
-    }
-    /// Gets blocklist takes a URI and returns true if it is on blocklist and false otherwise
-    fn check_blocklist(&self, uri: &str) -> bool {
-        let blocklist = if let Ok(blocklist) = self.blocklist.read() {
-            blocklist
-        } else {
-            return false;
-        };
-        // if blocklist.is_empty() {
-        //     self.load_blocklist(&mut blocklist);
-        // }
-        blocklist.contains(&uri.to_string())
-    }
-    /// Save blocklist, if desired
-    fn add_to_blocklist(&self, uri: &str) {
-        let mut blocklist = if let Ok(blocklist) = self.blocklist.write() {
-            blocklist
-        } else {
-            return;
-        };
-        // if blocklist.is_empty() {
-        //     self.load_blocklist(&mut blocklist);
-        // }
-        if !blocklist.contains(&uri.to_string()) {
-            blocklist.push(uri.to_string());
-
-            // TODO persist or in-memory? if persist, add time of addition
-            // let json_blocklist = serde_json::to_string(&blocklist.deref());
-            // let p = Path::new(&self.crls_folder);
-            // let blp = p.join("blocklist.json");
-            // if let Ok(json_blocklist) = &json_blocklist {
-            //     if fs::write(&blp, json_blocklist).is_err() {
-            //         log_message(&PeLogLevels::PeError, "Unable to write blocklist file");
-            //     }
-            // }
         }
     }
 }

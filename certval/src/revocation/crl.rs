@@ -378,15 +378,18 @@ async fn fetch_crl(
     uri: &str,
     timeout: Duration,
     max_bytes: u64,
+    blocklist: Option<(&str, Duration)>,
 ) -> Result<Vec<u8>> {
     if !uri.starts_with("http") {
         debug!("Ignored non-HTTP URI presented for CRL retrieval",);
         return Err(Error::InvalidUriScheme);
     }
 
-    if pe.check_blocklist(uri) {
-        info!("{uri} is on the blocklist");
-        return Err(Error::UriOnBlocklist);
+    if let Some((blocklist_file, _)) = blocklist {
+        if crate::read_blocklist(blocklist_file).contains_key(uri) {
+            info!("{uri} is on the blocklist");
+            return Err(Error::UriOnBlocklist);
+        }
     }
 
     // Errors rather than reporting ResourceUnchanged, which the previous code did: that status
@@ -439,7 +442,9 @@ async fn fetch_crl(
                 "Failed to fetch CRL from {uri}: {}",
                 crate::builder::uri_utils::error_chain(&e)
             );
-            pe.add_to_blocklist(uri);
+            if let Some((blocklist_file, ttl)) = blocklist {
+                crate::add_to_blocklist_file(blocklist_file, uri, ttl);
+            }
             Err(Error::NetworkError)
         }
     }
@@ -1296,13 +1301,22 @@ pub(crate) async fn check_revocation_crl_remote(
     } else {
         let timeout = cps.get_crl_timeout();
         let max_bytes = cps.get_max_crl_fetch_bytes();
+        // The blocklist the certificate fetches keep in the download folder, with their expiry, so
+        // a distribution point that failed is skipped until the entry lapses. No download folder,
+        // no blocklist.
+        let blocklist_file = cps
+            .get_download_folder()
+            .map(|folder| crate::uri_blocklist_file(&folder));
+        let blocklist = blocklist_file
+            .as_deref()
+            .map(|f| (f, cps.get_uri_blocklist_ttl()));
         for crl_dp in crl_dps {
             debug!("Fetching CRL from {}", crl_dp.as_str());
 
             // Discarded rather than logged: fetch_crl reports each of its own failures, with
             // the URI and the underlying cause, so logging again here would say it twice. The one
             // outcome it does not log is a 304, which is not a failure.
-            let crl = match fetch_crl(pe, crl_dp.as_str(), timeout, max_bytes).await {
+            let crl = match fetch_crl(pe, crl_dp.as_str(), timeout, max_bytes, blocklist).await {
                 Ok(crl) => crl,
                 Err(_e) => continue,
             };
@@ -1416,16 +1430,22 @@ mod tests {
             "ldap://ldap.scheme/",
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            None,
         )
         .await;
         assert_eq!(Some(Error::InvalidUriScheme), r.err());
 
-        pe.add_to_blocklist("http://blocklist.test");
+        // The blocklist is the download folder's file, shared with the certificate fetches.
+        // The blocklist is the download folder's file, shared with the certificate fetches.
+        let blocklist_file = crate::uri_blocklist_file(&lmm_folder);
+        let ttl = Duration::from_secs(3600);
+        crate::add_to_blocklist_file(&blocklist_file, "http://blocklist.test", ttl);
         let r = fetch_crl(
             &pe,
             "http://blocklist.test",
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            Some((&blocklist_file, ttl)),
         )
         .await;
         assert_eq!(Some(Error::UriOnBlocklist), r.err());
@@ -1435,6 +1455,7 @@ mod tests {
             &uri,
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            None,
         )
         .await;
         assert_eq!(BODY, r.unwrap().as_slice());
@@ -1456,6 +1477,7 @@ mod tests {
             &uri,
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            None,
         )
         .await;
         assert_eq!(Some(Error::ResourceUnchanged), r.err());
@@ -1468,6 +1490,7 @@ mod tests {
             &uri,
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            None,
         )
         .await;
         assert_eq!(BODY, r.unwrap().as_slice());
@@ -1564,11 +1587,11 @@ mod tests {
         // and no map persisted by an earlier run can turn a fetch here into a 304.
 
         let uri = serve_once(with_content_length(BODY)).await;
-        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1).await;
+        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1, None).await;
         assert_eq!(Some(Error::LengthError), r.err());
 
         let uri = serve_once(chunked(BODY)).await;
-        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1).await;
+        let r = fetch_crl(&pe, &uri, Duration::from_secs(60), 1, None).await;
         assert_eq!(Some(Error::LengthError), r.err());
 
         // The same body under a cap that accommodates it comes back whole, so the two rejections
@@ -1579,6 +1602,7 @@ mod tests {
             &uri,
             Duration::from_secs(60),
             PS_MAX_CRL_FETCH_BYTES_DEFAULT,
+            None,
         )
         .await;
         assert_eq!(BODY, r.unwrap().as_slice());

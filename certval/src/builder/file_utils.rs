@@ -429,6 +429,23 @@ pub fn read_blocklist(fname: &str) -> BTreeMap<String, u64> {
     blocklist
 }
 
+/// Adds `uri` to the blocklist file `fname` until `ttl` from now, keeping every other entry that has
+/// not expired. Read and written in one step, so a failure recorded here between two dynamic-build
+/// passes is in the file the next pass reads.
+#[cfg(feature = "std")]
+pub fn add_to_blocklist_file(fname: &str, uri: &str, ttl: core::time::Duration) {
+    let mut blocklist = read_blocklist(fname);
+    blocklist.insert(uri.to_string(), now_unix_secs() + ttl.as_secs());
+    match serde_json::to_string(&blocklist) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(fname, json) {
+                error!("Unable to write blocklist file {fname}: {e}");
+            }
+        }
+        Err(e) => error!("Unable to serialize blocklist: {e}"),
+    }
+}
+
 /// `get_file_as_byte_vec` takes a Path containing a file name and returns a vector of bytes containing
 /// the contents of that file or an [Error::StdIoError].
 #[cfg(feature = "std")]
