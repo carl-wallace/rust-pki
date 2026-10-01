@@ -920,11 +920,11 @@ pub fn derived_entries(inputs: &RunInputs, paths: &[Vec<ExportEntry>]) -> Vec<Ex
 
 /// The run's settings with the retired keys taken out, for a file someone else will run.
 ///
-/// Both retired names hold an absolute path to a file on the machine that ran the validation, and
-/// **neither does anything any more** -- certval logs them and ignores them
-/// ([`certval::RETIRED_SETTINGS_KEYS`]). Passing them on would put one person's directory layout
-/// into an artifact meant to be handed over, and buy the recipient a warning about a path they do
-/// not have, in exchange for nothing. That the list comes from certval rather than being repeated
+/// **None of the retired names does anything any more** -- certval logs them and ignores them
+/// ([`certval::RETIRED_SETTINGS_KEYS`]). Two of them hold an absolute path to a file on the machine
+/// that ran the validation, so passing them on would also put one person's directory layout into an
+/// artifact meant to be handed over; every one of them would buy the recipient a warning in exchange
+/// for nothing. That the list comes from certval rather than being repeated
 /// here is what keeps the two from disagreeing later about which names are dead.
 ///
 /// Only these are removed. A live setting that happens to hold a path is left alone: it changed
@@ -1082,8 +1082,7 @@ fn render_replay_command(paths: &[Vec<ExportEntry>], inputs: &RunInputs) -> Stri
     if !stripped.is_empty() {
         out.push_str(&format!(
             "\n{SETTINGS_NAME} is the run's settings less {} -- retired name(s) the run carried \
-             that no longer do anything and that named files on the machine the run happened on. \
-             Nothing the run acted on was removed.\n",
+             that no longer do anything. Nothing the run acted on was removed.\n",
             stripped.join(", ")
         ));
     }
@@ -1881,9 +1880,9 @@ mod tests {
         assert!(!command.contains(BUILT_TA_NAME), "{command}");
     }
 
-    /// The retired names hold an absolute path on the machine that ran the validation and do
-    /// nothing, so they are left behind rather than handed to someone else along with one person's
-    /// directory layout. Live settings stay, path-valued or not: they changed what the run did, and
+    /// The retired names do nothing, and two of them hold an absolute path on the machine that ran
+    /// the validation, so they are left behind rather than handed to someone else along with one
+    /// person's directory layout. Live settings stay, path-valued or not: they changed what the run did, and
     /// a bundle that dropped them would misreport it.
     #[test]
     fn retired_settings_are_left_behind_and_the_reader_is_told() {

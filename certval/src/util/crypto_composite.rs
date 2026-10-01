@@ -31,19 +31,18 @@ use spki::{
     SubjectPublicKeyInfoOwned,
 };
 
-/// Returns DER encoded RSA PSS parameters for use with 2048-bit RSA keys or other as per section
-/// [7.3 of draft-ietf-lamps-pq-composite-sigs-06](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-06#section-7.3).
+/// Returns DER encoded RSA PSS parameters for use with 2048- and 3072-bit RSA keys, or with 4096-bit
+/// keys, as per Tables 2 and 3 in section
+/// [6.1 of draft-ietf-lamps-pq-composite-sigs-19](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-19#section-6.1).
 /// The composite spec fixes these parameters per algorithm rather than carrying
 /// them on the wire; they are encoded here only so the traditional half can be
 /// handed to the `AlgorithmIdentifier`-shaped verification interface, which then
 /// decodes them again. Generator and consumer are therefore both this crate.
 ///
-/// The spec states salt lengths in **bits** (256 and 384); `saltLength` is an
-/// octet count, as its RFC 8017 default of 20 for SHA-1 shows, so they are
-/// converted here. Both work out to the digest length.
+/// `saltLength` is an octet count, 32 with SHA-256 and 48 with SHA-384, the
+/// digest length in each case.
 fn get_rss_params(for_4096: bool) -> crate::Result<Vec<u8>> {
     let hash_oid = if for_4096 { ID_SHA_384 } else { ID_SHA_256 };
-    // 384 and 256 bits respectively, as octets.
     let salt_len: u8 = if for_4096 { 48 } else { 32 };
     let params = RsaPssParams {
         hash: AlgorithmIdentifierRef {

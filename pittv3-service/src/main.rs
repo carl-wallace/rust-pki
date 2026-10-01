@@ -203,8 +203,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::JsonConfig::default().limit(body_limit))
             .configure(routes::configure);
 
-        // Mounted last so nothing under the application directory can shadow an endpoint, and
-        // serving index.html for unmatched paths so the application's own routing works on reload.
+        // Mounted last so nothing under the application directory can shadow an endpoint.
+        // `index_file` serves index.html for a request naming a directory, which is how `/` reaches
+        // the application; any other path that names no file is a 404. The application keeps its
+        // views in page state rather than in the URL, so `/` is the only address it has.
         match &client_dir {
             Some(dir) => app.service(
                 actix_files::Files::new("/", dir)

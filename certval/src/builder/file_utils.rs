@@ -301,22 +301,9 @@ fn cert_or_ta_folder_to_vec(
         match entry {
             Ok(e) => {
                 let path = e.path();
+                // `WalkDir` descends into every subfolder itself, so a directory entry needs nothing
+                // further; the files beneath it arrive as entries of their own.
                 if e.file_type().is_dir() {
-                    if let Some(s) = path.to_str() {
-                        if s != certsdir {
-                            error!("Recursing {}", path.display());
-                            let r = cert_or_ta_folder_to_vec(
-                                pe,
-                                s,
-                                certsvec,
-                                time_of_interest,
-                                collect_tas,
-                            );
-                            if r.is_err() {
-                                continue;
-                            }
-                        }
-                    }
                     continue;
                 } else {
                     // Files reached by walking a folder are filtered by extension: the folder was

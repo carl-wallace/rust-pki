@@ -33,7 +33,7 @@ pub const OQ_FALCON_PADDED_1024: ObjectIdentifier = ObjectIdentifier::new_unwrap
 
 //---------------------------------------------------------------------
 // Definitions are from [draft-ietf-lamps-pq-composite-kem-08](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-kem-08)
-// and [draft-ietf-lamps-pq-composite-sigs-12](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-12).
+// and [draft-ietf-lamps-pq-composite-sigs-19](https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-19).
 //---------------------------------------------------------------------
 pub const ID_MLKEM768_RSA2048_SHA3_256: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.6.55");
