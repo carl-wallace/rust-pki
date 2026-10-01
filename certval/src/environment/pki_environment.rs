@@ -912,22 +912,6 @@ impl PkiEnvironment {
             f.set_last_modified(uri, last_modified);
         }
     }
-    /// Gets blocklist takes a URI and returns true if it is on blocklist and false otherwise
-    pub fn check_blocklist(&self, uri: &str) -> bool {
-        for f in &self.check_remote {
-            let r = f.check_blocklist(uri);
-            if r {
-                return true;
-            }
-        }
-        false
-    }
-    /// Save blocklist, if desired
-    pub fn add_to_blocklist(&self, uri: &str) {
-        for f in &self.check_remote {
-            f.add_to_blocklist(uri);
-        }
-    }
 
     /// `populate_5280_pki_environment` populates a default [`PkiEnvironment`] instance with a default set of callback
     /// functions specified.

@@ -435,12 +435,6 @@ pub trait CheckRemoteResource {
 
     /// Save last modified map, if desired
     fn set_last_modified(&self, uri: &str, last_modified: &str);
-
-    /// Gets blocklist or empty vector
-    fn check_blocklist(&self, uri: &str) -> bool;
-
-    /// Save blocklist, if desired
-    fn add_to_blocklist(&self, uri: &str);
 }
 
 /// The [`HttpClientSource`] trait lets a consumer supply the HTTP client used for every outbound
