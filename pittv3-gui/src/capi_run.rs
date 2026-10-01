@@ -124,7 +124,7 @@ pub fn gather(args: &Pittv3Args, trust: CapiTrust) -> CapiRunInputs {
         trust_anchors,
         additional_certs,
         // Zero is passed as unset, which CAPI reads as now. certval reads the same zero as validity
-        // checking off, so a time of interest of 0 has the two sides validating differently.
+        // checking off, which CAPI cannot do, so the run's report notes it.
         time_of_interest: (args.time_of_interest != 0).then_some(args.time_of_interest),
         anchor_sources,
     }
@@ -279,7 +279,8 @@ pub struct CapiRunResult {
     pub anchor_sources: Vec<String>,
     /// Whether revocation was checked, as the run's settings asked.
     pub revocation_checked: bool,
-    /// Time of interest in Unix seconds, or `None` for the moment the run started.
+    /// Time of interest in Unix seconds, or `None` for the moment the run started, which is what a
+    /// time of interest of 0 becomes.
     pub time_of_interest: Option<u64>,
     /// One entry per target, in the order the inputs were read.
     pub targets: Vec<CapiTargetOutcome>,
@@ -308,6 +309,10 @@ impl CapiRunResult {
     /// The run as log lines, which is what the Save log button writes.
     pub fn to_lines(&self) -> Vec<String> {
         let mut lines = vec![self.header()];
+
+        if self.time_of_interest.is_none() {
+            lines.push(format!("CAPI: {VALIDITY_AS_OF_NOW}"));
+        }
 
         // Loud, and above the verdicts rather than after them: the run asked one question and
         // answered another, and every line below is about a trust set the reader did not choose.
@@ -391,6 +396,16 @@ const FELL_BACK: &str = "CAPI: no trust anchors were gathered from this run, so 
 /// The companion line for a run that named no anchor inputs at all.
 const NO_ANCHOR_INPUTS: &str = "CAPI: no anchor inputs were named — select a store, or add \
                                     trust anchors on this view, to compare like for like.";
+
+/// What a time of interest of 0 means for a CAPI run, as the log says it.
+///
+/// certval reads 0 as validity period checking off. CAPI has no such switch:
+/// `CERT_CHAIN_POLICY_IGNORE_ALL_NOT_TIME_VALID_FLAGS` masks the policy verdict only, and the chain
+/// is still built as of a moment, so the run validates as of now.
+const VALIDITY_AS_OF_NOW: &str = "the time of interest is 0, which turns off validity period \
+                                  checking in certval. CAPI cannot turn it off and validated as of \
+                                  now, so results for expired or not-yet-valid certificates may \
+                                  differ.";
 
 /// Runs CAPI over every target and returns what it found.
 ///
@@ -1000,6 +1015,25 @@ pub(crate) mod tests {
             result.to_lines().last().unwrap(),
             "CAPI: 1 Valid, 1 Invalid, 1 Not a certificate"
         );
+    }
+
+    /// A time of interest of 0 turns validity checking off in certval and CAPI has no way to, so
+    /// the run validates as of now and says so under the header.
+    #[test]
+    fn a_time_of_interest_of_zero_is_noted() {
+        let mut args = args_for(
+            &["ValidCertificatePathTest1EE.crt"],
+            &["TrustAnchorRootCertificate.crt"],
+            &["GoodCACert.crt"],
+        );
+        args.time_of_interest = 0;
+        let result = execute(&args, CapiTrust::RunAnchors);
+        assert_eq!(result.targets.len(), 1);
+        assert_eq!(result.to_lines()[1], format!("CAPI: {VALIDITY_AS_OF_NOW}"));
+
+        args.time_of_interest = TOI;
+        let lines = execute(&args, CapiTrust::RunAnchors).to_lines();
+        assert!(!lines.contains(&format!("CAPI: {VALIDITY_AS_OF_NOW}")));
     }
 
     /// An empty pool is a run that says so rather than an empty log the reader has to interpret.
