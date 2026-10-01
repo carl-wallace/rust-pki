@@ -1010,6 +1010,14 @@ async fn generate_and_validate(
     #[cfg(feature = "remote")]
     cps.set_retrieve_from_aia_sia_http(args.dynamic_build);
 
+    // The folder resolved above, whichever of the three places named it, so that certval's CRL
+    // fetches keep their blocklist in the same file the certificate fetches do. They read it from
+    // the settings, which hold only the settings file's value until this is written.
+    #[cfg(feature = "remote")]
+    if !download_folder.is_empty() {
+        cps.set_download_folder(download_folder.clone());
+    }
+
     let mut pe = PkiEnvironment::default();
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
     pe.populate_5280_pki_environment();

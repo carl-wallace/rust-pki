@@ -923,6 +923,21 @@ fn validate_self_signed(pe: &PkiEnvironment, name: &str, der: &[u8]) -> Vec<Resu
     out
 }
 
+/// The largest certificate a hackathon archive entry may inflate to.
+///
+/// An entry is inflated whole into memory, so without a bound a small archive can expand without
+/// limit. The largest certificates in view are Classic McEliece ones, whose biggest public key is
+/// about 1.36 MB; SLH-DSA certificates, the largest the archives carry today, run to about 50 KB.
+const MAX_ZIP_ENTRY_BYTES: u64 = 2 * 1024 * 1024;
+
+/// The note for an entry skipped for its size.
+fn too_large_entry(name: &str) -> String {
+    format!(
+        "Skipped {name}: it inflates to more than the {} MB allowed for a certificate",
+        MAX_ZIP_ENTRY_BYTES / (1024 * 1024)
+    )
+}
+
 /// Validates the contents of an IETF Hackathon PQC certificates archive in the R5 format, i.e.,
 /// artifacts_certs_r5.zip. Entries named `*_ta.der` form the trust anchor store and entries named
 /// `*_ee.der` are validated against it; all other entries (private keys, KEM artifacts, etc.) are
@@ -973,9 +988,22 @@ pub fn validate_hackathon_zip(
             ignored += 1;
             continue;
         }
+        // The declared size turns away an honest oversized entry before inflating anything; the
+        // bounded read is what holds against one whose header understates it.
+        if entry.size() > MAX_ZIP_ENTRY_BYTES {
+            out.push(err(too_large_entry(&name)));
+            continue;
+        }
         let mut buf = vec![];
-        if let Err(e) = entry.read_to_end(&mut buf) {
+        if let Err(e) = (&mut entry)
+            .take(MAX_ZIP_ENTRY_BYTES + 1)
+            .read_to_end(&mut buf)
+        {
             out.push(err(format!("Failed to decompress {name}: {e}")));
+            continue;
+        }
+        if buf.len() as u64 > MAX_ZIP_ENTRY_BYTES {
+            out.push(err(too_large_entry(&name)));
             continue;
         }
         if is_ta {
@@ -1306,6 +1334,46 @@ mod inspect_tests {
             prepared_with(&[]).built_graph().is_none(),
             "with nothing uploaded the pool is the store as fetched, which carries its own partial \
              paths -- a graph here would be a second copy of it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod hackathon_zip_tests {
+    use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    /// An entry that inflates past the cap is named in a note and never read into a certificate,
+    /// however little it occupies in the archive.
+    #[test]
+    fn an_entry_too_large_for_a_certificate_is_skipped_and_named() {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("big_ee.der", options).unwrap();
+        zip.write_all(&vec![0u8; MAX_ZIP_ENTRY_BYTES as usize + 1])
+            .unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+
+        let (reports, notes) = validate_hackathon_zip(
+            "bomb.zip",
+            bytes,
+            &CertificationPathSettings::default(),
+            false,
+        );
+        assert!(reports.is_empty());
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.class == "err" && n.text.contains("Skipped big_ee.der")),
+            "{notes:?}"
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.text.contains("0 end entity certificate(s)")),
+            "{notes:?}"
         );
     }
 }

@@ -219,6 +219,13 @@ pub fn CapiResultsView(result: CapiRunResult) -> Element {
                         "revocation not checked"
                     }
                 }
+                span {
+                    if result.aia_followed {
+                        "AIA followed"
+                    } else {
+                        "AIA not followed"
+                    }
+                }
             }
 
             if result.targets.is_empty() {

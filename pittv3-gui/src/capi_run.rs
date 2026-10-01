@@ -37,9 +37,11 @@ use pittv3_lib::std_utils::{cbor_cert_store_certs, cbor_ta_store_anchors};
 ///
 /// [`RunAnchors`] replaces only the roots. Windows rejects an engine that has both an exclusive
 /// root store and a restricted store for everything else, and in exclusive-root mode it still
-/// searches this machine's CA store and follows AIA for intermediates. So a path can include
+/// searches this machine's CA store and its cache for intermediates. So a path can include
 /// intermediates the run never supplied, and a disagreement with certval can come from the
-/// intermediates each one had as well as from the validators themselves.
+/// intermediates each one had as well as from the validators themselves. AIA, the other place the
+/// engine finds intermediates, follows the run's dynamic-build flag in either mode, as certval's
+/// retrieval does.
 ///
 /// [`RunAnchors`]: CapiTrust::RunAnchors
 /// [`MachineStores`]: CapiTrust::MachineStores
@@ -279,6 +281,8 @@ pub struct CapiRunResult {
     pub anchor_sources: Vec<String>,
     /// Whether revocation was checked, as the run's settings asked.
     pub revocation_checked: bool,
+    /// Whether the engine fetched issuers named in AIA, as the run's dynamic-build flag asked.
+    pub aia_followed: bool,
     /// Time of interest in Unix seconds, or `None` for the moment the run started, which is what a
     /// time of interest of 0 becomes.
     pub time_of_interest: Option<u64>,
@@ -364,8 +368,12 @@ impl CapiRunResult {
             true => "checking revocation over the chain below the root",
             false => "without revocation checking",
         };
+        let aia = match self.aia_followed {
+            true => "following AIA for issuers",
+            false => "without AIA retrieval",
+        };
         format!(
-            "CAPI: validating {} certificate(s) against {}, with {} supporting certificate(s){at}, {revocation}",
+            "CAPI: validating {} certificate(s) against {}, with {} supporting certificate(s){at}, {revocation}, {aia}",
             self.targets.len(),
             self.trust_summary(),
             self.supporting_count
@@ -425,6 +433,10 @@ pub fn execute(args: &Pittv3Args, trust: CapiTrust) -> CapiRunResult {
             true => RevocationChecking::ChainExcludeRoot,
             false => RevocationChecking::None,
         },
+        // certval retrieves issuers from AIA only when dynamic building is on, so the engine does
+        // too: otherwise a path CAPI completed by fetching would read as a difference between the
+        // validators.
+        disable_aia: !args.dynamic_build,
         ..Default::default()
     };
 
@@ -460,6 +472,7 @@ pub fn execute(args: &Pittv3Args, trust: CapiTrust) -> CapiRunResult {
         supporting_count: options.additional_certs.len(),
         anchor_sources: inputs.anchor_sources,
         revocation_checked,
+        aia_followed: !options.disable_aia,
         time_of_interest: options.time_of_interest,
         targets,
     }
@@ -1034,6 +1047,28 @@ pub(crate) mod tests {
         args.time_of_interest = TOI;
         let lines = execute(&args, CapiTrust::RunAnchors).to_lines();
         assert!(!lines.contains(&format!("CAPI: {VALIDITY_AS_OF_NOW}")));
+    }
+
+    /// The engine follows AIA exactly when the run's dynamic-build flag would have certval do so,
+    /// in either trust mode, and the header says which.
+    #[test]
+    fn aia_follows_the_dynamic_build_flag() {
+        let mut args = args_for(
+            &["ValidCertificatePathTest1EE.crt"],
+            &["TrustAnchorRootCertificate.crt"],
+            &["GoodCACert.crt"],
+        );
+        for trust in [CapiTrust::RunAnchors, CapiTrust::MachineStores] {
+            args.dynamic_build = false;
+            let result = execute(&args, trust);
+            assert!(!result.aia_followed);
+            assert!(result.to_lines()[0].ends_with(", without AIA retrieval"));
+
+            args.dynamic_build = true;
+            let result = execute(&args, trust);
+            assert!(result.aia_followed);
+            assert!(result.to_lines()[0].ends_with(", following AIA for issuers"));
+        }
     }
 
     /// An empty pool is a run that says so rather than an empty log the reader has to interpret.
