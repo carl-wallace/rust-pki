@@ -439,7 +439,9 @@ fn assemble(
         pe,
         ta_store,
         cert_source,
-        uploaded: !tas.is_empty() || !cas.is_empty(),
+        // From what was added rather than what was offered: an upload that would not parse changes
+        // nothing, and rediscovering the whole pool's partial paths for it is wasted work.
+        uploaded: uploaded_tas + uploaded_cas > 0,
     })
 }
 

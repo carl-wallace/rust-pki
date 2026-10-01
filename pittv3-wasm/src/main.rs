@@ -1401,7 +1401,9 @@ fn App() -> Element {
         // each Validate replaces the prior results rather than appending to them
         targets.write().clear();
         notes.write().clear();
-        let cps = match run_settings(&settings(), tier(), have_revocation_uploads()) {
+        // A zip carries certificates only, and this path neither retrieves nor consults uploaded
+        // revocation data, so an unstated revocation preference resolves to off whatever the tier.
+        let cps = match run_settings(&settings(), Tier::Local, false) {
             Ok(cps) => cps,
             Err(msg) => {
                 notes.write().push(ResultLine {
