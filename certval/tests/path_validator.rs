@@ -180,6 +180,38 @@ fn get_trust_anchors_merges_all_sources() {
     );
 }
 
+// get_intermediates and get_intermediates_by_skid gather from every registered certificate source,
+// as get_cert_by_name and get_trust_anchors do, rather than answering from the first.
+#[test]
+fn get_intermediates_merges_all_sources() {
+    let cps = CertificationPathSettings::default();
+    let source = |name: &str, der: &[u8]| {
+        let mut src = CertSource::new();
+        src.push(CertFile {
+            bytes: der.to_vec(),
+            filename: name.to_string(),
+        });
+        src.initialize(&cps).unwrap();
+        src
+    };
+    let good = include_bytes!("examples/PKITS_data_2048/certs/GoodCACert.crt");
+    let path_len = include_bytes!("examples/PKITS_data_2048/certs/pathLenConstraint6CACert.crt");
+
+    let mut pe = PkiEnvironment::default();
+    pe.add_certificate_source(Box::new(source("GoodCACert.crt", good)));
+    pe.add_certificate_source(Box::new(source("pathLenConstraint6CACert.crt", path_len)));
+
+    assert_eq!(pe.get_intermediates().unwrap().len(), 2);
+    let skid = [
+        0xAF, 0xBC, 0x85, 0xAE, 0xFE, 0x4C, 0xAE, 0xE1, 0x8D, 0x97, 0x23, 0x88, 0xC8, 0xA5, 0xB1,
+        0x60, 0x0B, 0xBA, 0x4E, 0xD8,
+    ];
+    assert_eq!(pe.get_intermediates_by_skid(&skid).unwrap().len(), 1);
+
+    // With no source, there is no answer.
+    assert!(PkiEnvironment::default().get_intermediates().is_err());
+}
+
 #[test]
 fn denies_self_signed_ee() {
     // This test deliberately drives the forbid_self_signed_ee guard, which the library correctly
