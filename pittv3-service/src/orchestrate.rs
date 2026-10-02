@@ -416,7 +416,8 @@ async fn chase(
         for (name, der) in seeds.iter().chain(cas.iter()) {
             match parse_cert(der, name) {
                 Ok(cert) => collect_uris_from_aia_and_sia(&cert, &mut uris),
-                Err(e) => debug!("Skipped {name} while harvesting URIs: {e:?}"),
+                // Debug-formatted: the name is the client's own label and may carry newlines.
+                Err(e) => debug!("Skipped {name:?} while harvesting URIs: {e:?}"),
             }
         }
         uris.retain(|uri| !retrieved.contains(uri));
