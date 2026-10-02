@@ -15,6 +15,7 @@ use std::fs;
 use std::path::Path;
 
 use bytes::Bytes;
+use certval::{CertSource, TaSource};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -243,7 +244,8 @@ impl StoreCatalog {
     ///
     /// A trust anchor artifact with no CA artifact beside it is loaded with an empty CA store,
     /// since trust anchors alone validate a directly-issued certificate; a CA artifact with no
-    /// trust anchors is skipped, because a graph with nothing to anchor it validates nothing.
+    /// trust anchors is skipped, because a graph with nothing to anchor it validates nothing. A
+    /// store either of whose halves certval cannot read is skipped with a warning naming the file.
     ///
     /// Display names come from `stores.json` when it is present, as an object mapping identifier to
     /// name; anything not named there falls back to the identifier.
@@ -295,6 +297,25 @@ impl StoreCatalog {
                 true => Bytes::from(fs::read(&ca_path)?),
                 false => Bytes::new(),
             };
+            // Read the way a validation request reads them, once, so a store certval cannot load
+            // is skipped here with its file named, rather than reported to the first client that
+            // selects it.
+            if let Err(e) = TaSource::new_from_cbor(&ta_cbor) {
+                warn!(
+                    "Skipped trust store {id}: {} is not a trust anchor store certval can read ({e:?})",
+                    ta_path.display()
+                );
+                continue;
+            }
+            if !ca_cbor.is_empty() {
+                if let Err(e) = CertSource::new_from_cbor(&ca_cbor) {
+                    warn!(
+                        "Skipped trust store {id}: {} is not a CA store certval can read ({e:?})",
+                        ca_path.display()
+                    );
+                    continue;
+                }
+            }
             info!(
                 "Loaded trust store {id} ({} bytes of trust anchors, {} bytes of CA certificates)",
                 ta_cbor.len(),
@@ -395,8 +416,17 @@ fn read_labels(dir: &Path) -> BTreeMap<String, String> {
     }
 }
 
+/// Store material for tests that need a configured store certval can load: a small ML-DSA PKITS
+/// trust anchor store and a small CA store.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    pub const TA: &[u8] = include_bytes!("../../pittv3-wasm/fixtures/pkits_ml_dsa_44_ta.cbor");
+    pub const CA: &[u8] = include_bytes!("../../pittv3/tests/examples/pitt_focused.cbor");
+}
+
 #[cfg(test)]
 mod tests {
+    use super::fixtures::{CA, TA};
     use super::*;
 
     #[test]
@@ -406,31 +436,28 @@ mod tests {
         // A folder holding fixed names.
         let exported = dir.path().join("my_export");
         fs::create_dir(&exported).unwrap();
-        fs::write(exported.join("ta.cbor"), b"ta").unwrap();
-        fs::write(exported.join("ca.cbor"), b"ca").unwrap();
+        fs::write(exported.join("ta.cbor"), TA).unwrap();
+        fs::write(exported.join("ca.cbor"), CA).unwrap();
 
         // What the trust store providers generate.
-        fs::write(dir.path().join("dod_nipr_prod_ta.cbor"), b"ta").unwrap();
-        fs::write(dir.path().join("dod_nipr_prod_ca.cbor"), b"ca").unwrap();
+        fs::write(dir.path().join("dod_nipr_prod_ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("dod_nipr_prod_ca.cbor"), CA).unwrap();
 
-        fs::write(dir.path().join("pkits_ml_dsa.ta.cbor"), b"ta").unwrap();
-        fs::write(dir.path().join("pkits_ml_dsa.ca.cbor"), b"ca").unwrap();
+        fs::write(dir.path().join("pkits_ml_dsa.ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("pkits_ml_dsa.ca.cbor"), CA).unwrap();
 
         // Trust anchors with no CA store beside them are usable; a CA store with no trust anchors
         // is not, and a file that is part of no store at all is ignored.
-        fs::write(dir.path().join("anchors_only.ta.cbor"), b"ta").unwrap();
-        fs::write(dir.path().join("orphan.ca.cbor"), b"ca").unwrap();
+        fs::write(dir.path().join("anchors_only.ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("orphan.ca.cbor"), CA).unwrap();
         fs::write(dir.path().join("notes.txt"), b"x").unwrap();
 
         let catalog = StoreCatalog::load(dir.path()).unwrap();
 
         assert_eq!(catalog.len(), 4);
-        assert_eq!(catalog.get("my_export").unwrap().ca_cbor.as_ref(), b"ca");
-        assert_eq!(
-            catalog.get("dod_nipr_prod").unwrap().ca_cbor.as_ref(),
-            b"ca"
-        );
-        assert_eq!(catalog.get("pkits_ml_dsa").unwrap().ca_cbor.as_ref(), b"ca");
+        assert_eq!(catalog.get("my_export").unwrap().ca_cbor.as_ref(), CA);
+        assert_eq!(catalog.get("dod_nipr_prod").unwrap().ca_cbor.as_ref(), CA);
+        assert_eq!(catalog.get("pkits_ml_dsa").unwrap().ca_cbor.as_ref(), CA);
         assert!(catalog.get("anchors_only").unwrap().ca_cbor.is_empty());
         assert!(catalog.get("orphan").is_none());
 
@@ -464,8 +491,8 @@ mod tests {
 
         let misnamed = dir.path().join("mystore");
         fs::create_dir(&misnamed).unwrap();
-        fs::write(misnamed.join("kitchen_ta.cbor"), b"ta").unwrap();
-        fs::write(misnamed.join("kitchen_ca.cbor"), b"ca").unwrap();
+        fs::write(misnamed.join("kitchen_ta.cbor"), TA).unwrap();
+        fs::write(misnamed.join("kitchen_ca.cbor"), CA).unwrap();
         assert!(holds_cbor(&misnamed));
 
         // Quiet for a directory that holds no CBOR at all: it is not a store anybody thought they
@@ -483,8 +510,8 @@ mod tests {
     #[test]
     fn names_come_from_stores_json_when_it_is_there() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("dod_nipr_prod_ta.cbor"), b"ta").unwrap();
-        fs::write(dir.path().join("unnamed.ta.cbor"), b"ta").unwrap();
+        fs::write(dir.path().join("dod_nipr_prod_ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("unnamed.ta.cbor"), TA).unwrap();
         fs::write(
             dir.path().join("stores.json"),
             br#"{"dod_nipr_prod": "DoD NIPR PROD"}"#,
@@ -503,6 +530,24 @@ mod tests {
         assert_eq!(catalog.get("dod_nipr_prod").unwrap().label, "dod_nipr_prod");
     }
 
+    /// A store certval cannot read is skipped when the directory is loaded, whichever half is at
+    /// fault, and the stores beside it are still served.
+    #[test]
+    fn a_store_certval_cannot_read_is_skipped_at_load() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("good_ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("good_ca.cbor"), CA).unwrap();
+        fs::write(dir.path().join("bad_anchors_ta.cbor"), b"not a store").unwrap();
+        fs::write(dir.path().join("bad_cas_ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("bad_cas_ca.cbor"), b"not a store").unwrap();
+
+        let catalog = StoreCatalog::load(dir.path()).unwrap();
+        assert_eq!(catalog.len(), 1);
+        assert!(catalog.get("good").is_some());
+        assert!(catalog.get("bad_anchors").is_none());
+        assert!(catalog.get("bad_cas").is_none());
+    }
+
     /// The built-in stores have to be the material a run can actually use, not merely bytes the
     /// build script wrote: a trust anchor store certval loads and finds anchors in, and a CA store
     /// wherever the catalog claims one. This is the only place the generated table is checked
@@ -510,7 +555,7 @@ mod tests {
     #[cfg(feature = "builtin-stores")]
     #[test]
     fn built_in_stores_are_loadable_material() {
-        use certval::{CertSource, CertVector, TaSource};
+        use certval::CertVector;
 
         let catalog = StoreCatalog::builtin();
         assert!(!catalog.is_empty(), "the build script generated no stores");
@@ -555,13 +600,13 @@ mod tests {
     #[test]
     fn a_configured_store_augments_the_built_ins_and_wins_where_they_collide() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("local_pki_ta.cbor"), b"ta").unwrap();
+        fs::write(dir.path().join("local_pki_ta.cbor"), TA).unwrap();
 
         let mut catalog = StoreCatalog::builtin();
         let built_in = catalog.len();
         let overridden = catalog.listing().first().map(|d| d.id.clone());
         if let Some(id) = &overridden {
-            fs::write(dir.path().join(format!("{id}_ta.cbor")), b"replacement").unwrap();
+            fs::write(dir.path().join(format!("{id}_ta.cbor")), TA).unwrap();
         }
 
         catalog.merge(StoreCatalog::load(dir.path()).unwrap());
@@ -573,7 +618,7 @@ mod tests {
         );
         if let Some(id) = &overridden {
             let entry = catalog.get(id).unwrap();
-            assert_eq!(entry.ta_cbor.as_ref(), b"replacement");
+            assert_eq!(entry.ta_cbor.as_ref(), TA);
             assert_eq!(entry.provenance, StoreProvenance::Configured);
         }
     }
