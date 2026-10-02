@@ -435,6 +435,45 @@ pub fn get_domain(oid: ObjectIdentifier) -> crate::Result<Vec<u8>> {
     }
 }
 
+/// The RSA modulus size, in bits, a composite signature OID names, or `None` for a composite whose
+/// traditional half is not RSA.
+fn composite_rsa_bits(composite_oid: ObjectIdentifier) -> Option<usize> {
+    use crate::util::pqc_oids::*;
+    match composite_oid {
+        ID_MLDSA44_RSA2048_PSS_SHA256 | ID_MLDSA44_RSA2048_PKCS15_SHA256 => Some(2048),
+        ID_MLDSA65_RSA3072_PSS_SHA512
+        | ID_MLDSA65_RSA3072_PKCS15_SHA512
+        | ID_MLDSA87_RSA3072_PSS_SHA512 => Some(3072),
+        ID_MLDSA65_RSA4096_PSS_SHA512
+        | ID_MLDSA65_RSA4096_PKCS15_SHA512
+        | ID_MLDSA87_RSA4096_PSS_SHA512 => Some(4096),
+        _ => None,
+    }
+}
+
+/// Refuses an RSA traditional key whose modulus is not the size the composite OID names
+/// (draft-ietf-lamps-pq-composite-sigs), so the traditional half provides what the algorithm
+/// identifier promises.
+fn check_composite_rsa_size(
+    composite_oid: ObjectIdentifier,
+    trad_spki: &SubjectPublicKeyInfoOwned,
+) -> crate::Result<()> {
+    let Some(bits) = composite_rsa_bits(composite_oid) else {
+        return Ok(());
+    };
+    let key = pkcs1::RsaPublicKey::from_der(trad_spki.subject_public_key.raw_bytes())?;
+    if key.modulus.as_bytes().len() * 8 != bits {
+        error!(
+            "composite {composite_oid} names RSA-{bits} but the key has a {}-byte modulus",
+            key.modulus.as_bytes().len()
+        );
+        return Err(Error::PathValidation(
+            PathValidationStatus::SignatureVerificationFailure,
+        ));
+    }
+    Ok(())
+}
+
 /// verify_signature_message_composite_rustcrypto verifies a composite ML-DSA signature over a
 /// message, dispatching to the RustCrypto implementations of the two component algorithms.
 pub fn verify_signature_message_composite_rustcrypto(
@@ -447,6 +486,7 @@ pub fn verify_signature_message_composite_rustcrypto(
     if let Ok((pqc, trad)) = composite_components(signature_alg.oid) {
         let (pqc_spki, trad_spki) =
             split_key(pqc.oid, trad.oid, spki.subject_public_key.raw_bytes())?;
+        check_composite_rsa_size(signature_alg.oid, &trad_spki)?;
 
         let label = get_domain(signature_alg.oid)?;
         let ctx_len = [0x00];
@@ -465,4 +505,38 @@ pub fn verify_signature_message_composite_rustcrypto(
         return Ok(());
     }
     Err(Error::Unrecognized)
+}
+
+#[cfg(test)]
+mod rsa_size_tests {
+    use super::*;
+    use x509_cert::certificate::{CertificateInner, Raw};
+
+    /// The RSA half of a composite has to be the size its OID names: an RSA-2048 key passes under
+    /// an RSA2048 composite and is refused under an RSA3072 or RSA4096 one; a composite with no RSA
+    /// half is not checked.
+    #[test]
+    fn the_rsa_half_must_be_the_size_the_oid_names() {
+        let ta = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/PKITS_data_2048/certs/TrustAnchorRootCertificate.crt"
+        ))
+        .unwrap();
+        let rsa_2048 = ta.tbs_certificate().subject_public_key_info().clone();
+
+        assert!(check_composite_rsa_size(ID_MLDSA44_RSA2048_PSS_SHA256, &rsa_2048).is_ok());
+        assert!(check_composite_rsa_size(ID_MLDSA44_RSA2048_PKCS15_SHA256, &rsa_2048).is_ok());
+        for oid in [
+            ID_MLDSA65_RSA3072_PSS_SHA512,
+            ID_MLDSA65_RSA4096_PKCS15_SHA512,
+            ID_MLDSA87_RSA3072_PSS_SHA512,
+        ] {
+            assert_eq!(
+                Err(Error::PathValidation(
+                    PathValidationStatus::SignatureVerificationFailure
+                )),
+                check_composite_rsa_size(oid, &rsa_2048)
+            );
+        }
+        assert!(check_composite_rsa_size(ID_MLDSA65_ECDSA_P256_SHA512, &rsa_2048).is_ok());
+    }
 }
