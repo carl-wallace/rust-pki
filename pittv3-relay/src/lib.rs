@@ -242,6 +242,9 @@ impl Relay {
     /// connection is made to the addresses that check approved. The response body is read with the
     /// cap applied as it streams.
     pub async fn fetch(&self, request: &FetchRequest) -> Result<FetchResponse, FetchError> {
+        // Logged below as `dest.url`, never as `request.uri`. The parser drops tab, CR and LF before
+        // parsing, so a raw URI carrying them passes every check and would write forged lines into
+        // the log; the parsed form has none.
         let dest = self.policy.check_uri(&request.uri)?;
         check_content_type(request.method, request.content_type.as_deref())?;
 
@@ -268,18 +271,14 @@ impl Relay {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) if e.is_timeout() => {
-                debug!("Retrieval of {} timed out after {timeout:?}", request.uri);
+                debug!("Retrieval of {} timed out after {timeout:?}", dest.url);
                 return Err(FetchError::Timeout {
                     after: timeout,
                     read: 0,
                 });
             }
             Err(e) => {
-                debug!(
-                    "Retrieval of {} failed with {}",
-                    request.uri,
-                    error_chain(&e)
-                );
+                debug!("Retrieval of {} failed with {}", dest.url, error_chain(&e));
                 // A refusal raised by the resolver arrives here wrapped in the client's connection
                 // error; recovering it keeps "we would not go there" distinct from "we went and it
                 // failed", which is the difference between a misdirected certificate and a
@@ -304,7 +303,7 @@ impl Relay {
         // and no caller reads the page that came with it. Returning that page would let any
         // public host serve arbitrary content through the relay by answering with an error status.
         if !(200..300).contains(&status) {
-            debug!("Returned status {status} from {}", request.uri);
+            debug!("Returned status {status} from {}", dest.url);
             return Ok(FetchResponse {
                 status,
                 content_type,
@@ -314,13 +313,13 @@ impl Relay {
             });
         }
 
-        let body = read_capped_body(response, max_bytes, &request.uri, timeout).await?;
+        let body = read_capped_body(response, max_bytes, dest.url.as_str(), timeout).await?;
 
         // An empty body is left alone: the status describes it better than this can.
         if !body.is_empty() && !looks_like_an_encoded_artifact(&body) {
             debug!(
                 "Discarded the body from {} as no encoded artifact",
-                request.uri
+                dest.url
             );
             return Err(FetchError::NotAnArtifact {
                 opening: describe_opening(&body),

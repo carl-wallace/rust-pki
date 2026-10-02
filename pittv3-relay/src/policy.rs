@@ -56,11 +56,14 @@ pub enum PolicyError {
     Port(u16),
     /// Host is on the denylist, or an allowlist is configured and the host is not on it.
     Host(String),
-    /// Hostname resolution failed or returned nothing.
+    /// A host name did not resolve to a permitted address: it did not resolve at all, or every
+    /// address it resolved to is refused. The two are one refusal because the resolver is the
+    /// service's, so telling them apart would answer, for a split-horizon or search-domain name
+    /// like `intranet-host`, whether it exists on the service's network and what it points at.
+    /// The detail goes to the debug log.
     Resolution(String),
-    /// Host resolved only to addresses that are not permitted destinations, e.g., loopback or
-    /// private addresses. The address is reported because it is what the requester's own DNS
-    /// record says, not information about the service's network.
+    /// A literal address in the URI is not a permitted destination, e.g., loopback or a private
+    /// address. The address is reported because the requester wrote it.
     Address(IpAddr),
     /// Redirect encountered when redirects are not permitted, or the hop limit was exhausted.
     Redirect(String),
@@ -89,7 +92,9 @@ impl core::fmt::Display for PolicyError {
             PolicyError::MissingHost => write!(f, "URI has no host"),
             PolicyError::Port(p) => write!(f, "port not permitted: {p}"),
             PolicyError::Host(h) => write!(f, "host not permitted: {h}"),
-            PolicyError::Resolution(h) => write!(f, "could not resolve host: {h}"),
+            PolicyError::Resolution(h) => {
+                write!(f, "host does not resolve to a permitted address: {h}")
+            }
             PolicyError::Address(a) => write!(f, "address not permitted: {a}"),
             PolicyError::Redirect(u) => write!(f, "redirect not permitted: {u}"),
             PolicyError::Userinfo(h) => {
@@ -190,7 +195,9 @@ impl NetworkPolicy {
         let url = match reqwest::Url::parse(uri) {
             Ok(u) => u,
             Err(e) => {
-                debug!("Rejected {uri} as unparseable: {e}");
+                // Debug-formatted, which escapes control characters: this string is the
+                // requester's, unparsed, and printing it raw would let it write log lines.
+                debug!("Rejected {uri:?} as unparseable: {e}");
                 return Err(PolicyError::Malformed(uri.to_string()));
             }
         };
@@ -211,7 +218,7 @@ impl NetworkPolicy {
         // before the `@` while contacting the part after it. The host checks below are correct
         // about `evil.example`; everything a person reads is not.
         if !url.username().is_empty() || url.password().is_some() {
-            debug!("Rejected {uri} because it carries credentials in its authority");
+            debug!("Rejected a URI for {host} because it carries credentials in its authority");
             return Err(PolicyError::Userinfo(host));
         }
         if self
@@ -268,12 +275,15 @@ impl NetworkPolicy {
 
     /// Resolves a checked destination and returns the addresses that survive
     /// [`check_address`](Self::check_address),
-    /// which are the addresses the HTTP client is then pinned to. An error is returned when the
-    /// name does not resolve and when every address it resolves to is refused; the two are
-    /// distinguished because a deployment that resolves everything to a private address is
-    /// misconfigured rather than under attack.
+    /// which are the addresses the HTTP client is then pinned to. When the name does not resolve,
+    /// or every address it resolves to is refused, the error is
+    /// [`Resolution`](PolicyError::Resolution) either way; the debug log says which, since a
+    /// deployment that resolves everything to a private address is misconfigured rather than under
+    /// attack, and its operator needs to see that.
     pub async fn resolve(&self, dest: &CheckedUri) -> Result<Vec<SocketAddr>, PolicyError> {
-        let resolved = match tokio::net::lookup_host((dest.host.as_str(), dest.port)).await {
+        // An IPv6 literal keeps its brackets in `host`; the lookup takes the address without them.
+        let lookup = dest.host.trim_matches(['[', ']']);
+        let resolved = match tokio::net::lookup_host((lookup, dest.port)).await {
             Ok(addrs) => addrs.collect::<Vec<SocketAddr>>(),
             Err(e) => {
                 debug!("Failed to resolve {} with {e}", dest.host);
@@ -281,20 +291,16 @@ impl NetworkPolicy {
             }
         };
 
-        let mut refused = None;
         let mut permitted = vec![];
         for addr in resolved {
             match self.check_address(addr.ip()) {
                 Ok(()) => permitted.push(addr),
-                Err(e) => {
-                    debug!("Refused {} for {}: {e}", addr.ip(), dest.host);
-                    refused = Some(e);
-                }
+                Err(e) => debug!("Refused {} for {}: {e}", addr.ip(), dest.host),
             }
         }
 
         if permitted.is_empty() {
-            return Err(refused.unwrap_or_else(|| PolicyError::Resolution(dest.host.clone())));
+            return Err(PolicyError::Resolution(dest.host.clone()));
         }
         Ok(permitted)
     }
@@ -587,17 +593,29 @@ mod tests {
         let policy = NetworkPolicy::default();
         // localhost is the case a deployment will actually meet: a name that resolves, and resolves
         // to an address the relay must not reach.
+        // The refusal names the host and not what it resolved to: the resolver is the service's,
+        // so the address would be news about the service's network, not the requester's.
         let dest = policy.check_uri("http://localhost/ca.crl").unwrap();
-        assert!(matches!(
-            policy.resolve(&dest).await,
-            Err(PolicyError::Address(_)) | Err(PolicyError::Resolution(_))
-        ));
+        let error = policy.resolve(&dest).await.unwrap_err();
+        assert_eq!(error, PolicyError::Resolution("localhost".to_string()));
+        assert!(!error.to_string().contains("127.0.0.1"));
 
         let permissive = NetworkPolicy {
             allow_private_addresses: true,
             ..Default::default()
         };
         assert!(permissive.resolve(&dest).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_ipv6_literal_resolves_to_itself() {
+        let permissive = NetworkPolicy {
+            allow_private_addresses: true,
+            ..Default::default()
+        };
+        let dest = permissive.check_uri("https://[::1]/").unwrap();
+        let addrs = permissive.resolve(&dest).await.unwrap();
+        assert_eq!(addrs, vec!["[::1]:443".parse::<SocketAddr>().unwrap()]);
     }
 
     /// The relay is how the browser application fetches what the CLI fetches through `certval`
