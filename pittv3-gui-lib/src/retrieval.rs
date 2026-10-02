@@ -31,12 +31,12 @@ use certval::{
 // the same work minus the OCSP items, which is honest, since such a build could not process a
 // response either.
 #[cfg(feature = "revocation")]
-use certval::build_ocsp_request;
+use certval::{build_ocsp_request, cert_id_hash_algorithm_supported};
 use der::Encode;
 // Deciding which certificate a response answers about lives in pittv3-lib so the command line and
 // the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
 #[cfg(feature = "revocation")]
-use pittv3_lib::ocsp_match::{answers_about, cert_ids_from_response, SHA1_CERT_ID_OID};
+use pittv3_lib::ocsp_match::{answers_about, cert_ids_from_response};
 
 use crate::validate::{candidate_certs_in, maybe_pem, PreparedValidation};
 
@@ -494,15 +494,13 @@ pub fn insert_status_response(
 /// **The response says what it is about, so the user does not have to.** An OCSP `CertID` names the
 /// hash of the issuer's name and public key together with the certificate's serial number, which is
 /// exactly the identity [`OcspKey`] is built on. So rather than asking which certificate a file
-/// concerns, this walks the (certificate, issuer) pairs on the paths the environment builds, asks
-/// certval to build the request it *would* have sent for each, and files the response against every
-/// pair whose `CertID` the response answers. One response can match more than one pair, and a
-/// response matching none is reported rather than stored.
+/// concerns, this walks the (certificate, issuer) pairs on the paths the environment builds and
+/// files the response against every pair whose `CertID` the response answers. One response can
+/// match more than one pair, and a response matching none is reported rather than stored.
 ///
-/// Building the request rather than re-hashing the issuer here is deliberate: it makes the match
-/// certval's own notion of identity by construction, and the hash helpers are private to certval
-/// anyway. It also means the comparison inherits certval's SHA-1 `CertID`, so a response built with
-/// a different hash algorithm cannot be matched this way — which is reported, not swallowed.
+/// The match is certval's own, the one validation applies when it processes the response, under
+/// whichever of SHA-1, SHA-256, SHA-384 or SHA-512 the response's `CertID` names. A `CertID` under
+/// any other algorithm cannot be matched, which is reported, not swallowed.
 #[cfg(feature = "revocation")]
 pub fn staple_uploaded_ocsp(
     prepared: &PreparedValidation,
@@ -530,7 +528,6 @@ pub fn staple_uploaded_ocsp(
     // response about something else -- and a note that cannot tell them apart sends the reader to
     // the wrong place.
     let mut examined = 0usize;
-    let mut unaskable = 0usize;
 
     for (name, bytes) in ees {
         // See the note in `harvest_chase_uris`: decode PEM before parsing, because `validate_target`
@@ -568,15 +565,8 @@ pub fn staple_uploaded_ocsp(
                 if filed.contains(&key) {
                     continue;
                 }
-                // `answers_about` builds the request certval would have sent and compares its
-                // CertID; `None` means no request could be built for this certificate, which is a
-                // different outcome from a mismatch and is counted as such.
-                let Some(matched) = answers_about(&answered, cert, issuer) else {
-                    unaskable += 1;
-                    continue;
-                };
                 examined += 1;
-                if !matched {
+                if !answers_about(&answered, cert, issuer) {
                     continue;
                 }
                 sink.insert(key.clone(), response.to_vec());
@@ -589,18 +579,19 @@ pub fn staple_uploaded_ocsp(
     if out.matched == 0 {
         // Say what the response is about and what was asked, so a mismatch identifies itself. The
         // serial is the discriminating field -- two CertIDs over the same issuer differ only there
-        // -- and the hash OID is named because certval asks with SHA-1 and a response built with a
-        // different one cannot match however right it otherwise is.
+        // -- and a hash algorithm certval does not match under is named, because a response built
+        // with one cannot match however right it otherwise is.
         let about = answered
             .iter()
             .map(|id| hex(id.serial_number.as_bytes()))
             .collect::<Vec<String>>()
             .join(", ");
-        let algs = answered
+        let unsupported = answered
             .iter()
-            .map(|id| id.hash_algorithm.oid.to_string())
+            .map(|id| id.hash_algorithm.oid)
+            .filter(|oid| !cert_id_hash_algorithm_supported(oid))
+            .map(|oid| oid.to_string())
             .collect::<Vec<String>>();
-        let non_sha1 = algs.iter().any(|oid| oid != SHA1_CERT_ID_OID);
         let mut note = format!(
             "OCSP response answers about serial(s) {about}; examined {examined} certificate(s) on \
              the paths built for the loaded certificates and none is that certificate."
@@ -611,17 +602,11 @@ pub fn staple_uploaded_ocsp(
                  anchor and intermediates before the response.",
             );
         }
-        if non_sha1 {
+        if !unsupported.is_empty() {
             note.push_str(&format!(
-                " The response uses CertID hash {}, while the comparison is made with SHA-1 \
-                 ({SHA1_CERT_ID_OID}), so it cannot be matched this way.",
-                algs.join(", ")
-            ));
-        }
-        if unaskable > 0 {
-            note.push_str(&format!(
-                " {unaskable} certificate(s) could not have a request built for them and were not \
-                 compared."
+                " The response uses CertID hash {}, which is not one of SHA-1, SHA-256, SHA-384 or \
+                 SHA-512, so it cannot be matched.",
+                unsupported.join(", ")
             ));
         }
         out.notes.push(note);

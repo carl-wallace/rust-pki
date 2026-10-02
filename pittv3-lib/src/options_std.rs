@@ -565,7 +565,9 @@ async fn options_std_inner(
             &target_der,
             issuer_der.as_deref(),
             !args.no_auto_discover,
+            &args.settings,
             args.time_of_interest,
+            args.time_of_interest_given,
             &[],
         )
         .await;

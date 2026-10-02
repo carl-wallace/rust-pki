@@ -3,9 +3,11 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
+use const_oid::ObjectIdentifier;
 use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
-use x509_cert::certificate::{CertificateInner, Raw};
+use sha2::{Sha256, Sha384, Sha512};
+use x509_cert::certificate::{CertificateInner, Profile, Raw};
 use x509_cert::ext::Extensions;
 use x509_ocsp::*;
 
@@ -47,9 +49,9 @@ use x509_cert::serial_number::SerialNumber;
 use x509_ocsp::Version::V1;
 
 use crate::TimeOfInterest;
-use crate::PKIXALG_SHA1;
 #[cfg(feature = "remote")]
 use crate::{collect_ocsp_uris, name_to_string};
+use crate::{PKIXALG_SHA1, PKIXALG_SHA256, PKIXALG_SHA384, PKIXALG_SHA512};
 
 use x509_cert::ext::Extension;
 
@@ -100,25 +102,50 @@ fn unsupported_critical_extensions_present_response(rd: &ResponseData) -> bool {
     }
 }
 
-/// cert_id_match returns true if the serial number, issuer name hash and issuer key hash in the cert_id object
-/// match the values passed as parameters. Else it returns false.
-fn cert_id_match(
-    cert_id: &CertId,
+/// Whether a CertID naming hash algorithm `alg` can be matched by [`cert_id_match`]: SHA-1,
+/// SHA-256, SHA-384 or SHA-512.
+pub fn cert_id_hash_algorithm_supported(alg: &ObjectIdentifier) -> bool {
+    cert_id_digest(alg, &[]).is_some()
+}
+
+/// Hashes `data` with the digest `alg` identifies: SHA-1, SHA-256, SHA-384 or SHA-512. `None` for
+/// any other algorithm, which leaves a CertID naming it unmatched.
+fn cert_id_digest(alg: &ObjectIdentifier, data: &[u8]) -> Option<Vec<u8>> {
+    match *alg {
+        PKIXALG_SHA1 => Some(Sha1::digest(data).to_vec()),
+        PKIXALG_SHA256 => Some(Sha256::digest(data).to_vec()),
+        PKIXALG_SHA384 => Some(Sha384::digest(data).to_vec()),
+        PKIXALG_SHA512 => Some(Sha512::digest(data).to_vec()),
+        _ => None,
+    }
+}
+
+/// cert_id_match returns true if `cert_id` identifies the certificate with `serial_number` issued
+/// by `issuer`. The issuer's name and key are hashed with the algorithm the CertID itself names, so
+/// a response identifying the certificate with SHA-256 matches as one using SHA-1 does. A CertID
+/// naming any other algorithm (see [`cert_id_hash_algorithm_supported`]) does not match. Requests
+/// this library sends identify the certificate with SHA-1.
+pub fn cert_id_match<P: Profile>(
+    cert_id: &CertId<P>,
     serial_number: &SerialNumber<Raw>,
-    name_hash: &[u8],
-    key_hash: &[u8],
+    issuer: &dyn SubjectNameAndKey,
 ) -> bool {
     if cert_id.serial_number.as_bytes() != serial_number.as_bytes() {
         return false;
     }
 
-    if cert_id.issuer_name_hash.as_bytes() != name_hash {
+    let alg = &cert_id.hash_algorithm.oid;
+    let Ok(enc_subject) = issuer
+        .subject_name()
+        .and_then(|n| n.to_der().map_err(Error::Asn1Error))
+    else {
+        return false;
+    };
+    if cert_id_digest(alg, &enc_subject).as_deref() != Some(cert_id.issuer_name_hash.as_bytes()) {
         return false;
     }
-    if cert_id.issuer_key_hash.as_bytes() != key_hash {
-        return false;
-    }
-    true
+    let key = issuer.spki().subject_public_key.raw_bytes();
+    cert_id_digest(alg, key).as_deref() == Some(cert_id.issuer_key_hash.as_bytes())
 }
 
 /// How far ahead of the time of interest a responder's timestamps may sit before they are treated
@@ -550,8 +577,6 @@ pub async fn send_ocsp_request(
         result_index,
         uri_to_check,
         target_cert,
-        name_hash.as_slice(),
-        key_hash.as_slice(),
         nonce.as_deref(),
         nonce_setting,
     ) {
@@ -594,8 +619,6 @@ pub fn process_ocsp_response(
     uri_to_check: &str,
     target_cert: &PDVCertificate,
 ) -> Result<()> {
-    let key_hash = get_key_hash(issuer)?;
-    let name_hash = get_subject_name_hash(issuer)?;
     // A stapled/externally-supplied response was not solicited by this library, so no nonce was
     // sent and none is enforced.
     process_ocsp_response_internal(
@@ -607,8 +630,6 @@ pub fn process_ocsp_response(
         result_index,
         uri_to_check,
         target_cert,
-        name_hash.as_slice(),
-        key_hash.as_slice(),
         None,
         OcspNonceSetting::DoNotSendNonce,
     )
@@ -624,8 +645,6 @@ fn process_ocsp_response_internal(
     result_index: usize,
     uri_to_check: &str,
     target_cert: &PDVCertificate,
-    name_hash: &[u8],
-    key_hash: &[u8],
     expected_nonce: Option<&[u8]>,
     nonce_setting: OcspNonceSetting,
 ) -> Result<()> {
@@ -875,8 +894,7 @@ fn process_ocsp_response_internal(
         if !cert_id_match(
             &sr.cert_id,
             target_cert.decoded().tbs_certificate().serial_number(),
-            name_hash,
-            key_hash,
+            issuer,
         ) {
             continue;
         }
@@ -1247,6 +1265,73 @@ mod tests {
         );
     }
 
+    /// A CertID is matched under the hash algorithm it names: the same certificate, identified with
+    /// SHA-1, SHA-256, SHA-384 or SHA-512, matches its issuer, and fails to match under an
+    /// algorithm outside those four or when a hash belongs to a different issuer.
+    #[test]
+    fn cert_id_match_uses_the_cert_ids_own_hash_algorithm() {
+        let ca63 = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/ocsp_dod/ca63.der"
+        ))
+        .unwrap();
+        let target = CertificateInner::<Raw>::from_der(include_bytes!(
+            "../../tests/examples/ocsp_dod/47.der"
+        ))
+        .unwrap();
+        let serial = target.tbs_certificate().serial_number();
+        let name = ca63.tbs_certificate().subject().to_der().unwrap();
+        let key = ca63
+            .tbs_certificate()
+            .subject_public_key_info()
+            .subject_public_key
+            .raw_bytes()
+            .to_vec();
+
+        let cert_id = |oid: ObjectIdentifier, name_hash: Vec<u8>, key_hash: Vec<u8>| CertId::<
+            x509_cert::certificate::Rfc5280,
+        > {
+            hash_algorithm: AlgorithmIdentifier {
+                oid,
+                parameters: None,
+            },
+            issuer_name_hash: OctetString::new(name_hash).unwrap(),
+            issuer_key_hash: OctetString::new(key_hash).unwrap(),
+            serial_number: SerialNumber::new(serial.as_bytes()).unwrap(),
+        };
+
+        for oid in [PKIXALG_SHA1, PKIXALG_SHA256, PKIXALG_SHA384, PKIXALG_SHA512] {
+            let id = cert_id(
+                oid,
+                cert_id_digest(&oid, &name).unwrap(),
+                cert_id_digest(&oid, &key).unwrap(),
+            );
+            assert!(cert_id_match(&id, serial, &ca63), "{oid}");
+        }
+
+        // SHA-256 hashes labelled as SHA-512: the label decides how the issuer is hashed.
+        let mislabelled = cert_id(
+            PKIXALG_SHA512,
+            Sha256::digest(&name).to_vec(),
+            Sha256::digest(&key).to_vec(),
+        );
+        assert!(!cert_id_match(&mislabelled, serial, &ca63));
+
+        // SHA-224, outside the four, never matches.
+        let sha224 = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.4");
+        let unsupported = cert_id(
+            sha224,
+            sha2::Sha224::digest(&name).to_vec(),
+            sha2::Sha224::digest(&key).to_vec(),
+        );
+        assert!(!cert_id_match(&unsupported, serial, &ca63));
+
+        // Another issuer's key under a supported algorithm.
+        let mut other_key = Sha256::digest(&key).to_vec();
+        other_key[0] ^= 0xff;
+        let wrong_key = cert_id(PKIXALG_SHA256, Sha256::digest(&name).to_vec(), other_key);
+        assert!(!cert_id_match(&wrong_key, serial, &ca63));
+    }
+
     // ------------------------------------------------------------------------------------------
     // Nonce policy (nonce_acceptable) - fully deterministic, no network.
     // ------------------------------------------------------------------------------------------
@@ -1342,9 +1427,6 @@ mod tests {
         // The nonce carried in the harvested request and echoed by the response.
         let sent_nonce = hex!("54992C9A49DBE95781C3B8B41456A4B8");
 
-        let name_hash = get_subject_name_hash(&ca63).unwrap();
-        let key_hash = get_key_hash(&ca63).unwrap();
-
         let mut pe = PkiEnvironment::new();
         pe.populate_5280_pki_environment();
 
@@ -1365,8 +1447,6 @@ mod tests {
                 0,
                 "offline",
                 &target,
-                name_hash.as_slice(),
-                key_hash.as_slice(),
                 expected_nonce,
                 setting,
             )
@@ -1461,9 +1541,6 @@ mod tests {
         .unwrap();
         target.parse_extensions(crate::EXTS_OF_INTEREST);
 
-        let name_hash = get_subject_name_hash(&ca).unwrap();
-        let key_hash = get_key_hash(&ca).unwrap();
-
         let mut pe = PkiEnvironment::new();
         pe.populate_5280_pki_environment();
 
@@ -1481,8 +1558,6 @@ mod tests {
             0,
             "offline-direct-ca",
             &target,
-            name_hash.as_slice(),
-            key_hash.as_slice(),
             None,
             OcspNonceSetting::DoNotSendNonce,
         );

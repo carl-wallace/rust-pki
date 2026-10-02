@@ -1179,24 +1179,35 @@ mod remote_impl {
         }
     }
 
-    /// Convenience entry point that builds an RFC 5280 [`PkiEnvironment`] and default settings, then
-    /// runs [`check_uris_in_cert`]. Both the CLI and GUI use this so neither has to construct a PKI
-    /// environment itself. `time_of_interest` is the usual Unix-seconds value (0 disables the
-    /// validity check). Signature verification requires the `rsa`/`eddsa`/`pqc` crypto features to be
+    /// Convenience entry point that builds an RFC 5280 [`PkiEnvironment`], reads the settings file
+    /// at `settings`, then runs [`check_uris_in_cert`]. Both the CLI and GUI use this so neither has
+    /// to construct a PKI environment itself. The settings supply the time and size limits each
+    /// retrieval runs under, the same ones a validation run with that file uses; a missing path
+    /// reads as all defaults. `time_of_interest` is the usual Unix-seconds value (0 disables the
+    /// validity check), and wins over a time the settings state only when `time_of_interest_given`
+    /// is true. Signature verification requires the `rsa`/`eddsa`/`pqc` crypto features to be
     /// enabled; without them every verification is treated as a failure.
     pub async fn check_uris_from_bytes(
         target_der: &[u8],
         issuer_der: Option<&[u8]>,
         auto_discover: bool,
+        settings: &Option<String>,
         time_of_interest: u64,
+        time_of_interest_given: bool,
         blocklist: &[String],
     ) -> UriCheckReport {
-        let mut cps = CertificationPathSettings::default();
+        let mut cps = match read_settings(settings) {
+            Ok(cps) => cps,
+            Err(e) => {
+                return UriCheckReport::failed(format!("failed to parse settings file: {e:?}"))
+            }
+        };
         // Refused rather than left at the default, which is the current time: a check that silently
         // ran as of now would report what the URIs say about a moment the caller did not name.
-        match crate::time::time_of_interest_from_secs(time_of_interest) {
-            Ok(toi) => cps.set_time_of_interest(toi),
-            Err(msg) => return UriCheckReport::failed(msg),
+        if let Err(msg) =
+            crate::time::apply_time_of_interest(&mut cps, time_of_interest, time_of_interest_given)
+        {
+            return UriCheckReport::failed(msg);
         }
         let mut pe = PkiEnvironment::default();
         pe.populate_5280_pki_environment();
