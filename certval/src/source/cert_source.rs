@@ -1631,6 +1631,11 @@ impl CertSource {
                                 if let Some(Some(prospective_ca_cert)) =
                                     prospective_path.last().and_then(|i| self.certs.get(*i))
                                 {
+                                    // A partial path whose path length constraint is exhausted is
+                                    // not extended, the elimination RFC 4158 section 3.5.7 describes.
+                                    // That includes a self-issued next certificate, which RFC 5280
+                                    // would not count, so such a path is not built (PKITS 4.6.15 and
+                                    // 4.6.17); validating a supplied chain still accepts it.
                                     if 0 == self.get_operative_path_len_constraint(prospective_path)
                                     {
                                         continue;

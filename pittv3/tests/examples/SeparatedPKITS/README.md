@@ -16,8 +16,9 @@ The rest of the material, also siblings: `../pkits_ta_store` (trust anchors),
 `../pkits_crls` (CRLs), `../pkits.cbor` (a prebuilt graph; a folder of CA certificates
 also works as a validation input).
 
-Expected outcomes are in `good.txt` and `bad.txt`, labelled by group, and are asserted
-per group by `pkits_separated` in `pittv3/tests/pittv3.rs`, which is also the worked
+Expected outcomes are in `good.txt` and `bad.txt`, labelled by group, and are checked
+target by target by `pittv3_pkits` in `pittv3/tests/pittv3.rs`, apart from the default-group
+cases listed in `PKITS_DEFAULT_EXCLUDED` there with their reasons. That test is also the worked
 example of driving all of this:
 
     pittv3 --cbor tests/examples/pkits.cbor \
