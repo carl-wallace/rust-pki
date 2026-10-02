@@ -221,18 +221,17 @@ impl NetworkPolicy {
             debug!("Rejected a URI for {host} because it carries credentials in its authority");
             return Err(PolicyError::Userinfo(host));
         }
-        if self
-            .deny_hosts
-            .iter()
-            .any(|h| h.eq_ignore_ascii_case(&host))
-        {
+        // `example.com.` is the fully qualified spelling of `example.com`, and the URI parser keeps
+        // the dot, so both sides of the comparison drop it. Otherwise a deny entry misses the dotted
+        // form and an exhaustive allow list refuses it.
+        let listed = |h: &String| {
+            h.trim_end_matches('.')
+                .eq_ignore_ascii_case(host.trim_end_matches('.'))
+        };
+        if self.deny_hosts.iter().any(listed) {
             return Err(PolicyError::Host(host));
         }
-        let allowed = self.allow_hosts.is_empty()
-            || self
-                .allow_hosts
-                .iter()
-                .any(|h| h.eq_ignore_ascii_case(&host));
+        let allowed = self.allow_hosts.is_empty() || self.allow_hosts.iter().any(listed);
         if !allowed {
             return Err(PolicyError::Host(host));
         }

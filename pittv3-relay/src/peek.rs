@@ -87,13 +87,23 @@ impl Relay {
                 dest.url.scheme().to_string(),
             )));
         }
-        let addresses = self.policy().resolve(&dest).await?;
-        let (host, port) = (dest.host.clone(), dest.port);
-
         let timeout = match request.timeout {
             Some(t) => t.min(self.budget().timeout),
             None => self.budget().timeout,
         };
+        // The clock starts before resolution, so a name whose servers are slow to answer spends the
+        // peek's allowance rather than the system resolver's own timeouts and retries on top of it.
+        let deadline = Instant::now() + timeout;
+        let addresses = match tokio::time::timeout(timeout, self.policy().resolve(&dest)).await {
+            Ok(resolved) => resolved?,
+            Err(_) => {
+                return Err(FetchError::Timeout {
+                    after: timeout,
+                    read: 0,
+                })
+            }
+        };
+        let (host, port) = (dest.host.clone(), dest.port);
 
         let provider = provider();
         // Held past the builder: the stapled OCSP response is handed to the verifier during the
@@ -115,7 +125,6 @@ impl Relay {
             .map_err(|_| FetchError::Policy(PolicyError::Malformed(host.clone())))?;
 
         let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
-        let deadline = Instant::now() + timeout;
         let count = addresses.len();
         // What went wrong at the last address that answered at all. A refusal and a silence are
         // different facts about a host, and the difference is the whole diagnosis: a port nothing

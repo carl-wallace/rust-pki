@@ -97,9 +97,10 @@ pre-hash variants), plus composite ML-DSA.
 
 ### Name constraints
 
-Directory names, `dNSName`, `rfc822Name` in its mailbox, host and domain forms, URIs, IP address
-ranges, and user principal names — the URI and directory name forms implemented without pulling in
-`url` or `regex`, so they hold in `no_std` builds too.
+Directory names, `dNSName`, `rfc822Name` in its mailbox, host and domain forms, URIs and IP address
+ranges — the URI and directory name forms implemented without pulling in `url` or `regex`, so they
+hold in `no_std` builds too. A constraint on an `otherName`, `ediPartyName` or `registeredID` fails a
+path whose certificate presents a name of that form, rather than being ignored.
 
 ### Results
 
@@ -133,6 +134,8 @@ re-issue, and fifteen post-quantum re-issues.
   verification is not.
 - **This is not a TLS verifier.** Web PKI-specific behavior is out of scope by design, which is what
   the `webpki::` x509-limbo mismatches above record.
+- The README's **Not Supported** section lists the remaining revocation cases, among them indirect
+  CRLs and CRLs verified by a key other than the one that verifies the certificate.
 
 ### Minimum supported Rust version
 

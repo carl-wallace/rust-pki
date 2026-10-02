@@ -72,9 +72,10 @@ installed and what transits the network:
   `--ta-cbor` for trust anchors, and `--generate --cbor-ta-store` to write one. A store built once
   is reused, so paths already calculated are not recalculated.
 - Trust anchors may come from the **webpki-roots** crate (`--webpki-tas`), and the GUIs offer
-  built-in stores — U.S. DoD NIPR production and operational test (JITC), DoD ECA, the Purebred
-  development environment, the U.S. Federal PKI, and the Mozilla root program in TLS, S/MIME and
-  combined forms — each exportable to disk.
+  built-in stores — U.S. DoD NIPR production, operational test (JITC), and production with the
+  Interoperability and CCEB Interoperability roots, DoD ECA, DoD WCF, the Purebred development
+  environment, the U.S. Federal PKI, the Mozilla and Microsoft root programs by purpose, and TPM
+  manufacturer roots — each exportable to disk.
 - On Windows, Microsoft CryptoAPI certificate stores are a source in their own right: `--capi-ta`,
   `--capi-ca` and `--capi-ca-rw`, with the desktop selector offering the user and machine stores.
   The store is live rather than a snapshot, so a certificate installed after selection is seen.
