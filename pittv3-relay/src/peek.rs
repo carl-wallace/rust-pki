@@ -109,8 +109,9 @@ impl Relay {
             .with_custom_certificate_verifier(verifier.clone())
             .with_no_client_auth();
         // A name is what a virtual host keys off, so it is sent as given rather than as whatever
-        // address the name resolved to. `to_owned` because the handshake outlives the borrow.
-        let server_name = ServerName::try_from(host.clone())
+        // address the name resolved to. `to_owned` because the handshake outlives the borrow. An
+        // IPv6 literal keeps its brackets in `host`, which `ServerName` does not accept.
+        let server_name = ServerName::try_from(host.trim_matches(['[', ']']).to_string())
             .map_err(|_| FetchError::Policy(PolicyError::Malformed(host.clone())))?;
 
         let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
@@ -346,6 +347,24 @@ mod tests {
             response.protocol,
             response.certificates.len(),
             response.stapled_ocsp.as_ref().map(|o| o.len())
+        );
+    }
+
+    /// A bracketed IPv6 literal the policy accepts is carried through to a connection attempt.
+    /// Nothing is expected to answer on the loopback's 443, so the peek fails at the transport.
+    #[tokio::test]
+    async fn peek_takes_an_ipv6_literal_past_the_policy() {
+        let policy = NetworkPolicy {
+            allow_private_addresses: true,
+            ..Default::default()
+        };
+        let relay = Relay::new(policy, FetchBudget::default()).unwrap();
+        let mut request = PeekRequest::new("https://[::1]/");
+        request.timeout = Some(Duration::from_secs(2));
+        let error = relay.peek(&request).await.unwrap_err();
+        assert!(
+            !matches!(error, FetchError::Policy(_)),
+            "expected the peek to reach a connection, got {error}"
         );
     }
 
