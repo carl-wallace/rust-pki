@@ -658,3 +658,44 @@ fn a_failure_without_its_own_status_reads_as_not_yet_validated() {
         cpr.get_validation_status()
     );
 }
+
+/// A key identified as id-RSASSA-PSS is restricted to RSASSA-PSS (RFC 4055), so the environment
+/// refuses a PKCS#1 v1.5 signature made with it, whatever callback would have verified it.
+#[cfg(feature = "rsa")]
+#[test]
+fn a_pss_key_does_not_verify_a_pkcs1_v15_signature() {
+    use const_oid::db::rfc5912::ID_RSASSA_PSS;
+
+    let ta = CertificateInner::<Raw>::from_der(include_bytes!(
+        "examples/PKITS_data_2048/certs/TrustAnchorRootCertificate.crt"
+    ))
+    .unwrap();
+    let ca_der = include_bytes!("examples/PKITS_data_2048/certs/GoodCACert.crt");
+    let ca = CertificateInner::<Raw>::from_der(ca_der).unwrap();
+    let tbs = DeferDecodeSigned::from_der(ca_der).unwrap().tbs_field;
+
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    let verify = |spki| {
+        pe.verify_signature_message(
+            &pe,
+            &tbs,
+            ca.signature().raw_bytes(),
+            ca.tbs_certificate().signature(),
+            spki,
+        )
+    };
+
+    let spki = ta.tbs_certificate().subject_public_key_info().clone();
+    assert_eq!(Ok(()), verify(&spki));
+
+    let mut pss_spki = spki.clone();
+    pss_spki.algorithm.oid = ID_RSASSA_PSS;
+    pss_spki.algorithm.parameters = None;
+    assert_eq!(
+        Err(Error::PathValidation(
+            PathValidationStatus::SignatureVerificationFailure
+        )),
+        verify(&pss_spki)
+    );
+}

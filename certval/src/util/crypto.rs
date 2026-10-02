@@ -173,6 +173,13 @@ pub fn verify_signature_message_rust_crypto(
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
     if is_rsa(&signature_alg.oid) {
+        // A key identified as id-RSASSA-PSS is restricted to RSASSA-PSS (RFC 4055 sections 1.2 and
+        // 3.1), so it does not verify a PKCS#1 v1.5 signature.
+        if spki.algorithm.oid == ID_RSASSA_PSS {
+            return Err(Error::PathValidation(
+                PathValidationStatus::SignatureVerificationFailure,
+            ));
+        }
         #[cfg(feature = "rsa")]
         if let Ok(enc_spki) = spki.to_der() {
             use rsa::pkcs8::DecodePublicKey as _;

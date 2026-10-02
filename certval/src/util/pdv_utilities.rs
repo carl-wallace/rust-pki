@@ -114,12 +114,13 @@ fn key_alg_matches_signature_alg(
 
     // A pre-hash signature algorithm is accepted with its own OID or its pure counterpart as the key.
     let pure = match *sig_alg {
+        // An id-RSASSA-PSS key is restricted to RSASSA-PSS (RFC 4055 sections 1.2 and 3.1).
         SHA_1_WITH_RSA_ENCRYPTION
         | SHA_224_WITH_RSA_ENCRYPTION
         | SHA_256_WITH_RSA_ENCRYPTION
         | SHA_384_WITH_RSA_ENCRYPTION
-        | SHA_512_WITH_RSA_ENCRYPTION
-        | ID_RSASSA_PSS => return Some(*key_alg == RSA_ENCRYPTION || *key_alg == ID_RSASSA_PSS),
+        | SHA_512_WITH_RSA_ENCRYPTION => return Some(*key_alg == RSA_ENCRYPTION),
+        ID_RSASSA_PSS => return Some(*key_alg == RSA_ENCRYPTION || *key_alg == ID_RSASSA_PSS),
         ECDSA_WITH_SHA_224 | ECDSA_WITH_SHA_256 | ECDSA_WITH_SHA_384 | ECDSA_WITH_SHA_512 => {
             return Some(*key_alg == ID_EC_PUBLIC_KEY)
         }
