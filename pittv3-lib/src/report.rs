@@ -549,9 +549,6 @@ impl TargetReport {
                 Some(PathValidationStatus::RevocationStatusNotDetermined) => {
                     revocation_undetermined = true;
                 }
-                Some(PathValidationStatus::RevocationStatusNotAvailable) => {
-                    revocation_undetermined = true;
-                }
                 _ => {}
             }
         }

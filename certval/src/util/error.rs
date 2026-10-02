@@ -77,8 +77,6 @@ pub enum PathValidationStatus {
     /// StatusCheckReliedOnStaleCrl occurs when revocation status was determined but required use of a
     /// stale CRL to do so.
     StatusCheckReliedOnStaleCrl,
-    /// RevocationStatusNotAvailable is similar to RevocationStatusNotDetermined.
-    RevocationStatusNotAvailable,
     /// A configuration error was detected. See textual log output for more details.
     Misconfiguration,
     /// An End-Identity certificate was self-signed, but it is forbidden
@@ -203,9 +201,6 @@ impl fmt::Display for PathValidationStatus {
             PathValidationStatus::StatusCheckReliedOnStaleCrl => {
                 write!(f, "StatusCheckReliedOnStaleCrl")
             }
-            PathValidationStatus::RevocationStatusNotAvailable => {
-                write!(f, "RevocationStatusNotAvailable")
-            }
             PathValidationStatus::Misconfiguration => write!(f, "Misconfiguration"),
             PathValidationStatus::SelfSignedEndIdentity => write!(f, "SelfSignedEndIdentity"),
             PathValidationStatus::TrustAnchorConstraintsMismatch => {
@@ -278,7 +273,6 @@ fn error_test() {
     let _s = format!("{}", PathValidationStatus::CertificateOnHold);
     let _s = format!("{}", PathValidationStatus::CertificateBlocklisted);
     let _s = format!("{}", PathValidationStatus::StatusCheckReliedOnStaleCrl);
-    let _s = format!("{}", PathValidationStatus::RevocationStatusNotAvailable);
     let _s = format!("{}", PathValidationStatus::Misconfiguration);
 
     //let _s = format!("{}", Error::PathValidation(PathValidationStatus));
