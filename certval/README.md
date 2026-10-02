@@ -34,6 +34,8 @@ Each fails closed and, at present, there are no plans to add support for any of 
 
 - **Delta CRLs.** Neither indexed nor considered; a scope that requires one fails rather than
   falling back to the base CRL.
+- **CRLs scoped by `onlySomeReasons`.** Coverage is not accumulated across reason-partitioned
+  CRLs, so such a CRL is discarded and a certificate it alone would cover is left undetermined.
 - **CRLs verified by any key other than the one that verifies the certificate.** Designated CRL
   signing certificates, indirect CRLs (`Error::UnsupportedIndirectCrl`) and CA key rollover
   certificates all fall under this.

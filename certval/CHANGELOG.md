@@ -127,6 +127,8 @@ re-issue, and fifteen post-quantum re-issues.
 
 - **Delta CRLs are not supported.** They are not indexed and not considered; a scope requiring one
   fails closed rather than being approximated.
+- **CRLs scoped by `onlySomeReasons` are not used.** Such a CRL is discarded rather than taken as
+  covering every reason, so a certificate only reason-partitioned CRLs cover is undetermined.
 - **FN-DSA is not verified**, pending a FIPS 206 implementation. The identifiers are declared; the
   verification is not.
 - **This is not a TLS verifier.** Web PKI-specific behavior is out of scope by design, which is what

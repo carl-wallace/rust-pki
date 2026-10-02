@@ -1797,16 +1797,12 @@ const PKITS_DEFAULT_EXCLUDED: &[(&str, &str)] = &[
         "indirect CRLs are not supported",
     ),
     (
-        "InvalidonlySomeReasonsTest16EE.crt",
-        "onlySomeReasons is not supported",
+        "ValidonlySomeReasonsTest18EE.crt",
+        "onlySomeReasons is not supported, so the status is undetermined",
     ),
     (
-        "InvalidonlySomeReasonsTest17EE.crt",
-        "onlySomeReasons is not supported",
-    ),
-    (
-        "InvalidonlySomeReasonsTest21EE.crt",
-        "onlySomeReasons is not supported",
+        "ValidonlySomeReasonsTest19EE.crt",
+        "onlySomeReasons is not supported, so the status is undetermined",
     ),
     ("InvaliddeltaCRLTest4EE.crt", "delta CRLs are not supported"),
     ("ValiddeltaCRLTest5EE.crt", "delta CRLs are not supported"),
