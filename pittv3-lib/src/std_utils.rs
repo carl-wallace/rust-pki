@@ -835,7 +835,7 @@ fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
             path.intermediates[pos - 1].as_ref()
         };
         for (ids, bytes) in &parsed {
-            if answers_about(ids, cert, issuer) == Some(true) {
+            if answers_about(ids, cert, issuer) {
                 staples.push((pos, (*bytes).clone()));
                 break;
             }

@@ -164,7 +164,7 @@ pub(crate) fn redirect_note(requested: &str, landed: &reqwest::Url) -> Option<St
 /// in log messages. Returns [`Error::LengthError`] if the body exceeds `max_bytes` and
 /// [`Error::NetworkError`] on a transport error mid-stream.
 #[cfg(feature = "remote")]
-pub(crate) async fn read_capped_body(
+pub async fn read_capped_body(
     mut response: reqwest::Response,
     max_bytes: u64,
     label: &str,

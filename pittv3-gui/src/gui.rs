@@ -820,8 +820,11 @@ fn FileRow(
 /// PITTv1/PITTv2-style "Check URIs in certificate" modal dialog: pick a target certificate (and,
 /// optionally, its issuer), optionally auto-discover the issuer from AIA, and see per-URI
 /// reachability and correctness for the AIA, SIA, CRL DP and freshest-CRL extensions.
+///
+/// `settings` is the app's settings file, read when a check starts, so the check fetches under the
+/// same time and size limits a validation run does.
 #[component]
-fn UriCheckView() -> Element {
+fn UriCheckView(settings: Signal<String>) -> Element {
     let s_target = use_signal(String::new);
     let s_issuer = use_signal(String::new);
     let s_auto = use_signal(|| true);
@@ -860,7 +863,9 @@ fn UriCheckView() -> Element {
                     &target_der,
                     issuer_der.as_deref(),
                     auto,
+                    &path_or_none(settings),
                     get_now_as_unix_epoch(),
+                    true,
                     &[],
                 )
                 .await
@@ -2977,7 +2982,7 @@ pub(crate) fn App() -> Element {
                         }
                     },
                     View::CheckUris => rsx! {
-                        UriCheckView {}
+                        UriCheckView { settings: s_settings }
                     },
                     View::Settings => rsx! {
                         // Always shown: settings are app state, not a document you must open

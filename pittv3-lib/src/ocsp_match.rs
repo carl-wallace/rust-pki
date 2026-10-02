@@ -10,11 +10,11 @@
 //! response the user uploaded, and a command line run filing one named on its arguments. Both
 //! reach it through here.
 //!
-//! **The comparison is made by building the request certval would have sent**, rather than by
-//! hashing the issuer here. That makes the match certval's own notion of identity by construction,
-//! and the hash helpers are private to certval anyway. It also means the comparison inherits
-//! certval's SHA-1 `CertID`, so a response built with a different hash algorithm cannot be matched
-//! this way — which callers report rather than swallow, hence [`SHA1_CERT_ID_OID`].
+//! **The comparison is certval's own** ([`certval::cert_id_match`]), the one validation applies to
+//! a response it processes, so a response filed here is one validation will accept as being about
+//! that certificate. It hashes the issuer with the algorithm the response's `CertID` names, SHA-1,
+//! SHA-256, SHA-384 or SHA-512; a `CertID` naming any other cannot be matched, which callers report
+//! (see [`certval::cert_id_hash_algorithm_supported`]).
 #![cfg(feature = "revocation")]
 
 extern crate alloc;
@@ -23,14 +23,10 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use certval::{build_ocsp_request, PDVCertificate, SubjectNameAndKey};
+use certval::{cert_id_match, PDVCertificate, SubjectNameAndKey};
 use der::Decode;
-use x509_cert::certificate::{Profile, Raw};
-use x509_ocsp::{BasicOcspResponse, CertId, OcspRequest, OcspResponse, OcspResponseStatus};
-
-/// The OID of SHA-1, the hash certval builds a `CertID` with. Named so a caller reporting a failed
-/// match can say why a response that is otherwise about the right certificate could not be matched.
-pub const SHA1_CERT_ID_OID: &str = "1.3.14.3.2.26";
+use x509_cert::certificate::Profile;
+use x509_ocsp::{BasicOcspResponse, CertId, OcspResponse, OcspResponseStatus};
 
 /// Reads the `CertID`s an OCSP response reports certificate status for, or says why it reports none.
 ///
@@ -67,40 +63,13 @@ pub fn cert_ids_from_response(bytes: &[u8]) -> Result<Vec<CertId>, String> {
     }
 }
 
-/// The `CertID` a responder would be asked about for `cert` as issued by `issuer`, or `None` when
-/// no request can be built for it.
-///
-/// Decoded under the `Raw` profile because that is the profile certval encoded it with:
-/// `build_ocsp_request` takes the serial straight off a `CertificateInner<Raw>`, and
-/// `SerialNumber<Rfc5280>` enforces a length constraint `Raw` does not. Reading it back as Rfc5280
-/// would therefore fail for a certificate whose serial is longer than the RFC permits, dropping
-/// that certificate from consideration for a reason that has nothing to do with the response.
-pub fn asked_cert_id(cert: &PDVCertificate, issuer: &dyn SubjectNameAndKey) -> Option<CertId<Raw>> {
-    let request = build_ocsp_request(cert.decoded(), issuer, None).ok()?;
-    let request = OcspRequest::<Raw>::from_der(&request).ok()?;
-    let asked = request.tbs_request.request_list.first()?;
-    Some(asked.req_cert.clone())
-}
-
-/// Whether two `CertID`s name the same certificate under the same issuer, compared field by field.
-///
-/// Generic over the profile because the two sides come from different places: the response was
-/// decoded from bytes someone handed us, and the request was built by certval under `Raw`.
-pub fn same_cert_id<A: Profile, B: Profile>(a: &CertId<A>, b: &CertId<B>) -> bool {
-    a.hash_algorithm.oid == b.hash_algorithm.oid
-        && a.issuer_name_hash.as_bytes() == b.issuer_name_hash.as_bytes()
-        && a.issuer_key_hash.as_bytes() == b.issuer_key_hash.as_bytes()
-        && a.serial_number.as_bytes() == b.serial_number.as_bytes()
-}
-
-/// Whether `response`, already read into the `CertID`s it answers about, answers about `cert` as
-/// issued by `issuer`. `None` when no request could be built, which is a different outcome from a
-/// mismatch and one a caller may want to count separately.
+/// Whether a response, already read into the `CertID`s it answers about (`answered`), answers about
+/// `cert` as issued by `issuer`.
 pub fn answers_about<P: Profile>(
     answered: &[CertId<P>],
     cert: &PDVCertificate,
     issuer: &dyn SubjectNameAndKey,
-) -> Option<bool> {
-    let asked = asked_cert_id(cert, issuer)?;
-    Some(answered.iter().any(|id| same_cert_id(id, &asked)))
+) -> bool {
+    let serial = cert.decoded().tbs_certificate().serial_number();
+    answered.iter().any(|id| cert_id_match(id, serial, issuer))
 }
