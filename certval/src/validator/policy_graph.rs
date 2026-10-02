@@ -305,11 +305,12 @@ pub fn check_certificate_policies_graph(
                     if ANY_POLICY == mapping.issuer_domain_policy
                         || ANY_POLICY == mapping.subject_domain_policy
                     {
-                        log_error_for_ca(
-                            ca_cert,
-                            "NULL policy set while processing intermediate CA certificate",
-                        );
-                        return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
+                        log_error_for_ca(ca_cert, "policy mappings extension maps anyPolicy");
+                        cpr.set_validation_status(PathValidationStatus::InvalidPolicyMapping);
+                        cpr.set_failure_index(pos as u32 + 1);
+                        return Err(Error::PathValidation(
+                            PathValidationStatus::InvalidPolicyMapping,
+                        ));
                     } else {
                         mappings
                             .entry(mapping.issuer_domain_policy)

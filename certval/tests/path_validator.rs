@@ -572,3 +572,57 @@ fn target_that_is_a_trust_anchor_records_valid() {
         "acceptance as a trust anchor must be recorded as a status, not only returned"
     );
 }
+
+/// A results object reads `NotYetValidated` until validation records a verdict, and validation
+/// resets it on entry: a path that fails at a check recording no status of its own reads as not
+/// validated, not as the `Valid` an earlier path left in a reused results object.
+#[test]
+fn a_failure_without_its_own_status_reads_as_not_yet_validated() {
+    let der = include_bytes!("examples/PKITS_data_p256/certs/TrustAnchorRootCertificate.crt");
+    let ta = PDVTrustAnchorChoice::try_from(der.as_slice()).unwrap();
+    let mut target =
+        PDVCertificate::try_from(CertificateInner::<Raw>::from_der(der.as_slice()).unwrap())
+            .unwrap();
+    target.parse_extensions(EXTS_OF_INTEREST);
+    let path = CertificationPath::new(ta, CertificateChain::default(), target);
+
+    let mut cps = CertificationPathSettings::default();
+    cps.set_time_of_interest(TimeOfInterest::from_unix_secs(1648039783).unwrap());
+
+    let mut cpr = CertificationPathResults::new();
+    assert_eq!(
+        Some(PathValidationStatus::NotYetValidated),
+        cpr.get_validation_status()
+    );
+
+    // Valid against a store holding the anchor.
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: der.to_vec(),
+    });
+    ta_store.initialize().unwrap();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+    validate_path_rfc5280(&pe, &cps, &path, &mut cpr).unwrap();
+    assert_eq!(
+        Some(PathValidationStatus::Valid),
+        cpr.get_validation_status()
+    );
+
+    // The same results object, against an environment with no anchors: the MissingTrustAnchor
+    // return records no status of its own.
+    let mut empty = PkiEnvironment::default();
+    empty.populate_5280_pki_environment();
+    assert_eq!(
+        Err(Error::PathValidation(
+            PathValidationStatus::MissingTrustAnchor
+        )),
+        validate_path_rfc5280(&empty, &cps, &path, &mut cpr)
+    );
+    assert_eq!(
+        Some(PathValidationStatus::NotYetValidated),
+        cpr.get_validation_status()
+    );
+}

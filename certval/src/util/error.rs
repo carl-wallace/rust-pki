@@ -90,6 +90,13 @@ pub enum PathValidationStatus {
     /// example when a certificate presents a policies-by-mappings graph large enough to exhaust the
     /// policy node pool. It is raised to fail closed rather than allow unbounded resource use.
     ProcessingLimitExceeded,
+    /// InvalidPolicyMapping occurs when a policy mappings extension maps to or from anyPolicy
+    /// (RFC 5280 section 6.1.4 (a)).
+    InvalidPolicyMapping,
+    /// NotYetValidated is the status a [`CertificationPathResults`](crate::CertificationPathResults)
+    /// holds before validation records a verdict. A path whose validation returned an error without
+    /// recording a more specific status also carries it, so it never reads as valid.
+    NotYetValidated,
 }
 
 /// Error type
@@ -203,6 +210,8 @@ impl fmt::Display for PathValidationStatus {
             PathValidationStatus::TrustAnchorConstraintsMismatch => {
                 write!(f, "TrustAnchorConstraintsMismatch")
             }
+            PathValidationStatus::InvalidPolicyMapping => write!(f, "InvalidPolicyMapping"),
+            PathValidationStatus::NotYetValidated => write!(f, "NotYetValidated"),
             PathValidationStatus::ProcessingLimitExceeded => {
                 write!(f, "ProcessingLimitExceeded")
             }
