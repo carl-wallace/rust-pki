@@ -117,8 +117,9 @@ certificate's own extensions cannot be made unbounded by that certificate.
 
 ### Conformance
 
-Measured, not asserted, and both suites run in CI: **x509-limbo** at 99.60% (9,737 cases, 39
-mismatches, confined to the `webpki::` and `rfc5280::` namespaces), and the NIST **PKITS** suite,
+Measured, not asserted, and both suites run in CI: **x509-limbo** at 99.44% (9,802 cases at corpus
+`554528a`, 55 mismatches: issuance-rule and Web PKI checks in `webpki::`, `rfc5280::` and `rfc9881::`,
+and three `crl::` cases on CRLs that break the CRL profile), and the NIST **PKITS** suite,
 sections 4.1–4.14 and 4.16, run in seventeen editions — the original RSA-2048 material, a P-256
 re-issue, and fifteen post-quantum re-issues.
 

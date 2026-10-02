@@ -30,9 +30,10 @@ use x509_cert::{
 };
 
 use certval::{
-    enforce_trust_anchor_constraints, name_constraints_settings_to_name_constraints_set, CertFile,
-    CertSource, CertVector, CertificationPath, CertificationPathResults, CertificationPathSettings,
-    ExtensionProcessing, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
+    check_revocation_local, enforce_trust_anchor_constraints,
+    name_constraints_settings_to_name_constraints_set, CertFile, CertSource, CertVector,
+    CertificationPath, CertificationPathResults, CertificationPathSettings, ExtensionProcessing,
+    MemoryCrlSource, NameConstraintsSettings, PDVCertificate, PDVExtension, PkiEnvironment,
     TaSource, TimeOfInterest,
 };
 
@@ -41,8 +42,8 @@ type Certificate = CertificateInner<Raw>;
 const WEAK_KEY_CHECKS: &[&str] = &[
     "webpki::forbidden-weak-rsa-key-in-root",
     "webpki::forbidden-weak-rsa-in-leaf",
-    "webpki::forbidden-rsa-not-divisable-by-8-in-root",
-    "webpki::forbidden-rsa-key-not-divisable-by-8-in-leaf",
+    "webpki::forbidden-rsa-not-divisible-by-8-in-root",
+    "webpki::forbidden-rsa-key-not-divisible-by-8-in-leaf",
 ];
 
 const BUG: &[&str] = &[];
@@ -52,9 +53,24 @@ const BUG: &[&str] = &[];
 // expects, so they must fail rather than be treated as a known-permissive result.
 const PATHOLOGICAL_CHECKS: &[&str] = &[];
 
-const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &["webpki::san::mismatch-apex-subdomain-san"];
+const UNSUPPORTED_APPLICATION_CHECK: &[&str] = &[
+    "webpki::san::mismatch-apex-subdomain-san",
+    // CABF BR 7.1.4.3, the subject CN must repeat a SAN entry verbatim
+    "webpki::cn::case-mismatch",
+    "webpki::cn::ipv4-hex-mismatch",
+    "webpki::cn::ipv4-leading-zeros-mismatch",
+    "webpki::cn::ipv6-non-rfc5952-mismatch",
+    "webpki::cn::ipv6-uncompressed-mismatch",
+    "webpki::cn::ipv6-uppercase-mismatch",
+    "webpki::cn::punycode-not-in-san",
+    "webpki::cn::utf8-vs-punycode-mismatch",
+];
 
 const LINTER_TESTS: &[&str] = &[
+    // CRL profile rules for the CRL issuer (RFC 5280 5.2.3, CABF servercert#589)
+    "crl::crlnumber-missing",
+    "crl::crlnumber-critical",
+    "crl::structure::crl-duplicate-revoked-serial",
     "rfc5280::aki::critical-aki",
     "rfc5280::aki::leaf-missing-aki",
     "rfc5280::aki::intermediate-missing-aki",
@@ -63,8 +79,12 @@ const LINTER_TESTS: &[&str] = &[
     "rfc5280::nc::permitted-dns-match-noncritical",
     "rfc5280::nc::not-allowed-in-ee-noncritical",
     "rfc5280::nc::not-allowed-in-ee-critical",
+    // GeneralSubtrees is SIZE (1..MAX); an empty list is tolerated and constrains nothing
+    "rfc5280::nc::permitted-empty-sequence-excluded-nonempty",
+    "rfc5280::nc::permitted-nonempty-excluded-empty-sequence",
     "rfc5280::pc::ica-noncritical-pc",
     "rfc5280::san::noncritical-with-empty-subject",
+    "rfc5280::san::underscore-dns",
     "rfc5280::serial::too-long",
     "rfc5280::serial::zero",
     "rfc5280::ski::critical-ski",
@@ -75,6 +95,9 @@ const LINTER_TESTS: &[&str] = &[
     "rfc5280::root-inconsistent-ca-extensions",
     "rfc5280::leaf-ku-keycertsign",
     "rfc5280::duplicate-extensions",
+    // RFC 9881 key usage bits an ML-DSA certificate must not assert
+    "rfc9881::ml-dsa-44-key-encipherment",
+    "rfc9881::ml-dsa-44-key-agreement",
     "webpki::aki::root-with-aki-missing-keyidentifier",
     "webpki::aki::root-with-aki-authoritycertissuer",
     "webpki::aki::root-with-aki-authoritycertserialnumber",
@@ -167,6 +190,12 @@ fn main() {
                 } else {
                     *skipped_rationales.get_mut(&context).unwrap() += 1;
                 }
+            }
+            // Upstream's Python harnesses report a timed-out case as a hang. This harness sets no
+            // timeout, so it never produces one; a hang here would be an unexpected result.
+            ActualResult::Hang => {
+                eprintln!("Test case # {ii} - {:?} reported a hang", tc.id);
+                unexpected += 1;
             }
         }
     }
@@ -401,6 +430,23 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
     cert_store.find_all_partial_paths(&pe, &cps);
     pe.add_certificate_source(Box::new(cert_store.clone()));
 
+    // A testcase that carries CRLs is one about revocation, and those CRLs are the only revocation
+    // data it means to supply. Every other testcase is checked without revocation, since no status
+    // could be determined for it from nothing.
+    cps.set_check_revocation_status(!tc.crls.is_empty());
+    if !tc.crls.is_empty() {
+        let crl_source = MemoryCrlSource::new();
+        for crl in &tc.crls {
+            let Ok(der) = pem::parse(crl) else {
+                return TestcaseResult::fail(tc, "unable to parse CRL PEM");
+            };
+            if !crl_source.add(der.contents()) {
+                return TestcaseResult::fail(tc, "unable to parse CRL");
+            }
+        }
+        pe.add_crl_source(Box::new(crl_source));
+    }
+
     // Parse the target certificate from the Testcase
     let cert = if let Ok(cert) = Certificate::from_pem(tc.peer_certificate.as_bytes()) {
         cert
@@ -434,7 +480,12 @@ fn evaluate_testcase(tc: &Testcase) -> TestcaseResult {
         };
 
         let mut cpr = CertificationPathResults::new();
-        match pe.validate_path(&pe, &mod_cps, path, &mut cpr) {
+        // Revocation is checked from the testcase's CRLs alone: the local check retrieves nothing.
+        let mut r = pe.validate_path(&pe, &mod_cps, path, &mut cpr);
+        if r.is_ok() && mod_cps.get_check_revocation_status() {
+            r = check_revocation_local(&pe, &mod_cps, path, &mut cpr);
+        }
+        match r {
             Ok(()) => match cpr.get_validation_status() {
                 Some(status) => {
                     if certval::PathValidationStatus::Valid == status {
