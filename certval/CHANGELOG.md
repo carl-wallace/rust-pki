@@ -117,8 +117,9 @@ certificate's own extensions cannot be made unbounded by that certificate.
 
 ### Conformance
 
-Measured, not asserted, and both suites run in CI: **x509-limbo** at 99.60% (9,737 cases, 39
-mismatches, confined to the `webpki::` and `rfc5280::` namespaces), and the NIST **PKITS** suite,
+Measured, not asserted, and both suites run in CI: **x509-limbo** at 99.44% (9,802 cases at corpus
+`554528a`, 55 mismatches: issuance-rule and Web PKI checks in `webpki::`, `rfc5280::` and `rfc9881::`,
+and three `crl::` cases on CRLs that break the CRL profile), and the NIST **PKITS** suite,
 sections 4.1–4.14 and 4.16, run in seventeen editions — the original RSA-2048 material, a P-256
 re-issue, and fifteen post-quantum re-issues.
 
@@ -126,6 +127,8 @@ re-issue, and fifteen post-quantum re-issues.
 
 - **Delta CRLs are not supported.** They are not indexed and not considered; a scope requiring one
   fails closed rather than being approximated.
+- **CRLs scoped by `onlySomeReasons` are not used.** Such a CRL is discarded rather than taken as
+  covering every reason, so a certificate only reason-partitioned CRLs cover is undetermined.
 - **FN-DSA is not verified**, pending a FIPS 206 implementation. The identifiers are declared; the
   verification is not.
 - **This is not a TLS verifier.** Web PKI-specific behavior is out of scope by design, which is what

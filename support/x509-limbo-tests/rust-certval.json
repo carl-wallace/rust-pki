@@ -3,9 +3,109 @@
   "harness": "certval",
   "results": [
     {
+      "id": "crl::structure::crl-invalid-signature",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(RevocationStatusNotDetermined)\"]"
+    },
+    {
+      "id": "crl::structure::crl-wrong-signing-key",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(RevocationStatusNotDetermined)\"]"
+    },
+    {
+      "id": "crl::structure::crl-empty",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::structure::crl-very-large",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::structure::crl-duplicate-revoked-serial",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::structure::crl-unknown-critical-extension",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(RevocationStatusNotDetermined)\"]"
+    },
+    {
+      "id": "crl::structure::crl-unknown-noncritical-extension",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::structure::entry-unknown-critical-extension",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(RevocationStatusNotDetermined)\"]"
+    },
+    {
+      "id": "crl::structure::entry-unknown-noncritical-extension",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(CertificateRevokedEndEntity)\"]"
+    },
+    {
+      "id": "crl::revoked-certificate-with-crl",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(CertificateRevokedEndEntity)\"]"
+    },
+    {
+      "id": "crl::crlnumber-missing",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::certificate-not-on-crl",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::certificate-serial-on-crl-different-issuer",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::crlnumber-critical",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::issuer-missing-crlsign",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(RevocationStatusNotDetermined)\"]"
+    },
+    {
+      "id": "crl::issuer-no-keyusage-extension",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "crl::issuer-valid-crlsign-and-keycertsign",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
       "id": "cve::cve-2024-0567",
       "actual_result": "SUCCESS",
       "context": null
+    },
+    {
+      "id": "cve::cve-2025-61727",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
+    },
+    {
+      "id": "cve::cve-2025-61727-nc-permits-variant",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "invalid::invalid-issuer-key",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
     },
     {
       "id": "pathlen::ee-with-intermediate-pathlen-0",
@@ -108,6 +208,26 @@
       "context": "peer name check failed because SAN was absent"
     },
     {
+      "id": "pathological::pathological-chain-distinct-subject-distinct-key",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "pathological::pathological-chain-same-subject-distinct-key",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "pathological::pathological-chain-distinct-subject-same-key",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "pathological::pathological-chain-same-subject-same-key",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
       "id": "rfc5280::aki::critical-aki",
       "actual_result": "FAILURE",
       "context": "TA constraint processing failed"
@@ -141,6 +261,11 @@
       "id": "rfc5280::eku::ee-without-eku",
       "actual_result": "SUCCESS",
       "context": null
+    },
+    {
+      "id": "rfc5280::eku::ee-eku-empty",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(InvalidKeyUsage)\"]"
     },
     {
       "id": "rfc5280::nc::permitted-dns-mismatch",
@@ -236,6 +361,21 @@
       "id": "rfc5280::nc::excluded-match-permitted-and-excluded",
       "actual_result": "FAILURE",
       "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::permitted-empty-sequence-excluded-nonempty",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::nc::permitted-nonempty-excluded-nonempty",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::nc::permitted-nonempty-excluded-empty-sequence",
+      "actual_result": "SUCCESS",
+      "context": null
     },
     {
       "id": "rfc5280::nc::permitted-different-constraint-type",
@@ -338,6 +478,56 @@
       "context": null
     },
     {
+      "id": "rfc5280::nc::nc-permits-email-domain-rejects-subdomain",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-subdomains-rejects-apex",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-asterisk-exact-match",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-asterisk-rejects-user",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-asterisk-rejects-subdomain",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-double-asterisk",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-double-asterisk-rejects-single",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-email-literal-mid-asterisk",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-uri-host-rejects-subdomain",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
+      "id": "rfc5280::nc::nc-permits-uri-subdomains-rejects-apex",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
+    },
+    {
       "id": "rfc5280::nc::nc-forbids-othername",
       "actual_result": "FAILURE",
       "context": "[]: [\"validate_path failed with PathValidation(NameConstraintsViolation)\"]"
@@ -346,6 +536,11 @@
       "id": "rfc5280::nc::nc-forbids-othername-noop",
       "actual_result": "SUCCESS",
       "context": null
+    },
+    {
+      "id": "rfc5280::nc::nc-forbids-dnsname-wildcard-san",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
     },
     {
       "id": "rfc5280::pc::ica-noncritical-pc",
@@ -361,6 +556,16 @@
       "id": "rfc5280::san::noncritical-with-empty-subject",
       "actual_result": "SUCCESS",
       "context": null
+    },
+    {
+      "id": "rfc5280::san::underscore-dns",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::san::ip-in-dns",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
     },
     {
       "id": "rfc5280::serial::too-long",
@@ -428,6 +633,26 @@
       "context": null
     },
     {
+      "id": "rfc5280::validity::expired-1-second",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "rfc5280::validity::expired-5-seconds",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "rfc5280::validity::not-yet-valid-1-second",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
+      "id": "rfc5280::validity::not-yet-valid-5-seconds",
+      "actual_result": "FAILURE",
+      "context": "[]: []"
+    },
+    {
       "id": "rfc5280::ee-empty-issuer",
       "actual_result": "FAILURE",
       "context": "[]: [\"validate_path failed with PathValidation(NameChainingFailure)\"]"
@@ -446,6 +671,16 @@
       "id": "rfc5280::unknown-critical-extension-root",
       "actual_result": "FAILURE",
       "context": "TA constraint processing failed"
+    },
+    {
+      "id": "rfc5280::unknown-critical-extension-unrelated-root",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc5280::unknown-critical-extension-unrelated-intermediate",
+      "actual_result": "SUCCESS",
+      "context": null
     },
     {
       "id": "rfc5280::unknown-critical-extension-intermediate",
@@ -538,6 +773,36 @@
       "context": null
     },
     {
+      "id": "rfc9881::ml-dsa-44",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc9881::ml-dsa-65",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc9881::ml-dsa-87",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc9881::ml-dsa-44-bad-signature",
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(SignatureVerificationFailure)\"]"
+    },
+    {
+      "id": "rfc9881::ml-dsa-44-key-encipherment",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "rfc9881::ml-dsa-44-key-agreement",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
       "id": "webpki::aki::root-with-aki-missing-keyidentifier",
       "actual_result": "SUCCESS",
       "context": null
@@ -559,6 +824,51 @@
     },
     {
       "id": "webpki::aki::root-with-aki-ski-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::ipv4-hex-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::ipv4-leading-zeros-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::ipv6-uppercase-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::ipv6-uncompressed-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::ipv6-non-rfc5952-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::punycode-not-in-san",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::utf8-vs-punycode-mismatch",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
+      "id": "webpki::cn::not-in-san",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
+    },
+    {
+      "id": "webpki::cn::case-mismatch",
       "actual_result": "SUCCESS",
       "context": null
     },
@@ -598,6 +908,11 @@
       "context": null
     },
     {
+      "id": "webpki::nc::nc-permits-dns-san-pattern",
+      "actual_result": "SUCCESS",
+      "context": null
+    },
+    {
       "id": "webpki::san::exact-dns-san",
       "actual_result": "SUCCESS",
       "context": null
@@ -629,6 +944,16 @@
     },
     {
       "id": "webpki::san::public-suffix-wildcard-san",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
+    },
+    {
+      "id": "webpki::san::public-suffix-multi-label-wildcard-san",
+      "actual_result": "FAILURE",
+      "context": "peer name check failed"
+    },
+    {
+      "id": "webpki::san::public-suffix-private-namespace-wildcard-san",
       "actual_result": "FAILURE",
       "context": "peer name check failed"
     },
@@ -733,12 +1058,12 @@
       "context": null
     },
     {
-      "id": "webpki::forbidden-rsa-not-divisable-by-8-in-root",
+      "id": "webpki::forbidden-rsa-not-divisible-by-8-in-root",
       "actual_result": "SUCCESS",
       "context": null
     },
     {
-      "id": "webpki::forbidden-rsa-key-not-divisable-by-8-in-leaf",
+      "id": "webpki::forbidden-rsa-key-not-divisible-by-8-in-leaf",
       "actual_result": "SUCCESS",
       "context": null
     },

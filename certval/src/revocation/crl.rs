@@ -1,5 +1,5 @@
 //! Structures and functions to perform CRL processing client functionality (minus support for delta CRLs,
-//! indirect CRLs, on hold, and nameRelativeToIssuer distribution points)
+//! indirect CRLs, CRLs scoped by onlySomeReasons, on hold, and nameRelativeToIssuer distribution points)
 
 extern crate alloc;
 use alloc::{
@@ -897,6 +897,14 @@ pub(crate) fn crl_covers_cert(target_cert: &PDVCertificate, crl_info: &CrlInfo) 
         .copied()
         .unwrap_or(false);
     if !scope_ok || !coverage_ok {
+        return Err(Error::CrlIncompatible);
+    }
+
+    // A CRL scoped by onlySomeReasons cannot establish that a certificate is not revoked: a
+    // revocation for any other reason is listed on a CRL it does not cover, and coverage is not
+    // accumulated across CRLs (RFC 5280 6.3.3 reasons_mask). Such a CRL is discarded, so the status
+    // stays undetermined unless a CRL covering all reasons answers it.
+    if CrlReasons::SomeReasons == crl_info.type_info.reasons {
         return Err(Error::CrlIncompatible);
     }
 

@@ -34,6 +34,8 @@ Each fails closed and, at present, there are no plans to add support for any of 
 
 - **Delta CRLs.** Neither indexed nor considered; a scope that requires one fails rather than
   falling back to the base CRL.
+- **CRLs scoped by `onlySomeReasons`.** Coverage is not accumulated across reason-partitioned
+  CRLs, so such a CRL is discarded and a certificate it alone would cover is left undetermined.
 - **CRLs verified by any key other than the one that verifies the certificate.** Designated CRL
   signing certificates, indirect CRLs (`Error::UnsupportedIndirectCrl`) and CA key rollover
   certificates all fall under this.
@@ -66,12 +68,17 @@ The implementation contained in this crate has never been independently audited.
 
 It has been tested against the following test suites, both of which run in CI:
 
-- **x509-limbo** — 9,737 cases, of which 9,698 reach the expected result: **99.60%**. The 39
-  mismatches fall in two namespaces, `webpki::` (22) and `rfc5280::` (17); every other namespace is
-  clean, `cve::` included. The `webpki::` cases are Web PKI-specific behavior this crate does not
-  implement, being a path validator rather than a TLS verifier; the `rfc5280::` ones remain to be
-  triaged. The harness is `support/x509-limbo-tests`, and CI regenerates its results file and fails
-  on any diff, so a change in conformance cannot land unremarked.
+- **x509-limbo** — corpus at `554528a` (2026-09-23): 9,802 cases, of which 9,747 reach the
+  expected result: **99.44%**. Every one of the 55 mismatches is a certificate the corpus rejects
+  and this crate accepts. 52 are `webpki::` (30), `rfc5280::` (20) and `rfc9881::` (2) cases
+  enforcing a rule for issuers rather than for path validation, such as a missing key identifier, a
+  zero serial number or a key usage bit an ML-DSA key may not assert, or a Web PKI check such as the
+  subject CN repeating a SAN entry; this crate is a path validator rather than a TLS verifier or a
+  linter. The other 3 are `crl::` cases where this crate relies on a CRL that breaks the CRL
+  profile, by omitting `CRLNumber`, marking it critical or listing a serial number twice, rather
+  than leaving the status undetermined. Every other namespace is clean, `cve::` and
+  `pathological::` included. The harness is `support/x509-limbo-tests`, and CI regenerates its
+  results file and fails on any diff, so a change in conformance cannot land unremarked.
 - **NIST PKITS** — sections 4.1 through 4.14 and 4.16, in seventeen editions: the original RSA-2048
   material, a P-256 re-issue, and fifteen post-quantum re-issues (ML-DSA-44/65/87 and twelve SLH-DSA
   parameter sets). Editions that carry no CRLs skip the revocation cases (§4.4, plus seven named
