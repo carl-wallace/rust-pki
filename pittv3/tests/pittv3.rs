@@ -1739,6 +1739,151 @@ fn generate_then_validate_with_tls_eku() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+/// PKITS default-group targets whose outcome in this run differs from the one PKITS expects, each
+/// with the reason. certval's own suite (`certval/tests/pkits.rs`) skips the same cases, or for the
+/// CRLs signed by another key of the issuer runs them without revocation checking, which this
+/// group cannot do per target. The two self-issued pathLen tests are the exception: certval
+/// validates them from a supplied chain, but the path builder does not build their path (see
+/// `cert_source.rs`, RFC 4158 section 3.5.7).
+#[cfg(feature = "rsa")]
+const PKITS_DEFAULT_EXCLUDED: &[(&str, &str)] = &[
+    ("ValidDSASignaturesTest4EE.crt", "DSA is not supported"),
+    (
+        "ValidDSAParameterInheritanceTest5EE.crt",
+        "DSA is not supported",
+    ),
+    (
+        "Validpre2000UTCnotBeforeDateTest3EE.crt",
+        "pre-2000 UTCTime notBefore",
+    ),
+    (
+        "ValidSelfIssuedpathLenConstraintTest15EE.crt",
+        "builder does not extend an exhausted pathLen",
+    ),
+    (
+        "ValidSelfIssuedpathLenConstraintTest17EE.crt",
+        "builder does not extend an exhausted pathLen",
+    ),
+    (
+        "ValiddistributionPointTest4EE.crt",
+        "distribution point scoping",
+    ),
+    (
+        "ValiddistributionPointTest5EE.crt",
+        "distribution point scoping",
+    ),
+    (
+        "ValiddistributionPointTest7EE.crt",
+        "distribution point scoping",
+    ),
+    (
+        "ValidcRLIssuerTest28EE.crt",
+        "indirect CRLs are not supported",
+    ),
+    (
+        "ValidcRLIssuerTest29EE.crt",
+        "indirect CRLs are not supported",
+    ),
+    (
+        "ValidcRLIssuerTest33EE.crt",
+        "indirect CRLs are not supported",
+    ),
+    (
+        "ValidIDPwithindirectCRLTest24EE.crt",
+        "indirect CRLs are not supported",
+    ),
+    (
+        "ValidIDPwithindirectCRLTest25EE.crt",
+        "indirect CRLs are not supported",
+    ),
+    (
+        "InvalidonlySomeReasonsTest16EE.crt",
+        "onlySomeReasons is not supported",
+    ),
+    (
+        "InvalidonlySomeReasonsTest17EE.crt",
+        "onlySomeReasons is not supported",
+    ),
+    (
+        "InvalidonlySomeReasonsTest21EE.crt",
+        "onlySomeReasons is not supported",
+    ),
+    ("InvaliddeltaCRLTest4EE.crt", "delta CRLs are not supported"),
+    ("ValiddeltaCRLTest5EE.crt", "delta CRLs are not supported"),
+    (
+        "ValidSeparateCertificateandCRLKeysTest19EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidBasicSelfIssuedCRLSigningKeyTest6EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidBasicSelfIssuedNewWithOldTest4EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidBasicSelfIssuedOldWithNewTest1EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidSelfIssuedinhibitAnyPolicyTest7EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidSelfIssuedinhibitAnyPolicyTest9EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidSelfIssuedinhibitPolicyMappingTest7EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidSelfIssuedrequireExplicitPolicyTest6EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+    (
+        "ValidDNnameConstraintsTest19EE.crt",
+        "CRL signed by another key of the issuer (key rollover, separate CRL key)",
+    ),
+];
+
+/// Reads each target's outcome from a run's output: the file name from its "Stats for" line, and
+/// whether its "Valid paths found" count is above zero.
+#[cfg(feature = "rsa")]
+fn pkits_outcomes(stdout: &str) -> std::collections::BTreeMap<String, bool> {
+    let mut outcomes = std::collections::BTreeMap::new();
+    let mut current: Option<String> = None;
+    for line in stdout.lines() {
+        if let Some(path) = line.strip_prefix("Stats for ") {
+            current = Path::new(path.trim())
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned());
+        } else if let Some(count) = line.trim().strip_prefix("* Valid paths found: ") {
+            if let Some(name) = current.take() {
+                outcomes.insert(name, count.trim() != "0");
+            }
+        }
+    }
+    outcomes
+}
+
+/// The certificates `good.txt` or `bad.txt` lists under `label`.
+#[cfg(feature = "rsa")]
+fn pkits_listed(list: &str, label: &str) -> std::collections::BTreeSet<String> {
+    let prefix = format!("{label}: ");
+    fs::read_to_string(format!("tests/examples/SeparatedPKITS/{list}"))
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.strip_prefix(&prefix))
+        .map(|n| n.trim().to_string())
+        .collect()
+}
+
+/// Runs each PKITS settings group over its folder and checks every target's outcome against
+/// `good.txt` and `bad.txt`, apart from the default-group cases in [`PKITS_DEFAULT_EXCLUDED`].
+/// The default group is the one run in which a CRL found by indexing `--crl-folder` decides a
+/// verdict.
 #[cfg(feature = "rsa")]
 #[test]
 fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
@@ -1747,143 +1892,81 @@ fn pittv3_pkits() -> Result<(), Box<dyn std::error::Error>> {
     let results_path = temp_dir.path().join("pkits_results");
     fs::create_dir(&results_path)?;
 
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings1.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/1");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found: 2"));
+    let mut groups: Vec<(String, String, String)> = (1..=10)
+        .map(|n| {
+            (
+                n.to_string(),
+                format!("settings{n}.json"),
+                format!("Policy {n}"),
+            )
+        })
+        .collect();
+    groups.push(("default".into(), "default.json".into(), "Default".into()));
+
+    for (folder, settings, label) in &groups {
+        let output = Command::new(cargo::cargo_bin!())
+            .arg("--cbor")
+            .arg("tests/examples/pkits.cbor")
+            .arg("-t")
+            .arg("tests/examples/pkits_ta_store")
+            .arg("--crl-folder")
+            .arg("tests/examples/pkits_crls")
+            .arg("-r")
+            .arg(results_path.to_str().unwrap())
+            .arg("-s")
+            .arg(format!("tests/examples/pkits_settings/{settings}"))
+            .arg("-f")
+            .arg(format!("tests/examples/SeparatedPKITS/{folder}"))
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{label}: pittv3 exited with {}",
+            output.status
+        );
+        let outcomes = pkits_outcomes(&String::from_utf8_lossy(&output.stdout));
+
+        let good = pkits_listed("good.txt", label);
+        let bad = pkits_listed("bad.txt", label);
+        let on_disk: std::collections::BTreeSet<String> =
+            fs::read_dir(format!("tests/examples/SeparatedPKITS/{folder}"))?
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+        let listed: std::collections::BTreeSet<String> = good.union(&bad).cloned().collect();
+        assert_eq!(
+            listed, on_disk,
+            "{label}: the lists and the folder disagree"
+        );
+        assert_eq!(
+            outcomes
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+            on_disk,
+            "{label}: not every target was reported"
+        );
+
+        let excluded = |name: &str| {
+            label == "Default" && PKITS_DEFAULT_EXCLUDED.iter().any(|(n, _)| *n == name)
+        };
+        let wrong: Vec<String> = outcomes
+            .iter()
+            .filter(|(name, valid)| !excluded(name) && **valid != good.contains(*name))
+            .map(|(name, valid)| format!("{name} ({})", if *valid { "valid" } else { "invalid" }))
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "{label}: outcomes differ from PKITS: {wrong:?}"
+        );
     }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings2.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/2");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found: 1"));
+    for (name, _) in PKITS_DEFAULT_EXCLUDED {
+        assert!(
+            Path::new("tests/examples/SeparatedPKITS/default")
+                .join(name)
+                .exists(),
+            "{name} is excluded but not in the default group"
+        );
     }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings3.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/3");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total invalid paths found: 1"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings4.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/4");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total invalid paths found: 1"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings5.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/5");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found: 10"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings6.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/6");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found: 5"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings7.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/7");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found: 1"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings8.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/8");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total invalid paths found: 2"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings9.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/9");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total invalid paths found: 2"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/settings10.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/10");
-        cmd.assert()
-            .stdout(predicate::str::contains("Total invalid paths found: 1"));
-    }
-    {
-        let mut cmd = Command::new(cargo::cargo_bin!());
-        cmd.arg("--cbor").arg("tests/examples/pkits.cbor");
-        cmd.arg("-t").arg("tests/examples/pkits_ta_store");
-        cmd.arg("--crl-folder").arg("tests/examples/pkits_crls");
-        cmd.arg("-r").arg(results_path.to_str().unwrap());
-        cmd.arg("-s")
-            .arg("tests/examples/pkits_settings/default.json");
-        cmd.arg("-f").arg("tests/examples/SeparatedPKITS/default");
-        // The intended valid/invalid split for the `default` target set isn't pinned yet (see the
-        // TODO below — default.json currently reports every target invalid), so assert the run at
-        // least reaches its summary line rather than discarding the outcome entirely, which would
-        // green over a mid-run panic.
-        cmd.assert()
-            .stdout(predicate::str::contains("Total valid paths found:"));
-        // TODO remove targets that do not apply and get right number of valid/invalid
-    }
+
     fs::remove_dir_all(&results_path).unwrap();
     Ok(())
 }
