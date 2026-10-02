@@ -944,8 +944,8 @@ impl CertSource {
     /// Two kinds of stored path are declined rather than returned, both reported through `log` at
     /// error level because each describes a store that is not what it claims: one naming no
     /// certificates, and one whose leaf CA carries the target's issuer key identifier under a
-    /// different name. The second abandons the rest of that key's paths, since a key identifier
-    /// shared across names makes the remainder no more trustworthy than the one that failed.
+    /// different name. Each path is judged on its own, as [`CertificateSource::get_paths_for_target`]
+    /// judges them, so the rows are the paths the builder would try.
     pub fn paths_for_target(
         &self,
         target: &PDVCertificate,
@@ -996,7 +996,7 @@ impl CertSource {
                 }
                 if mismatched {
                     error!( "Encountered CA that is likely using same SKID with different names. Skipping partial path due to name mismatch.");
-                    break;
+                    continue;
                 }
 
                 rows.push(self.path_row(&key, v));

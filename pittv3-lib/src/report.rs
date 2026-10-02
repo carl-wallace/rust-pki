@@ -286,8 +286,12 @@ impl PathReport {
         let mut failure_reasons = vec![];
         let path_failed = error.is_some();
         if path_failed {
+            // NotYetValidated says only that no more specific status was recorded; the error
+            // below names the reason.
             if let Some(status) = status {
-                if status != PathValidationStatus::Valid {
+                if status != PathValidationStatus::Valid
+                    && status != PathValidationStatus::NotYetValidated
+                {
                     failure_reasons.push(format!("{status:?}"));
                 }
             }

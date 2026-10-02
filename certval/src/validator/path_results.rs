@@ -75,13 +75,22 @@ pub enum RevocationSource {
 /// `CertificationPathResults` is a typedef for a `BTreeMap` that maps arbitrary string values to a
 /// variant map. At present, it is the same as CertificationPathSettings (and so macros to generate
 /// getters and setters are reused).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CertificationPathResults(pub BTreeMap<&'static str, CertificationPathResultsTypes>);
 
 impl CertificationPathResults {
-    /// Creates a new [`CertificationPathResults`]
+    /// Creates a new [`CertificationPathResults`], whose validation status is
+    /// [`PathValidationStatus::NotYetValidated`].
     pub fn new() -> Self {
-        Self(Default::default())
+        let mut cpr = Self(BTreeMap::new());
+        cpr.set_validation_status(PathValidationStatus::NotYetValidated);
+        cpr
+    }
+}
+
+impl Default for CertificationPathResults {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

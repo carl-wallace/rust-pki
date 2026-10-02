@@ -415,15 +415,15 @@ impl NameConstraintsSet {
                             return false;
                         }
                     }
-                    GeneralName::OtherName(_) => {
-                        // otherName SANs are unsupported; any otherName name constraint excludes them
-                        for ns in &self.not_supported {
-                            if let GeneralName::OtherName(_) = ns.base {
-                                return false;
-                            }
+                    GeneralName::OtherName(_)
+                    | GeneralName::EdiPartyName(_)
+                    | GeneralName::RegisteredId(_) => {
+                        // These forms are not processed, so a constraint of the same form rejects
+                        // the name (RFC 5280 section 4.2.1.10).
+                        if self.has_unsupported_constraint_for(subtree_san) {
+                            return false;
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -600,15 +600,15 @@ impl NameConstraintsSet {
                             }
                         }
                     }
-                    GeneralName::OtherName(_) => {
-                        // otherName SANs are unsupported; any otherName name constraint excludes them
-                        for ns in &self.not_supported {
-                            if let GeneralName::OtherName(_) = ns.base {
-                                return true;
-                            }
+                    GeneralName::OtherName(_)
+                    | GeneralName::EdiPartyName(_)
+                    | GeneralName::RegisteredId(_) => {
+                        // These forms are not processed, so a constraint of the same form excludes
+                        // the name (RFC 5280 section 4.2.1.10).
+                        if self.has_unsupported_constraint_for(subtree_san) {
+                            return true;
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -618,6 +618,16 @@ impl NameConstraintsSet {
     //----------------------------------------------------------------------------
     // private
     //----------------------------------------------------------------------------
+    /// Whether a constraint of the same name form as `name` is held among the forms this set does
+    /// not process (otherName, ediPartyName, registeredID). x509-cert has no x400Address variant, so a
+    /// certificate carrying one fails to decode before it reaches name constraints processing.
+    fn has_unsupported_constraint_for(&self, name: &GeneralName) -> bool {
+        let form = core::mem::discriminant(name);
+        self.not_supported
+            .iter()
+            .any(|ns| core::mem::discriminant(&ns.base) == form)
+    }
+
     fn calculate_intersection_rfc822(&mut self, new_names: &GeneralSubtrees) {
         if self.rfc822_name_null || !has_rfc822(new_names) {
             // nothing to intersect (either state has become NULL or there are no names to add)
@@ -1777,4 +1787,45 @@ fn rfc822_intersection_of_domain_and_host_keeps_the_host() {
         result.rfc822_name,
         Some(vec!["mail.forces.gc.ca".to_string()])
     );
+}
+
+// A name form these sets do not process is rejected when a constraint of the same form is
+// present, in permitted and excluded subtrees alike, and only by a constraint of that form.
+#[test]
+fn an_unprocessed_name_form_is_rejected_only_by_a_constraint_of_its_own_form() {
+    use der::asn1::Null;
+    use der::Any;
+    use x509_cert::ext::pkix::constraints::name::GeneralSubtree;
+    use x509_cert::ext::pkix::name::OtherName;
+    use x509_cert::ext::pkix::SubjectAltName;
+
+    let subtree = |base: GeneralName| GeneralSubtree {
+        base,
+        minimum: 0,
+        maximum: None,
+    };
+    let registered_id = GeneralName::RegisteredId(ObjectIdentifier::new_unwrap("1.2.3.4"));
+    let other_name = GeneralName::OtherName(OtherName {
+        type_id: ObjectIdentifier::new_unwrap("1.2.3.5"),
+        value: Any::encode_from(&Null).unwrap(),
+    });
+    let san = SubjectAltName(vec![GeneralName::RegisteredId(
+        ObjectIdentifier::new_unwrap("1.2.3.6"),
+    )]);
+
+    // permitted: a registeredID constraint rejects a registeredID name; an otherName one does not
+    let mut permitted = NameConstraintsSet::default();
+    permitted.calculate_intersection(&vec![subtree(registered_id.clone())]);
+    assert!(!permitted.san_within_permitted_subtrees(&Some(&san)));
+    let mut permitted = NameConstraintsSet::default();
+    permitted.calculate_intersection(&vec![subtree(other_name.clone())]);
+    assert!(permitted.san_within_permitted_subtrees(&Some(&san)));
+
+    // excluded: the same, the other way around
+    let mut excluded = NameConstraintsSet::default();
+    excluded.calculate_union(&vec![subtree(registered_id)]);
+    assert!(excluded.san_within_excluded_subtrees(&Some(&san)));
+    let mut excluded = NameConstraintsSet::default();
+    excluded.calculate_union(&vec![subtree(other_name)]);
+    assert!(!excluded.san_within_excluded_subtrees(&Some(&san)));
 }

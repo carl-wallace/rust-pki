@@ -305,11 +305,12 @@ pub fn check_certificate_policies_graph(
                     if ANY_POLICY == mapping.issuer_domain_policy
                         || ANY_POLICY == mapping.subject_domain_policy
                     {
-                        log_error_for_ca(
-                            ca_cert,
-                            "NULL policy set while processing intermediate CA certificate",
-                        );
-                        return Err(Error::PathValidation(PathValidationStatus::NullPolicySet));
+                        log_error_for_ca(ca_cert, "policy mappings extension maps anyPolicy");
+                        cpr.set_validation_status(PathValidationStatus::InvalidPolicyMapping);
+                        cpr.set_failure_index(pos as u32 + 1);
+                        return Err(Error::PathValidation(
+                            PathValidationStatus::InvalidPolicyMapping,
+                        ));
                     } else {
                         mappings
                             .entry(mapping.issuer_domain_policy)
@@ -365,16 +366,20 @@ pub fn check_certificate_policies_graph(
                     //       subjectDomainPolicy values that are specified as
                     //       equivalent to ID-P by the policy mappings extension.
                     if !mappings.is_empty() {
-                        if let Some(parent_index) = ap {
+                        if let Some(ap_index) = ap {
                             let mut nodes_to_add = vec![];
-                            let parent = &pm[parent_index];
+                            // The qualifiers come from the depth i anyPolicy node; the parent is
+                            // that node's own parent, the depth i-1 anyPolicy node.
+                            let any_policy_node = &pm[ap_index];
+                            let parent_index =
+                                any_policy_node.parent.as_ref().map(|p| p.borrow()[0]);
                             for m in mappings {
                                 let new_node = make_new_policy_node(
                                     m.0,
-                                    &parent.qualifier_set,
+                                    &any_policy_node.qualifier_set,
                                     m.1.clone(),
                                     row as u8,
-                                    &Some(parent_index),
+                                    &parent_index,
                                 )?;
                                 nodes_to_add.push(new_node);
                             }
@@ -487,12 +492,6 @@ pub fn check_certificate_policies_graph(
                     &mut valid_policy_graph,
                 );
 
-                //4.  If there is a node in the valid_policy_tree of depth
-                //n-1 or less without any child nodes, delete that node.
-                //Repeat this step until there are no nodes of depth n-1
-                //or less without children.
-                prune_childless_nodes(pm, &mut valid_policy_graph, i - 1);
-
                 // 3.  If the valid_policy_tree includes a node of depth n
                 //     with the valid_policy anyPolicy and the user-initial-
                 //     policy-set is not any-policy, perform the following
@@ -542,7 +541,7 @@ pub fn check_certificate_policies_graph(
                             )?;
                             nodes_to_add.push(new_node);
                         }
-                        valid_policy_graph[row].retain(|x| *x != parent_index);
+                        delete_nodes_with_policy(pm, &mut valid_policy_graph[row], ANY_POLICY);
                     }
                 }
 
@@ -556,6 +555,12 @@ pub fn check_certificate_policies_graph(
                     }
                     valid_policy_graph[row].push(node_index);
                 }
+
+                //4.  If there is a node in the valid_policy_tree of depth
+                //n-1 or less without any child nodes, delete that node.
+                //Repeat this step until there are no nodes of depth n-1
+                //or less without children.
+                prune_childless_nodes(pm, &mut valid_policy_graph, i - 1);
 
                 if valid_policy_graph[row].is_empty() {
                     valid_policy_graph_is_null = true;

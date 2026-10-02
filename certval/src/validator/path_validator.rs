@@ -73,6 +73,9 @@ pub fn validate_path_rfc5280(
     cp: &CertificationPath,
     cpr: &mut CertificationPathResults,
 ) -> Result<()> {
+    // Until a check below records a verdict, this path has none, including a path that a results
+    // object reused from an earlier validation last recorded as valid.
+    cpr.set_validation_status(PathValidationStatus::NotYetValidated);
     check_validity(pe, cps, cp, cpr)?;
     if cps.get_require_ta_store() {
         if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {

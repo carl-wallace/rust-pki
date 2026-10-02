@@ -627,26 +627,28 @@ impl PkiEnvironment {
         self.certificate_sources.clear();
     }
 
-    /// gives all the intermediate certificates
+    /// gives all the intermediate certificates, gathered from every certificate source, as
+    /// [`get_cert_by_name`](Self::get_cert_by_name) does. `Err` only when no source answered.
     pub fn get_intermediates(&self) -> Result<Vec<&PDVCertificate>> {
+        let mut found: Option<Vec<&PDVCertificate>> = None;
         for f in &self.certificate_sources {
-            let r = f.get_certificates();
-            if let Ok(r) = r {
-                return Ok(r);
+            if let Ok(mut r) = f.get_certificates() {
+                found.get_or_insert_with(Vec::new).append(&mut r);
             }
         }
-        Err(Error::Unrecognized)
+        found.ok_or(Error::Unrecognized)
     }
 
-    /// Fetches all intermediate certs matching a particular skid
+    /// Fetches all intermediate certs matching a particular skid, gathered from every certificate
+    /// source. `Err` only when no source answered.
     pub fn get_intermediates_by_skid(&self, skid: &[u8]) -> Result<Vec<&PDVCertificate>> {
+        let mut found: Option<Vec<&PDVCertificate>> = None;
         for f in &self.certificate_sources {
-            let r = f.get_certificates_for_skid(skid);
-            if let Ok(r) = r {
-                return Ok(r);
+            if let Ok(mut r) = f.get_certificates_for_skid(skid) {
+                found.get_or_insert_with(Vec::new).append(&mut r);
             }
         }
-        Err(Error::Unrecognized)
+        found.ok_or(Error::Unrecognized)
     }
 
     /// add_crl_source adds a [`CrlSource`] object to the list.
