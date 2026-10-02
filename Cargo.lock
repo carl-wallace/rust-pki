@@ -810,7 +810,7 @@ dependencies = [
  "p521",
  "pem-rfc7468",
  "pkcs1",
- "pkiprocmacros 0.1.2",
+ "pkiprocmacros",
  "pretty_env_logger",
  "readonly",
  "reqwest 0.13.4",
@@ -837,44 +837,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "certval"
-version = "0.2.0-pre"
-source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#76bb838efd8ae637b0bc6f21c440d3aa63e27f4f"
-dependencies = [
- "base64ct",
- "cfg-if",
- "ciborium",
- "cidr",
- "cms",
- "const-oid",
- "der",
- "ecdsa",
- "flagset",
- "hex-literal",
- "log",
- "p256",
- "p384",
- "p521",
- "pem-rfc7468",
- "pkiprocmacros 0.1.2 (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
- "readonly",
- "serde",
- "sha1 0.11.0",
- "sha2 0.11.0",
- "signature",
- "spin",
- "spki",
- "subtle-encoding",
- "x509-cert",
- "x509-ocsp",
-]
-
-[[package]]
 name = "certval_stores_core"
 version = "0.1.0"
 source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#1ce28d0ee2f508f316e88b614e9b89d6f3402b14"
 dependencies = [
- "certval 0.2.0-pre (git+https://github.com/carl-wallace/rust-pki.git?branch=main)",
+ "certval",
  "log",
 ]
 
@@ -984,9 +951,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chacha20"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -5099,7 +5066,7 @@ dependencies = [
 name = "pittv3-capi"
 version = "0.2.0-pre.2"
 dependencies = [
- "certval 0.2.0-pre",
+ "certval",
  "der",
  "log",
  "pittv3-lib",
@@ -5112,7 +5079,7 @@ name = "pittv3-gui"
 version = "0.2.0-pre.2"
 dependencies = [
  "anyhow",
- "certval 0.2.0-pre",
+ "certval",
  "certval_stores_core",
  "certval_stores_eca",
  "certval_stores_fpki",
@@ -5147,7 +5114,7 @@ version = "0.2.0-pre.2"
 dependencies = [
  "anyhow",
  "base64ct",
- "certval 0.2.0-pre",
+ "certval",
  "clap",
  "cms",
  "der",
@@ -5172,7 +5139,7 @@ version = "0.2.0-pre.2"
 dependencies = [
  "base64ct",
  "bytes",
- "certval 0.2.0-pre",
+ "certval",
  "ciborium",
  "clap",
  "cms",
@@ -5219,7 +5186,7 @@ dependencies = [
  "actix-web",
  "base64",
  "bytes",
- "certval 0.2.0-pre",
+ "certval",
  "certval_stores_core",
  "certval_stores_fpki",
  "certval_stores_mozilla",
@@ -5242,7 +5209,7 @@ name = "pittv3-wasm"
 version = "0.2.0-pre.2"
 dependencies = [
  "base64",
- "certval 0.2.0-pre",
+ "certval",
  "certval_stores_core",
  "certval_stores_eca",
  "certval_stores_mozilla",
@@ -5297,15 +5264,6 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 [[package]]
 name = "pkiprocmacros"
 version = "0.1.2"
-dependencies = [
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "pkiprocmacros"
-version = "0.1.2"
-source = "git+https://github.com/carl-wallace/rust-pki.git?branch=main#76bb838efd8ae637b0bc6f21c440d3aa63e27f4f"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -8494,13 +8452,14 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
 name = "wnaf"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab12e7090f27e2ffd9322651492942d50c2926094af30601e1964337db39daf1"
+checksum = "795ca18b3fdb5e62bf982199278341ddcf7ebf7d32e25e212ad05d496e95f6fa"
 dependencies = [
  "ff",
  "group",
  "hybrid-array",
+ "primefield",
 ]
 
 [[package]]
