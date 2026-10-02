@@ -304,6 +304,43 @@ pub struct FetchOutcome {
     pub elapsed_ms: u64,
 }
 
+/// The time and size limits one retrieval runs under, read from the same settings validation reads
+/// for the same kind of retrieval, so the checker and a validation run agree on whether a URI is
+/// available.
+#[derive(Clone, Copy, Debug)]
+pub struct FetchLimits {
+    /// Bound on the whole retrieval, connection setup included.
+    pub timeout: core::time::Duration,
+    /// Bound on the body, enforced as it streams.
+    pub max_bytes: u64,
+}
+
+impl FetchLimits {
+    /// Limits for a CRL: `PS_CRL_TIMEOUT` and `PS_MAX_CRL_FETCH_BYTES`.
+    pub fn crl(cps: &certval::CertificationPathSettings) -> Self {
+        FetchLimits {
+            timeout: cps.get_crl_timeout(),
+            max_bytes: cps.get_max_crl_fetch_bytes(),
+        }
+    }
+
+    /// Limits for an OCSP request: `PS_OCSP_TIMEOUT` and `PS_MAX_OCSP_FETCH_BYTES`.
+    pub fn ocsp(cps: &certval::CertificationPathSettings) -> Self {
+        FetchLimits {
+            timeout: cps.get_ocsp_timeout(),
+            max_bytes: cps.get_max_ocsp_fetch_bytes(),
+        }
+    }
+
+    /// Limits for an AIA or SIA artifact: `PS_AIA_TIMEOUT` and `PS_MAX_AIA_FETCH_BYTES`.
+    pub fn aia(cps: &certval::CertificationPathSettings) -> Self {
+        FetchLimits {
+            timeout: cps.get_aia_timeout(),
+            max_bytes: cps.get_max_aia_fetch_bytes(),
+        }
+    }
+}
+
 /// How the URI checker reaches a repository.
 ///
 /// The checker cannot hoist its retrievals the way the revocation harvest does: certificates fetched
@@ -314,13 +351,18 @@ pub struct FetchOutcome {
 pub trait UriFetcher {
     /// Retrieves a URI. Implementations report failure rather than erroring: an unreachable
     /// repository is an outcome this tool exists to report, not a fault in the run.
-    fn get(&self, uri: &str) -> impl core::future::Future<Output = FetchOutcome>;
+    fn get(
+        &self,
+        uri: &str,
+        limits: FetchLimits,
+    ) -> impl core::future::Future<Output = FetchOutcome>;
 
     /// Posts a DER-encoded OCSP request to a responder and returns its answer.
     fn post_ocsp(
         &self,
         uri: &str,
         request: &[u8],
+        limits: FetchLimits,
     ) -> impl core::future::Future<Output = FetchOutcome>;
 }
 
@@ -503,6 +545,7 @@ mod check_impl {
                 auto_discover,
                 UriExtension::CrlDp,
                 blocklist,
+                cps,
                 &cert_list,
             )
             .await;
@@ -524,6 +567,7 @@ mod check_impl {
                 auto_discover,
                 UriExtension::FreshestCrl,
                 blocklist,
+                cps,
                 &cert_list,
             )
             .await;
@@ -797,7 +841,7 @@ mod check_impl {
         auto_discover: bool,
         extension: UriExtension,
         blocklist: &[String],
-        _cps: &CertificationPathSettings,
+        cps: &CertificationPathSettings,
         cert_list: &mut Vec<PDVCertificate>,
     ) -> UriCheckResult {
         if is_blocklisted(uri, blocklist) {
@@ -808,7 +852,7 @@ mod check_impl {
             ok,
             body: bytes,
             elapsed_ms: timing_ms,
-        } = fetcher.get(uri).await;
+        } = fetcher.get(uri, FetchLimits::aia(cps)).await;
         let certs = parse_certs(&bytes);
 
         // **`SelfSignedOnly` used to land in the `IncorrectData` arm**, which made the case
@@ -885,7 +929,9 @@ mod check_impl {
             ok,
             body,
             elapsed_ms: timing_ms,
-        } = fetcher.post_ocsp(uri, &request).await;
+        } = fetcher
+            .post_ocsp(uri, &request, FetchLimits::ocsp(cps))
+            .await;
         if !ok {
             return row(
                 uri,
@@ -956,6 +1002,7 @@ mod check_impl {
         auto_discover: bool,
         extension: UriExtension,
         blocklist: &[String],
+        cps: &CertificationPathSettings,
         cert_list: &[PDVCertificate],
     ) -> UriCheckResult {
         if is_blocklisted(uri, blocklist) {
@@ -966,7 +1013,7 @@ mod check_impl {
             ok,
             body: bytes,
             elapsed_ms: timing_ms,
-        } = fetcher.get(uri).await;
+        } = fetcher.get(uri, FetchLimits::crl(cps)).await;
 
         let crl = CertificateList::from_der(&bytes);
         let status = match crl {
@@ -1019,14 +1066,10 @@ mod check_impl {
 #[cfg(feature = "remote")]
 mod remote_impl {
     use super::*;
-    use core::time::Duration;
     use std::time::Instant;
 
     use certval::*;
     use log::debug;
-
-    // A single 10 second per-request timeout mirrors certval's remote fetch client.
-    const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// The [`UriFetcher`] the command line and the desktop use: an HTTP client of its own.
     ///
@@ -1048,12 +1091,12 @@ mod remote_impl {
     }
 
     impl UriFetcher for ReqwestFetcher {
-        async fn get(&self, uri: &str) -> FetchOutcome {
+        async fn get(&self, uri: &str, limits: FetchLimits) -> FetchOutcome {
             let Some(client) = &self.client else {
                 return FetchOutcome::default();
             };
             let start = Instant::now();
-            let (ok, body) = http_get(client, uri).await;
+            let (ok, body) = http_get(client, uri, limits).await;
             FetchOutcome {
                 ok,
                 body,
@@ -1061,7 +1104,7 @@ mod remote_impl {
             }
         }
 
-        async fn post_ocsp(&self, uri: &str, request: &[u8]) -> FetchOutcome {
+        async fn post_ocsp(&self, uri: &str, request: &[u8], limits: FetchLimits) -> FetchOutcome {
             let Some(client) = &self.client else {
                 return FetchOutcome::default();
             };
@@ -1070,42 +1113,30 @@ mod remote_impl {
                 .post(uri)
                 .header("Content-Type", "application/ocsp-request")
                 .body(request.to_vec())
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(limits.timeout)
                 .send()
                 .await;
-            let elapsed_ms = start.elapsed().as_millis() as u64;
-            match sent {
-                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
-                    Ok(b) => FetchOutcome {
-                        ok: true,
-                        body: b.to_vec(),
-                        elapsed_ms,
-                    },
-                    Err(e) => {
-                        debug!("OCSP body read failed for {uri}: {}", error_chain(&e));
-                        FetchOutcome {
-                            elapsed_ms,
-                            ..Default::default()
-                        }
-                    }
-                },
-                Ok(_) => FetchOutcome {
-                    elapsed_ms,
-                    ..Default::default()
-                },
-                Err(e) => {
-                    debug!("OCSP post failed for {uri}: {}", error_chain(&e));
-                    FetchOutcome {
-                        elapsed_ms,
-                        ..Default::default()
+            let (ok, body) = match sent {
+                Ok(resp) if resp.status().is_success() => {
+                    match read_capped_body(resp, limits.max_bytes, uri).await {
+                        Ok(b) => (true, b),
+                        Err(_) => (false, vec![]),
                     }
                 }
+                Ok(_) => (false, vec![]),
+                Err(e) => {
+                    debug!("OCSP post failed for {uri}: {}", error_chain(&e));
+                    (false, vec![])
+                }
+            };
+            FetchOutcome {
+                ok,
+                body,
+                elapsed_ms: start.elapsed().as_millis() as u64,
             }
         }
     }
 
-    /// Fetches raw bytes for a URI, returning (success, body). Success is false on any transport
-    /// error, non-2xx status, or an HTML error page.
     /// `e` followed by each error in its source chain. reqwest's own message stops at "error sending
     /// request"; the cause -- a failed lookup, a refused connection, a timeout -- is in the chain.
     fn error_chain(e: &dyn std::error::Error) -> String {
@@ -1119,8 +1150,10 @@ mod remote_impl {
         out
     }
 
-    async fn http_get(client: &reqwest::Client, uri: &str) -> (bool, Vec<u8>) {
-        let resp = match client.get(uri).timeout(REQUEST_TIMEOUT).send().await {
+    /// Fetches raw bytes for a URI, returning (success, body). Success is false on any transport
+    /// error, non-2xx status, an HTML error page, or a body over `limits.max_bytes`.
+    async fn http_get(client: &reqwest::Client, uri: &str, limits: FetchLimits) -> (bool, Vec<u8>) {
+        let resp = match client.get(uri).timeout(limits.timeout).send().await {
             Ok(r) => r,
             Err(e) => {
                 debug!("fetch failed for {uri}: {}", error_chain(&e));
@@ -1139,12 +1172,10 @@ mod remote_impl {
         if is_html {
             return (false, vec![]);
         }
-        match resp.bytes().await {
-            Ok(b) => (true, b.to_vec()),
-            Err(e) => {
-                debug!("body read failed for {uri}: {}", error_chain(&e));
-                (false, vec![])
-            }
+        // Logs its own failures, the cap and the transport error both.
+        match read_capped_body(resp, limits.max_bytes, uri).await {
+            Ok(b) => (true, b),
+            Err(_) => (false, vec![]),
         }
     }
 

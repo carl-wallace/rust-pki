@@ -20,7 +20,7 @@ use pittv3_gui_lib::retrieval::{
     MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
-use pittv3_lib::uri_check::{FetchOutcome, UriFetcher};
+use pittv3_lib::uri_check::{FetchLimits, FetchOutcome, UriFetcher};
 use web_time::Instant;
 // Only the browser build exchanges anything with the relay; the host build has no relay to reach,
 // so the wire types and their derives are compiled only there.
@@ -851,15 +851,14 @@ impl Default for RelayFetcher {
 }
 
 impl UriFetcher for RelayFetcher {
-    async fn get(&self, uri: &str) -> FetchOutcome {
+    async fn get(&self, uri: &str, limits: FetchLimits) -> FetchOutcome {
         if !self.afford(0) {
             return FetchOutcome::default();
         }
         let start = Instant::now();
-        // No timeout stated: the service's own applies. A URI check is not a path-building
-        // retrieval, so none of the three settings that name one -- CRL, OCSP, AIA -- is the one
-        // this reaches with, and picking any of them would be arbitrary.
-        let outcome = relay_fetch(uri, None).await;
+        // The timeout is the one validation states for the same kind of retrieval. The byte cap is
+        // the service's to enforce, as it is for validation's retrievals through the relay.
+        let outcome = relay_fetch(uri, Some(limits.timeout)).await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
         match outcome {
             // The status is reported by the checker, not translated here: a 404 on an authority
@@ -886,12 +885,12 @@ impl UriFetcher for RelayFetcher {
         }
     }
 
-    async fn post_ocsp(&self, uri: &str, request: &[u8]) -> FetchOutcome {
+    async fn post_ocsp(&self, uri: &str, request: &[u8], limits: FetchLimits) -> FetchOutcome {
         if !self.afford(request.len()) {
             return FetchOutcome::default();
         }
         let start = Instant::now();
-        let outcome = relay_ocsp(uri, request, None).await;
+        let outcome = relay_ocsp(uri, request, Some(limits.timeout)).await;
         let elapsed_ms = start.elapsed().as_millis() as u64;
         match outcome {
             Ok(r) if r.status == 200 => {
