@@ -388,15 +388,16 @@ async fn validate(
 mod store_artifact_tests {
     use super::*;
     use crate::config::ServiceConfig;
+    use crate::stores::fixtures::{CA, TA};
     use actix_web::{http::StatusCode, test, App};
     use std::fs;
 
     /// A service holding one two-half store and one anchors-only store, and nothing built in.
     fn service_state() -> (web::Data<ServiceState>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("demo_ta.cbor"), b"anchors").unwrap();
-        fs::write(dir.path().join("demo_ca.cbor"), b"intermediates").unwrap();
-        fs::write(dir.path().join("anchors_only.ta.cbor"), b"anchors").unwrap();
+        fs::write(dir.path().join("demo_ta.cbor"), TA).unwrap();
+        fs::write(dir.path().join("demo_ca.cbor"), CA).unwrap();
+        fs::write(dir.path().join("anchors_only.ta.cbor"), TA).unwrap();
         let config = ServiceConfig {
             builtin_stores: false,
             stores_dir: Some(dir.path().to_path_buf()),
@@ -441,7 +442,7 @@ mod store_artifact_tests {
     async fn a_store_is_served_with_an_entity_tag() {
         let (status, etag, body) = get("/stores/demo/ta.cbor", None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, b"anchors");
+        assert_eq!(body, TA);
         let etag = etag.expect("no ETag, so a client has nothing to revalidate against");
         assert!(
             etag.starts_with('"') && etag.ends_with('"'),
@@ -488,7 +489,7 @@ mod store_artifact_tests {
                 StatusCode::OK,
                 "{value} must not be taken as a match"
             );
-            assert_eq!(body, b"anchors");
+            assert_eq!(body, TA);
         }
     }
 
