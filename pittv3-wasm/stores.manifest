@@ -1518,7 +1518,7 @@
   ta_store  tpm_ta.cbor  42526 bytes  sha256:e511b7c2ac7f3dafecce458cedf0d889b53aca55cd70227802ca7c5fc084d97d
   ca_store  tpm_ca.cbor  3742268 bytes  sha256:9f1657bc70ee59f1b3442014803a21adf116afe597915e12c45a88016fa48135
 
-[webpki]  collected=2026-09-25
+[webpki]  collected=2026-09-28
   anchors 170
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
