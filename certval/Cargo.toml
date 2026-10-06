@@ -35,9 +35,9 @@ signature = { version = "3.0.0" }
 pkiprocmacros = { path = "../pkiprocmacros", version = "0.1.2" }
 
 ecdsa = {version = "0.17.0", default-features = false, features = ["der"]}
-p256 = {version = "0.14.0", default-features = false, features = ["ecdsa"]}
-p384 = {version = "0.14.0", default-features = false, features = ["ecdsa"]}
-p521 = {version = "0.14.0", default-features = false, features = ["ecdsa"]}
+p256 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
+p384 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
+p521 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
 rsa = {version = "0.10.0-rc.18", default-features = false, optional=true, features = ["encoding"]}
 pkcs1 = {version = "0.8.0-rc.4", default-features = false, optional = true}

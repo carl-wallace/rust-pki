@@ -479,7 +479,7 @@ fn check_composite_rsa_size(
 pub fn verify_signature_message_composite_rustcrypto(
     pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
+    signature: &BitString,                    // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> crate::Result<()> {
@@ -490,7 +490,12 @@ pub fn verify_signature_message_composite_rustcrypto(
 
         let label = get_domain(signature_alg.oid)?;
         let ctx_len = [0x00];
+        let signature = signature.as_bytes().ok_or(Error::ParseError)?;
         let (pqc_sig, trad_sig) = split_sig(pqc.oid, signature)?;
+        let pqc_sig =
+            BitString::from_bytes(pqc_sig).expect("pqc_sig is shorted than the original bitstring");
+        let trad_sig = BitString::from_bytes(trad_sig)
+            .expect("trad_sig is shorted than the original bitstring");
         let hash = hash_message(signature_alg.oid, message_to_verify)?;
 
         // Prefix || Label || len(ctx) || ctx || PH( M )
@@ -500,8 +505,8 @@ pub fn verify_signature_message_composite_rustcrypto(
         message_rep.append(&mut ctx_len.to_vec());
         message_rep.append(&mut hash.to_vec());
 
-        pe.verify_signature_message_ctx(pe, &message_rep, pqc_sig, &pqc, &pqc_spki, &Some(label))?;
-        pe.verify_signature_message(pe, &message_rep, trad_sig, &trad, &trad_spki)?;
+        pe.verify_signature_message_ctx(pe, &message_rep, &pqc_sig, &pqc, &pqc_spki, &Some(label))?;
+        pe.verify_signature_message(pe, &message_rep, &trad_sig, &trad, &trad_spki)?;
         return Ok(());
     }
     Err(Error::Unrecognized)

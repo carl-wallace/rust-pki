@@ -761,7 +761,7 @@ mod check_impl {
         pe.verify_signature_message(
             pe,
             &defer.tbs_field,
-            subject.decoded().signature().raw_bytes(),
+            subject.decoded().signature(),
             subject.decoded().tbs_certificate().signature(),
             spki,
         )
@@ -983,7 +983,7 @@ mod check_impl {
                 .verify_signature_message(
                     pe,
                     &defer.tbs_field,
-                    crl.signature.raw_bytes(),
+                    &crl.signature,
                     &crl.signature_algorithm,
                     spki,
                 )

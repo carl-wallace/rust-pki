@@ -39,7 +39,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::{vec, vec::Vec};
 
-use der::asn1::ObjectIdentifier;
+use der::asn1::{BitString, ObjectIdentifier};
 use der::Encode;
 use log::error;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -291,7 +291,7 @@ impl PkiEnvironment {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],                    // buffer to verify
-        signature: &[u8],                         // signature
+        signature: &BitString,                    // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
@@ -329,7 +329,7 @@ impl PkiEnvironment {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],                    // buffer to verify
-        signature: &[u8],                         // signature
+        signature: &BitString,                    // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
         ctx: &Option<Vec<u8>>,                    // context
@@ -371,7 +371,7 @@ impl PkiEnvironment {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],                 // buffer to verify
-        signature: &[u8],                         // signature
+        signature: &BitString,                    // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
     ) -> Result<()> {
@@ -427,7 +427,7 @@ impl PkiEnvironment {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],                 // buffer to verify
-        signature: &[u8],                         // signature
+        signature: &BitString,                    // signature
         signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
         spki: &SubjectPublicKeyInfoOwned,         // public key
         ctx: &Option<Vec<u8>>,                    // context
@@ -955,12 +955,13 @@ impl PkiEnvironment {
 /// issuer subject-public-key-info DER. SHA-256 uniquely identifies the input for this purpose.
 fn signature_cache_key(
     message_to_verify: &[u8],
-    signature: &[u8],
+    signature: &BitString,
     signature_alg: &AlgorithmIdentifierOwned,
     spki: &SubjectPublicKeyInfoOwned,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
     let alg_der = der::Encode::to_der(signature_alg).ok()?;
     let spki_der = der::Encode::to_der(spki).ok()?;
+    let signature = signature.raw_bytes();
     let mut buf = Vec::with_capacity(message_to_verify.len() + signature.len() + alg_der.len());
     buf.extend_from_slice(message_to_verify);
     buf.extend_from_slice(signature);

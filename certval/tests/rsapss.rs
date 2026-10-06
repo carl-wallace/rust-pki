@@ -7,7 +7,7 @@
 #![cfg(all(feature = "std", feature = "rsa"))]
 
 use certval::*;
-use der::{Decode, Encode};
+use der::{asn1::BitString, Decode, Encode};
 use spki::AlgorithmIdentifierOwned;
 use x509_cert::Certificate;
 
@@ -16,7 +16,10 @@ const ROOT: &[u8] = include_bytes!("examples/rsapss/quovadis_root_ca_2_g3.der");
 
 /// Verify through `PkiEnvironment`, which is the path building and path
 /// validation route.
-fn verify_via_environment(signature: &[u8], alg: &AlgorithmIdentifierOwned) -> certval::Result<()> {
+fn verify_via_environment(
+    signature: &BitString,
+    alg: &AlgorithmIdentifierOwned,
+) -> certval::Result<()> {
     let cert = Certificate::from_der(EE).unwrap();
     let issuer = Certificate::from_der(ROOT).unwrap();
     let mut pe = PkiEnvironment::default();
@@ -33,7 +36,10 @@ fn verify_via_environment(signature: &[u8], alg: &AlgorithmIdentifierOwned) -> c
 /// Verify through the RustCrypto callback directly, so that assertions about
 /// *which* error comes back describe this implementation rather than whichever
 /// callbacks the environment happens to have registered.
-fn verify_via_callback(signature: &[u8], alg: &AlgorithmIdentifierOwned) -> certval::Result<()> {
+fn verify_via_callback(
+    signature: &BitString,
+    alg: &AlgorithmIdentifierOwned,
+) -> certval::Result<()> {
     let cert = Certificate::from_der(EE).unwrap();
     let issuer = Certificate::from_der(ROOT).unwrap();
     let mut pe = PkiEnvironment::default();
@@ -47,13 +53,8 @@ fn verify_via_callback(signature: &[u8], alg: &AlgorithmIdentifierOwned) -> cert
     )
 }
 
-fn signature() -> Vec<u8> {
-    Certificate::from_der(EE)
-        .unwrap()
-        .signature()
-        .as_bytes()
-        .unwrap()
-        .to_vec()
+fn signature() -> BitString {
+    Certificate::from_der(EE).unwrap().signature().clone()
 }
 
 fn algorithm() -> AlgorithmIdentifierOwned {
@@ -77,9 +78,19 @@ fn rsassa_pss_signature_verifies() {
 /// rejecting it.
 #[test]
 fn a_tampered_rsassa_pss_signature_fails_verification() {
-    let mut tampered = signature();
-    let last = tampered.len() - 1;
-    tampered[last] ^= 0xff;
+    fn tamper_signature<F>(input: &BitString, cb: F) -> BitString
+    where
+        F: FnOnce(&mut [u8]),
+    {
+        let mut value = input.as_bytes().unwrap().to_vec();
+        cb(&mut value);
+        BitString::from_bytes(&value).unwrap()
+    }
+
+    let tampered = tamper_signature(&signature(), |tampered| {
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0xff;
+    });
 
     assert!(matches!(
         verify_via_callback(&tampered, &algorithm()),
@@ -96,7 +107,10 @@ fn a_tampered_rsassa_pss_signature_fails_verification() {
 #[test]
 fn a_truncated_rsassa_pss_signature_does_not_panic() {
     for len in [0usize, 1, 17, 255, 511] {
-        let r = verify_via_callback(&vec![0x00; len], &algorithm());
+        let r = verify_via_callback(
+            &BitString::from_bytes(&vec![0x00; len]).unwrap(),
+            &algorithm(),
+        );
         assert!(
             matches!(
                 r,

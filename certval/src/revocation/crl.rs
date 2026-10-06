@@ -981,7 +981,7 @@ fn verify_crl(pe: &PkiEnvironment, crl_buf: &[u8], issuer: &dyn SubjectNameAndKe
     let r = pe.verify_signature_message(
         pe,
         &defer_crl.tbs_field,
-        defer_crl.signature.raw_bytes(),
+        &defer_crl.signature,
         &defer_crl.signature_algorithm,
         issuer.spki(),
     );

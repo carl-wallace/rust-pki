@@ -1589,7 +1589,7 @@ impl CertSource {
                                     let r = pe.verify_signature_message(
                                         pe,
                                         &defer_cert.tbs_field,
-                                        cur_cert.decoded().signature().raw_bytes(),
+                                        cur_cert.decoded().signature(),
                                         cur_cert.decoded().tbs_certificate().signature(),
                                         spki,
                                     );
@@ -1654,7 +1654,7 @@ impl CertSource {
                                         let r = pe.verify_signature_message(
                                             pe,
                                             &defer_cert.tbs_field,
-                                            cur_cert.decoded().signature().raw_bytes(),
+                                            cur_cert.decoded().signature(),
                                             cur_cert.decoded().tbs_certificate().signature(),
                                             prospective_ca_cert
                                                 .as_ref()
@@ -2206,7 +2206,7 @@ fn build_records_verified_signatures() {
         bare.verify_signature_message(
             &bare,
             &defer_ca.tbs_field,
-            defer_ca.signature.raw_bytes(),
+            &defer_ca.signature,
             &defer_ca.signature_algorithm,
             ta_spki,
         )
@@ -2219,7 +2219,7 @@ fn build_records_verified_signatures() {
         pe.verify_signature_message(
             &pe,
             &defer_ca.tbs_field,
-            defer_ca.signature.raw_bytes(),
+            &defer_ca.signature,
             &defer_ca.signature_algorithm,
             ta_spki,
         )

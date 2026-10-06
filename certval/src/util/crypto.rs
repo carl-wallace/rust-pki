@@ -5,7 +5,10 @@ use crate::util::error::{Error, PathValidationStatus, Result};
 use crate::{environment::pki_environment::*, util::pdv_alg_oids::*};
 use alloc::vec::Vec;
 use const_oid::db::rfc5912::ID_RSASSA_PSS;
-use der::{asn1::ObjectIdentifier, AnyRef, Encode};
+use der::{
+    asn1::{BitString, ObjectIdentifier},
+    AnyRef, Encode,
+};
 use log::{debug, error};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
@@ -122,7 +125,7 @@ pub fn calculate_hash_rust_crypto(
 pub fn verify_signature_digest_rust_crypto(
     _pe: &PkiEnvironment,
     hash_to_verify: &[u8],                    // buffer to verify
-    signature: &[u8],                         // signature
+    signature: &BitString,                    // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
@@ -133,6 +136,7 @@ pub fn verify_signature_digest_rust_crypto(
             let rsa = rsa::RsaPublicKey::from_public_key_der(&enc_spki);
             if let Ok(rsa) = rsa {
                 let ps = get_padding_scheme(signature_alg)?;
+                let signature = signature.as_bytes().ok_or(Error::ParseError)?;
                 let x = rsa.verify(ps, hash_to_verify, signature);
                 match x {
                     Ok(x) => {
@@ -168,7 +172,7 @@ fn get_named_curve_parameter(alg_id: &AlgorithmIdentifierOwned) -> Result<Object
 pub fn verify_signature_message_rust_crypto(
     pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
+    signature: &BitString,                    // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> Result<()> {
@@ -189,7 +193,14 @@ pub fn verify_signature_message_rust_crypto(
                 let hash_to_verify = calculate_hash_rust_crypto(pe, &hash_alg, message_to_verify)?;
                 let ps = get_padding_scheme(signature_alg)?;
                 return rsa
-                    .verify(ps, hash_to_verify.as_slice(), signature)
+                    .verify(
+                        ps,
+                        hash_to_verify.as_slice(),
+                        signature.as_bytes().ok_or_else(|| {
+                            error!("Signature isn't expected to have unused bits");
+                            Error::PathValidation(PathValidationStatus::EncodingError)
+                        })?,
+                    )
                     .map_err(|_err| {
                         Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
                     });
@@ -247,10 +258,17 @@ pub fn verify_signature_message_rust_crypto(
                     // Signature length comes from the certificate under
                     // validation, so a length that does not match the modulus is
                     // a verification failure rather than a fault.
-                    let sig = rsa::pss::Signature::try_from(signature).map_err(|_err| {
-                        error!("Could not decode RSASSA-PSS signature");
-                        Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
-                    })?;
+                    let sig =
+                        rsa::pss::Signature::try_from(signature.as_bytes().ok_or_else(|| {
+                            error!("Signature isn't expected to have unused bits");
+                            Error::PathValidation(PathValidationStatus::EncodingError)
+                        })?)
+                        .map_err(|_err| {
+                            error!("Could not decode RSASSA-PSS signature");
+                            Error::PathValidation(
+                                PathValidationStatus::SignatureVerificationFailure,
+                            )
+                        })?;
                     return key.verify(message_to_verify, &sig).map_err(|_err| {
                         Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
                     });
@@ -288,15 +306,19 @@ pub fn verify_signature_message_rust_crypto(
         };
         macro_rules! verify_with_ecdsa {
             ($crypto_root:ident) => {{
+                use der::referenced::OwnedToRef;
                 use ecdsa::signature::hazmat::PrehashVerifier;
                 use $crypto_root::ecdsa;
                 let verifying_key =
-                    ecdsa::VerifyingKey::from_sec1_bytes(spki.subject_public_key.raw_bytes())
-                        .map_err(|_err| {
-                            error!("Could not decode verifying key");
-                            Error::PathValidation(PathValidationStatus::EncodingError)
-                        })?;
-                let s = ecdsa::Signature::from_der(signature).map_err(|_err| {
+                    ecdsa::VerifyingKey::try_from(spki.owned_to_ref()).map_err(|_err| {
+                        error!("Could not decode verifying key");
+                        Error::PathValidation(PathValidationStatus::EncodingError)
+                    })?;
+                let s = ::ecdsa::Signature::from_der(signature.as_bytes().ok_or_else(|| {
+                    error!("Signature isn't expected to have unused bits");
+                    Error::PathValidation(PathValidationStatus::EncodingError)
+                })?)
+                .map_err(|_err| {
                     error!("Could not decode signature");
                     Error::PathValidation(PathValidationStatus::EncodingError)
                 })?;
@@ -332,7 +354,9 @@ pub fn verify_signature_message_rust_crypto(
                 error!("Could not decode verifying key");
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             };
-            let Ok(s) = ed25519_dalek::Signature::from_slice(signature) else {
+            let Ok(s) = ed25519_dalek::Signature::from_slice(
+                signature.as_bytes().ok_or(Error::ParseError)?,
+            ) else {
                 error!("Could not decode signature");
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             };
@@ -396,7 +420,7 @@ fn test_verify_signature_digest() {
             let result = pe.verify_signature_digest(
                 &pe,
                 &result,
-                defer_cert.signature.as_bytes().unwrap(),
+                &defer_cert.signature,
                 &defer_cert.signature_algorithm,
                 cert.tbs_certificate().subject_public_key_info(),
             );

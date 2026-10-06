@@ -490,16 +490,10 @@ fn verify_response_signature(
         Err(e) => return Err(Error::Asn1Error(e)),
     };
 
-    let signature = if let Some(s) = bor.signature.as_bytes() {
-        s
-    } else {
-        return Err(Error::Unrecognized);
-    };
-
     pe.verify_signature_message(
         pe,
         &ddbor.tbs_response_data,
-        signature,
+        &bor.signature,
         &bor.signature_algorithm,
         signer.spki(),
     )
@@ -775,7 +769,7 @@ fn process_ocsp_response_internal(
                 .verify_signature_message(
                     pe,
                     &defer_cert.tbs_field,
-                    defer_cert.signature.raw_bytes(),
+                    &defer_cert.signature,
                     &defer_cert.signature_algorithm,
                     issuer.spki(),
                 )

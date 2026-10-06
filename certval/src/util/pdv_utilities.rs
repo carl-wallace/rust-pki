@@ -77,7 +77,7 @@ pub fn is_self_signed_with_buffer(
     match pe.verify_signature_message(
         pe,
         &defer_cert.tbs_field,
-        cert.signature().raw_bytes(),
+        cert.signature(),
         tbs.signature(),
         tbs.subject_public_key_info(),
     ) {

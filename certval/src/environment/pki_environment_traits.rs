@@ -4,7 +4,7 @@
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
-use der::asn1::ObjectIdentifier;
+use der::asn1::{BitString, ObjectIdentifier};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 
@@ -80,7 +80,7 @@ pub trait VerifySignatureDigest {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()>;
@@ -91,7 +91,7 @@ where
     F: Fn(
         &PkiEnvironment,
         &[u8],
-        &[u8],
+        &BitString,
         &AlgorithmIdentifierOwned,
         &SubjectPublicKeyInfoOwned,
     ) -> Result<()>,
@@ -100,7 +100,7 @@ where
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()> {
@@ -113,7 +113,7 @@ impl<T: VerifySignatureDigest + ?Sized> VerifySignatureDigest for Arc<T> {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()> {
@@ -134,7 +134,7 @@ pub trait VerifySignatureDigestWithContext {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -146,7 +146,7 @@ where
     F: Fn(
         &PkiEnvironment,
         &[u8],
-        &[u8],
+        &BitString,
         &AlgorithmIdentifierOwned,
         &SubjectPublicKeyInfoOwned,
         &Option<Vec<u8>>,
@@ -156,7 +156,7 @@ where
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -170,7 +170,7 @@ impl<T: VerifySignatureDigestWithContext + ?Sized> VerifySignatureDigestWithCont
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -198,7 +198,7 @@ pub trait VerifySignatureMessage {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()>;
@@ -209,7 +209,7 @@ where
     F: Fn(
         &PkiEnvironment,
         &[u8],
-        &[u8],
+        &BitString,
         &AlgorithmIdentifierOwned,
         &SubjectPublicKeyInfoOwned,
     ) -> Result<()>,
@@ -218,7 +218,7 @@ where
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()> {
@@ -231,7 +231,7 @@ impl<T: VerifySignatureMessage + ?Sized> VerifySignatureMessage for Arc<T> {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> Result<()> {
@@ -252,7 +252,7 @@ pub trait VerifySignatureMessageWithContext {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -264,7 +264,7 @@ where
     F: Fn(
         &PkiEnvironment,
         &[u8],
-        &[u8],
+        &BitString,
         &AlgorithmIdentifierOwned,
         &SubjectPublicKeyInfoOwned,
         &Option<Vec<u8>>,
@@ -274,7 +274,7 @@ where
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -288,7 +288,7 @@ impl<T: VerifySignatureMessageWithContext + ?Sized> VerifySignatureMessageWithCo
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
