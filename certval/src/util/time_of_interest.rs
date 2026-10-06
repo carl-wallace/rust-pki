@@ -14,10 +14,11 @@ impl fmt::Display for TimeOfInterest {
 
 impl TimeOfInterest {
     /// Make [`TimeOfInterest`] where checks are disabled
+    // The epoch is in range for DateTime (1970..=9999), so this conversion cannot fail.
+    #[allow(clippy::expect_used)]
     pub fn disabled() -> Self {
         TimeOfInterest(
             der::DateTime::from_unix_duration(Duration::ZERO)
-                // NOTE(safety): only values before 1970 or values after 9999 would be throwing errors
                 .expect("Could not create a DateTime from Unix Epoch"),
         )
     }
@@ -156,6 +157,10 @@ mod std_only {
 
     impl TimeOfInterest {
         /// Creates a [`TimeOfInterest`] for today's date
+        // from_system_time only errors for a system clock outside DateTime's 1970..=9999 range,
+        // which no correctly set clock reaches; there is no Result-free alternative here since now()
+        // feeds Default.
+        #[allow(clippy::unwrap_used)]
         pub fn now() -> Self {
             Self(der::DateTime::from_system_time(::std::time::SystemTime::now()).unwrap())
         }
