@@ -2,6 +2,9 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
+// A panic in a path validator is a denial of service, so production code returns errors rather than
+// unwrapping. The lint is lifted under `cfg(test)` so unit tests can still unwrap freely.
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod asn1;

@@ -492,10 +492,8 @@ pub fn verify_signature_message_composite_rustcrypto(
         let ctx_len = [0x00];
         let signature = signature.as_bytes().ok_or(Error::ParseError)?;
         let (pqc_sig, trad_sig) = split_sig(pqc.oid, signature)?;
-        let pqc_sig =
-            BitString::from_bytes(pqc_sig).expect("pqc_sig is shorted than the original bitstring");
-        let trad_sig = BitString::from_bytes(trad_sig)
-            .expect("trad_sig is shorted than the original bitstring");
+        let pqc_sig = BitString::from_bytes(pqc_sig)?;
+        let trad_sig = BitString::from_bytes(trad_sig)?;
         let hash = hash_message(signature_alg.oid, message_to_verify)?;
 
         // Prefix || Label || len(ctx) || ctx || PH( M )
