@@ -2398,6 +2398,7 @@ dependencies = [
  "ff",
  "group",
  "hybrid-array",
+ "pkcs8",
  "rand_core 0.10.1",
  "sec1",
  "subtle",

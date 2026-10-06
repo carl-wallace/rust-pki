@@ -20,7 +20,7 @@ fn prehash_required() {
             verify_signature_message_rust_crypto(
                 &pe,
                 &parts.tbs_field,
-                parts.signature.raw_bytes(),
+                &parts.signature,
                 &parts.signature_algorithm,
                 ca_cert.tbs_certificate().subject_public_key_info(),
             )
@@ -680,7 +680,7 @@ fn a_pss_key_does_not_verify_a_pkcs1_v15_signature() {
         pe.verify_signature_message(
             &pe,
             &tbs,
-            ca.signature().raw_bytes(),
+            ca.signature(),
             ca.tbs_certificate().signature(),
             spki,
         )

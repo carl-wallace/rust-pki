@@ -13,7 +13,7 @@
 #![cfg(feature = "pqc")]
 
 use certval::{verify_signature_message_composite_rustcrypto, DeferDecodeSigned, PkiEnvironment};
-use der::Decode;
+use der::{asn1::BitString, Decode};
 use x509_cert::certificate::{CertificateInner, Raw};
 
 /// `(display_name, der_bytes)` for a fixture under `tests/examples/composite/`.
@@ -26,48 +26,60 @@ macro_rules! cert {
 /// Exercise the good / tamper-ML-DSA-half / tamper-traditional-half / truncated / empty vectors for
 /// one self-signed composite certificate.
 fn assert_composite_vectors(name: &str, der: &[u8]) {
+    fn tamper_signature<F>(input: &BitString, cb: F) -> BitString
+    where
+        F: FnOnce(&mut [u8]),
+    {
+        let mut value = input.as_bytes().unwrap().to_vec();
+        cb(&mut value);
+        BitString::from_bytes(&value).unwrap()
+    }
+
     let defer =
         DeferDecodeSigned::from_der(der).unwrap_or_else(|e| panic!("{name}: defer decode: {e}"));
     let cert = CertificateInner::<Raw>::from_der(der)
         .unwrap_or_else(|e| panic!("{name}: cert decode: {e}"));
     let spki = cert.tbs_certificate().subject_public_key_info();
     let sig_alg = &defer.signature_algorithm;
-    let sig = defer.signature.raw_bytes().to_vec();
+    let sig = &defer.signature;
     let msg = &defer.tbs_field;
 
     let mut pe = PkiEnvironment::new();
     pe.populate_5280_pki_environment();
     let verify =
-        |s: &[u8]| verify_signature_message_composite_rustcrypto(&pe, msg, s, sig_alg, spki);
+        |s: &BitString| verify_signature_message_composite_rustcrypto(&pe, msg, s, sig_alg, spki);
 
     assert!(
-        verify(&sig).is_ok(),
+        verify(sig).is_ok(),
         "{name}: a valid composite signature must verify"
     );
 
     // The ML-DSA component is first in the composite signature.
-    let mut ml_dsa_tampered = sig.clone();
-    ml_dsa_tampered[0] ^= 0x01;
+    let ml_dsa_tampered = tamper_signature(sig, |ml_dsa_tampered| {
+        ml_dsa_tampered[0] ^= 0x01;
+    });
     assert!(
         verify(&ml_dsa_tampered).is_err(),
         "{name}: a corrupted ML-DSA component must be rejected"
     );
 
     // The traditional component is last.
-    let mut trad_tampered = sig.clone();
-    let last = trad_tampered.len() - 1;
-    trad_tampered[last] ^= 0x01;
+    let trad_tampered = tamper_signature(sig, |trad_tampered| {
+        let last = trad_tampered.len() - 1;
+        trad_tampered[last] ^= 0x01;
+    });
     assert!(
         verify(&trad_tampered).is_err(),
         "{name}: a corrupted traditional component must be rejected"
     );
 
+    let sig = sig.as_bytes().unwrap();
     assert!(
-        verify(&sig[..sig.len() / 2]).is_err(),
+        verify(&BitString::from_bytes(&sig[..sig.len() / 2]).unwrap()).is_err(),
         "{name}: a truncated composite signature must be rejected"
     );
     assert!(
-        verify(&[]).is_err(),
+        verify(&BitString::from_bytes(&[]).unwrap()).is_err(),
         "{name}: an empty signature must be rejected"
     );
 }

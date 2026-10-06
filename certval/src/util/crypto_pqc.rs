@@ -6,6 +6,7 @@ use alloc::{vec, vec::Vec};
 
 use log::error;
 
+use der::asn1::BitString;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
 use sha2::{Digest, Sha256, Sha512};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
@@ -27,8 +28,9 @@ macro_rules! pqverify_mldsa {
         let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val)
             .map_err(|_e| Error::PqcValidation)?;
         let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
+        let signature = $signature.as_bytes().ok_or(Error::ParseError)?;
 
-        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
+        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from(signature)
             .map_err(|_e| Error::PqcValidation)?;
         match ml_dsa::Signature::<$pkt>::decode(&sig_bytes) {
             Some(sig) => {
@@ -69,8 +71,9 @@ macro_rules! pqverify_ph_mldsa {
         let vk_bytes = ml_dsa::EncodedVerifyingKey::<$pkt>::try_from($spki_val)
             .map_err(|_e| Error::PqcValidation)?;
         let vk = ml_dsa::VerifyingKey::<$pkt>::decode(&vk_bytes);
+        let signature = $signature.as_bytes().ok_or(Error::ParseError)?;
 
-        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from($signature)
+        let sig_bytes = ml_dsa::EncodedSignature::<$pkt>::try_from(signature)
             .map_err(|_e| Error::PqcValidation)?;
         match ml_dsa::Signature::<$pkt>::decode(&sig_bytes) {
             Some(sig) => {
@@ -112,10 +115,11 @@ macro_rules! pqverify_slhdsa {
         // stack frame rather than summing with every other algorithm branch of the dispatcher (which
         // would overflow the 2 MiB test-thread stack in debug builds).
         #[inline(never)]
-        fn verify(message_to_verify: &[u8], spki_val: &[u8], signature: &[u8]) -> crate::Result<()> {
+        fn verify(message_to_verify: &[u8], spki_val: &[u8], signature: &BitString) -> crate::Result<()> {
             let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
                 .map_err(|_e| Error::PqcValidation)?;
             let sig: slh_dsa::Signature<$pkt> = signature
+            .as_bytes().ok_or(Error::ParseError)?
                 .to_vec()
                 .as_slice()
                 .try_into()
@@ -140,12 +144,14 @@ macro_rules! pqverify_ph_slhdsa {
         fn verify(
             message_to_verify: &[u8],
             spki_val: &[u8],
-            signature: &[u8],
+            signature: &BitString,
             oid: &[u8],
         ) -> crate::Result<()> {
             let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
                 .map_err(|_e| Error::PqcValidation)?;
             let sig: slh_dsa::Signature<$pkt> = signature
+                .as_bytes()
+                .ok_or(Error::ParseError)?
                 .to_vec()
                 .as_slice()
                 .try_into()
@@ -178,12 +184,14 @@ macro_rules! pqverify_ph_slhdsa_shake {
         fn verify(
             message_to_verify: &[u8],
             spki_val: &[u8],
-            signature: &[u8],
+            signature: &BitString,
             oid: &[u8],
         ) -> crate::Result<()> {
             let vk = slh_dsa::VerifyingKey::<$pkt>::try_from(spki_val)
                 .map_err(|_e| Error::PqcValidation)?;
             let sig: slh_dsa::Signature<$pkt> = signature
+                .as_bytes()
+                .ok_or(Error::ParseError)?
                 .to_vec()
                 .as_slice()
                 .try_into()
@@ -218,7 +226,7 @@ macro_rules! pqverify_ph_slhdsa_shake {
 pub fn verify_signature_message_rustcrypto(
     pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
+    signature: &BitString,                    // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
 ) -> crate::Result<()> {
@@ -236,7 +244,7 @@ pub fn verify_signature_message_rustcrypto(
 pub fn verify_signature_message_ctx_rustcrypto(
     _pe: &PkiEnvironment,
     message_to_verify: &[u8],                 // buffer to verify
-    signature: &[u8],                         // signature
+    signature: &BitString,                    // signature
     signature_alg: &AlgorithmIdentifierOwned, // signature algorithm
     spki: &SubjectPublicKeyInfoOwned,         // public key
     ctx: &Option<Vec<u8>>,

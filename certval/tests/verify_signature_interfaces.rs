@@ -13,7 +13,7 @@
 #![cfg(feature = "rsa")]
 
 use certval::*;
-use der::{Decode, Encode};
+use der::{asn1::BitString, Decode, Encode};
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -30,7 +30,7 @@ const CA: &[u8] = include_bytes!("examples/PKITS_data_2048/certs/GoodCACert.crt"
 /// algorithm and the issuer's public key.
 struct SignedCert {
     tbs: Vec<u8>,
-    signature: Vec<u8>,
+    signature: BitString,
     alg: AlgorithmIdentifierOwned,
     issuer_spki: SubjectPublicKeyInfoOwned,
 }
@@ -40,7 +40,7 @@ fn signed_cert() -> SignedCert {
     let ca = Certificate::from_der(CA).unwrap();
     SignedCert {
         tbs: ee.tbs_certificate().to_der().unwrap(),
-        signature: ee.signature().as_bytes().unwrap().to_vec(),
+        signature: ee.signature().clone(),
         alg: ee.signature_algorithm().clone(),
         issuer_spki: ca.tbs_certificate().subject_public_key_info().clone(),
     }
@@ -69,7 +69,7 @@ impl VerifySignatureDigest for CountingVerifier {
         &self,
         pe: &PkiEnvironment,
         hash_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> certval::Result<()> {
@@ -83,7 +83,7 @@ impl VerifySignatureMessage for CountingVerifier {
         &self,
         pe: &PkiEnvironment,
         message_to_verify: &[u8],
-        signature: &[u8],
+        signature: &BitString,
         signature_alg: &AlgorithmIdentifierOwned,
         spki: &SubjectPublicKeyInfoOwned,
     ) -> certval::Result<()> {
@@ -106,7 +106,7 @@ impl VerifySignatureDigestWithContext for CountingCtxVerifier {
         &self,
         _pe: &PkiEnvironment,
         _hash_to_verify: &[u8],
-        _signature: &[u8],
+        _signature: &BitString,
         _signature_alg: &AlgorithmIdentifierOwned,
         _spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -122,7 +122,7 @@ impl VerifySignatureMessageWithContext for CountingCtxVerifier {
         &self,
         _pe: &PkiEnvironment,
         _message_to_verify: &[u8],
-        _signature: &[u8],
+        _signature: &BitString,
         _signature_alg: &AlgorithmIdentifierOwned,
         _spki: &SubjectPublicKeyInfoOwned,
         ctx: &Option<Vec<u8>>,
@@ -141,7 +141,7 @@ impl VerifySignatureDigest for DecliningVerifier {
         &self,
         _pe: &PkiEnvironment,
         _hash_to_verify: &[u8],
-        _signature: &[u8],
+        _signature: &BitString,
         _signature_alg: &AlgorithmIdentifierOwned,
         _spki: &SubjectPublicKeyInfoOwned,
     ) -> certval::Result<()> {
@@ -154,7 +154,7 @@ impl VerifySignatureMessage for DecliningVerifier {
         &self,
         _pe: &PkiEnvironment,
         _message_to_verify: &[u8],
-        _signature: &[u8],
+        _signature: &BitString,
         _signature_alg: &AlgorithmIdentifierOwned,
         _spki: &SubjectPublicKeyInfoOwned,
     ) -> certval::Result<()> {
@@ -269,7 +269,7 @@ fn closure_registers_and_captures_state() {
     pe.add_verify_signature_message_callback(
         move |pe: &PkiEnvironment,
               msg: &[u8],
-              sig: &[u8],
+              sig: &BitString,
               alg: &AlgorithmIdentifierOwned,
               spki: &SubjectPublicKeyInfoOwned| {
             seen.fetch_add(1, Ordering::SeqCst);
@@ -287,17 +287,28 @@ fn closure_registers_and_captures_state() {
 /// cannot turn a bad signature into a good one.
 #[test]
 fn tampered_signature_is_rejected() {
+    fn tamper_signature<F>(input: &BitString, cb: F) -> BitString
+    where
+        F: FnOnce(&mut [u8]),
+    {
+        let mut value = input.as_bytes().unwrap().to_vec();
+        cb(&mut value);
+        BitString::from_bytes(&value).unwrap()
+    }
+
     let mut pe = PkiEnvironment::default();
     pe.clear_all_callbacks();
     pe.add_calculate_hash_callback(calculate_hash_rust_crypto);
     pe.add_verify_signature_message_callback(DecliningVerifier);
     pe.add_verify_signature_message_callback(verify_signature_message_rust_crypto);
 
-    let mut sc = signed_cert();
-    sc.signature[0] ^= 0xff;
+    let sc = signed_cert();
+    let signature = tamper_signature(&sc.signature, |signature| {
+        signature[0] ^= 0xff;
+    });
 
     assert!(pe
-        .verify_signature_message(&pe, &sc.tbs, &sc.signature, &sc.alg, &sc.issuer_spki)
+        .verify_signature_message(&pe, &sc.tbs, &signature, &sc.alg, &sc.issuer_spki)
         .is_err());
 }
 
