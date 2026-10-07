@@ -36,7 +36,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # A prebuilt binary rather than `cargo install cargo-audit`, which spends longer
       # building the tool than the scan itself takes.

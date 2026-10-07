@@ -23,7 +23,7 @@ jobs:
           - 1.85.0 # MSRV
           - stable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -46,7 +46,7 @@ jobs:
           - 1.85.0 # MSRV
           - stable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -70,7 +70,7 @@ jobs:
           - 1.85.0 # MSRV
           - stable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -95,7 +95,7 @@ jobs:
     env:
       RUSTFLAGS: "-Dwarnings -C link-arg=/STACK:8388608"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
       # Same exclusions as the Ubuntu legs, so the two cover the same crates. Note the reasons do
@@ -139,7 +139,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with: { components: rustfmt }
       # --all covers every workspace member, including the UI crates the compiling jobs exclude:
@@ -151,7 +151,7 @@ jobs:
     name: clippy (-D warnings)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
       # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
@@ -169,7 +169,7 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # see build job note: UI crates excluded (dioxus tree MSRV + system packages)
       - run: cargo doc --workspace --no-deps --exclude pittv3-gui --exclude pittv3-gui-lib --exclude pittv3-wasm --exclude pittv3-relay --exclude pittv3-service
@@ -184,7 +184,7 @@ jobs:
   build-nostd:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: thumbv7em-none-eabihf
@@ -203,7 +203,7 @@ jobs:
   documented-builds:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --bin pittv3
       - run: cargo build --bin pittv3 --no-default-features --features std
@@ -215,15 +215,15 @@ jobs:
   x509-limbo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # support/x509-limbo's Makefile builds its venv with uv
       # setup-uv publishes no moving major tag; this is the commit support/x509-limbo's own workflows pin
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable 

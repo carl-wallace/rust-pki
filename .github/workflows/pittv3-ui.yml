@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # dioxus-desktop on Linux needs webkit2gtk/gtk3/xdo development packages.
       #
       # Every apt option here bounds a wait that is unbounded by default, because
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p pittv3-relay -p pittv3-service
 
@@ -62,7 +62,7 @@ jobs:
     env:
       RUSTFLAGS: "-Dwarnings -C link-arg=-zstack-size=8388608"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Linting pittv3-gui compiles its dependency tree, so the same packages the gui and doc jobs
       # install, with the same bounds on apt's otherwise unbounded waits.
       - run: |
@@ -127,7 +127,7 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # documenting pittv3-gui compiles its dependencies, so the same packages the gui job needs,
       # installed with the same bounds on apt's otherwise unbounded waits
       - run: |
