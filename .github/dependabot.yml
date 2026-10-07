@@ -1,0 +1,43 @@
+# Dependency updates, monthly, one grouped pull request.
+#
+# This crate is a library, so updates move Cargo.lock only (lockfile-only): CI then tests against
+# current dependencies without raising the minimum versions published in Cargo.toml, which is a
+# decision for a release rather than routine churn.
+#
+# Ignored: git dependencies and [patch.crates-io] git entries (certval, the certval stores and
+# the prerelease RustCrypto crates). They move deliberately, through the dependency rounds and
+# build-certval-consumers.sh, and every upstream push would otherwise produce a pull request.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: lockfile-only
+    open-pull-requests-limit: 3
+    groups:
+      cargo:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "certval_stores_core"
+      - dependency-name: "certval_stores_eca"
+      - dependency-name: "certval_stores_fpki"
+      - dependency-name: "certval_stores_mozilla"
+      - dependency-name: "certval_stores_msft"
+      - dependency-name: "certval_stores_nipr"
+      - dependency-name: "certval_stores_pbdev"
+      - dependency-name: "certval_stores_tpm"
+      - dependency-name: "certval_stores_wcf"
+      - dependency-name: "rfc5934"
+      - dependency-name: "x509-ocsp"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns:
+          - "*"
