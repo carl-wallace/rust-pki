@@ -49,7 +49,7 @@ pittv3-relay = { path = "../pittv3-relay" }
 
 actix-files = "0.6.9"
 actix-web = "4.13.0"
-base64 = "0.22.1"
+base64 = "0.23.1"
 # Store material is held as `Bytes` rather than `Vec<u8>` so serving a store is a reference count
 # rather than a copy: the Mozilla CA store alone is 6.6 MB, and it is served on every selection.
 # The built-in halves are `'static`, so they are shared with the binary image rather than read into
