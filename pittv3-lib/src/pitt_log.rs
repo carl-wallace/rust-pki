@@ -20,7 +20,7 @@ use const_oid::ObjectIdentifier;
 #[cfg(feature = "revocation")]
 use der::asn1::GeneralizedTime;
 use der::{Decode, Encode};
-use pkcs1::RsaPublicKey;
+use pkcs1::RsaPublicKeyRef;
 #[cfg(feature = "std_app")]
 use sha2::Digest;
 #[cfg(feature = "std_app")]
@@ -777,7 +777,7 @@ fn describe_public_key(spki: &SubjectPublicKeyInfoOwned) -> String {
     if spki.algorithm.oid == RSA_ENCRYPTION {
         // The modulus is the first INTEGER of the SEQUENCE; its leading zero byte, present so a
         // high bit does not read as negative, is not part of the modulus.
-        if let Ok(key) = RsaPublicKey::from_der(encoded) {
+        if let Ok(key) = RsaPublicKeyRef::from_der(encoded) {
             let bits = key.modulus.as_bytes().len() * 8;
             return format!("RSA, {bits} bits");
         }

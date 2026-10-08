@@ -188,7 +188,7 @@ fn parameters_decode_with_their_context_specific_tags() {
     assert_eq!(encoded[0], 0x30);
     assert_eq!(encoded[2], 0xa0);
 
-    let params = pkcs1::RsaPssParams::from_der(&encoded).expect("parameters must decode");
+    let params = pkcs1::RsaPssParamsOwned::from_der(&encoded).expect("parameters must decode");
     assert_eq!(params.hash.oid, const_oid::db::rfc5912::ID_SHA_256);
     assert_eq!(params.mask_gen.oid, const_oid::db::rfc5912::ID_MGF_1);
     assert_eq!(
