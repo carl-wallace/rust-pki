@@ -39,8 +39,8 @@ p256 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs
 p384 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 p521 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
-rsa = {version = "0.10.0-rc.18", default-features = false, optional=true, features = ["encoding"]}
-pkcs1 = {version = "0.8.0-rc.4", default-features = false, optional = true}
+rsa = {version = "0.10.0-rc.19", default-features = false, optional=true, features = ["encoding"]}
+pkcs1 = {version = "0.8.0-rc.5", default-features = false, optional = true}
 sha1 = {version = "0.11.0", default-features = false}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 

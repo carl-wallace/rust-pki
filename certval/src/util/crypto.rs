@@ -24,7 +24,7 @@ use {
     alloc::string::ToString,
     const_oid::db::rfc5912::{ID_MGF_1, ID_SHA_256, ID_SHA_384, ID_SHA_512},
     der::Decode,
-    pkcs1::RsaPssParams,
+    pkcs1::RsaPssParamsOwned,
 };
 
 #[cfg(feature = "rsa")]
@@ -229,7 +229,7 @@ pub fn verify_signature_message_rust_crypto(
                 return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             };
             let enc_params = parameters.to_der()?;
-            let params = RsaPssParams::from_der(&enc_params).map_err(|e| {
+            let params = RsaPssParamsOwned::from_der(&enc_params).map_err(|e| {
                 error!("Could not decode RSASSA-PSS parameters: {e:?}");
                 Error::PathValidation(PathValidationStatus::EncodingError)
             })?;

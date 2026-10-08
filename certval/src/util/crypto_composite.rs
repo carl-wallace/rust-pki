@@ -461,7 +461,7 @@ fn check_composite_rsa_size(
     let Some(bits) = composite_rsa_bits(composite_oid) else {
         return Ok(());
     };
-    let key = pkcs1::RsaPublicKey::from_der(trad_spki.subject_public_key.raw_bytes())?;
+    let key = pkcs1::RsaPublicKeyRef::from_der(trad_spki.subject_public_key.raw_bytes())?;
     if key.modulus.as_bytes().len() * 8 != bits {
         error!(
             "composite {composite_oid} names RSA-{bits} but the key has a {}-byte modulus",
