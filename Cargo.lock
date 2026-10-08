@@ -5198,7 +5198,7 @@ dependencies = [
  "actix-files",
  "actix-rt",
  "actix-web",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "certval",
  "certval_stores_core",
@@ -5223,7 +5223,7 @@ dependencies = [
 name = "pittv3-wasm"
 version = "0.2.0-pre.2"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "certval",
  "certval_stores_core",
  "certval_stores_eca",

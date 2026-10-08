@@ -33,7 +33,7 @@ pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["ed
 pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["installroot", "pqc", "revocation"] }
 
 # The relay exchanges JSON, so a retrieved artifact arrives base64-encoded (see relay.rs).
-base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
 # Everything dioxus enables by default except devtools, which is its hot-reload client. That client
 # opens a WebSocket to /_dioxus on the origin serving the page and reconnects on failure. Only the
 # dioxus CLI answers that path; trunk, which builds and serves this crate, rewrites unknown paths to
