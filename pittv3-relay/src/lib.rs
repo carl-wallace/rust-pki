@@ -2,6 +2,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms, unused_qualifications)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod budget;
 pub mod peek;

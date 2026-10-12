@@ -8,6 +8,7 @@
 // makes any second site that wants unsafe an edit someone has to justify.
 #![deny(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 extern crate alloc;
 

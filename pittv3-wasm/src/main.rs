@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![warn(rust_2018_idioms)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 mod log_capture;
 mod relay;
@@ -484,6 +485,23 @@ fn deliver_certificates(
         class: "ok",
         text: format!("Saved {} certificate(s)", files.len()),
     });
+}
+
+/// Ends a validate click whose prepared environment is missing where the click expects one. The
+/// click rebuilds it first and stops if that fails, but the steps that follow await, and each
+/// reads the environment afresh afterwards; this reports the gap as an error, as a failed rebuild
+/// is reported, and leaves the Results view showing it.
+fn stop_without_environment(
+    mut notes: Signal<Vec<ResultLine>>,
+    mut validating: Signal<bool>,
+    mut view: Signal<View>,
+) {
+    notes.write().push(ResultLine {
+        class: "err",
+        text: "The prepared environment is no longer available; validate again".to_string(),
+    });
+    validating.set(false);
+    view.set(View::Results);
 }
 
 #[component]
@@ -1816,7 +1834,10 @@ fn App() -> Element {
             // With chasing off, the tier retrieves revocation data alone.
             let built_a_path = !cps.get_retrieve_from_aia_sia_http() || {
                 let guard = prepared_env.read();
-                let (prepared, _) = guard.as_ref().unwrap();
+                let Some((prepared, _)) = guard.as_ref() else {
+                    stop_without_environment(notes, validating, view);
+                    return;
+                };
                 let (reports, _) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
                 reports.iter().any(|r| !r.paths.is_empty())
             };
@@ -1849,7 +1870,10 @@ fn App() -> Element {
                 // follows is asynchronous -- a read guard cannot be held across it.
                 let (work, crl_sink, ocsp_sink) = {
                     let guard = prepared_env.read();
-                    let (prepared, _) = guard.as_ref().unwrap();
+                    let Some((prepared, _)) = guard.as_ref() else {
+                        stop_without_environment(notes, validating, view);
+                        return;
+                    };
                     (
                         harvest_revocation_work(prepared, &cps, &loaded_ees()),
                         prepared.crl_source().clone(),
@@ -1903,7 +1927,10 @@ fn App() -> Element {
                 let crl_dp = match retrieved_ocsp > 0 {
                     true => {
                         let guard = prepared_env.read();
-                        let (prepared, _) = guard.as_ref().unwrap();
+                        let Some((prepared, _)) = guard.as_ref() else {
+                            stop_without_environment(notes, validating, view);
+                            return;
+                        };
                         let (reports, _) =
                             validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
                         // Conservative on purpose: a path with no outcomes recorded counts as
@@ -1946,7 +1973,10 @@ fn App() -> Element {
 
         // --- validate against the environment as it now stands ---
         let guard = prepared_env.read();
-        let (prepared, prep_notes) = guard.as_ref().unwrap();
+        let Some((prepared, prep_notes)) = guard.as_ref() else {
+            stop_without_environment(notes, validating, view);
+            return;
+        };
         notes.write().extend(prep_notes.iter().cloned());
         let (mut reports, lines, retained) =
             validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);

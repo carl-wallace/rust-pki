@@ -1,6 +1,8 @@
 //! Runs the PITTv3 service: the relay, server-side validation, and the browser application that
 //! uses them.
 
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
+
 use std::path::PathBuf;
 
 use actix_web::dev::Service;
