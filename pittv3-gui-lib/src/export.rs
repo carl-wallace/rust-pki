@@ -166,7 +166,9 @@ pub fn path_entries(
     let mut out = vec![];
 
     let mut log = Vec::new();
-    render_path_manifest(pe, &mut log, path, cpr, cps, duration_ms, uri_reports);
+    if let Err(e) = render_path_manifest(pe, &mut log, path, cpr, cps, duration_ms, uri_reports) {
+        log::error!("Unable to render {PATH_LOG_NAME}: {e}");
+    }
     out.push((PATH_LOG_NAME.to_string(), log));
     out.push((
         PATH_MANIFEST_NAME.to_string(),

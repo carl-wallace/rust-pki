@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 // unused_qualifications is not included below because the rsx macro expansion trips it
 #![warn(missing_docs, rust_2018_idioms)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod export;
 pub mod gui_end_entity;

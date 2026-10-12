@@ -56,40 +56,34 @@ pub fn get_file_stem_or_empty(filename: &str) -> String {
 
 /// `log_cps` contributes to the manifest file related to
 /// [`CertificationPathSettings`] contents.
-pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) {
+pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) -> std::io::Result<()> {
     f.write_all(
         format!(
             "Initial explicit policy: {}\n",
             cps.get_initial_explicit_policy_indicator()
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "Initial policy mapping inhibit: {}\n",
             cps.get_initial_policy_mapping_inhibit_indicator()
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "Initial inhibit any policy: {}\n",
             cps.get_initial_inhibit_any_policy_indicator()
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
-    f.write_all("Initial policy set: \n".as_bytes())
-        .expect("Unable to write manifest file");
+    )?;
+    f.write_all("Initial policy set: \n".as_bytes())?;
     let policy_set = cps.get_initial_policy_set();
     for policy in policy_set {
-        f.write_all(format!("\t* {policy}\n").as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all(format!("\t* {policy}\n").as_bytes())?;
     }
-    f.write_all("Initial permitted names: \n".as_bytes())
-        .expect("Unable to write manifest file");
+    f.write_all("Initial permitted names: \n".as_bytes())?;
     let mut ebufs = BTreeMap::new();
     let mut pbufs = BTreeMap::new();
 
@@ -99,65 +93,54 @@ pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) {
     if let Some(perm) = perm {
         for gs in perm.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())?;
             }
         }
         for gs in perm.rfc822_name {
             if let GeneralName::Rfc822Name(rfc822) = &gs.base {
-                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())?;
             }
         }
         for gs in perm.uniform_resource_identifier {
             if let GeneralName::UniformResourceIdentifier(uri) = &gs.base {
-                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())?;
             }
         }
         for gs in perm.dns_name {
             if let GeneralName::DnsName(dns) = &gs.base {
-                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())?;
             }
         }
     } else {
-        f.write_all("\t* unconstrained\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("\t* unconstrained\n".as_bytes())?;
     } // end if let Some(perm) = perm
-    f.write_all("Initial excluded names: \n".as_bytes())
-        .expect("Unable to write manifest file");
+    f.write_all("Initial excluded names: \n".as_bytes())?;
     let excl = cps
         .get_initial_excluded_subtrees_as_set(&mut ebufs)
         .unwrap_or_default();
     if let Some(excl) = excl {
         for gs in excl.directory_name {
             if let GeneralName::DirectoryName(dn) = &gs.base {
-                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())?;
             }
         }
         for gs in excl.rfc822_name {
             if let GeneralName::Rfc822Name(rfc822) = &gs.base {
-                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())?;
             }
         }
         for gs in excl.uniform_resource_identifier {
             if let GeneralName::UniformResourceIdentifier(uri) = &gs.base {
-                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())?;
             }
         }
         for gs in excl.dns_name {
             if let GeneralName::DnsName(dns) = &gs.base {
-                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())?;
             }
         }
     } else {
-        f.write_all("\t* unconstrained\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("\t* unconstrained\n".as_bytes())?;
     }
     f.write_all(
         format!(
@@ -165,63 +148,65 @@ pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) {
             cps.get_enforce_trust_anchor_constraints()
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
-    f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())
-        .expect("Unable to write manifest file");
+    )?;
+    f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())?;
+    Ok(())
 }
 
 /// `log_ta_details` contributes to the manifest file related to
 /// [`PDVTrustAnchorChoice`] contents.
-pub fn log_ta_details(_pe: &PkiEnvironment, f: &mut dyn Write, ta: &PDVTrustAnchorChoice) {
+pub fn log_ta_details(
+    _pe: &PkiEnvironment,
+    f: &mut dyn Write,
+    ta: &PDVTrustAnchorChoice,
+) -> std::io::Result<()> {
     // TODO - implement me
-    f.write_all(format!("\t\t* Source: {}\n", get_filename_from_ta_metadata(ta)).as_bytes())
-        .expect("Unable to write manifest file");
+    f.write_all(format!("\t\t* Source: {}\n", get_filename_from_ta_metadata(ta)).as_bytes())?;
+    Ok(())
 }
 
 /// `log_cert_details` contributes to the manifest file related to
 /// [`PDVCertificate`] contents.
-pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertificate) {
+pub fn log_cert_details(
+    pe: &PkiEnvironment,
+    f: &mut dyn Write,
+    cert: &PDVCertificate,
+) -> std::io::Result<()> {
     f.write_all(
         format!(
             "\t\t* Issuer Name: {}\n",
             name_to_string(cert.decoded().tbs_certificate().issuer())
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Subject Name: {}\n",
             name_to_string(cert.decoded().tbs_certificate().subject())
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Serial Number: 0x{}\n",
             buffer_to_hex(cert.decoded().tbs_certificate().serial_number().as_bytes())
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Not Before: {}\n",
             cert.decoded().tbs_certificate().validity().not_before
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Not After: {}\n",
             cert.decoded().tbs_certificate().validity().not_after
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Public key algorithm: {}\n",
@@ -235,24 +220,21 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
             )
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Public key: {}\n",
             describe_public_key(cert.as_ref().tbs_certificate().subject_public_key_info())
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
     f.write_all(
         format!(
             "\t\t* Signature algorithm: {}\n",
             pe.oid_lookup(&cert.decoded().tbs_certificate().signature().oid)
         )
         .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
+    )?;
 
     let pdv_ext = cert.get_extension(&ID_CE_BASIC_CONSTRAINTS);
     if let Ok(Some(PDVExtension::BasicConstraints(bc))) = pdv_ext {
@@ -261,52 +243,44 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
                 f.write_all(
                     "\t\t* Path length constraint: only end entity certificates may follow\n"
                         .as_bytes(),
-                )
-                .expect("Unable to write manifest file");
+                )?;
             } else {
                 f.write_all(
                     format!(
                         "\t\t* Path length constraint: only {plc} CA certificate(s) may follow\n"
                     )
                     .as_bytes(),
-                )
-                .expect("Unable to write manifest file");
+                )?;
             }
         }
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_CERTIFICATE_POLICIES);
     if let Ok(Some(PDVExtension::CertificatePolicies(cp))) = pdv_ext {
-        f.write_all("\t\t* Certificate policies\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("\t\t* Certificate policies\n".as_bytes())?;
         for p in &cp.0 {
-            f.write_all(format!("\t\t\t* {}\n", p.policy_identifier).as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t\t* {}\n", p.policy_identifier).as_bytes())?;
         }
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_POLICY_CONSTRAINTS);
     if let Ok(Some(PDVExtension::PolicyConstraints(pc))) = pdv_ext {
         if let Some(re) = pc.require_explicit_policy {
-            f.write_all(format!("\t\t* Require explicit policy: {re}\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t* Require explicit policy: {re}\n").as_bytes())?;
         }
         if let Some(re) = pc.inhibit_policy_mapping {
-            f.write_all(format!("\t\t* Inhibit policy mapping: {re}\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t* Inhibit policy mapping: {re}\n").as_bytes())?;
         }
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_INHIBIT_ANY_POLICY);
     if let Ok(Some(PDVExtension::InhibitAnyPolicy(iap))) = pdv_ext {
-        f.write_all(format!("\t\t* Inhibit any policy: {}\n", iap.0).as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all(format!("\t\t* Inhibit any policy: {}\n", iap.0).as_bytes())?;
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_POLICY_MAPPINGS);
     if let Ok(Some(PDVExtension::PolicyMappings(pm))) = pdv_ext {
-        f.write_all("\t\t* Policy mappings\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("\t\t* Policy mappings\n".as_bytes())?;
         for p in &pm.0 {
             f.write_all(
                 format!(
@@ -314,8 +288,7 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
                     p.issuer_domain_policy, p.subject_domain_policy
                 )
                 .as_bytes(),
-            )
-            .expect("Unable to write manifest file");
+            )?;
         }
     }
 
@@ -323,55 +296,48 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
     if let Ok(Some(PDVExtension::AuthorityKeyIdentifier(akid))) = pdv_ext {
         if let Some(kid) = &akid.key_identifier {
             let akid_hex = buffer_to_hex(kid.as_bytes());
-            f.write_all(format!("\t\t* Authority key identifier: {akid_hex}\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t* Authority key identifier: {akid_hex}\n").as_bytes())?;
         }
         if let Some(iss) = &akid.authority_cert_issuer {
-            f.write_all("\t\t* Authority certificate issuer\n".as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all("\t\t* Authority certificate issuer\n".as_bytes())?;
             for gn in iss {
                 match gn {
                     GeneralName::OtherName(on) => {
                         f.write_all(
                             format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
                                 .as_bytes(),
-                        )
-                        .expect("Unable to write manifest file");
+                        )?;
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())?;
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())?;
                     }
                     GeneralName::DirectoryName(dn) => {
-                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())?;
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())?;
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
                     _ => {
-                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes()).expect("Unable to write manifest file");
+                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes())?;
                     }
                 }
             }
         }
         if let Some(iss) = &akid.authority_cert_serial_number {
-            f.write_all(format!("\t\t* Authority certificate serial number: {iss:?}\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(
+                format!("\t\t* Authority certificate serial number: {iss:?}\n").as_bytes(),
+            )?;
         }
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
     if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = pdv_ext {
         let skid_hex = buffer_to_hex(skid.0.as_bytes());
-        f.write_all(format!("\t\t* Subject key identifier: {skid_hex}\n").as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all(format!("\t\t* Subject key identifier: {skid_hex}\n").as_bytes())?;
     }
     //TODO FIX
     /*
@@ -379,113 +345,105 @@ pub fn log_cert_details(pe: &PkiEnvironment, f: &mut dyn Write, cert: &PDVCertif
         if let Ok(Some(PDVExtension::KeyUsage(ku))) = pdv_ext {
             let kuv = x509::extensions_utils::get_key_usage_values(ku);
             f.write_all("\t\t* Key usage: ".as_bytes())
-                .expect("Unable to write manifest file");
+                ?;
             for (i, v) in kuv.iter().enumerate() {
                 if i < kuv.len() - 1 {
                     f.write_all(format!("{},", v).as_bytes())
-                        .expect("Unable to write manifest file");
+                        ?;
                 } else {
                     f.write_all(format!("{}\n", v).as_bytes())
-                        .expect("Unable to write manifest file");
+                        ?;
                 }
             }
         }
     */
     let pdv_ext = cert.get_extension(&ID_CE_EXT_KEY_USAGE);
     if let Ok(Some(PDVExtension::ExtendedKeyUsage(eku))) = pdv_ext {
-        f.write_all("\t\t* Extended key usage\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("\t\t* Extended key usage\n".as_bytes())?;
         for p in &eku.0 {
-            f.write_all(format!("\t\t\t* {p}\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("\t\t\t* {p}\n").as_bytes())?;
         }
     }
 
     let pdv_ext = cert.get_extension(&ID_CE_NAME_CONSTRAINTS);
     if let Ok(Some(PDVExtension::NameConstraints(nc))) = pdv_ext {
         if let Some(perm) = &nc.permitted_subtrees {
-            f.write_all("\t\t* Permitted name constraints\n".as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all("\t\t* Permitted name constraints\n".as_bytes())?;
             for gs in perm {
                 match &gs.base {
                     GeneralName::OtherName(on) => {
                         f.write_all(
                             format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
                                 .as_bytes(),
-                        )
-                        .expect("Unable to write manifest file");
+                        )?;
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())?;
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())?;
                     }
                     GeneralName::DirectoryName(dn) => {
-                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())?;
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())?;
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
                     _ => {
-                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes()).expect("Unable to write manifest file");
+                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes())?;
                     }
                 }
             }
         }
 
         if let Some(excl) = &nc.excluded_subtrees {
-            f.write_all("\t\t* Excluded name constraints\n".as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all("\t\t* Excluded name constraints\n".as_bytes())?;
             for gs in excl {
                 match &gs.base {
                     GeneralName::OtherName(on) => {
                         f.write_all(
                             format!("\t\t\t* Unsupported OtherName of type {:?}\n", on.type_id)
                                 .as_bytes(),
-                        )
-                        .expect("Unable to write manifest file");
+                        )?;
                     }
                     GeneralName::Rfc822Name(rfc822) => {
-                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* RFC822 name: {rfc822}\n").as_bytes())?;
                     }
                     GeneralName::DnsName(dns) => {
-                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DNS name: {dns}\n").as_bytes())?;
                     }
                     GeneralName::DirectoryName(dn) => {
-                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* DN: {}\n", name_to_string(dn)).as_bytes())?;
                     }
                     GeneralName::UniformResourceIdentifier(uri) => {
-                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())
-                            .expect("Unable to write manifest file");
+                        f.write_all(format!("\t\t\t* URI: {uri}\n").as_bytes())?;
                     }
                     // not supporting name constraints for x400Address, ediPartyName, iPAddress or registeredID
                     _ => {
-                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes()).expect("Unable to write manifest file");
+                        f.write_all("\t\t\t* Unsupported NameConstraint (i.e., one of x400Address, ediPartyName, iPAddress or registeredID)\n".as_bytes())?;
                     }
                 }
             }
         }
     }
 
-    f.write_all(format!("\t\t* Source: {}\n", get_filename_from_metadata(cert)).as_bytes())
-        .expect("Unable to write manifest file");
+    f.write_all(format!("\t\t* Source: {}\n", get_filename_from_metadata(cert)).as_bytes())?;
+    Ok(())
 }
 
 /// `log_cpr` contributes to the manifest file related to
 /// [`CertificationPathResults`] contents.
 #[cfg(feature = "std_app")]
-pub fn log_cpr(_pe: &PkiEnvironment, f: &mut dyn Write, np: &Path, cpr: &CertificationPathResults) {
-    render_cpr(f, cpr);
+pub fn log_cpr(
+    _pe: &PkiEnvironment,
+    f: &mut dyn Write,
+    np: &Path,
+    cpr: &CertificationPathResults,
+) -> std::io::Result<()> {
+    render_cpr(f, cpr)?;
     write_cpr_artifacts(np, cpr);
+    Ok(())
 }
 
 /// Renders the certification path validation outputs -- the status and the valid policy graph.
@@ -496,26 +454,23 @@ pub fn log_cpr(_pe: &PkiEnvironment, f: &mut dyn Write, np: &Path, cpr: &Certifi
 /// the artifacts as bytes, while a run writing to a results folder does both to disk. Keeping the
 /// rendering here means every frontend's manifest is the same manifest rather than a second one that
 /// drifts.
-pub fn render_cpr(f: &mut dyn Write, cpr: &CertificationPathResults) {
+pub fn render_cpr(f: &mut dyn Write, cpr: &CertificationPathResults) -> std::io::Result<()> {
     let status = cpr.get_validation_status();
     if let Some(status) = status {
-        f.write_all(format!("Status: {status:?}\n\n").as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all(format!("Status: {status:?}\n\n").as_bytes())?;
     }
 
     let vpt = cpr.get_final_valid_policy_graph();
     if let Some(vpt) = vpt {
-        f.write_all("Valid certificate policies\n".as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all("Valid certificate policies\n".as_bytes())?;
         for (i, row) in vpt.iter().enumerate() {
-            f.write_all(format!("Row: {}\n", i + 1).as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("Row: {}\n", i + 1).as_bytes())?;
             for p in row {
-                f.write_all(format!("\t* {}\n", p.valid_policy).as_bytes())
-                    .expect("Unable to write manifest file");
+                f.write_all(format!("\t* {}\n", p.valid_policy).as_bytes())?;
             }
         }
     }
+    Ok(())
 }
 
 /// Writes the revocation artifacts a run consulted into `np`: OCSP requests and responses, the
@@ -651,7 +606,7 @@ pub fn render_revocation_details(
     f: &mut dyn Write,
     path: &CertificationPath,
     cpr: &CertificationPathResults,
-) {
+) -> std::io::Result<()> {
     // What settled each hop comes from `revocation_outcomes_from_cpr`, the same function the results
     // views render their badges from, so the manifest and the screen cannot disagree.
     //
@@ -663,7 +618,7 @@ pub fn render_revocation_details(
     let num_certs = path.intermediates.len() + 1;
     let outcomes = crate::report::revocation_outcomes_from_cpr(cpr, num_certs);
     if outcomes.is_empty() {
-        return;
+        return Ok(());
     }
 
     let chain: Vec<&PDVCertificate> = path
@@ -710,17 +665,14 @@ pub fn render_revocation_details(
     f.write_all(
         "\n********************************************************************************\n"
             .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
-    f.write_all("Revocation status determination details\n".as_bytes())
-        .expect("Unable to write manifest file");
+    )?;
+    f.write_all("Revocation status determination details\n".as_bytes())?;
     f.write_all(
         "********************************************************************************\n"
             .as_bytes(),
-    )
-    .expect("Unable to write manifest file");
-    f.write_all(out.as_bytes())
-        .expect("Unable to write manifest file");
+    )?;
+    f.write_all(out.as_bytes())?;
+    Ok(())
 }
 
 /// The revocation status of one certificate, worded for a manifest.
@@ -1028,25 +980,33 @@ pub fn log_path(
             e
         );
     }
-    let p = np.join(format!("{}-target.der", path.intermediates.len() + 1).as_str());
-    fs::write(p, target.as_bytes()).expect("Unable to write target file");
-    let p = np.join("0-ta.der");
-    fs::write(p, ta.encoded_ta.as_slice()).expect("Unable to write TA file");
-
+    let mut certs = vec![
+        (
+            np.join(format!("{}-target.der", path.intermediates.len() + 1)),
+            target.as_bytes(),
+        ),
+        (np.join("0-ta.der"), ta.encoded_ta.as_slice()),
+    ];
     for (i, ca) in path.intermediates.iter().enumerate() {
-        let p = np.join(format!("{}.der", i + 1));
-        fs::write(p, ca.as_bytes()).expect("Unable to write intermediate CA file");
+        certs.push((np.join(format!("{}.der", i + 1)), ca.as_bytes()));
+    }
+    for (p, bytes) in certs {
+        if let Err(e) = fs::write(&p, bytes) {
+            error!("Unable to write {}: {e}", p.display());
+        }
     }
 
     if let Some(cpr) = cpr {
         let p = np.join("manifest.txt");
-        let mut f = if let Ok(f) = File::create(p) {
+        let mut f = if let Ok(f) = File::create(&p) {
             f
         } else {
             error!("Failed to create manifest file");
             return;
         };
-        render_path_manifest(pe, &mut f, path, cpr, cps, duration_ms, uri_reports);
+        if let Err(e) = render_path_manifest(pe, &mut f, path, cpr, cps, duration_ms, uri_reports) {
+            error!("Unable to write {}: {e}", p.display());
+        }
         write_cpr_artifacts(&np, cpr);
     }
 }
@@ -1066,82 +1026,68 @@ pub fn render_path_manifest(
     cps: Option<&CertificationPathSettings>,
     duration_ms: Option<u64>,
     uri_reports: Option<&UriCheckReports>,
-) {
+) -> std::io::Result<()> {
     {
         let s = get_filename_from_metadata(&path.target);
-        f.write_all(format!("Certification path validation results for: {s}\n\n").as_bytes())
-            .expect("Unable to write manifest file");
+        f.write_all(format!("Certification path validation results for: {s}\n\n").as_bytes())?;
         f.write_all(
             "********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
-        f.write_all("Certification path validation algorithm inputs\n".as_bytes())
-            .expect("Unable to write manifest file");
+        )?;
+        f.write_all("Certification path validation algorithm inputs\n".as_bytes())?;
         f.write_all(
             "********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
+        )?;
         if let Some(cps) = cps {
-            log_cps(f, cps);
+            log_cps(f, cps)?;
         } else {
-            f.write_all("None".as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all("None".as_bytes())?;
         }
         f.write_all(
             "\n********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
-        f.write_all("Certification path details\n".as_bytes())
-            .expect("Unable to write manifest file");
+        )?;
+        f.write_all("Certification path details\n".as_bytes())?;
         f.write_all(
             "********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
-        f.write_all("\t+ Trust Anchor\n".as_bytes())
-            .expect("Unable to write manifest file");
-        log_ta_details(pe, f, &path.trust_anchor);
+        )?;
+        f.write_all("\t+ Trust Anchor\n".as_bytes())?;
+        log_ta_details(pe, f, &path.trust_anchor)?;
 
         for (i, c) in path.intermediates.iter().enumerate() {
-            f.write_all(format!("\t+ Certificate #{}\n", i + 1).as_bytes())
-                .expect("Unable to write manifest file");
-            log_cert_details(pe, f, c);
+            f.write_all(format!("\t+ Certificate #{}\n", i + 1).as_bytes())?;
+            log_cert_details(pe, f, c)?;
         }
 
-        f.write_all("\t+ Target Certificate\n".as_bytes())
-            .expect("Unable to write manifest file");
-        log_cert_details(pe, f, &path.target);
+        f.write_all("\t+ Target Certificate\n".as_bytes())?;
+        log_cert_details(pe, f, &path.target)?;
 
         f.write_all(
             "\n********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
-        f.write_all("Certification path results\n".as_bytes())
-            .expect("Unable to write manifest file");
+        )?;
+        f.write_all("Certification path results\n".as_bytes())?;
         f.write_all(
             "********************************************************************************\n"
                 .as_bytes(),
-        )
-        .expect("Unable to write manifest file");
+        )?;
         // What the path cost, from the same measurement `PathReport::duration_ms` carries. A
         // manifest that cannot say this can only be compared against another manifest by going back
         // to a console that may be gone, which is the whole difficulty a bundle exists to remove.
         // `None` from a caller that has no run to time rather than a zero, which would read as a
         // path that took no time at all.
         if let Some(ms) = duration_ms {
-            f.write_all(format!("Time to build and validate: {ms} ms\n\n").as_bytes())
-                .expect("Unable to write manifest file");
+            f.write_all(format!("Time to build and validate: {ms} ms\n\n").as_bytes())?;
         }
-        render_cpr(f, cpr);
-        render_revocation_details(f, path, cpr);
+        render_cpr(f, cpr)?;
+        render_revocation_details(f, path, cpr)?;
         if let Some(reports) = uri_reports {
-            render_uri_checks(f, path, reports);
+            render_uri_checks(f, path, reports)?;
         }
     }
+    Ok(())
 }
 
 /// The URI check results for every certificate on this path, closing the path's log.
@@ -1155,9 +1101,13 @@ pub fn render_path_manifest(
 /// way the path does. One that was not checked is skipped silently rather than announced: with the
 /// feature off there is no section at all, and with it on a gap means the certificate was checked
 /// under another path's heading in the same run.
-fn render_uri_checks(f: &mut dyn Write, path: &CertificationPath, reports: &UriCheckReports) {
+fn render_uri_checks(
+    f: &mut dyn Write,
+    path: &CertificationPath,
+    reports: &UriCheckReports,
+) -> std::io::Result<()> {
     if reports.is_empty() {
-        return;
+        return Ok(());
     }
     // The anchor by the certificate it carries, matching the key the checker recorded it under --
     // an anchor holding no certificate was never checked and simply does not appear.
@@ -1173,20 +1123,18 @@ fn render_uri_checks(f: &mut dyn Write, path: &CertificationPath, reports: &UriC
         .map(|r| r.to_table_string())
         .collect();
     if rendered.is_empty() {
-        return;
+        return Ok(());
     }
 
     f.write_all(
         b"\n********************************************************************************\n",
-    )
-    .expect("Unable to write manifest file");
-    f.write_all(b"URI checks\n\n")
-        .expect("Unable to write manifest file");
+    )?;
+    f.write_all(b"URI checks\n\n")?;
     for table in rendered {
-        f.write_all(table.as_bytes())
-            .expect("Unable to write manifest file");
-        f.write_all(b"\n").expect("Unable to write manifest file");
+        f.write_all(table.as_bytes())?;
+        f.write_all(b"\n")?;
     }
+    Ok(())
 }
 
 // The test writes the rendered settings to a file, so it needs the half of this module that has a
@@ -1246,7 +1194,7 @@ fn test_cps_log() {
     let temp_dir = tempdir().unwrap();
     let results_path = temp_dir.path().join("cps.txt");
     let mut f = File::create(results_path).unwrap();
-    log_cps(&mut f, &cps);
+    log_cps(&mut f, &cps).unwrap();
 }
 
 #[cfg(test)]

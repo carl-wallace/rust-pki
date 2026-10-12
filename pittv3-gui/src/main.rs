@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 // No console window behind the application on Windows. Release builds only: a debug build keeps its
 // console, which is where `println!` diagnostics go while something is being worked on.
 //
