@@ -318,9 +318,11 @@ pub fn verify_signature_message_rust_crypto(
                     error!("Signature isn't expected to have unused bits");
                     Error::PathValidation(PathValidationStatus::EncodingError)
                 })?)
+                // A signature whose integers do not fit this key's curve cannot have been produced by
+                // this key.
                 .map_err(|_err| {
-                    error!("Could not decode signature");
-                    Error::PathValidation(PathValidationStatus::EncodingError)
+                    debug!("Signature does not decode as an ECDSA signature for this key's curve");
+                    Error::PathValidation(PathValidationStatus::SignatureVerificationFailure)
                 })?;
                 verifying_key
                     .verify_prehash(&hash_to_verify, &s)
