@@ -1695,6 +1695,30 @@ fn not_self_signed_key_type_mismatch() {
     assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(false));
 }
 
+// A P-256 key cannot produce the P-384 signature this intermediate carries.
+#[test]
+fn not_self_signed_curve_mismatch() {
+    let der = include_bytes!("../../tests/examples/self_signed/p256_key_p384_signed.der");
+    let cert = CertificateInner::from_der(der).unwrap();
+    let mut pe = PkiEnvironment::default();
+    pe.populate_5280_pki_environment();
+    assert_eq!(is_self_signed_with_buffer(&pe, &cert, der), Ok(false));
+
+    let issuer_der = include_bytes!("../../tests/examples/self_signed/p384_issuer_of_p256_key.der");
+    let issuer = CertificateInner::<Raw>::from_der(issuer_der).unwrap();
+    let defer_cert = DeferDecodeSigned::from_der(der).unwrap();
+    assert_eq!(
+        pe.verify_signature_message(
+            &pe,
+            &defer_cert.tbs_field,
+            cert.signature(),
+            cert.tbs_certificate().signature(),
+            issuer.tbs_certificate().subject_public_key_info(),
+        ),
+        Ok(())
+    );
+}
+
 // A self-signed SHA-1 RSA root, which no certval verifier supports without `sha1_sig`.
 #[cfg(not(feature = "sha1_sig"))]
 #[test]
