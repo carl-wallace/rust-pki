@@ -1466,8 +1466,8 @@
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
   ta_store  msft_timestamping_ta.cbor  198800 bytes  sha256:276fc9a82154179b7b63dc213d7aa63f1018234b8e02c0a52f6c024c33ac115f
 
-[tpm]  published=2026-07-09  collected=2026-09-22
-  anchors 47
+[tpm]  published=2026-10-23  collected=2026-10-26
+  anchors 49
     C=TW+CN=NTC TPM EK Root CA 01+O=Nuvoton Technology Corporation  sha256:56b67007f448bd5c5746299fcdea9323971bbdaaefd8e3b9b84773abc888c90e
     C=TW+CN=NTC TPM EK Root CA 02+O=Nuvoton Technology Corporation  sha256:8fac94b462b37acb84431bdc71395585caf518c17f656051ff9c4347a4726ed9
     C=TW+CN=NTC TPM EK Root CA ARSUF 01+O=Nuvoton Technology Corporation  sha256:9e0434093fd0d4f8b927af1f4f6cffbd75f0584af4ade939bbd6851227fa4263
@@ -1488,6 +1488,7 @@
     CN=AMD Pluton Global Factory ICA,OU=IT,O=Advanced Micro Devices Inc.,L=Santa Clara,ST=California,C=US  sha256:593a1794f9e17476c7ad427d2908a97c451451c9e0939fdc80d5d662c232d401
     CN=AMD Root CA R4,OU=IT,O=Advanced Micro Devices\, Inc,L=Santa Clara,ST=California,C=US  sha256:853d5c5abe1fe97bddb62db0aecb4888a52c83353645cf70b12289d62257e78d
     CN=Atmel TPM Root Signing Module,O=Atmel,L=Colorado Springs,ST=Colorado,C=US  sha256:3784884ec83a8d7edbfb928ac878dc75c11451381c6a0cb27aaffb3171e0d33f
+    CN=DCP DICE Global Root CA,OU=www.digital-cp.com,O=Digital Content Protection LLC,L=Beaverton,ST=OR,C=US  sha256:8031cd5e07d49be7f308900ef1775145cde8d264d385450038f2e82904d5c907
     CN=GlobalSign Trusted Platform Module ECC Root CA,O=GlobalSign,OU=GlobalSign Trusted Computing Certificate Authority  sha256:5a8c7b5eb888cfce9322068e80e82b28b554ffeb7fdc9638dcb3763077401d26
     CN=GlobalSign Trusted Platform Module Root CA,O=GlobalSign,OU=GlobalSign Trusted Computing Certificate Authority  sha256:f27bf02c6e00c73d915eeb6a6a2f5fbf0c31ae0393149e6b5c31e41b113841c3
     CN=IFX TPM EK Root CA,OU=AIM,O=Infineon Technologies AG,ST=Bavaria,C=DE  sha256:7df2c3751c03ce003e99174d9cb2559f57a1b05b1920dd30bb6f8dfcf17f5e62
@@ -1498,6 +1499,7 @@
     CN=Infineon OPTIGA(TM) RSA Root CA 3,OU=OPTIGA(TM) Devices,O=Infineon Technologies AG,C=DE  sha256:976b0579c016741b0003bf8055e920ab08f72abc819547b3480b0c141e956b70
     CN=Infineon OPTIGA(TM) RSA Root CA,OU=OPTIGA(TM) Devices,O=Infineon Technologies AG,C=DE  sha256:899e35474c9807eb4c7f2f7a12da0028fb250cd02154d0009fca7d9c66574f3b
     CN=Infineon TPM CA 008,OU=Infineon SMS,O=Infineon Technologies AG,L=Dresden,ST=Saxony,C=DE  sha256:2f93344342aba756229c5b854b4e234ca3d4cb0fd14a50bbff43bec9f0d507b5
+    CN=Intel DICE SubCA CAID:343_1,2.5.4.97=#0c0750454e3a333433,O=Intel Corporation  sha256:fb31e4109e7563532b3d197957282a5c7a9b5dc8ac49b4b7bdb0c7b8a8cf48f0
     CN=Microsoft Pluton Root CA 2021,O=Microsoft Corporation,C=US  sha256:32ab5fe7cb4396659fcb621ca14c6fb8fc2420f64050637d77e45a86c5d3916e
     CN=Microsoft TPM Root Certificate Authority 2014,O=Microsoft Corporation,L=Redmond,ST=Washington,C=US  sha256:870c7a35ceab3d59979f2c6a524042d404cb71518004350925fb2ced79a999da
     CN=NSING TPM ECC ROOT CA 001,OU=TPM Devices,O=NSING Technologies Pte. Ltd.,C=SG  sha256:6ccf8a8a803d07a002a15d4889ffa0b125e4a82a1fe4211db3c6e8592919f9dc
@@ -1515,11 +1517,11 @@
     CN=www.intel.com,OU=ODCA CA2 OSSE Intermediate CA  sha256:98f575d37fcce1139ba4ddfba811d862a8262a207cb46f4c8bd0d9891e406475
     CN=www.intel.com,OU=OnDie CA Root Cert Signing,O=Intel Corporation,L=Santa Clara,ST=CA,C=US  sha256:beb40bb7507b33967226aa80e084749fbb6593893c642e818d682e9a8d07fc24
     CN=www.intel.com,OU=TPM EK root cert signing,O=Intel Corporation,L=Santa Clara,ST=CA,C=US  sha256:2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0
-  ta_store  tpm_ta.cbor  42526 bytes  sha256:e511b7c2ac7f3dafecce458cedf0d889b53aca55cd70227802ca7c5fc084d97d
-  ca_store  tpm_ca.cbor  3742268 bytes  sha256:9f1657bc70ee59f1b3442014803a21adf116afe597915e12c45a88016fa48135
+  ta_store  tpm_ta.cbor  44120 bytes  sha256:cdac76ec91142492e43661394013799218d5520899bb0d4371f7c50e1ade0322
+  ca_store  tpm_ca.cbor  3738244 bytes  sha256:b2711cfa05a49e848188ae8e10a0cdcc01c01143f84370a21f74342eb5134a83
 
-[webpki]  collected=2026-09-28
-  anchors 170
+[webpki]  collected=2026-10-25
+  anchors 167
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA RSA TLS 2021  sha256:81a9088ea59fb364c548a6f85559099b6f0405efbf18e5324ec9f457ba00112f
@@ -1680,9 +1682,6 @@
     CN=USERTrust RSA Certification Authority,O=The USERTRUST Network,L=Jersey City,ST=New Jersey,C=US  sha256:e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2
     CN=e-Szigno Root CA 2017,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:beb00b30839b9bc32c32e4447905950641f26421b15ed089198b518ae2ea1b99
     CN=e-Szigno TLS Root CA 2023,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:b49141502d00663d740f2e7ec340c52800962666121a36d09cf7dd2b90384fb4
-    CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
-    CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
     CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
     CN=vTrus ECC Root CA,O=iTrusChina Co.\,Ltd.,C=CN  sha256:30fbba2c32238e2a98547af97931e550428b9b3f1c8eeb6633dcfa86c5b27dd3
     CN=vTrus Root CA,O=iTrusChina Co.\,Ltd.,C=CN  sha256:8a71de6559336f426c26e53880d00d88a18da4c6a91f0dcb6194e206c5c96387
@@ -1690,6 +1689,6 @@
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
-  ta_store  webpki_ta.cbor  188725 bytes  sha256:dfb2612adbcbda6f751171b25fb29ce8e67006238564c18f771948a2edaf6d1d
-  ca_store  webpki_ca.cbor  3892257 bytes  sha256:658b9e8a0bad553aa1d4c405dee6c138fd08ddc67c029ea9e489977870a5f0ca
+  ta_store  webpki_ta.cbor  186580 bytes  sha256:ca4ca053c5fb2e3d3d3c9a9a8e2a9256a90deefd05593bb702015b51c6f3dc8a
+  ca_store  webpki_ca.cbor  3864447 bytes  sha256:f5e69f2f697b20542e4c86d9c8fc5463eb1e35c029fb5b4c54876b123c92830c
 

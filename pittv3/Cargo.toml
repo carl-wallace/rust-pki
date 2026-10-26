@@ -12,7 +12,7 @@ categories = ["cryptography", "no-std", "encoding"]
 keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

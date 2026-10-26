@@ -14,24 +14,24 @@ readme = "README.md"
 # limit, and only the tests read it. README.md is included because lib.rs takes the crate docs from it.
 include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 x509-cert = { version = "0.3.0", default-features = false, features = ["hazmat","pem"] }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
-cms = "0.3.0-pre.2"
+cms = "=0.3.0-rc.0"
 # `ber` for `certs_from_signed_data`: a certs-only PKCS#7 message is the one artifact a repository
 # plausibly publishes in BER, since a signer streaming one has no length to write up front. It is
 # declared here rather than left to `cms`, which happens to turn it on today: a feature this crate
 # calls `from_ber` under is this crate's to state.
-der = { version="0.8.1", features = ["alloc", "ber", "derive", "flagset", "oid"] }
+der = { version="0.8.3", features = ["alloc", "ber", "derive", "flagset", "oid"] }
 x509-ocsp = { version = "0.3.0-pre" }
 # base64ct is no_std+alloc capable, so it is a non-optional dependency (used by the lenient PEM
 # decoder in pdv_utilities, which must be available in no_std builds too).
 base64ct = { version="1.8.3", default-features = false, features = ["alloc"] }
-spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
+spki = { version = "0.8.1", default-features = false, features = ["alloc"] }
 pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 signature = { version = "3.0.0" }
 
@@ -42,8 +42,8 @@ p256 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs
 p384 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 p521 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
-rsa = {version = "0.10.0-rc.19", default-features = false, optional=true, features = ["encoding"]}
-pkcs1 = {version = "0.8.0-rc.5", default-features = false, optional = true}
+rsa = {version = "=0.10.0-rc.19", default-features = false, optional=true, features = ["encoding"]}
+pkcs1 = {version = "=0.8.0-rc.5", default-features = false, optional = true}
 sha1 = {version = "0.11.0", default-features = false}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 
@@ -67,18 +67,18 @@ reqwest = { version = "0.13.4", optional = true}
 # Not optional: the caches need a Sync lock in every build, and std::sync::RwLock does not exist
 # on the no_std targets. See util/lock.rs for which one is used where.
 spin = { version = "0.9.9", default-features = false, features = ["rwlock"] }
-getrandom = { version = "0.4", optional = true}
+getrandom = { version = "0.4.3", optional = true}
 serde_json = {version = "1.0.150", optional = true, default-features = false, features = ["alloc"] }
 walkdir = { version = "2.5.0", optional = true}
 
 ml-dsa = { version = "0.1.1", optional = true, default-features = false, features = ["alloc", "pkcs8"] }
 sha3 = { version = "0.11.0", default-features = false, optional = true }
-slh-dsa = { version = "0.2.0-rc.5", optional = true }
+slh-dsa = { version = "=0.2.0-rc.5", optional = true }
 
-webpki-roots = {version = "1.0", optional = true}
+webpki-roots = {version = "1.0.11", optional = true}
 # webpki-roots 1.0 moved TrustAnchor into rustls-pki-types (it no longer re-exports it), so the
 # webpki store initializer imports the type directly. Gated with webpki so it stays out of no-std.
-rustls-pki-types = {version = "1.8", default-features = false, optional = true}
+rustls-pki-types = {version = "1.15.1", default-features = false, optional = true}
 hex-literal = "1.1.0"
 
 # Safe wrapper over the CryptoAPI certificate store functions, used by the `capi` feature. Taken

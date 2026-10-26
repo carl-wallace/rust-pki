@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.85.0 # MSRV
+          - 1.88.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -28,14 +28,13 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - uses: RustCrypto/actions/cargo-hack-install@master
-      # pittv3-relay and pittv3-service are excluded for the same reason: both declare 1.88, and
-      # pittv3-service depends on pittv3-gui-lib, so leaving them in drags the dioxus tree back
-      # into these legs transitively and defeats the exclusion above. They are covered in
-      # pittv3-ui.yml, which runs on stable.
-      # the UI crates are excluded: the dioxus 0.7 dependency tree requires rustc >= 1.88
-      # (home/built/image/time), above the 1.85 MSRV here, and pittv3-gui additionally needs
-      # Linux system packages (libwebkit2gtk-4.1-dev, libgtk-3-dev, libxdo-dev) absent from
-      # the runner; re-include as the desktop work stabilizes
+      # pittv3-relay and pittv3-service are excluded along with the UI crates: pittv3-service
+      # depends on pittv3-gui-lib, so leaving them in drags the dioxus tree back into these legs
+      # transitively and defeats the exclusion below. They are covered in pittv3-ui.yml.
+      # The UI crates are built in pittv3-ui.yml rather than here: pittv3-gui needs Linux system
+      # packages (libwebkit2gtk-4.1-dev, libgtk-3-dev, libxdo-dev) absent from this runner, and
+      # keeping the dioxus tree out of these --each-feature legs keeps them short. pittv3-ui.yml
+      # runs on stable, so these crates have no MSRV leg; re-include as the desktop work stabilizes
       - run: cargo hack build --each-feature --workspace --exclude pittv3-gui --exclude pittv3-gui-lib --exclude pittv3-wasm --exclude pittv3-relay --exclude pittv3-service
 
   test:
@@ -43,7 +42,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.85.0 # MSRV
+          - 1.88.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -67,7 +66,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.85.0 # MSRV
+          - 1.88.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -83,7 +82,7 @@ jobs:
   # green until someone ran the suite on Windows.
   #
   # Stable only, and not part of the MSRV matrix: this is here to cover a platform, not a toolchain
-  # floor, and the Ubuntu legs above already hold the 1.85 line.
+  # floor, and the Ubuntu legs above already hold the 1.88 line.
   windows:
     name: windows (build + test, incl. capi)
     runs-on: windows-latest
@@ -132,7 +131,7 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   # Lints run on stable only, deliberately not across the MSRV matrix: clippy's diagnostics differ
-  # between toolchains, so linting against the 1.85 pin reports on a compiler nobody develops with.
+  # between toolchains, so linting against the 1.88 pin reports on a compiler nobody develops with.
   # The pre-commit hook runs the same commands locally so they fail before a push — an early warning,
   # not a replacement for these jobs.
   fmt:

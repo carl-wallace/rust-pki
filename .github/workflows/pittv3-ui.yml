@@ -1,8 +1,8 @@
-# CI for the pittv3 UI crates, which certval.yml excludes: the dioxus 0.7
-# dependency tree requires rustc >= 1.88 (home/built/image/time), above that
-# workflow's 1.85 MSRV legs, and pittv3-gui needs Linux system packages absent
-# from stock runners. Splitting them here ends the exclusion without moving
-# certval's MSRV. Build-only: the UI has no headless test surface yet.
+# CI for the pittv3 UI crates, which certval.yml excludes: pittv3-gui needs Linux
+# system packages absent from stock runners, and keeping the dioxus tree out of
+# that workflow's --each-feature legs keeps them short. This workflow runs on
+# stable, so these crates have no MSRV leg. Build-only: the UI has no headless
+# test surface yet.
 name: pittv3-ui
 
 on:
@@ -84,8 +84,8 @@ jobs:
 
   # The clippy half of certval.yml's lint jobs, for the five crates it excludes. That exclusion was
   # inherited from the build and test jobs rather than decided: certval.yml's own header says lints
-  # run on stable only, so the 1.88-vs-1.85 MSRV half of the reason does not apply to a lint job at
-  # all, and the system-packages half applies only to pittv3-gui -- which the jobs above already
+  # run on stable only, so a toolchain floor was never a reason to keep a lint job away from these
+  # crates, and the system-packages reason applies only to pittv3-gui -- which the jobs above already
   # install for. Until this job existed the pre-commit hook was the only clippy these crates saw, so
   # anything committed with --no-verify reached main unlinted.
   #

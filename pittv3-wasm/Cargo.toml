@@ -46,7 +46,7 @@ pem-rfc7468 = { version = "1.0.0", features = ["alloc"] }
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.150", default-features = false, features = ["alloc"] }
 web-time = "1.1.0"
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.1.2", default-features = false, features = ["deflate"] }
 
 # getrandom 0.4 (pulled in transitively via the RustCrypto 0.3/0.8 wave, e.g. crypto-common) has no
 # default backend on wasm32-unknown-unknown; the wasm_js feature opts into the JS (wasm-bindgen)
@@ -83,18 +83,18 @@ sha2 = { version = "0.11.0", default-features = false }
 x509-cert = { version = "0.3.0", default-features = false }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.4", features = ["wasm_js"] }
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
 # Browser fetch for pulling store CBOR on demand (see fetch_bytes). wasm-only; native builds use a
 # stub, so keep the dependency off the host target where it would not compile.
 gloo-net = { version = "0.6", default-features = false, features = ["http"] }
 # js_sys::Date::parse converts the datetime-local picker's local-time string to the Unix-epoch
 # time of interest; wasm-only, with a host stub in main.rs.
-js-sys = "0.3"
+js-sys = "0.3.106"
 # navigator.maxTouchPoints distinguishes iPad/iPhone (which masquerade as desktop in the UA) so the
 # store file inputs can broaden their `accept` filter only there; wasm-only, host stub in main.rs.
 # Storage is the window.localStorage binding used to persist the settings tab across reloads.
 # Already in the tree via dioxus's web feature, so this only names the bindings.
-web-sys = { version = "0.3", features = ["Window", "Navigator", "Storage"] }
+web-sys = { version = "0.3.106", features = ["Window", "Navigator", "Storage"] }
 # A one-frame yield so the "Validating…" busy state paints before the (blocking, single-threaded)
 # parse/validation runs; wasm-only.
 gloo-timers = { version = "0.3", features = ["futures"] }

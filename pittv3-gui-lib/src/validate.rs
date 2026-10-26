@@ -977,8 +977,17 @@ pub fn validate_hackathon_zip(
         if entry.is_dir() {
             continue;
         }
+        let entry_name = match entry.name() {
+            Ok(n) => n,
+            Err(e) => {
+                out.push(err(format!(
+                    "Failed to read the name of entry {i} in {zip_name}: {e}"
+                )));
+                continue;
+            }
+        };
         // entries may sit under a top-level folder, e.g., artifacts_certs_r5/<name>_ta.der
-        let name = match entry.name().rsplit('/').next() {
+        let name = match entry_name.rsplit('/').next() {
             Some(n) => n.to_string(),
             None => continue,
         };
