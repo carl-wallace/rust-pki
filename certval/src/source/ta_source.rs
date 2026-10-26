@@ -260,6 +260,11 @@ impl TaSource {
     /// Creates a new TaSource instance from the [`TLS_SERVER_ROOTS`]
     /// variable in the [webpki-roots crate](https://crates.io/crates/webpki-roots). This conversion is best effort.
     /// Any trust anchors that cannot be converted are logged and the process continues.
+    ///
+    /// Name constraints webpki-roots carries for an anchor are kept as the anchor's RFC 5914
+    /// constraints. Per RFC 5937 they apply only when
+    /// [`PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS`](crate::PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS) is set,
+    /// which it is not by default.
     #[cfg(feature = "webpki")]
     pub fn new_from_webpki() -> Result<Self> {
         let mut buffers = vec![];

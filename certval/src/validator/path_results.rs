@@ -53,6 +53,7 @@ pub enum CertificationPathResultsTypes {
 /// data at all, and a stapled response is indistinguishable from a fetched one once both are simply
 /// "an OCSP response in the results".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RevocationSource {
     /// Nothing settled this certificate
     None,

@@ -85,6 +85,7 @@ pub type CertificateChain = Vec<PDVCertificate>;
 //-----------------------------------------------------------------------------------------------
 /// `OcspNonceSetting` controls how OCSP responses are processed with respect to nonce values.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum OcspNonceSetting {
     /// DoNotSendNonce indicates that the OCSP client should not include nonce values in OCSP requests
     DoNotSendNonce,

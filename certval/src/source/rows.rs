@@ -77,6 +77,7 @@ pub enum PoolEntry {
 /// while the second says nothing about the certificate except that the question was asked as of a
 /// time it does not cover — change the time of interest and it may be usable again.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum UnusableReason {
     /// The buffer did not decode as a certificate.
     Unparsed,

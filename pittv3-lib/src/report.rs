@@ -817,10 +817,10 @@ pub fn revocation_outcomes_from_cpr(
                 Some(RevocationSource::LocalCrl) => settled(RevocationMethod::LocalCrl),
                 Some(RevocationSource::OcspFromAia) => settled(RevocationMethod::OcspFromAia),
                 Some(RevocationSource::RemoteCrlDp) => settled(RevocationMethod::RemoteCrlDp),
-                // Either nothing settled this position, or the results predate the checker
-                // recording sources. Fall back to what the artifacts show, which distinguishes CRL
-                // from OCSP but not where either came from.
-                Some(RevocationSource::None) | None => {
+                // Nothing settled this position, the results predate the checker recording
+                // sources, or the source is one this build does not name. Fall back to what the
+                // artifacts show, which distinguishes CRL from OCSP but not where either came from.
+                _ => {
                     if flag_at(&nocheck, pos) {
                         (RevocationMethod::OcspNoCheck, RevocationStatus::NotChecked)
                     } else if artifacts_at(&ocsp_responses, pos) {

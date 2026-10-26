@@ -48,6 +48,7 @@ pub type ParsedExtensions = BTreeMap<ObjectIdentifier, PDVExtension>;
 /// [`PDVExtension`] provides a wrapper for supported extension types. At present this does not support
 /// the CRLReason, IssuingDistributionPoint, FreshestCRL and CRLDistributionPoints extensions.
 #[derive(PartialEq, Clone, Eq)]
+#[non_exhaustive]
 pub enum PDVExtension {
     /// Parsed BasicConstraints extension
     BasicConstraints(BasicConstraints),
