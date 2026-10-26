@@ -122,7 +122,7 @@ pub async fn check_revocation(
         // has no wrapped certificate, so use the SubjectNameAndKey abstraction rather than requiring a
         // CertificateInner (which previously made revocation hard-fail on such anchors).
         let issuer: &dyn SubjectNameAndKey = if pos == 0 {
-            &cp.trust_anchor.decoded_ta
+            cp.trust_anchor.decoded()
         } else {
             v[pos - 1].as_ref()
         };
@@ -333,7 +333,7 @@ pub fn check_revocation_local(
         // has no wrapped certificate, so use the SubjectNameAndKey abstraction rather than requiring a
         // CertificateInner (which previously made revocation hard-fail on such anchors).
         let issuer: &dyn SubjectNameAndKey = if pos == 0 {
-            &cp.trust_anchor.decoded_ta
+            cp.trust_anchor.decoded()
         } else {
             v[pos - 1].as_ref()
         };

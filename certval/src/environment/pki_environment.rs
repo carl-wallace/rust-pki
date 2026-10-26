@@ -490,7 +490,7 @@ impl PkiEnvironment {
                 continue;
             }
             let spki_der =
-                match get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta).to_der() {
+                match get_subject_public_key_info_from_trust_anchor(ta.decoded()).to_der() {
                     Ok(d) => d,
                     Err(_e) => continue,
                 };

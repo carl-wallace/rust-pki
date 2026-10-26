@@ -147,7 +147,10 @@ pub fn path_entries(
 ) -> Vec<ExportEntry> {
     let mut artifacts = vec![];
 
-    artifacts.push(("0-ta.der".to_string(), path.trust_anchor.encoded_ta.clone()));
+    artifacts.push((
+        "0-ta.der".to_string(),
+        path.trust_anchor.as_bytes().to_vec(),
+    ));
     for (i, ca) in path.intermediates.iter().enumerate() {
         artifacts.push((format!("{}.der", i + 1), ca.as_bytes().to_vec()));
     }

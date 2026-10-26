@@ -1577,15 +1577,14 @@ impl CertSource {
                     let ta = pe.get_trust_anchor_for_target(cur_cert);
                     if let Ok(ta) = ta {
                         // RFC 5914 TAs do not necessary have to have a name, if this is one of those, ignore it
-                        let ta_name = get_trust_anchor_name(&ta.decoded_ta);
+                        let ta_name = get_trust_anchor_name(ta.decoded());
                         if let Ok(ta_name) = ta_name {
                             if compare_names(cur_cert.decoded().tbs_certificate().issuer(), ta_name)
                             {
                                 let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
                                 if let Ok(defer_cert) = defer_cert {
-                                    let spki = get_subject_public_key_info_from_trust_anchor(
-                                        &ta.decoded_ta,
-                                    );
+                                    let spki =
+                                        get_subject_public_key_info_from_trust_anchor(ta.decoded());
                                     let r = pe.verify_signature_message(
                                         pe,
                                         &defer_cert.tbs_field,
@@ -1995,7 +1994,7 @@ fn above_threshold(v: &[usize], t: usize) -> bool {
 fn pub_key_repeats(path: &CertificationPath) -> bool {
     let mut spki_array: Vec<&SubjectPublicKeyInfoOwned> =
         vec![get_subject_public_key_info_from_trust_anchor(
-            &path.trust_anchor.decoded_ta,
+            path.trust_anchor.decoded(),
         )];
     for c in &path.intermediates {
         let ca = c.clone();
@@ -2194,7 +2193,7 @@ fn build_records_verified_signatures() {
     cert_source.find_all_partial_paths(&pe, &cps);
 
     let ta = PDVTrustAnchorChoice::try_from(ta_der.as_slice()).unwrap();
-    let ta_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
+    let ta_spki = get_subject_public_key_info_from_trust_anchor(ta.decoded());
     let defer_ca = DeferDecodeSigned::from_der(ca_der.as_slice()).unwrap();
 
     // Negative control: the same environment minus both the callbacks and the cache cannot verify

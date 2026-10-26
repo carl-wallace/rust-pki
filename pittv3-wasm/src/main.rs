@@ -2070,7 +2070,7 @@ fn App() -> Element {
             anchors_used: retained_paths
                 .read()
                 .iter()
-                .map(|r| r.path.trust_anchor.encoded_ta.clone())
+                .map(|r| r.path.trust_anchor.as_bytes().to_vec())
                 .collect(),
             intermediates: retained_paths
                 .read()

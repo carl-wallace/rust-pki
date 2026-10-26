@@ -985,7 +985,7 @@ pub fn log_path(
             np.join(format!("{}-target.der", path.intermediates.len() + 1)),
             target.as_bytes(),
         ),
-        (np.join("0-ta.der"), ta.encoded_ta.as_slice()),
+        (np.join("0-ta.der"), ta.as_bytes()),
     ];
     for (i, ca) in path.intermediates.iter().enumerate() {
         certs.push((np.join(format!("{}.der", i + 1)), ca.as_bytes()));

@@ -345,7 +345,7 @@ pub fn harvest_revocation_work(
 
             for (pos, cert) in chain.iter().enumerate() {
                 let issuer: &dyn SubjectNameAndKey = match pos {
-                    0 => &path.trust_anchor.decoded_ta,
+                    0 => path.trust_anchor.decoded(),
                     _ => chain[pos - 1].as_ref(),
                 };
                 // Nothing has to be retrieved for a certificate whose status is already settled.
@@ -556,7 +556,7 @@ pub fn staple_uploaded_ocsp(
                 .collect();
             for (pos, cert) in chain.iter().enumerate() {
                 let issuer: &dyn SubjectNameAndKey = match pos {
-                    0 => &path.trust_anchor.decoded_ta,
+                    0 => path.trust_anchor.decoded(),
                     _ => chain[pos - 1].as_ref(),
                 };
                 let Some(key) = OcspKey::new(cert, issuer) else {
@@ -861,7 +861,7 @@ mod tests {
             .expect("a path to the amazon.com anchor should build");
         let filed = prepared
             .ocsp_responses()
-            .get(&path.target, &path.trust_anchor.decoded_ta)
+            .get(&path.target, path.trust_anchor.decoded())
             .expect("the response should be filed against the certificate it answers about");
         assert_eq!(
             filed, ca_ocsp,

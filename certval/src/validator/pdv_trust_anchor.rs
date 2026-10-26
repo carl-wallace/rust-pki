@@ -36,11 +36,11 @@ use crate::validator::pdv_extension::*;
 #[derive(Clone, Eq, PartialEq)]
 pub struct PDVTrustAnchorChoice {
     /// Binary, encoded TrustAnchorChoice object
-    pub encoded_ta: Vec<u8>,
+    encoded_ta: Vec<u8>,
     /// Decoded TrustAnchorChoice object
-    pub decoded_ta: TrustAnchorChoice<Raw>,
+    decoded_ta: TrustAnchorChoice<Raw>,
     /// Optional parsed extension from the TrustAnchorChoice
-    pub parsed_extensions: ParsedExtensions,
+    parsed_extensions: ParsedExtensions,
     /// The source for the certificate
     locator: Option<String>,
 }
@@ -64,9 +64,19 @@ impl PDVTrustAnchorChoice {
         Ok(pdv_ta)
     }
 
+    /// Return the byte encoding of the TrustAnchorChoice object
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.encoded_ta
+    }
+
     /// Return the locator for the source of this certificate
     pub fn locator(&self) -> Option<&str> {
         self.locator.as_deref()
+    }
+
+    /// Return the decoded TrustAnchorChoice object
+    pub fn decoded(&self) -> &TrustAnchorChoice<Raw> {
+        &self.decoded_ta
     }
 }
 

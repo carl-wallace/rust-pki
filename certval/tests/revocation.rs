@@ -723,7 +723,7 @@ async fn stapled_crl_name_and_spki_trust_anchor() {
     };
     let ta = PDVTrustAnchorChoice::try_from(TrustAnchorChoice::TaInfo(tai)).unwrap();
     // The condition that used to break revocation: this anchor has no embedded certificate.
-    assert!(get_certificate_from_trust_anchor(&ta.decoded_ta).is_none());
+    assert!(get_certificate_from_trust_anchor(ta.decoded()).is_none());
 
     let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
     ca.parse_extensions(EXTS_OF_INTEREST);

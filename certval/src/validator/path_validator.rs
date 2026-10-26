@@ -111,9 +111,9 @@ pub fn validate_path_rfc5280(
     if cps.get_enforce_trust_anchor_constraints() {
         if let Ok(stored) = pe.get_trust_anchor_by_hex_skid(&hex_skid_from_ta(&cp.trust_anchor)) {
             let presented_spki =
-                get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
-            let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
-            if presented_spki == stored_spki && stored.encoded_ta != cp.trust_anchor.encoded_ta {
+                get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded());
+            let stored_spki = get_subject_public_key_info_from_trust_anchor(stored.decoded());
+            if presented_spki == stored_spki && stored.as_bytes() != cp.trust_anchor.as_bytes() {
                 return Err(Error::PathValidation(
                     PathValidationStatus::TrustAnchorConstraintsMismatch,
                 ));
@@ -294,7 +294,7 @@ pub fn check_validity(
         // no validity period, i.e., a TrustAnchorInfo without an embedded certificate (e.g. a
         // webpki-roots trust anchor, which carries only name + SPKI), has nothing to enforce and
         // yields Ok(None) — a distinct outcome from failing the check, and not a path failure.
-        match ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false) {
+        match ta_valid_at_time(cp.trust_anchor.decoded(), toi, false) {
             Ok(None) => {}
             Ok(Some(ttl)) => is_valid(Ok(ttl), 0)?,
             Err(e) => is_valid(Err(e), 0)?,
@@ -403,7 +403,7 @@ pub fn check_names(
     let mut permitted_subtrees = initial_perm.unwrap_or_default();
     let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
-    let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?.clone();
+    let mut working_issuer_name = get_trust_anchor_name(cp.trust_anchor.decoded())?.clone();
 
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
@@ -853,13 +853,13 @@ pub fn enforce_trust_anchor_constraints(
     //anchor, path validation fails.  The name may appear in the subject
     //field of a Certificate or TBSCertificate structure or in the
     //taName field of CertPathControls in a TrustAnchorInfo structure.
-    let _name = get_trust_anchor_name(&ta.decoded_ta)?;
+    let _name = get_trust_anchor_name(ta.decoded())?;
 
     //o  If a basic constraints extension is associated with the trust
     //anchor and contains a pathLenConstraint value, set the
     //max_path_length state variable equal to the pathLenConstraint
     //value from the basic constraints extension.
-    let pl = get_path_length_constraint_from_trust_anchor(&ta.decoded_ta)?;
+    let pl = get_path_length_constraint_from_trust_anchor(ta.decoded())?;
 
     let old_val = mod_cps.get_initial_path_length_constraint();
     if old_val > pl {
@@ -957,7 +957,7 @@ pub fn enforce_trust_anchor_constraints(
     //inhibitAnyPolicy extension) and the initial-any-policy-inhibit
     //value is false, set the initial-any-policy-inhibit value to true.
     let initial_inhibit_any_policy = cps.get_initial_inhibit_any_policy_indicator();
-    let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(ta.decoded())?;
     if ta_inhibit_any_policy && !initial_inhibit_any_policy {
         mod_cps.set_initial_inhibit_any_policy_indicator(ta_inhibit_any_policy);
     }
@@ -967,7 +967,7 @@ pub fn enforce_trust_anchor_constraints(
     //PolicyConstraints extension) and the initial-explicit-policy value
     //is false, set the initial-explicit-policy value to true.
     let initial_require_explicit_policy = cps.get_initial_explicit_policy_indicator();
-    let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(ta.decoded())?;
     if ta_require_explicit_policy && !initial_require_explicit_policy {
         mod_cps.set_initial_explicit_policy_indicator(ta_require_explicit_policy);
     }
@@ -978,7 +978,7 @@ pub fn enforce_trust_anchor_constraints(
     //inhibit value is false, set the initial-policy-mapping-inhibit
     //value to true.
     let initial_inhibit_policy_mapping = cps.get_initial_policy_mapping_inhibit_indicator();
-    let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(ta.decoded())?;
     if ta_inhibit_policy_mapping && !initial_inhibit_policy_mapping {
         mod_cps.set_initial_policy_mapping_inhibit_indicator(ta_inhibit_policy_mapping);
     }
@@ -990,7 +990,7 @@ pub fn enforce_trust_anchor_constraints(
         }
     }
 
-    match &ta.decoded_ta {
+    match ta.decoded() {
         TrustAnchorChoice::Certificate(c) => {
             check_critical_extensions_from_ta(&c.tbs_certificate().extensions())?;
             check_ta_extensions_decode(&c.tbs_certificate().extensions())?;
@@ -1069,7 +1069,7 @@ pub fn verify_signatures(
     let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
     let mut working_spki =
-        get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
+        get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded()).clone();
 
     for (pos, cur_cert) in intermediates_and_target.enumerate() {
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());

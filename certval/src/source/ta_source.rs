@@ -126,13 +126,13 @@ pub fn buffer_to_hex(buffer: &[u8]) -> String {
 ///
 /// The TBSCertificate option within TrustAnchorChoice is not supported.
 pub fn hex_skid_from_ta(ta: &PDVTrustAnchorChoice) -> String {
-    match &ta.decoded_ta {
+    match ta.decoded() {
         TrustAnchorChoice::Certificate(_cert) => {
             let skid = ta.get_extension(&ID_CE_SUBJECT_KEY_IDENTIFIER);
             let hex_skid = if let Ok(Some(PDVExtension::SubjectKeyIdentifier(skid))) = skid {
                 buffer_to_hex(skid.0.as_bytes())
             } else {
-                let working_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
+                let working_spki = get_subject_public_key_info_from_trust_anchor(ta.decoded());
                 // A public key BIT STRING is byte-aligned; a nonzero unused-bits count is
                 // malformed, so decline to compute a key identifier rather than panic or digest a
                 // non-byte-aligned value (empty string is the no-identifier sentinel here).
@@ -273,7 +273,7 @@ impl TaSource {
             };
             let cf = CertFile {
                 filename: format!("WebPKI TrustAnchor #{i}"),
-                bytes: pdv_ta.encoded_ta.clone(),
+                bytes: pdv_ta.as_bytes().to_vec(),
             };
             buffers.push(cf);
         }
@@ -326,7 +326,7 @@ impl TaSource {
                 self.skid_map.insert(hex_skid, i);
             }
 
-            if let Ok(name) = get_trust_anchor_name(&ta.decoded_ta) {
+            if let Ok(name) = get_trust_anchor_name(ta.decoded()) {
                 let name_str = name_to_string(name);
                 self.name_map.insert(name_str, i);
             };
@@ -384,7 +384,7 @@ impl TaSource {
     pub fn ta_rows(&self) -> Vec<TaRow> {
         let mut rows = Vec::with_capacity(self.tas.len());
         for (index, ta) in self.tas.iter().enumerate() {
-            let subject = match get_trust_anchor_name(&ta.decoded_ta) {
+            let subject = match get_trust_anchor_name(ta.decoded()) {
                 Ok(name) => Some(get_leaf_rdn(name)),
                 Err(_) => None,
             };
@@ -473,7 +473,7 @@ impl TrustAnchorSource for TaSource {
         // is chosen by the certificate creator. Confirm the presented certificate carries
         // the same public key as the stored anchor before accepting it.
         let presented_spki = ta.decoded().tbs_certificate().subject_public_key_info();
-        let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
+        let stored_spki = get_subject_public_key_info_from_trust_anchor(stored.decoded());
         if presented_spki == stored_spki {
             Ok(())
         } else {
@@ -487,8 +487,8 @@ impl TrustAnchorSource for TaSource {
         // A subjectKeyIdentifier match is not sufficient: the SKID extension value is
         // chosen by the certificate/anchor creator. Confirm the presented anchor carries the same
         // SPKI as the stored anchor before accepting it as a member of the trust store.
-        let presented_spki = get_subject_public_key_info_from_trust_anchor(&ta.decoded_ta);
-        let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
+        let presented_spki = get_subject_public_key_info_from_trust_anchor(ta.decoded());
+        let stored_spki = get_subject_public_key_info_from_trust_anchor(stored.decoded());
         if presented_spki == stored_spki {
             Ok(())
         } else {
@@ -499,13 +499,13 @@ impl TrustAnchorSource for TaSource {
     fn get_encoded_trust_anchor(&self, skid: &[u8]) -> Result<Vec<u8>> {
         let hex_skid = buffer_to_hex(skid);
         self.get_trust_anchor_by_hex_skid(hex_skid.as_str())
-            .map(|ta| ta.encoded_ta.to_owned().to_vec())
+            .map(|ta| ta.as_bytes().to_owned().to_vec())
     }
 
     fn get_encoded_trust_anchors(&self) -> Result<Vec<Vec<u8>>> {
         let mut v = vec![];
         for ta in &self.tas {
-            v.push(ta.encoded_ta.to_owned().to_vec());
+            v.push(ta.as_bytes().to_owned().to_vec());
         }
         Ok(v)
     }
