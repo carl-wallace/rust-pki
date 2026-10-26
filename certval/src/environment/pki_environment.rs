@@ -960,12 +960,14 @@ fn signature_cache_key(
     spki: &SubjectPublicKeyInfoOwned,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
     let alg_der = der::Encode::to_der(signature_alg).ok()?;
+    let sig_der = der::Encode::to_der(signature).ok()?;
     let spki_der = der::Encode::to_der(spki).ok()?;
-    let signature = signature.raw_bytes();
-    let mut buf = Vec::with_capacity(message_to_verify.len() + signature.len() + alg_der.len());
-    buf.extend_from_slice(message_to_verify);
-    buf.extend_from_slice(signature);
+    // The algorithm and signature are DER TLVs, which carry their own lengths, so the message that
+    // follows them is whatever remains and no two inputs share an encoding.
+    let mut buf = Vec::with_capacity(alg_der.len() + sig_der.len() + message_to_verify.len());
     buf.extend_from_slice(&alg_der);
+    buf.extend_from_slice(&sig_der);
+    buf.extend_from_slice(message_to_verify);
     Some((signature_cache_hash(&buf), signature_cache_hash(&spki_der)))
 }
 
@@ -1065,6 +1067,46 @@ mod signature_cache_tests {
         // At the cap, further entries are dropped, so they report as not verified.
         cache.add_verified(b"cert-c", b"key-1");
         assert!(!cache.is_verified(b"cert-c", b"key-1"));
+    }
+
+    // An entry left by a verified signature answers only for that message, signature and algorithm:
+    // neither moving signature bytes onto the end of the message nor changing the signature's unused
+    // bits reaches it, so both go to the verifier and fail there.
+    #[cfg(feature = "rsa")]
+    #[test]
+    fn signature_cache_entry_answers_only_for_its_own_signature() {
+        use crate::DeferDecodeSigned;
+        use der::Decode;
+        use x509_cert::Certificate;
+
+        let der = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+        let signed = DeferDecodeSigned::from_der(der).unwrap();
+        let spki = Certificate::from_der(der)
+            .unwrap()
+            .tbs_certificate()
+            .subject_public_key_info()
+            .clone();
+        let alg = &signed.signature_algorithm;
+        let sig = signed.signature.raw_bytes();
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::new()));
+        assert!(pe
+            .verify_signature_message(&pe, &signed.tbs_field, &signed.signature, alg, &spki)
+            .is_ok());
+
+        let mut longer_message = signed.tbs_field.clone();
+        longer_message.extend_from_slice(&sig[..8]);
+        let shorter_signature = BitString::new(0, &sig[8..]).unwrap();
+        assert!(pe
+            .verify_signature_message(&pe, &longer_message, &shorter_signature, alg, &spki)
+            .is_err());
+
+        let unused_bits = BitString::new(3, sig).unwrap();
+        assert!(pe
+            .verify_signature_message(&pe, &signed.tbs_field, &unused_bits, alg, &spki)
+            .is_err());
     }
 }
 
