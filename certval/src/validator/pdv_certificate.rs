@@ -1,6 +1,5 @@
 //! Wrappers around asn.1 encoder/decoder structures to support certification path processing
 
-use crate::asn1::piv_naci_indicator::PivNaciIndicator;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -8,21 +7,9 @@ use alloc::{
 use der::{asn1::ObjectIdentifier, Decode, Encode};
 use log::error;
 use spki::AlgorithmIdentifierOwned;
-use x509_cert::{
-    certificate::{CertificateInner, Profile, Raw},
-    ext::{pkix::crl::CrlDistributionPoints, pkix::*},
-};
+use x509_cert::certificate::{CertificateInner, Profile, Raw};
 
-use crate::asn1::piv_naci_indicator::PIV_NACI_INDICATOR;
-use const_oid::db::rfc5912::{
-    ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
-    ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE,
-    ID_CE_NAME_CONSTRAINTS, ID_CE_POLICY_CONSTRAINTS, ID_CE_POLICY_MAPPINGS,
-    ID_CE_PRIVATE_KEY_USAGE_PERIOD, ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
-};
-use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use der::asn1::BitString;
-use x509_ocsp::OcspNoCheck;
 
 use crate::pdv_extension::*;
 use crate::util::error::*;
@@ -136,21 +123,6 @@ impl ExtensionProcessing for PDVCertificate {
     }
 
     fn parse_extension(&mut self, oid: &ObjectIdentifier) -> Result<Option<&PDVExtension>> {
-        macro_rules! add_and_return {
-            ($pe:ident, $v:ident, $oid:ident, $t:ident) => {
-                match $t::from_der($v) {
-                    Ok(r) => {
-                        let ext = PDVExtension::$t(r);
-                        $pe.insert(*oid, ext);
-                        return Ok(Some(&$pe[oid]));
-                    }
-                    Err(e) => {
-                        return Err(Error::Asn1Error(e));
-                    }
-                }
-            };
-        }
-
         let pe = &mut self.parsed_extensions;
         if pe.contains_key(oid) {
             return Ok(pe.get(oid));
@@ -158,85 +130,9 @@ impl ExtensionProcessing for PDVCertificate {
 
         if let Some(exts) = self.decoded_cert.tbs_certificate().extensions().as_ref() {
             if let Some(i) = exts.iter().find(|&ext| ext.extn_id == *oid) {
-                let v = i.extn_value.as_bytes();
-                match *oid {
-                    ID_CE_BASIC_CONSTRAINTS => {
-                        add_and_return!(pe, v, ID_CE_BASIC_CONSTRAINTS, BasicConstraints);
-                    }
-                    ID_CE_SUBJECT_KEY_IDENTIFIER => {
-                        add_and_return!(pe, v, ID_CE_SUBJECT_KEY_IDENTIFIER, SubjectKeyIdentifier);
-                    }
-                    ID_CE_EXT_KEY_USAGE => {
-                        add_and_return!(pe, v, ID_CE_EXT_KEY_USAGE, ExtendedKeyUsage);
-                    }
-                    ID_PE_AUTHORITY_INFO_ACCESS => {
-                        add_and_return!(
-                            pe,
-                            v,
-                            ID_PE_AUTHORITY_INFO_ACCESS,
-                            AuthorityInfoAccessSyntax
-                        );
-                    }
-                    ID_PE_SUBJECT_INFO_ACCESS => {
-                        add_and_return!(pe, v, ID_PE_SUBJECT_INFO_ACCESS, SubjectInfoAccessSyntax);
-                    }
-                    ID_CE_KEY_USAGE => {
-                        add_and_return!(pe, v, ID_CE_KEY_USAGE, KeyUsage);
-                    }
-                    ID_CE_SUBJECT_ALT_NAME => {
-                        add_and_return!(pe, v, ID_CE_SUBJECT_ALT_NAME, SubjectAltName);
-                    }
-                    ID_CE_ISSUER_ALT_NAME => {
-                        add_and_return!(pe, v, ID_CE_ISSUER_ALT_NAME, IssuerAltName);
-                    }
-                    ID_CE_PRIVATE_KEY_USAGE_PERIOD => {
-                        add_and_return!(
-                            pe,
-                            v,
-                            ID_CE_PRIVATE_KEY_USAGE_PERIOD,
-                            PrivateKeyUsagePeriod
-                        );
-                    }
-                    ID_CE_NAME_CONSTRAINTS => {
-                        add_and_return!(pe, v, ID_CE_NAME_CONSTRAINTS, NameConstraints);
-                    }
-                    ID_CE_CRL_DISTRIBUTION_POINTS => {
-                        add_and_return!(
-                            pe,
-                            v,
-                            ID_CE_CRL_DISTRIBUTION_POINTS,
-                            CrlDistributionPoints
-                        );
-                    }
-                    ID_CE_CERTIFICATE_POLICIES => {
-                        add_and_return!(pe, v, ID_CE_CERTIFICATE_POLICIES, CertificatePolicies);
-                    }
-                    ID_CE_POLICY_MAPPINGS => {
-                        add_and_return!(pe, v, ID_CE_POLICY_MAPPINGS, PolicyMappings);
-                    }
-                    ID_CE_AUTHORITY_KEY_IDENTIFIER => {
-                        add_and_return!(
-                            pe,
-                            v,
-                            ID_CE_AUTHORITY_KEY_IDENTIFIER,
-                            AuthorityKeyIdentifier
-                        );
-                    }
-                    ID_CE_POLICY_CONSTRAINTS => {
-                        add_and_return!(pe, v, ID_CE_POLICY_CONSTRAINTS, PolicyConstraints);
-                    }
-                    ID_CE_INHIBIT_ANY_POLICY => {
-                        add_and_return!(pe, v, ID_CE_INHIBIT_ANY_POLICY, InhibitAnyPolicy);
-                    }
-                    ID_PKIX_OCSP_NOCHECK => {
-                        add_and_return!(pe, v, PKIX_OCSP_NOCHECK, OcspNoCheck);
-                    }
-                    PIV_NACI_INDICATOR => {
-                        add_and_return!(pe, v, PIV_NACI_INDICATOR, PivNaciIndicator);
-                    }
-                    _ => {
-                        // ignore unrecognized
-                    }
+                if let Some(ext) = decode_extension(oid, i.extn_value.as_bytes())? {
+                    pe.insert(*oid, ext);
+                    return Ok(pe.get(oid));
                 }
             }
         }
