@@ -160,7 +160,7 @@ pub async fn check_revocation(
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {
-            if let Some(enc_ocsp_resp) = &cp.ocsp_responses[pos] {
+            if let Some(Some(enc_ocsp_resp)) = cp.ocsp_responses.get(pos) {
                 match process_ocsp_response(
                     pe,
                     cps,
@@ -188,7 +188,7 @@ pub async fn check_revocation(
                         info!("Failed to determine revocation status using stapled OCSP for certificate issued to {cur_cert_subject} with {e}");
                     }
                 }
-            } else if let Some(crl) = &cp.crls[pos] {
+            } else if let Some(Some(crl)) = cp.crls.get(pos) {
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {cur_cert_subject}");
@@ -375,7 +375,7 @@ pub fn check_revocation_local(
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {
-            if let Some(enc_ocsp_resp) = &cp.ocsp_responses[pos] {
+            if let Some(Some(enc_ocsp_resp)) = cp.ocsp_responses.get(pos) {
                 match process_ocsp_response(
                     pe,
                     cps,
@@ -404,7 +404,7 @@ pub fn check_revocation_local(
                         }
                     }
                 }
-            } else if let Some(crl) = &cp.crls[pos] {
+            } else if let Some(Some(crl)) = cp.crls.get(pos) {
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);

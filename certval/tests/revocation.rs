@@ -1090,3 +1090,35 @@ async fn unverifiable_crl_does_not_taint_a_later_determination() {
     let sources = cpr.get_revocation_source().unwrap();
     assert_eq!(RevocationSource::LocalCrl, sources[1]);
 }
+
+// The stapled CRL and OCSP vectors are public, so a caller can leave them shorter than the path. A
+// position with no entry is treated as having nothing stapled rather than indexed past the end.
+#[cfg(feature = "revocation")]
+#[test]
+fn short_stapled_vectors_read_as_nothing_stapled() {
+    use certval::*;
+
+    let der_encoded_ta = include_bytes!("examples/harvard.edu/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/harvard.edu/1.der");
+    let der_encoded_ee = include_bytes!("examples/harvard.edu/2-target.der");
+
+    let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+    let ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    let ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+
+    let mut cert_path = CertificationPath::new(ta, vec![ca], ee);
+    cert_path.crls = vec![Some(b"not a CRL".to_vec())];
+    cert_path.ocsp_responses = vec![];
+
+    let cps = CertificationPathSettings::new();
+    let mut cpr = CertificationPathResults::new();
+    assert_eq!(
+        check_revocation_local(&pe, &cps, &cert_path, &mut cpr),
+        Err(Error::PathValidation(
+            PathValidationStatus::RevocationStatusNotDetermined
+        ))
+    );
+}
