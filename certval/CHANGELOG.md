@@ -139,5 +139,5 @@ re-issue, and fifteen post-quantum re-issues.
 
 ### Minimum supported Rust version
 
-**1.85.** MSRV increases are not considered breaking changes and can happen in patch releases,
+**1.88.** MSRV increases are not considered breaking changes and can happen in patch releases,
 matching the policy of the RustCrypto crates this library is built on.

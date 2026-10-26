@@ -14,7 +14,7 @@ categories = ["cryptography", "no-std", "encoding"]
 keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,8 +25,8 @@ x509-cert = { version = "0.3.0", default-features = false, features = ["pem"] }
 # holds rather than retaining anything further. Same version certval pins.
 x509-ocsp = { version = "0.3.0-pre", default-features = false }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
-der = { version="0.8.1", features = ["alloc", "derive", "flagset", "oid"] }
-spki = { version = "0.8.0", default-features = false, features = ["alloc"] }
+der = { version="0.8.3", features = ["alloc", "derive", "flagset", "oid"] }
+spki = { version = "0.8.1", default-features = false, features = ["alloc"] }
 # Only to read an RSA modulus length out of a SubjectPublicKeyInfo when describing a key in a path
 # log. Already in the tree via certval, and deliberately not `rsa::pkcs1`: a log should describe a
 # key whatever verifiers happen to be compiled in.
@@ -35,7 +35,7 @@ pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
 rfc5934 = { git = "https://github.com/carl-wallace/rfc5934.git", rev = "71cad7826cb9b01dddeeaf450b996ab6b4a29c39", optional = true }
-cms = { version = "0.3.0-pre.2", optional = true }
+cms = { version = "0.3.0-rc.0", optional = true }
 reqwest = { version = "0.13.4", optional = true }
 # Only so `run_blocking` can drive the async `options_std` for a caller that has no runtime of its
 # own. Already present transitively under `remote` (via reqwest); named here so the `std`-without-

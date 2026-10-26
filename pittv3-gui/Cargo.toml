@@ -44,10 +44,10 @@ certval_stores_pbdev = { git = "https://github.com/carl-wallace/certval-stores.g
 certval_stores_fpki = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main", default-features = false, features = ["fpki"] }
 certval_stores_mozilla = { git = "https://github.com/carl-wallace/certval-stores-mozilla.git", branch = "main", default-features = false, features = ["mozilla_tls", "mozilla_email", "mozilla_cas"] }
 
-der = { version = "0.8.1", default-features = false, features = ["alloc"] }
+der = { version = "0.8.3", default-features = false, features = ["alloc"] }
 dioxus = { version = "0.7.9", features = ["desktop"] }
-futures-channel = "0.3.31"
-futures-util = { version = "0.3.31", default-features = false }
+futures-channel = "0.3.34"
+futures-util = { version = "0.3.34", default-features = false }
 home = "0.5.12"
 log = "0.4.33"
 log4rs = "1.4.0"
@@ -56,7 +56,7 @@ log4rs = "1.4.0"
 # asking the reader to agree with a statement. No effect on macOS or Linux. On Windows it needs the
 # application manifest that build.rs embeds, or the exe will not load (TaskDialogIndirect).
 rfd = { version = "0.17.2", features = ["common-controls-v6"] }
-anyhow = "1.0.100"
+anyhow = "1.0.103"
 # Already in the tree through the desktop stack; named here to decode the window icon, which tao
 # takes as raw pixels rather than as an encoded image.
 png = "0.17.16"

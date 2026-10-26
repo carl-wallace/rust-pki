@@ -125,7 +125,7 @@ x509-limbo and NIST PKITS — and what they do and do not establish.
 
 ## Minimum Supported Rust Version
 
-This crate requires **Rust 1.85** at a minimum, and tracks `certval`'s MSRV; see that crate's MSRV
+This crate requires **Rust 1.88** at a minimum, and tracks `certval`'s MSRV; see that crate's MSRV
 policy. No promise is made about when it moves — nothing resolves against this binary, so an
 increase cannot break a downstream build.
 
@@ -145,7 +145,7 @@ dual licensed as above, without any additional terms or conditions.
 [//]: # (badges)
 
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.85+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.88+-blue.svg
 
 [//]: # (links)
 
