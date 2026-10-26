@@ -40,7 +40,7 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// turn until one answers.
 ///
 /// ```text
-/// cache → no-check ext → stapled (OCSP | CRL) → local CRLs → OCSP from AIA → remote CRL DP → grace periods
+/// cache → no-check ext → stapled (OCSP | CRL) → local CRLs → OCSP from AIA → remote CRL DP
 /// ```
 ///
 /// Two gates come first and return `Ok(())` with nothing checked: revocation checking turned off in
@@ -70,8 +70,6 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
 ///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
 ///   [`check_revocation_local`] is the same chain stopping after local CRLs.
-/// - **grace periods** — `cps.crl_grace_periods_as_last_resort` reaches a `TODO`; a stale CRL is
-///   never reconsidered today, so the setting changes nothing.
 ///
 /// Returns `Ok` when the status of every certificate was determined and none was revoked. A
 /// revocation yields `Error::PathValidation(CertificateRevokedEndEntity)` or
@@ -98,7 +96,6 @@ pub async fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
     let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
@@ -262,10 +259,6 @@ pub async fn check_revocation(
             }
         }
 
-        if cur_status == RevocationStatusNotDetermined && crl_grace_periods_as_last_resort {
-            // TODO recheck CRLs with grace periods
-        }
-
         statuses.push(cur_status);
     }
 
@@ -319,7 +312,6 @@ pub fn check_revocation_local(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
     let check_crls = cps.get_check_crls();
 
     // for convenience, combine target into array with the intermediate CA certs
@@ -450,10 +442,6 @@ pub fn check_revocation_local(
                     };
                 }
             }
-        }
-
-        if cur_status == RevocationStatusNotDetermined && crl_grace_periods_as_last_resort {
-            // TODO recheck local CRLs with grace periods
         }
 
         statuses.push(cur_status);

@@ -52,7 +52,6 @@ fn settings_serialization_test() {
     cps.set_retrieve_from_aia_sia_http(false);
     cps.set_check_crls(false);
     cps.set_check_crldp_http(false);
-    cps.set_crl_grace_periods_as_last_resort(false);
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
     cps.set_target_key_usage(fs);
@@ -63,4 +62,21 @@ fn settings_serialization_test() {
 
     let ser2 = serde_json::to_string(&deser).unwrap();
     assert_eq!(ser, ser2);
+}
+
+// A settings file written before a setting was retired still loads; the retired name is carried
+// along unread rather than refusing the file.
+#[test]
+fn a_settings_file_naming_a_retired_setting_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(
+        &path,
+        r#"{"psCrlGracePeriodsAsLastResort":{"Bool":false},"psCheckCrls":{"Bool":false}}"#,
+    )
+    .unwrap();
+
+    let cps = read_settings(&Some(path.to_str().unwrap().to_string())).unwrap();
+    assert!(!cps.get_check_crls());
+    assert!(cps.0.contains_key("psCrlGracePeriodsAsLastResort"));
 }

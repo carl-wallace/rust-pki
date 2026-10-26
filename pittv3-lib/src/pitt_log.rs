@@ -1185,7 +1185,6 @@ fn test_cps_log() {
     cps.set_retrieve_from_aia_sia_http(false);
     cps.set_check_crls(false);
     cps.set_check_crldp_http(false);
-    cps.set_crl_grace_periods_as_last_resort(false);
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::DoNotSendNonce);
     let fs = KeyUsages::DigitalSignature | KeyUsages::KeyEncipherment;
     cps.set_target_key_usage(fs);

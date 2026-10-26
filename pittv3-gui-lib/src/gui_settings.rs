@@ -932,12 +932,6 @@ pub fn EditSettings(
                                 overridden: m.check_crldp_http.is_some(),
                                 onchange: move |v| model.write().check_crldp_http = Some(v),
                             }
-                            BoolRow {
-                                label: "Allow stale CRLs within grace periods",
-                                checked: m.crl_grace_periods_as_last_resort.unwrap_or(true),
-                                overridden: m.crl_grace_periods_as_last_resort.is_some(),
-                                onchange: move |v| model.write().crl_grace_periods_as_last_resort = Some(v),
-                            }
                             NumberRow {
                                 label: "Revocation max age (seconds, 0 disables)",
                                 value: m.revocation_max_age_secs,

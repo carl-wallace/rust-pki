@@ -86,8 +86,6 @@ pub struct SettingsModel {
     pub check_crldp_http: Option<bool>,
     /// Nonce handling for OCSP requests
     pub ocsp_aia_nonce_setting: Option<OcspNonceSetting>,
-    /// Allow stale CRLs within grace periods as a last resort
-    pub crl_grace_periods_as_last_resort: Option<bool>,
     /// Maximum age in seconds for cached revocation information (0 disables the check)
     pub revocation_max_age_secs: Option<u64>,
     /// Timeout in seconds for CRL retrieval
@@ -163,8 +161,6 @@ impl SettingsModel {
             check_crldp_http: present(cps, PS_CHECK_CRLDP_HTTP).then(|| cps.get_check_crldp_http()),
             ocsp_aia_nonce_setting: present(cps, PS_OCSP_AIA_NONCE_SETTING)
                 .then(|| cps.get_ocsp_aia_nonce_setting()),
-            crl_grace_periods_as_last_resort: present(cps, PS_CRL_GRACE_PERIODS_AS_LAST_RESORT)
-                .then(|| cps.get_crl_grace_periods_as_last_resort()),
             revocation_max_age_secs: present(cps, PS_REVOCATION_MAX_AGE)
                 .then(|| cps.get_revocation_max_age().as_secs()),
             crl_timeout_secs: present(cps, PS_CRL_TIMEOUT).then(|| cps.get_crl_timeout().as_secs()),
@@ -320,12 +316,6 @@ impl SettingsModel {
             PS_OCSP_AIA_NONCE_SETTING,
             &self.ocsp_aia_nonce_setting,
             |c, v| c.set_ocsp_aia_nonce_setting(v),
-        );
-        set_or_remove(
-            cps,
-            PS_CRL_GRACE_PERIODS_AS_LAST_RESORT,
-            &self.crl_grace_periods_as_last_resort,
-            |c, v| c.set_crl_grace_periods_as_last_resort(v),
         );
         set_or_remove(
             cps,
