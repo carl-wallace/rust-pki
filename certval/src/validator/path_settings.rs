@@ -240,9 +240,10 @@ pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidit
 /// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
 /// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
 /// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
-/// the target certificate, i.e., the target certificate must have a KeyUsage extension with the at
-/// least the bits indicated set. When this is absent, KeyUsage values in the target certificate are
-/// not considered when validating a certification path.
+/// the target certificate, i.e., a target certificate that has a KeyUsage extension must have at
+/// least the bits indicated set. A target certificate without a KeyUsage extension is unconstrained
+/// with regard to key usage and satisfies any value. When this is absent, KeyUsage values in the
+/// target certificate are not considered when validating a certification path.
 pub static PS_KEY_USAGE: &str = "psKeyUsage";
 
 /// `PS_EXTENDED_KEY_USAGE` is used to retrieve an ObjectIdentifierSet from a [`CertificationPathSettings`]
