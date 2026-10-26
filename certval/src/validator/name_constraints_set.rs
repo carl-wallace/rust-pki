@@ -127,6 +127,15 @@ pub struct NameConstraintsSet {
     pub not_supported: Vec<GeneralSubtree>, //t = everything else
 }
 
+/// Adds `subtree` to `set` unless an equal subtree is already there. Each intersection keeps only
+/// subtrees drawn from the operative state or the new certificate, so holding each once bounds the
+/// state by the subtrees in the path rather than by the product of their counts.
+fn push_unique(set: &mut Vec<GeneralSubtree>, subtree: &GeneralSubtree) {
+    if !set.contains(subtree) {
+        set.push(subtree.clone());
+    }
+}
+
 impl NameConstraintsSet {
     //----------------------------------------------------------------------------
     // public
@@ -640,7 +649,7 @@ impl NameConstraintsSet {
             for new_name in new_names {
                 if let GeneralName::Rfc822Name(new_rfc822) = &new_name.base {
                     if self.rfc822_name.is_empty() {
-                        new_set.push(new_name.clone());
+                        push_unique(&mut new_set, new_name);
                     } else {
                         for prev_name in &self.rfc822_name {
                             if let GeneralName::Rfc822Name(prev_rfc822) = &prev_name.base {
@@ -652,12 +661,12 @@ impl NameConstraintsSet {
                                         new_rfc822.as_ref(),
                                     )
                                 {
-                                    new_set.push(new_name.clone());
+                                    push_unique(&mut new_set, new_name);
                                 } else if rfc822_constraint_contains(
                                     new_rfc822.as_ref(),
                                     prev_rfc822.as_ref(),
                                 ) {
-                                    new_set.push(prev_name.clone());
+                                    push_unique(&mut new_set, prev_name);
                                 }
                             }
                         }
@@ -685,16 +694,16 @@ impl NameConstraintsSet {
             for new_name in new_names {
                 if let GeneralName::DnsName(new_dns) = &new_name.base {
                     if self.dns_name.is_empty() {
-                        new_set.push(new_name.clone());
+                        push_unique(&mut new_set, new_name);
                     } else {
                         for prev_name in &self.dns_name {
                             if let GeneralName::DnsName(prev_dns) = &prev_name.base {
                                 if new_name == prev_name
                                     || descended_from_host(prev_dns, new_dns.as_str(), false)
                                 {
-                                    new_set.push(new_name.clone());
+                                    push_unique(&mut new_set, new_name);
                                 } else if descended_from_host(new_dns, prev_dns.as_str(), false) {
-                                    new_set.push(prev_name.clone());
+                                    push_unique(&mut new_set, prev_name);
                                 }
                             }
                         }
@@ -721,26 +730,26 @@ impl NameConstraintsSet {
         for new_name in new_names {
             if let GeneralName::DirectoryName(new_dn) = &new_name.base {
                 if self.directory_name.is_empty() {
-                    new_set.push(new_name.clone());
+                    push_unique(&mut new_set, new_name);
                 } else {
                     for prev_name in &self.directory_name {
                         if let GeneralName::DirectoryName(prev_dn) = &prev_name.base {
                             if new_name == prev_name {
-                                new_set.push(prev_name.clone());
+                                push_unique(&mut new_set, prev_name);
                             } else if descended_from_dn(
                                 prev_dn,
                                 new_dn,
                                 prev_name.minimum,
                                 prev_name.maximum,
                             ) {
-                                new_set.push(new_name.clone());
+                                push_unique(&mut new_set, new_name);
                             } else if descended_from_dn(
                                 new_dn,
                                 prev_dn,
                                 new_name.minimum,
                                 new_name.maximum,
                             ) {
-                                new_set.push(prev_name.clone());
+                                push_unique(&mut new_set, prev_name);
                             }
                         }
                     }
@@ -767,7 +776,7 @@ impl NameConstraintsSet {
             for new_name in new_names {
                 if let GeneralName::UniformResourceIdentifier(new_uri) = &new_name.base {
                     if self.uniform_resource_identifier.is_empty() {
-                        new_set.push(new_name.clone());
+                        push_unique(&mut new_set, new_name);
                     } else {
                         for prev_name in &self.uniform_resource_identifier {
                             if let GeneralName::UniformResourceIdentifier(prev_uri) =
@@ -776,9 +785,9 @@ impl NameConstraintsSet {
                                 if new_name == prev_name
                                     || descended_from_host(prev_uri, new_uri.as_str(), true)
                                 {
-                                    new_set.push(new_name.clone());
+                                    push_unique(&mut new_set, new_name);
                                 } else if descended_from_host(new_uri, prev_uri.as_str(), true) {
-                                    new_set.push(prev_name.clone());
+                                    push_unique(&mut new_set, prev_name);
                                 }
                             }
                         }
@@ -806,13 +815,13 @@ impl NameConstraintsSet {
             for new_name in new_names {
                 if let GeneralName::IpAddress(new_ip) = &new_name.base {
                     if self.ip_address.is_empty() {
-                        new_set.push(new_name.clone());
+                        push_unique(&mut new_set, new_name);
                     } else {
                         for prev_name in &self.ip_address {
                             if let GeneralName::IpAddress(prev_ip) = &prev_name.base {
                                 if new_name == prev_name {
                                     // if the constraints are the same, keep it
-                                    new_set.push(prev_name.clone());
+                                    push_unique(&mut new_set, prev_name);
                                 } else {
                                     let new_cidr = match get_cidr_for_subtree(new_ip.as_bytes()) {
                                         Ok(new_cidr) => new_cidr,
@@ -830,12 +839,12 @@ impl NameConstraintsSet {
                                         && prev_cidr.contains(&new_cidr.last_address())
                                     {
                                         // if the new constraint falls within the old, use the new one
-                                        new_set.push(new_name.clone());
+                                        push_unique(&mut new_set, new_name);
                                     } else if new_cidr.contains(&prev_cidr.first_address())
                                         && new_cidr.contains(&prev_cidr.last_address())
                                     {
                                         // if the old constraint falls within the new, keep the old one
-                                        new_set.push(prev_name.clone());
+                                        push_unique(&mut new_set, prev_name);
                                     }
                                 }
                             }
@@ -1828,4 +1837,25 @@ fn an_unprocessed_name_form_is_rejected_only_by_a_constraint_of_its_own_form() {
     let mut excluded = NameConstraintsSet::default();
     excluded.calculate_union(&vec![subtree(other_name)]);
     assert!(!excluded.san_within_excluded_subtrees(&Some(&san)));
+}
+
+// Certificate authorities that each permit the same dNSName many times leave one copy of it in the
+// operative state, not one per pairing of the previous state with the new subtrees, which would grow
+// as the count raised to the number of authorities.
+#[test]
+fn repeated_permitted_subtrees_are_held_once() {
+    let subtrees: GeneralSubtrees = (0..10)
+        .map(|_| GeneralSubtree {
+            base: GeneralName::DnsName(Ia5String::new("example.com").unwrap()),
+            minimum: 0,
+            maximum: None,
+        })
+        .collect();
+
+    let mut permitted = NameConstraintsSet::default();
+    for _ in 0..5 {
+        permitted.calculate_intersection(&subtrees);
+    }
+    assert_eq!(permitted.dns_name.len(), 1);
+    assert!(!permitted.dns_name_null);
 }

@@ -400,6 +400,7 @@ pub trait CertificateSource {
 /// The `CertificationPathBuilderFormats` enum is used to support possible future support for alternative
 /// formats when serializing partial certification paths. At present, only CBOR is supported.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CertificationPathBuilderFormats {
     /// Serialize using CBOR format
     Cbor,

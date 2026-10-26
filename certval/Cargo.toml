@@ -10,6 +10,9 @@ repository = "https://github.com/carl-wallace/rust-pki"
 categories = ["cryptography", "no-std", "encoding"]
 keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
+# The PKITS and PQC test data under tests/ is several hundred megabytes, far over the crates.io size
+# limit, and only the tests read it. README.md is included because lib.rs takes the crate docs from it.
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
 rust-version = "1.85"
 

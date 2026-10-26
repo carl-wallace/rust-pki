@@ -100,7 +100,7 @@ fn complete_inputs(run: &RetainedRun, mut inputs: RunInputs) -> RunInputs {
     for path in &run.paths {
         inputs
             .anchors_used
-            .push(path.path.trust_anchor.encoded_ta.clone());
+            .push(path.path.trust_anchor.as_bytes().to_vec());
         for ca in &path.path.intermediates {
             inputs.intermediates.push(ca.as_bytes().to_vec());
         }

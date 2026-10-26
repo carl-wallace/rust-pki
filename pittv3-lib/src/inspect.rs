@@ -117,6 +117,7 @@ pub fn unusable_text(row: &CertRow) -> &'static str {
         Some(UnusableReason::Unparsed) => "unusable — did not parse",
         Some(UnusableReason::NotValidAtTimeOfInterest) => "unusable — outside the time of interest",
         Some(UnusableReason::NotParsed) => "not parsed yet",
+        Some(_) => "unusable",
     }
 }
 

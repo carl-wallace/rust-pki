@@ -661,7 +661,7 @@ fn staple_ocsp(path: &mut CertificationPath, ocsp: &OcspResponses) {
             .enumerate()
             .map(|(pos, cert)| {
                 let issuer: &dyn SubjectNameAndKey = match pos {
-                    0 => &path.trust_anchor.decoded_ta,
+                    0 => path.trust_anchor.decoded(),
                     _ => chain[pos - 1].as_ref(),
                 };
                 ocsp.get(cert, issuer)

@@ -103,7 +103,7 @@ pub struct UriCheckOptions<'a> {
 /// certificate met as an intermediate on another path must produce the same bytes, or the record
 /// describes the role rather than the material.
 pub fn anchor_certificate_der(ta: &PDVTrustAnchorChoice) -> Option<Vec<u8>> {
-    get_certificate_from_trust_anchor(&ta.decoded_ta).and_then(|cert| cert.to_der().ok())
+    get_certificate_from_trust_anchor(ta.decoded()).and_then(|cert| cert.to_der().ok())
 }
 
 /// The URI check results for one run, keyed by the certificate they describe.

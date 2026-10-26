@@ -40,7 +40,7 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// turn until one answers.
 ///
 /// ```text
-/// cache → no-check ext → stapled (OCSP | CRL) → local CRLs → OCSP from AIA → remote CRL DP → grace periods
+/// cache → no-check ext → stapled (OCSP | CRL) → local CRLs → OCSP from AIA → remote CRL DP
 /// ```
 ///
 /// Two gates come first and return `Ok(())` with nothing checked: revocation checking turned off in
@@ -70,8 +70,6 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
 ///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
 ///   [`check_revocation_local`] is the same chain stopping after local CRLs.
-/// - **grace periods** — `cps.crl_grace_periods_as_last_resort` reaches a `TODO`; a stale CRL is
-///   never reconsidered today, so the setting changes nothing.
 ///
 /// Returns `Ok` when the status of every certificate was determined and none was revoked. A
 /// revocation yields `Error::PathValidation(CertificateRevokedEndEntity)` or
@@ -98,7 +96,6 @@ pub async fn check_revocation(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
     let check_crls = cps.get_check_crls();
 
     #[cfg(feature = "remote")]
@@ -125,7 +122,7 @@ pub async fn check_revocation(
         // has no wrapped certificate, so use the SubjectNameAndKey abstraction rather than requiring a
         // CertificateInner (which previously made revocation hard-fail on such anchors).
         let issuer: &dyn SubjectNameAndKey = if pos == 0 {
-            &cp.trust_anchor.decoded_ta
+            cp.trust_anchor.decoded()
         } else {
             v[pos - 1].as_ref()
         };
@@ -160,7 +157,7 @@ pub async fn check_revocation(
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {
-            if let Some(enc_ocsp_resp) = &cp.ocsp_responses[pos] {
+            if let Some(Some(enc_ocsp_resp)) = cp.ocsp_responses.get(pos) {
                 match process_ocsp_response(
                     pe,
                     cps,
@@ -188,7 +185,7 @@ pub async fn check_revocation(
                         info!("Failed to determine revocation status using stapled OCSP for certificate issued to {cur_cert_subject} with {e}");
                     }
                 }
-            } else if let Some(crl) = &cp.crls[pos] {
+            } else if let Some(Some(crl)) = cp.crls.get(pos) {
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {cur_cert_subject}");
@@ -262,10 +259,6 @@ pub async fn check_revocation(
             }
         }
 
-        if cur_status == RevocationStatusNotDetermined && crl_grace_periods_as_last_resort {
-            // TODO recheck CRLs with grace periods
-        }
-
         statuses.push(cur_status);
     }
 
@@ -319,7 +312,6 @@ pub fn check_revocation_local(
         return Ok(());
     }
 
-    let crl_grace_periods_as_last_resort = cps.get_crl_grace_periods_as_last_resort();
     let check_crls = cps.get_check_crls();
 
     // for convenience, combine target into array with the intermediate CA certs
@@ -341,7 +333,7 @@ pub fn check_revocation_local(
         // has no wrapped certificate, so use the SubjectNameAndKey abstraction rather than requiring a
         // CertificateInner (which previously made revocation hard-fail on such anchors).
         let issuer: &dyn SubjectNameAndKey = if pos == 0 {
-            &cp.trust_anchor.decoded_ta
+            cp.trust_anchor.decoded()
         } else {
             v[pos - 1].as_ref()
         };
@@ -375,7 +367,7 @@ pub fn check_revocation_local(
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {
-            if let Some(enc_ocsp_resp) = &cp.ocsp_responses[pos] {
+            if let Some(Some(enc_ocsp_resp)) = cp.ocsp_responses.get(pos) {
                 match process_ocsp_response(
                     pe,
                     cps,
@@ -404,7 +396,7 @@ pub fn check_revocation_local(
                         }
                     }
                 }
-            } else if let Some(crl) = &cp.crls[pos] {
+            } else if let Some(Some(crl)) = cp.crls.get(pos) {
                 match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl, None) {
                     Ok(_ok) => {
                         info!("Determined revocation status (valid) using stapled CRL for certificate issued to {}", cur_cert_subject);
@@ -450,10 +442,6 @@ pub fn check_revocation_local(
                     };
                 }
             }
-        }
-
-        if cur_status == RevocationStatusNotDetermined && crl_grace_periods_as_last_resort {
-            // TODO recheck local CRLs with grace periods
         }
 
         statuses.push(cur_status);

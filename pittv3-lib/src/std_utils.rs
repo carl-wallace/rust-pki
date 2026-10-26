@@ -830,7 +830,7 @@ fn staple_ocsp_responses(path: &mut CertificationPath, responses: &[Vec<u8>]) {
             &path.target
         };
         let issuer: &dyn SubjectNameAndKey = if 0 == pos {
-            &path.trust_anchor.decoded_ta
+            path.trust_anchor.decoded()
         } else {
             path.intermediates[pos - 1].as_ref()
         };
@@ -950,7 +950,7 @@ pub(crate) async fn validate_cert_file(
 fn chain_fingerprint(path: &CertificationPath) -> Vec<u8> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(path.trust_anchor.encoded_ta.as_slice());
+    hasher.update(path.trust_anchor.as_bytes());
     for ca in path.intermediates.iter() {
         hasher.update(ca.as_bytes());
     }

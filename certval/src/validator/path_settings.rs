@@ -85,6 +85,7 @@ pub type CertificateChain = Vec<PDVCertificate>;
 //-----------------------------------------------------------------------------------------------
 /// `OcspNonceSetting` controls how OCSP responses are processed with respect to nonce values.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum OcspNonceSetting {
     /// DoNotSendNonce indicates that the OCSP client should not include nonce values in OCSP requests
     DoNotSendNonce,
@@ -240,9 +241,10 @@ pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidit
 /// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
 /// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
 /// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
-/// the target certificate, i.e., the target certificate must have a KeyUsage extension with the at
-/// least the bits indicated set. When this is absent, KeyUsage values in the target certificate are
-/// not considered when validating a certification path.
+/// the target certificate, i.e., a target certificate that has a KeyUsage extension must have at
+/// least the bits indicated set. A target certificate without a KeyUsage extension is unconstrained
+/// with regard to key usage and satisfies any value. When this is absent, KeyUsage values in the
+/// target certificate are not considered when validating a certification path.
 pub static PS_KEY_USAGE: &str = "psKeyUsage";
 
 /// `PS_EXTENDED_KEY_USAGE` is used to retrieve an ObjectIdentifierSet from a [`CertificationPathSettings`]
@@ -363,11 +365,6 @@ pub static PS_CHECK_CRLDP_HTTP: &str = "psCheckCrlDpHttp";
 /// bound memory. When true, expired kept CRLs are retained so a later validation at an earlier time
 /// of interest (retroactive / long-term-validation checks) can still be answered from them.
 pub static PS_RETAIN_EXPIRED_KEPT_CRLS: &str = "psRetainExpiredKeptCrls";
-
-/// `PS_CRL_GRACE_PERIODS_AS_LAST_RESORT` is used to retrieve a boolean value from a [`CertificationPathSettings`]
-/// object. The default value is true. When true, certification path validation should process CRLs
-/// using grace periods only after exhausting other notionally current options.
-pub static PS_CRL_GRACE_PERIODS_AS_LAST_RESORT: &str = "psCrlGracePeriodsAsLastResort";
 
 /// `PS_OCSP_AIA_NONCE_SETTING` is used to retrieve an [`OcspNonceSetting`] value that determines whether
 /// or not OCSP requests associated with OCSP responders arrived at via AIA extensions
@@ -776,7 +773,6 @@ cps_gets_and_sets_with_default!(PS_RETRIEVE_FROM_AIA_SIA_HTTP, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLS, bool, true);
 cps_gets_and_sets_with_default!(PS_CHECK_CRLDP_HTTP, bool, true);
 cps_gets_and_sets_with_default!(PS_RETAIN_EXPIRED_KEPT_CRLS, bool, false);
-cps_gets_and_sets_with_default!(PS_CRL_GRACE_PERIODS_AS_LAST_RESORT, bool, true);
 cps_gets_and_sets_with_default!(
     PS_OCSP_AIA_NONCE_SETTING,
     OcspNonceSetting,
@@ -856,12 +852,13 @@ pub fn read_settings(fname: &Option<String>) -> Result<CertificationPathSettings
 ///
 /// Not gated on `std`: the names are facts about the format, and a no-std caller writing settings
 /// for someone else to read has the same reason to know them.
-pub const RETIRED_SETTINGS_KEYS: [&str; 5] = [
+pub const RETIRED_SETTINGS_KEYS: [&str; 6] = [
     "psLastModifiedMapFile",
     "psUriBlocklistFile",
     "psRetrieveFromAiaSiaLdap",
     "psCheckCrlDpLdap",
     "psCertificates",
+    "psCrlGracePeriodsAsLastResort",
 ];
 
 /// Names a settings file may still carry that no longer do anything.
@@ -891,6 +888,9 @@ fn retired_key_reason(key: &str) -> &'static str {
             "certval does not retrieve from LDAP URIs, so LDAP retrieval cannot be turned on"
         }
         "psCertificates" => "certificates are supplied as inputs to a run, not carried in settings",
+        "psCrlGracePeriodsAsLastResort" => {
+            "a CRL past its next update is not used, so there is no grace period to allow"
+        }
         _ => "this setting is no longer used",
     }
 }
@@ -933,7 +933,6 @@ fn test_default_gets_cps() {
     assert!(cps.get_retrieve_from_aia_sia_http());
     assert!(cps.get_check_crls());
     assert!(cps.get_check_crldp_http());
-    assert!(cps.get_crl_grace_periods_as_last_resort());
     assert_eq!(
         OcspNonceSetting::DoNotSendNonce,
         cps.get_ocsp_aia_nonce_setting()
@@ -1040,9 +1039,6 @@ fn test_default_sets_cps() {
     assert!(!cps.get_check_crls());
     cps.set_check_crldp_http(false);
     assert!(!cps.get_check_crldp_http());
-
-    cps.set_crl_grace_periods_as_last_resort(false);
-    assert!(!cps.get_crl_grace_periods_as_last_resort());
 
     cps.set_ocsp_aia_nonce_setting(OcspNonceSetting::SendNonceRequireMatch);
     assert_eq!(

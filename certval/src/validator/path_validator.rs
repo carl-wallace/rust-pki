@@ -111,9 +111,9 @@ pub fn validate_path_rfc5280(
     if cps.get_enforce_trust_anchor_constraints() {
         if let Ok(stored) = pe.get_trust_anchor_by_hex_skid(&hex_skid_from_ta(&cp.trust_anchor)) {
             let presented_spki =
-                get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta);
-            let stored_spki = get_subject_public_key_info_from_trust_anchor(&stored.decoded_ta);
-            if presented_spki == stored_spki && stored.encoded_ta != cp.trust_anchor.encoded_ta {
+                get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded());
+            let stored_spki = get_subject_public_key_info_from_trust_anchor(stored.decoded());
+            if presented_spki == stored_spki && stored.as_bytes() != cp.trust_anchor.as_bytes() {
                 return Err(Error::PathValidation(
                     PathValidationStatus::TrustAnchorConstraintsMismatch,
                 ));
@@ -294,7 +294,7 @@ pub fn check_validity(
         // no validity period, i.e., a TrustAnchorInfo without an embedded certificate (e.g. a
         // webpki-roots trust anchor, which carries only name + SPKI), has nothing to enforce and
         // yields Ok(None) — a distinct outcome from failing the check, and not a path failure.
-        match ta_valid_at_time(&cp.trust_anchor.decoded_ta, toi, false) {
+        match ta_valid_at_time(cp.trust_anchor.decoded(), toi, false) {
             Ok(None) => {}
             Ok(Some(ttl)) => is_valid(Ok(ttl), 0)?,
             Err(e) => is_valid(Err(e), 0)?,
@@ -403,7 +403,7 @@ pub fn check_names(
     let mut permitted_subtrees = initial_perm.unwrap_or_default();
     let mut excluded_subtrees = initial_excl.unwrap_or_default();
 
-    let mut working_issuer_name = get_trust_anchor_name(&cp.trust_anchor.decoded_ta)?.clone();
+    let mut working_issuer_name = get_trust_anchor_name(cp.trust_anchor.decoded())?.clone();
 
     // Iterate over the list of intermediate CA certificates plus target to check name chaining
     for (pos, ca_cert) in v.iter().enumerate() {
@@ -765,6 +765,10 @@ pub fn check_extended_key_usage(
 /// Each function supporting path validation contributes to the `PR_PROCESSED_EXTENSIONS` in a
 /// [`CertificationPathResults`] object to facilitate this check. This implementation assumes that
 /// if an extension is processed for one certificate then it is processed for all.
+///
+/// It also refuses, with `EncodingError`, any certificate in which a supported extension, critical
+/// or not, fails to decode. Extension parsing leaves an undecodable extension out of the
+/// parsed set, where the processing functions read it as absent.
 pub fn check_critical_extensions(
     _pe: &PkiEnvironment,
     _cps: &CertificationPathSettings,
@@ -781,6 +785,17 @@ pub fn check_critical_extensions(
         if let Some(exts) = &cert.decoded().tbs_certificate().extensions() {
             let exts = exts.as_slice();
             for ext in exts {
+                if processed_exts.contains(&ext.extn_id)
+                    && decode_extension(&ext.extn_id, ext.extn_value.as_bytes()).is_err()
+                {
+                    log_error_for_ca(
+                        cert,
+                        format!("undecodable extension: {}", ext.extn_id).as_str(),
+                    );
+                    cpr.set_validation_status(PathValidationStatus::EncodingError);
+                    cpr.set_failure_index(failure_index);
+                    return Err(Error::PathValidation(PathValidationStatus::EncodingError));
+                }
                 // A critical extension is satisfied only if its OID was processed AND it is the
                 // sole instance of that OID. Extension processing is keyed by OID (processed_exts
                 // is a set), so when a critical extension OID appears more than once only one
@@ -838,13 +853,13 @@ pub fn enforce_trust_anchor_constraints(
     //anchor, path validation fails.  The name may appear in the subject
     //field of a Certificate or TBSCertificate structure or in the
     //taName field of CertPathControls in a TrustAnchorInfo structure.
-    let _name = get_trust_anchor_name(&ta.decoded_ta)?;
+    let _name = get_trust_anchor_name(ta.decoded())?;
 
     //o  If a basic constraints extension is associated with the trust
     //anchor and contains a pathLenConstraint value, set the
     //max_path_length state variable equal to the pathLenConstraint
     //value from the basic constraints extension.
-    let pl = get_path_length_constraint_from_trust_anchor(&ta.decoded_ta)?;
+    let pl = get_path_length_constraint_from_trust_anchor(ta.decoded())?;
 
     let old_val = mod_cps.get_initial_path_length_constraint();
     if old_val > pl {
@@ -942,7 +957,7 @@ pub fn enforce_trust_anchor_constraints(
     //inhibitAnyPolicy extension) and the initial-any-policy-inhibit
     //value is false, set the initial-any-policy-inhibit value to true.
     let initial_inhibit_any_policy = cps.get_initial_inhibit_any_policy_indicator();
-    let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_inhibit_any_policy = get_inhibit_any_policy_from_trust_anchor(ta.decoded())?;
     if ta_inhibit_any_policy && !initial_inhibit_any_policy {
         mod_cps.set_initial_inhibit_any_policy_indicator(ta_inhibit_any_policy);
     }
@@ -952,7 +967,7 @@ pub fn enforce_trust_anchor_constraints(
     //PolicyConstraints extension) and the initial-explicit-policy value
     //is false, set the initial-explicit-policy value to true.
     let initial_require_explicit_policy = cps.get_initial_explicit_policy_indicator();
-    let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_require_explicit_policy = get_require_explicit_policy_from_trust_anchor(ta.decoded())?;
     if ta_require_explicit_policy && !initial_require_explicit_policy {
         mod_cps.set_initial_explicit_policy_indicator(ta_require_explicit_policy);
     }
@@ -963,7 +978,7 @@ pub fn enforce_trust_anchor_constraints(
     //inhibit value is false, set the initial-policy-mapping-inhibit
     //value to true.
     let initial_inhibit_policy_mapping = cps.get_initial_policy_mapping_inhibit_indicator();
-    let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(&ta.decoded_ta)?;
+    let ta_inhibit_policy_mapping = get_inhibit_policy_mapping_from_trust_anchor(ta.decoded())?;
     if ta_inhibit_policy_mapping && !initial_inhibit_policy_mapping {
         mod_cps.set_initial_policy_mapping_inhibit_indicator(ta_inhibit_policy_mapping);
     }
@@ -975,12 +990,21 @@ pub fn enforce_trust_anchor_constraints(
         }
     }
 
-    match &ta.decoded_ta {
+    match ta.decoded() {
         TrustAnchorChoice::Certificate(c) => {
             check_critical_extensions_from_ta(&c.tbs_certificate().extensions())?;
+            check_ta_extensions_decode(&c.tbs_certificate().extensions())?;
         }
         TrustAnchorChoice::TaInfo(tai) => {
             check_critical_extensions_from_ta(&tai.extensions.as_ref())?;
+            // The extensions read from a TrustAnchorInfo are those of the certificate it wraps.
+            if let Some(c) = tai
+                .cert_path
+                .as_ref()
+                .and_then(|cp| cp.certificate.as_ref())
+            {
+                check_ta_extensions_decode(&c.tbs_certificate().extensions())?;
+            }
         }
         TrustAnchorChoice::TbsCertificate(tbs) => {
             check_critical_extensions_from_ta(&tbs.extensions())?;
@@ -990,25 +1014,45 @@ pub fn enforce_trust_anchor_constraints(
     Ok(mod_cps)
 }
 
+/// The trust anchor extensions `enforce_trust_anchor_constraints` processes.
+const TA_PROCESSED_EXTENSIONS: [ObjectIdentifier; 6] = [
+    ID_CE_BASIC_CONSTRAINTS,
+    ID_CE_NAME_CONSTRAINTS,
+    ID_CE_CERTIFICATE_POLICIES,
+    ID_CE_POLICY_CONSTRAINTS,
+    ID_CE_KEY_USAGE,
+    ID_CE_INHIBIT_ANY_POLICY,
+];
+
 fn check_critical_extensions_from_ta(exts: &Option<&Extensions>) -> Result<()> {
     // id-pe-cmsContentConstraints from RFC 6010; tolerated because CCC constrains CMS content
     // processing, not certification path validation (TAMP-era trust anchors commonly carry it
     // as a critical extension)
     const ID_PE_CMS_CONTENT_CONSTRAINTS: ObjectIdentifier =
         ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.1.18");
-    let recognized_oids = [
-        ID_CE_BASIC_CONSTRAINTS,
-        ID_CE_NAME_CONSTRAINTS,
-        ID_CE_CERTIFICATE_POLICIES,
-        ID_CE_POLICY_CONSTRAINTS,
-        ID_CE_KEY_USAGE,
-        ID_CE_INHIBIT_ANY_POLICY,
-        ID_PE_CMS_CONTENT_CONSTRAINTS,
-    ];
     if let Some(exts) = exts {
         for ext in exts.as_slice() {
-            if ext.critical && !recognized_oids.contains(&ext.extn_id) {
+            if ext.critical
+                && !TA_PROCESSED_EXTENSIONS.contains(&ext.extn_id)
+                && ext.extn_id != ID_PE_CMS_CONTENT_CONSTRAINTS
+            {
                 return Err(Error::Unrecognized);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Refuses a trust anchor in which an extension of a type `enforce_trust_anchor_constraints`
+/// processes, critical or not, fails to decode, since that constraint would otherwise be read as
+/// absent.
+fn check_ta_extensions_decode(exts: &Option<&Extensions>) -> Result<()> {
+    if let Some(exts) = exts {
+        for ext in exts.as_slice() {
+            if TA_PROCESSED_EXTENSIONS.contains(&ext.extn_id)
+                && decode_extension(&ext.extn_id, ext.extn_value.as_bytes()).is_err()
+            {
+                return Err(Error::PathValidation(PathValidationStatus::EncodingError));
             }
         }
     }
@@ -1025,7 +1069,7 @@ pub fn verify_signatures(
     let intermediates_and_target = cp.intermediates.iter().chain(core::iter::once(&cp.target));
 
     let mut working_spki =
-        get_subject_public_key_info_from_trust_anchor(&cp.trust_anchor.decoded_ta).clone();
+        get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded()).clone();
 
     for (pos, cur_cert) in intermediates_and_target.enumerate() {
         let defer_cert = DeferDecodeSigned::from_der(cur_cert.as_bytes());
@@ -1089,6 +1133,7 @@ pub fn verify_signatures(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     // A configured signature cache that reports a signature as verified causes verify_signatures to
     // skip the (expensive) verification. Using a target that is not signed by the trust anchor, the
@@ -1195,6 +1240,174 @@ mod tests {
         assert!(
             name_constraint_matching_budget_exceeded(live_count, san_len),
             "the live count must trip the budget once constraints accumulate"
+        );
+    }
+
+    /// DER-encodes a TLV whose content is shorter than 128 bytes.
+    fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
+        assert!(content.len() < 128);
+        let mut out = vec![tag, content.len() as u8];
+        out.extend_from_slice(content);
+        out
+    }
+
+    /// Returns `cert` with an extension of type `oid` carrying `value` in place of any it had. The
+    /// signature no longer verifies, which the checks exercised here do not consult.
+    fn with_extension(cert: &[u8], oid: ObjectIdentifier, critical: bool, value: &[u8]) -> Vec<u8> {
+        use der::asn1::{Any, OctetString};
+        use der::{Encode, Tag, TagNumber, Tagged};
+        use x509_cert::ext::Extension;
+
+        let outer: Vec<Any> = Vec::from_der(cert).unwrap();
+        let mut tbs: Vec<Any> = Vec::from_der(&outer[0].to_der().unwrap()).unwrap();
+        let exts_tag = Tag::ContextSpecific {
+            constructed: true,
+            number: TagNumber(3),
+        };
+        let mut exts: Vec<Extension> = match tbs.last() {
+            Some(last) if last.tag() == exts_tag => {
+                let exts = Vec::from_der(last.value()).unwrap();
+                tbs.pop();
+                exts
+            }
+            _ => vec![],
+        };
+        exts.retain(|e| e.extn_id != oid);
+        exts.push(Extension {
+            extn_id: oid,
+            critical,
+            extn_value: OctetString::new(value.to_vec()).unwrap(),
+        });
+        tbs.push(Any::new(exts_tag, exts.to_der().unwrap()).unwrap());
+        let tbs = Any::from_der(&tbs.to_der().unwrap()).unwrap();
+        vec![tbs, outer[1].clone(), outer[2].clone()]
+            .to_der()
+            .unwrap()
+    }
+
+    /// Runs the checks `validate_path_rfc5280` runs, signatures aside, over trust anchor, a CA
+    /// carrying the given extension, and an end entity whose subjectAltName is dNSName evil.com.
+    fn check_path_with_ca_extension(
+        oid: ObjectIdentifier,
+        critical: bool,
+        value: &[u8],
+        cps: &CertificationPathSettings,
+    ) -> Result<()> {
+        let ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+        let ca = include_bytes!("../../tests/examples/GoodCACert.crt");
+        let ee = include_bytes!("../../tests/examples/ValidCertificatePathTest1EE.crt");
+        let ca = with_extension(ca, oid, critical, value);
+        let san = tlv(0x30, &tlv(0x82, b"evil.com"));
+        let ee = with_extension(ee, ID_CE_SUBJECT_ALT_NAME, false, &san);
+
+        let cp = CertificationPath::new(
+            PDVTrustAnchorChoice::try_from(ta.as_slice()).unwrap(),
+            vec![PDVCertificate::try_from(ca.as_slice()).unwrap()],
+            PDVCertificate::try_from(ee.as_slice()).unwrap(),
+        );
+        let pe = PkiEnvironment::new();
+        let mut cpr = CertificationPathResults::new();
+        check_basic_constraints(&pe, cps, &cp, &mut cpr)?;
+        check_names(&pe, cps, &cp, &mut cpr)?;
+        check_certificate_policies_graph(&pe, cps, &cp, &mut cpr)?;
+        check_key_usage(&pe, cps, &cp, &mut cpr)?;
+        check_extended_key_usage(&pe, cps, &cp, &mut cpr)?;
+        check_critical_extensions(&pe, cps, &cp, &mut cpr)
+    }
+
+    const ENCODING_ERROR: Result<()> =
+        Err(Error::PathValidation(PathValidationStatus::EncodingError));
+
+    // Name constraints permitting only example.com, which the end entity's evil.com violates. Each
+    // malformed form must refuse the path rather than read as no constraint at all.
+    #[test]
+    fn undecodable_name_constraints_refuse_the_path() {
+        let cps = CertificationPathSettings::new();
+        let example = tlv(0x82, b"example.com");
+
+        // An x400Address subtree, which x509-cert does not decode, alongside the dNSName.
+        let mut subtrees = tlv(0x30, &example);
+        subtrees.extend(tlv(0x30, &tlv(0xA3, &[])));
+        let x400 = tlv(0x30, &tlv(0xA0, &subtrees));
+        for critical in [true, false] {
+            assert_eq!(
+                check_path_with_ca_extension(ID_CE_NAME_CONSTRAINTS, critical, &x400, &cps),
+                ENCODING_ERROR
+            );
+        }
+
+        // A dNSName holding a byte outside IA5.
+        let non_ia5 = tlv(0x30, &tlv(0xA0, &tlv(0x30, &tlv(0x82, b"ex\xe9mple.com"))));
+        assert_eq!(
+            check_path_with_ca_extension(ID_CE_NAME_CONSTRAINTS, true, &non_ia5, &cps),
+            ENCODING_ERROR
+        );
+
+        // A long-form length where the short form is required.
+        let content = tlv(0xA0, &tlv(0x30, &example));
+        let mut non_minimal = vec![0x30, 0x81, content.len() as u8];
+        non_minimal.extend(content);
+        assert_eq!(
+            check_path_with_ca_extension(ID_CE_NAME_CONSTRAINTS, true, &non_minimal, &cps),
+            ENCODING_ERROR
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn decodable_name_constraints_are_enforced() {
+        let cps = CertificationPathSettings::new();
+        let nc = tlv(0x30, &tlv(0xA0, &tlv(0x30, &tlv(0x82, b"example.com"))));
+        assert_eq!(
+            check_path_with_ca_extension(ID_CE_NAME_CONSTRAINTS, true, &nc, &cps),
+            Err(Error::PathValidation(
+                PathValidationStatus::NameConstraintsViolation
+            ))
+        );
+    }
+
+    // requireExplicitPolicy 0 with an initial policy set the path does not assert empties the
+    // policy set; encoded with a non-minimal INTEGER it must refuse the path instead.
+    #[test]
+    fn undecodable_policy_constraints_refuse_the_path() {
+        let mut cps = CertificationPathSettings::new();
+        let mut policies = ObjectIdentifierSet::new();
+        policies.insert(ObjectIdentifier::new_unwrap("1.2.3.4"));
+        cps.set_initial_policy_set_from_oid_set(policies);
+
+        let well_formed = tlv(0x30, &tlv(0x80, &[0]));
+        assert_eq!(
+            check_path_with_ca_extension(ID_CE_POLICY_CONSTRAINTS, true, &well_formed, &cps),
+            Err(Error::PathValidation(PathValidationStatus::NullPolicySet))
+        );
+
+        let non_minimal = tlv(0x30, &tlv(0x80, &[0, 0]));
+        assert_eq!(
+            check_path_with_ca_extension(ID_CE_POLICY_CONSTRAINTS, true, &non_minimal, &cps),
+            ENCODING_ERROR
+        );
+    }
+
+    #[test]
+    fn undecodable_trust_anchor_extension_refuses_the_path() {
+        let ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+        let mut cps = CertificationPathSettings::new();
+        cps.set_enforce_trust_anchor_constraints(true);
+
+        let example = tlv(0x82, b"example.com");
+        let well_formed = tlv(0x30, &tlv(0xA0, &tlv(0x30, &example)));
+        let ta_ok = with_extension(ta, ID_CE_NAME_CONSTRAINTS, true, &well_formed);
+        let ta_ok = PDVTrustAnchorChoice::try_from(ta_ok.as_slice()).unwrap();
+        assert!(enforce_trust_anchor_constraints(&cps, &ta_ok).is_ok());
+
+        let mut subtrees = tlv(0x30, &example);
+        subtrees.extend(tlv(0x30, &tlv(0xA3, &[])));
+        let x400 = tlv(0x30, &tlv(0xA0, &subtrees));
+        let ta_bad = with_extension(ta, ID_CE_NAME_CONSTRAINTS, true, &x400);
+        let ta_bad = PDVTrustAnchorChoice::try_from(ta_bad.as_slice()).unwrap();
+        assert_eq!(
+            enforce_trust_anchor_constraints(&cps, &ta_bad).map(|_| ()),
+            ENCODING_ERROR
         );
     }
 }

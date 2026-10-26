@@ -2,8 +2,16 @@
 
 use alloc::collections::BTreeMap;
 
-use crate::asn1::piv_naci_indicator::PivNaciIndicator;
-use der::asn1::ObjectIdentifier;
+use crate::asn1::piv_naci_indicator::{PivNaciIndicator, PIV_NACI_INDICATOR};
+use const_oid::db::rfc5912::{
+    ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
+    ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_EXT_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY,
+    ID_CE_ISSUER_ALT_NAME, ID_CE_KEY_USAGE, ID_CE_NAME_CONSTRAINTS, ID_CE_POLICY_CONSTRAINTS,
+    ID_CE_POLICY_MAPPINGS, ID_CE_PRIVATE_KEY_USAGE_PERIOD, ID_CE_SUBJECT_ALT_NAME,
+    ID_CE_SUBJECT_KEY_IDENTIFIER, ID_PE_AUTHORITY_INFO_ACCESS, ID_PE_SUBJECT_INFO_ACCESS,
+};
+use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
+use der::{asn1::ObjectIdentifier, Decode};
 use x509_cert::ext::{pkix::crl::CrlDistributionPoints, pkix::*};
 use x509_ocsp::OcspNoCheck;
 
@@ -40,6 +48,7 @@ pub type ParsedExtensions = BTreeMap<ObjectIdentifier, PDVExtension>;
 /// [`PDVExtension`] provides a wrapper for supported extension types. At present this does not support
 /// the CRLReason, IssuingDistributionPoint, FreshestCRL and CRLDistributionPoints extensions.
 #[derive(PartialEq, Clone, Eq)]
+#[non_exhaustive]
 pub enum PDVExtension {
     /// Parsed BasicConstraints extension
     BasicConstraints(BasicConstraints),
@@ -87,4 +96,43 @@ pub enum PDVExtension {
     FreshestCrl(FreshestCrl),
     /// Unparsed, unrecognized extension
     Unrecognized(),
+}
+
+/// `decode_extension` decodes the value of an extension identified by `oid` into the matching
+/// [`PDVExtension`] variant. It returns `Ok(None)` for an OID it has no decoder for and an error
+/// when the value does not decode. It is the one decoder behind both `parse_extension`
+/// implementations and the check in `check_critical_extensions` that refuses a path whose
+/// processed extensions do not decode.
+pub(crate) fn decode_extension(
+    oid: &ObjectIdentifier,
+    value: &[u8],
+) -> Result<Option<PDVExtension>> {
+    macro_rules! decode {
+        ($t:ident) => {
+            PDVExtension::$t($t::from_der(value)?)
+        };
+    }
+
+    let ext = match *oid {
+        ID_CE_BASIC_CONSTRAINTS => decode!(BasicConstraints),
+        ID_CE_SUBJECT_KEY_IDENTIFIER => decode!(SubjectKeyIdentifier),
+        ID_CE_EXT_KEY_USAGE => decode!(ExtendedKeyUsage),
+        ID_PE_AUTHORITY_INFO_ACCESS => decode!(AuthorityInfoAccessSyntax),
+        ID_PE_SUBJECT_INFO_ACCESS => decode!(SubjectInfoAccessSyntax),
+        ID_CE_KEY_USAGE => decode!(KeyUsage),
+        ID_CE_SUBJECT_ALT_NAME => decode!(SubjectAltName),
+        ID_CE_ISSUER_ALT_NAME => decode!(IssuerAltName),
+        ID_CE_PRIVATE_KEY_USAGE_PERIOD => decode!(PrivateKeyUsagePeriod),
+        ID_CE_NAME_CONSTRAINTS => decode!(NameConstraints),
+        ID_CE_CRL_DISTRIBUTION_POINTS => decode!(CrlDistributionPoints),
+        ID_CE_CERTIFICATE_POLICIES => decode!(CertificatePolicies),
+        ID_CE_POLICY_MAPPINGS => decode!(PolicyMappings),
+        ID_CE_AUTHORITY_KEY_IDENTIFIER => decode!(AuthorityKeyIdentifier),
+        ID_CE_POLICY_CONSTRAINTS => decode!(PolicyConstraints),
+        ID_CE_INHIBIT_ANY_POLICY => decode!(InhibitAnyPolicy),
+        ID_PKIX_OCSP_NOCHECK => decode!(OcspNoCheck),
+        PIV_NACI_INDICATOR => decode!(PivNaciIndicator),
+        _ => return Ok(None),
+    };
+    Ok(Some(ext))
 }

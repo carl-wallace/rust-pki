@@ -78,7 +78,7 @@ impl CertSummary {
     /// Prepares a [`CertSummary`] from a parsed trust anchor. Serial number, validity and digest are
     /// only available when the trust anchor wraps a certificate.
     pub fn from_trust_anchor(ta: &PDVTrustAnchorChoice) -> CertSummary {
-        if let Some(cert) = get_certificate_from_trust_anchor(&ta.decoded_ta) {
+        if let Some(cert) = get_certificate_from_trust_anchor(ta.decoded()) {
             let tbs = cert.tbs_certificate();
             return CertSummary {
                 subject: name_to_string(tbs.subject()),
@@ -86,7 +86,7 @@ impl CertSummary {
                 serial: Some(buffer_to_hex(tbs.serial_number().as_bytes())),
                 not_before: Some(tbs.validity().not_before.to_string()),
                 not_after: Some(tbs.validity().not_after.to_string()),
-                // Over the certificate rather than over `ta.encoded_ta`, which is the
+                // Over the certificate rather than over `ta.as_bytes()`, which is the
                 // TrustAnchorChoice wrapping it: the same certificate reached as an intermediate on
                 // another path must produce the same digest, or the identity is a description of the
                 // role instead of the material. A certificate that will not re-encode leaves this
@@ -96,7 +96,7 @@ impl CertSummary {
             };
         }
 
-        let subject = match certval::get_trust_anchor_name(&ta.decoded_ta) {
+        let subject = match certval::get_trust_anchor_name(ta.decoded()) {
             Ok(name) => name_to_string(name),
             Err(_e) => String::new(),
         };
@@ -817,10 +817,10 @@ pub fn revocation_outcomes_from_cpr(
                 Some(RevocationSource::LocalCrl) => settled(RevocationMethod::LocalCrl),
                 Some(RevocationSource::OcspFromAia) => settled(RevocationMethod::OcspFromAia),
                 Some(RevocationSource::RemoteCrlDp) => settled(RevocationMethod::RemoteCrlDp),
-                // Either nothing settled this position, or the results predate the checker
-                // recording sources. Fall back to what the artifacts show, which distinguishes CRL
-                // from OCSP but not where either came from.
-                Some(RevocationSource::None) | None => {
+                // Nothing settled this position, the results predate the checker recording
+                // sources, or the source is one this build does not name. Fall back to what the
+                // artifacts show, which distinguishes CRL from OCSP but not where either came from.
+                _ => {
                     if flag_at(&nocheck, pos) {
                         (RevocationMethod::OcspNoCheck, RevocationStatus::NotChecked)
                     } else if artifacts_at(&ocsp_responses, pos) {
