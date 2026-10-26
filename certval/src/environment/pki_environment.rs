@@ -213,6 +213,11 @@ impl PkiEnvironment {
 
     /// validate_path iterates over validate_path_callbacks until an authoritative answer is found
     /// or all options have been exhausted
+    ///
+    /// The callbacks are alternative ways to establish trust in the target's key, so the first to
+    /// succeed settles the matter. Each starts from the results passed in rather than from what an
+    /// earlier attempt left in them. When all fail, the last error is returned and `cpr` holds the
+    /// last attempt's results.
     pub fn validate_path(
         &self,
         pe: &PkiEnvironment,
@@ -220,8 +225,14 @@ impl PkiEnvironment {
         cp: &CertificationPath,
         cpr: &mut CertificationPathResults,
     ) -> Result<()> {
+        let initial = (self.validate_path_callbacks.len() > 1).then(|| cpr.clone());
         let mut err = None;
-        for f in &self.validate_path_callbacks {
+        for (i, f) in self.validate_path_callbacks.iter().enumerate() {
+            if i > 0 {
+                if let Some(initial) = &initial {
+                    *cpr = initial.clone();
+                }
+            }
             match f(pe, cps, cp, cpr) {
                 Ok(r) => {
                     return Ok(r);
@@ -1178,5 +1189,61 @@ mod http_client_source_tests {
         assert!(pe.http_client().is_err());
         pe.clear_http_client_source();
         assert!(pe.http_client().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod validate_path_tests {
+    use super::*;
+    use const_oid::db::rfc5912::ID_CE_NAME_CONSTRAINTS;
+
+    fn marks_name_constraints_then_fails(
+        _pe: &PkiEnvironment,
+        _cps: &CertificationPathSettings,
+        _cp: &CertificationPath,
+        cpr: &mut CertificationPathResults,
+    ) -> Result<()> {
+        cpr.add_processed_extension(ID_CE_NAME_CONSTRAINTS);
+        cpr.set_validation_status(PathValidationStatus::NameConstraintsViolation);
+        Err(Error::PathValidation(
+            PathValidationStatus::NameConstraintsViolation,
+        ))
+    }
+
+    fn succeeds_only_from_clean_results(
+        _pe: &PkiEnvironment,
+        _cps: &CertificationPathSettings,
+        _cp: &CertificationPath,
+        cpr: &mut CertificationPathResults,
+    ) -> Result<()> {
+        if cpr.get_processed_extensions().is_empty()
+            && cpr.get_validation_status() == Some(PathValidationStatus::NotYetValidated)
+        {
+            Ok(())
+        } else {
+            Err(Error::Unrecognized)
+        }
+    }
+
+    // A validator that fails leaves nothing behind for the next: what it marked processed and the
+    // status it set are gone when the next validator starts, so neither can stand in for work the
+    // next one did not do.
+    #[test]
+    fn each_validator_starts_from_the_results_passed_in() {
+        let ta = include_bytes!("../../tests/examples/TrustAnchorRootCertificate.crt");
+        let ee = include_bytes!("../../tests/examples/ValidCertificatePathTest1EE.crt");
+        let cp = CertificationPath::new(
+            PDVTrustAnchorChoice::try_from(ta.as_slice()).unwrap(),
+            vec![],
+            PDVCertificate::try_from(ee.as_slice()).unwrap(),
+        );
+
+        let mut pe = PkiEnvironment::new();
+        pe.add_validate_path_callback(marks_name_constraints_then_fails);
+        pe.add_validate_path_callback(succeeds_only_from_clean_results);
+        let cps = CertificationPathSettings::new();
+        let mut cpr = CertificationPathResults::new();
+        assert!(pe.validate_path(&pe, &cps, &cp, &mut cpr).is_ok());
+        assert!(cpr.get_processed_extensions().is_empty());
     }
 }
