@@ -1327,7 +1327,7 @@ mod tests {
     fn names_in(zipped: Vec<u8>) -> Vec<String> {
         let mut archive = zip::ZipArchive::new(Cursor::new(zipped)).unwrap();
         let mut names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect();
         names.sort();
         names
@@ -1362,7 +1362,7 @@ mod tests {
                     ),
                     (2026, 9, 17, 10, 23, 10),
                     "{}",
-                    entry.name()
+                    entry.name().unwrap()
                 );
             }
         }
@@ -2181,7 +2181,10 @@ mod tests {
         let bytes = zip_files("certificates", &files, 0).expect("the archive should be written");
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("a readable archive");
         assert_eq!(2, archive.len());
-        let names: Vec<String> = archive.file_names().map(|n| n.to_string()).collect();
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().to_string())
+            .collect();
         assert!(
             names.contains(&"certificates/0.der".to_string()),
             "{names:?}"
