@@ -5175,7 +5175,6 @@ dependencies = [
  "sha2 0.11.1",
  "web-time",
  "x509-cert",
- "x509-ocsp",
  "zip",
 ]
 
@@ -5207,7 +5206,6 @@ dependencies = [
  "tokio-test",
  "walkdir",
  "x509-cert",
- "x509-ocsp",
 ]
 
 [[package]]

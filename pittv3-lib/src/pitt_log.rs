@@ -10,6 +10,7 @@ use std::path::Path;
 #[cfg(feature = "std_app")]
 use std::{fs, fs::File};
 
+use certval::ocsp::{BasicOcspResponse, CertStatus, OcspResponse, ResponderId, SingleResponse};
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_POLICIES,
     ID_CE_EXT_KEY_USAGE, ID_CE_INHIBIT_ANY_POLICY, ID_CE_NAME_CONSTRAINTS,
@@ -27,7 +28,6 @@ use sha2::Digest;
 use sha2::Sha256;
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::ext::pkix::name::GeneralName;
-use x509_ocsp::{BasicOcspResponse, CertStatus, OcspResponse, ResponderId, SingleResponse};
 
 use certval::source::ta_source::{buffer_to_hex, get_filename_from_ta_metadata};
 use certval::util::pdv_utilities::*;

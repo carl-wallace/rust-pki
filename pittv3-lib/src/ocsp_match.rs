@@ -23,10 +23,10 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use certval::ocsp::{BasicOcspResponse, CertId, OcspResponse, OcspResponseStatus};
 use certval::{cert_id_match, PDVCertificate, SubjectNameAndKey};
 use der::Decode;
 use x509_cert::certificate::Profile;
-use x509_ocsp::{BasicOcspResponse, CertId, OcspResponse, OcspResponseStatus};
 
 /// Reads the `CertID`s an OCSP response reports certificate status for, or says why it reports none.
 ///
