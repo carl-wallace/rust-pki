@@ -839,7 +839,6 @@ dependencies = [
  "walkdir",
  "webpki-roots",
  "x509-cert",
- "x509-ocsp",
 ]
 
 [[package]]

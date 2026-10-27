@@ -137,6 +137,13 @@ re-issue, and fifteen post-quantum re-issues.
 - The README's **Not Supported** section lists the remaining revocation cases, among them indirect
   CRLs and CRLs verified by a key other than the one that verifies the certificate.
 
+### OCSP types
+
+`certval::ocsp` contains the RFC 6960 types, e.g., `OcspRequest`, `OcspResponse`, `BasicOcspResponse`.
+This code was copied from the RustCrypto x509-ocsp crate v0.3.0-pre because that version is not yet on
+crates.io. When it publishes, the `certval::ocsp` module will simply re-export that crate, so
+code that uses the types through `certval::ocsp` will still work.
+
 ### Minimum supported Rust version
 
 **1.88.** MSRV increases are not considered breaking changes and can happen in patch releases,
