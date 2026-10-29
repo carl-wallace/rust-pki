@@ -8,7 +8,7 @@ use alloc::{
 };
 use flagset::{flags, FlagSet};
 
-use log::{error, info};
+use log::{debug, error, info};
 
 use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_BASIC_CONSTRAINTS, ID_CE_CERTIFICATE_ISSUER,
@@ -47,9 +47,6 @@ use core::time::Duration;
 // The collector itself is ungated, but the only caller here is the remote CRL fetcher.
 #[cfg(feature = "remote")]
 use crate::collect_crl_dp_uris;
-
-#[cfg(feature = "remote")]
-use log::debug;
 
 #[cfg(feature = "remote")]
 use alloc::vec;
@@ -1171,8 +1168,10 @@ pub(crate) fn process_crl(
     }
 
     if let Some(uri) = uri {
+        // Debug rather than error: an environment with no CRL source registered keeps nothing, which
+        // is a configuration rather than a failure, and the CRL is used for this check either way.
         if let Err(e) = pe.add_crl(crl_buf, &crl, uri) {
-            error!("Failed to save CRL with: {e}");
+            debug!("Failed to save CRL with: {e}");
         }
     }
 
