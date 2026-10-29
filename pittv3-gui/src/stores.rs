@@ -169,7 +169,7 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // email-only roots and would be unanchored under the TLS-scoped anchor set.
     BuiltInStore {
         fallback_label: None,
-        id: certval_stores_mozilla::ALL,
+        id: certval_stores_mozilla::MOZILLA_ALL,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, covering all purposes it supports",
         note: "",
@@ -180,14 +180,14 @@ pub(crate) const STORES: &[BuiltInStore] = &[
     // from the DER of the roots themselves.
     BuiltInStore {
         fallback_label: None,
-        id: certval_stores_mozilla::TLS,
+        id: certval_stores_mozilla::MOZILLA_TLS,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, the roots trusted for websites",
         note: "See the CCADB for further details.",
     },
     BuiltInStore {
         fallback_label: None,
-        id: certval_stores_mozilla::EMAIL,
+        id: certval_stores_mozilla::MOZILLA_EMAIL,
         source: StoreSource::Provider(certval_stores_mozilla::provider),
         pki: "the Mozilla CA program, the roots trusted for email",
         note: "See the CCADB for further details.",
@@ -572,7 +572,12 @@ pub(crate) fn material_age(index: usize) -> String {
         .entries()
         .iter()
         .find(|e| e.id == store.id)
-        .map(|e| pittv3_gui_lib::store_provenance::material_age(e.published, e.collected))
+        .map(|e| {
+            pittv3_gui_lib::store_provenance::material_age(
+                e.published.map(|d| d.to_string()).as_deref(),
+                e.collected.map(|d| d.to_string()).as_deref(),
+            )
+        })
         .unwrap_or_default()
 }
 

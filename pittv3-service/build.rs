@@ -29,7 +29,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "builtin-stores")]
-use certval_stores_core::{serialize_environment, TrustStoreProvider};
+use certval_stores_core::{serialize_environment, Date, TrustStoreProvider};
 
 /// One store to generate into the catalogue.
 ///
@@ -65,18 +65,18 @@ fn builtins() -> Vec<Builtin> {
         // because a large share of the CCADB intermediates chain solely to email-only roots and
         // would be unanchored under the TLS-scoped anchor set.
         Builtin {
-            id: certval_stores_mozilla::ALL,
+            id: certval_stores_mozilla::MOZILLA_ALL,
             provider: certval_stores_mozilla::provider,
         },
         // The trust-bit-scoped subsets, which carry anchors and nothing else. Which roots belong to
         // each is CCADB policy rather than anything the certificates record, so the split has to
         // come from the provider.
         Builtin {
-            id: certval_stores_mozilla::TLS,
+            id: certval_stores_mozilla::MOZILLA_TLS,
             provider: certval_stores_mozilla::provider,
         },
         Builtin {
-            id: certval_stores_mozilla::EMAIL,
+            id: certval_stores_mozilla::MOZILLA_EMAIL,
             provider: certval_stores_mozilla::provider,
         },
         Builtin {
@@ -143,13 +143,13 @@ fn generate(dir: &Path, table: &mut String) {
     }
 }
 
-/// An `Option<&'static str>` literal, for the dates a provider states about its material. A
-/// provider that states neither is the ordinary case, not a build problem: the browser and the
-/// desktop both render a store that says nothing about its age by saying nothing.
+/// An `Option<&'static str>` literal, `YYYY-MM-DD`, for the dates a provider states about its
+/// material. A provider that states neither is the ordinary case, not a build problem: the browser
+/// and the desktop both render a store that says nothing about its age by saying nothing.
 #[cfg(feature = "builtin-stores")]
-fn option_literal(value: Option<&str>) -> String {
+fn option_literal(value: Option<Date>) -> String {
     match value {
-        Some(v) => format!("Some({v:?})"),
+        Some(v) => format!("Some({:?})", v.to_string()),
         None => "None".to_string(),
     }
 }

@@ -1520,7 +1520,7 @@
   ta_store  tpm_ta.cbor  44120 bytes  sha256:cdac76ec91142492e43661394013799218d5520899bb0d4371f7c50e1ade0322
   ca_store  tpm_ca.cbor  3738244 bytes  sha256:b2711cfa05a49e848188ae8e10a0cdcc01c01143f84370a21f74342eb5134a83
 
-[webpki]  collected=2026-10-25
+[mozilla_all]  collected=2026-10-25
   anchors 167
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
@@ -1689,6 +1689,6 @@
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
-  ta_store  webpki_ta.cbor  186580 bytes  sha256:ca4ca053c5fb2e3d3d3c9a9a8e2a9256a90deefd05593bb702015b51c6f3dc8a
+  ta_store  webpki_ta.cbor  187415 bytes  sha256:8e5309f89ec9d948b762358403dbba14262461052365e63eb29dad7f031f338d
   ca_store  webpki_ca.cbor  3864447 bytes  sha256:f5e69f2f697b20542e4c86d9c8fc5463eb1e35c029fb5b4c54876b123c92830c
 

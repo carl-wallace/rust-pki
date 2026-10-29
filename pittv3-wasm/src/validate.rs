@@ -62,14 +62,14 @@ pub const STORES: &[Store] = &[
     // Mozilla records beside each root, which are out-of-band policy that RFC 5280 processing
     // cannot see and a certval CBOR store does not carry.
     Store {
-        id: "webpki",
-        label: env!("PITTV3_STORE_LABEL_WEBPKI"),
+        id: "mozilla_all",
+        label: env!("PITTV3_STORE_LABEL_MOZILLA_ALL"),
         ta_url: "resources/webpki_ta.cbor",
         // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
         // fetch proxy lands) will cover anything not preloaded here
         ca_url: Some("resources/webpki_ca.cbor"),
-        published: option_env!("PITTV3_STORE_PUBLISHED_WEBPKI"),
-        collected: option_env!("PITTV3_STORE_COLLECTED_WEBPKI"),
+        published: option_env!("PITTV3_STORE_PUBLISHED_MOZILLA_ALL"),
+        collected: option_env!("PITTV3_STORE_COLLECTED_MOZILLA_ALL"),
     },
     Store {
         id: "dod_nipr_prod",
@@ -568,8 +568,8 @@ mod tests {
         let json = r#"[
             {"id":"fpki","label":"U.S. Federal PKI (Common Policy CA G2)",
              "ta_url":"stores/fpki/ta.cbor","ca_url":"stores/fpki/ca.cbor","provenance":"provider"},
-            {"id":"webpki_tls","label":"Web PKI (Mozilla roots, TLS only)",
-             "ta_url":"stores/webpki_tls/ta.cbor","ca_url":null,"provenance":"provider"},
+            {"id":"mozilla_tls","label":"Web PKI (Mozilla roots, TLS only)",
+             "ta_url":"stores/mozilla_tls/ta.cbor","ca_url":null,"provenance":"provider"},
             {"id":"local_pki","label":"Something this deployment built",
              "ta_url":"stores/local_pki/ta.cbor","ca_url":"stores/local_pki/ca.cbor",
              "provenance":"configured"}
@@ -603,10 +603,10 @@ mod tests {
     fn a_store_already_shipped_is_not_offered_twice() {
         let served = vec![
             StoreDescriptor {
-                id: "webpki".to_string(),
+                id: "mozilla_all".to_string(),
                 label: "Web PKI (Mozilla roots, TLS + S/MIME, + CCADB intermediates)".to_string(),
-                ta_url: "stores/webpki/ta.cbor".to_string(),
-                ca_url: Some("stores/webpki/ca.cbor".to_string()),
+                ta_url: "stores/mozilla_all/ta.cbor".to_string(),
+                ca_url: Some("stores/mozilla_all/ca.cbor".to_string()),
                 provenance: Provenance::Provider,
                 published: None,
                 collected: Some("2026-08-13".to_string()),
@@ -627,8 +627,8 @@ mod tests {
         assert_eq!(merge_service_stores(&mut catalog, served), 0);
         assert_eq!(catalog.len(), shipped);
         // and the shipped URLs are the ones still in use, not the service's
-        let webpki = catalog.iter().find(|e| e.id == "webpki").unwrap();
-        assert_eq!(webpki.ta_url, "resources/webpki_ta.cbor");
+        let mozilla = catalog.iter().find(|e| e.id == "mozilla_all").unwrap();
+        assert_eq!(mozilla.ta_url, "resources/webpki_ta.cbor");
     }
 
     /// The dates arrive through environment variables the build script names from each

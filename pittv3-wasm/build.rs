@@ -25,7 +25,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use certval_stores_core::{serialize_environment, TrustStoreProvider};
+use certval_stores_core::{serialize_environment, Date, TrustStoreProvider};
 use sha2::{Digest, Sha256};
 use x509_cert::der::Decode;
 use x509_cert::Certificate;
@@ -237,7 +237,7 @@ fn artifacts() -> Vec<Artifact> {
         // not from the anchor set.
         Artifact {
             provider: certval_stores_mozilla::provider(),
-            id: certval_stores_mozilla::ALL,
+            id: certval_stores_mozilla::MOZILLA_ALL,
             ta: "webpki_ta.cbor",
             ca: Some("webpki_ca.cbor"),
         },
@@ -336,7 +336,7 @@ fn stamp_label(id: &str, label: &str) {
     );
 }
 
-fn stamp_date(id: &str, which: &str, date: Option<&str>) {
+fn stamp_date(id: &str, which: &str, date: Option<Date>) {
     if let Some(date) = date {
         println!(
             "cargo::rustc-env=PITTV3_STORE_{which}_{}={date}",
@@ -392,8 +392,8 @@ impl StoreFile {
 /// One store's entry in the manifest.
 struct Inventory {
     id: &'static str,
-    published: Option<&'static str>,
-    collected: Option<&'static str>,
+    published: Option<Date>,
+    collected: Option<Date>,
     /// Subject and digest per trust anchor, sorted by subject.
     anchors: Vec<(String, String)>,
     ta: StoreFile,
