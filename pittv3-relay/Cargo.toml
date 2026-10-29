@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-relay"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 publish = false
 description = """
 Policy-enforcing byte relay used by frontends to the PKI Interoperability Test Tool v3 (PITTv3) that
