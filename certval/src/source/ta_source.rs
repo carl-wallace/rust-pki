@@ -245,7 +245,10 @@ impl TaSource {
         // todo - change serialization?
         let bap: BuffersAndPaths = match from_reader(cbor) {
             Ok(cbor_data) => cbor_data,
-            Err(_e) => return Err(Error::ParseError),
+            Err(e) => {
+                error!("Failed to decode a CBOR trust anchor store: {e:?}");
+                return Err(Error::ParseError);
+            }
         };
 
         let (buffers, _partial_paths) = bap.into_parts();
