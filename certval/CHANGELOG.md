@@ -43,7 +43,7 @@ CertificationPathResults and added proc macros to generate getters/setters for C
 - Added a few TryFrom implementations to simplify creation of PDVTrustAnchorChoice and PDVCertificate instances.
 - Added webpki feature to allow instantiating TaSource instance using trust anchors from the [webpki-roots](https://crates.io/crates/webpki-roots) crate.
 
-## [0.2.0] - unreleased
+## [0.2.0-rc.1] - 2026-10-29
 
 First published release. Versions 0.1.0 through 0.1.4 were used internally and never published to
 crates.io; the entries above are retained as history. This entry describes what the library is
