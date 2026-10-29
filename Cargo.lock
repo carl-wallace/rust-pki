@@ -843,76 +843,82 @@ dependencies = [
 
 [[package]]
 name = "certval_stores_core"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "0.1.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
  "certval",
+ "certval_stores_provider_core",
  "log",
 ]
 
 [[package]]
 name = "certval_stores_eca"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
 name = "certval_stores_fpki"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
 name = "certval_stores_mozilla"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores-mozilla.git?branch=main#17de6fc792c087d2af54e382b1e988b536d7b19f"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores-mozilla.git?branch=main#d3e9d6caff4cf7ff0d8488ad2ff015e76c25db43"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
 name = "certval_stores_msft"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
  "sha1 0.11.0",
 ]
 
 [[package]]
 name = "certval_stores_nipr"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
 name = "certval_stores_pbdev"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
+name = "certval_stores_provider_core"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
+
+[[package]]
 name = "certval_stores_tpm"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]
 name = "certval_stores_wcf"
-version = "0.1.0"
-source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#761698db5aa1d070406e4eac6385b1c916bf33cc"
+version = "1.0.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-stores.git?branch=main#8fabc9d765e13c1581d59a10fbec8f710dcd43df"
 dependencies = [
- "certval_stores_core",
+ "certval_stores_provider_core",
 ]
 
 [[package]]

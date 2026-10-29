@@ -24,7 +24,7 @@
 ///
 /// The dates are rendered as the provider gives them, `YYYY-MM-DD`, rather than in a local
 /// format. They are a publisher's statement about an artifact, not an event in the reader's day,
-/// and `certval_stores_core`'s conformance suite already holds providers to that one spelling.
+/// and `certval_stores_core`'s `Date` type, which providers state them as, has no other spelling.
 ///
 /// ```
 /// use pittv3_gui_lib::store_provenance::material_age;
