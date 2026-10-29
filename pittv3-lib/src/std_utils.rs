@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+use crate::der_or_pem::looks_like_cbor_store;
 use alloc::string::String;
 #[cfg(all(windows, feature = "capi"))]
 use core::str::FromStr;
@@ -70,9 +71,15 @@ pub fn cbor_store_to_ders(cbor: &[u8]) -> core::result::Result<Vec<(String, Vec<
 #[cfg(feature = "std")]
 pub fn cbor_ta_store_anchors(path: &str) -> Option<Vec<CertFile>> {
     let bytes = get_file_as_byte_vec_pem(Path::new(path)).ok()?;
-    TaSource::new_from_cbor(&bytes)
-        .ok()
-        .map(|from_cbor| from_cbor.get_tas())
+    match TaSource::new_from_cbor(&bytes) {
+        Ok(from_cbor) => Some(from_cbor.get_tas()),
+        Err(e) => {
+            if looks_like_cbor_store(&bytes) {
+                error!("{path} looks like a CBOR trust anchor store but failed to decode: {e:?}");
+            }
+            None
+        }
+    }
 }
 
 /// Reads `path` as a CBOR certificate store and returns the certificates it carries, or `None` when
@@ -95,7 +102,15 @@ pub fn cbor_cert_store_certs(path: &str) -> Option<Vec<CertFile>> {
 #[cfg(feature = "std")]
 pub fn cbor_cert_store(path: &str) -> Option<CertSource> {
     let bytes = get_file_as_byte_vec_pem(Path::new(path)).ok()?;
-    CertSource::new_from_cbor(&bytes).ok()
+    match CertSource::new_from_cbor(&bytes) {
+        Ok(store) => Some(store),
+        Err(e) => {
+            if looks_like_cbor_store(&bytes) {
+                error!("{path} looks like a CBOR certificate store but failed to decode: {e:?}");
+            }
+            None
+        }
+    }
 }
 
 /// What a set of CA inputs contributed, reported by [`load_ca_inputs`].

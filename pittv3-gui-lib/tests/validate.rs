@@ -618,3 +618,36 @@ mod validate_all {
         );
     }
 }
+
+/// A store that does not decode is reported as a damaged store, naming the file, rather than being
+/// tried as certificate material and reported as a file holding no certificate.
+#[test]
+fn a_damaged_cbor_store_upload_is_reported_as_a_store_that_failed_to_decode() {
+    let truncated = |name: &str| {
+        let p = Path::new("../pittv3-lib/resources").join(name);
+        let bytes = fs::read(&p).unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()));
+        bytes[..bytes.len() / 2].to_vec()
+    };
+    let (mut tas, mut cas) = good_material();
+    tas.push(("damaged_ta.cbor".to_string(), truncated("ta.cbor")));
+    cas.push(("damaged_ca.cbor".to_string(), truncated("ca.cbor")));
+
+    let (_, lines) = prepare(&tas, &cas, &settings()).expect("the good material is usable");
+    for (name, kind) in [
+        ("damaged_ta.cbor", "trust anchor store"),
+        ("damaged_ca.cbor", "CA store"),
+    ] {
+        assert!(
+            lines.iter().any(|l| l.class == "err"
+                && l.text
+                    .contains(&format!("Failed to decode uploaded {kind} {name}"))),
+            "{name} is reported as a store that failed to decode: {lines:#?}"
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.text.contains(name) && l.text.contains("PEM/DER")),
+            "{name} is not tried as certificate material: {lines:#?}"
+        );
+    }
+}

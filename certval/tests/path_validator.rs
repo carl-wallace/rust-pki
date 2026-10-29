@@ -699,3 +699,64 @@ fn a_pss_key_does_not_verify_a_pkcs1_v15_signature() {
         verify(&pss_spki)
     );
 }
+
+/// The anchor and both certificates in the PKITS good path carry 2048-bit RSA keys, so the path
+/// validates at the 2048-bit default and fails at a 3072-bit minimum, at the anchor, whose key is
+/// checked first. A minimum of 0 turns the check off.
+#[cfg(feature = "rsa")]
+#[test]
+fn rsa_key_shorter_than_the_minimum_fails_the_path() {
+    let mut ta = PDVTrustAnchorChoice::try_from(
+        include_bytes!("examples/TrustAnchorRootCertificate.crt").as_slice(),
+    )
+    .unwrap();
+    ta.parse_extensions(EXTS_OF_INTEREST);
+    let mut ca =
+        PDVCertificate::try_from(include_bytes!("examples/GoodCACert.crt").as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(
+        include_bytes!("examples/ValidCertificatePathTest1EE.crt").as_slice(),
+    )
+    .unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
+
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: include_bytes!("examples/TrustAnchorRootCertificate.crt").to_vec(),
+    });
+    ta_store.initialize().unwrap();
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    let validate = |min: Option<u16>| {
+        let mut cps = CertificationPathSettings::new();
+        if let Some(min) = min {
+            cps.set_min_rsa_modulus_bits(min);
+        }
+        let mut cpr = CertificationPathResults::new();
+        let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
+        (r, cpr)
+    };
+
+    let (r, _) = validate(None);
+    assert!(r.is_ok(), "2048-bit keys meet the default minimum: {r:?}");
+
+    let (r, cpr) = validate(Some(3072));
+    assert!(matches!(
+        r,
+        Err(Error::PathValidation(
+            PathValidationStatus::InsufficientKeySize
+        ))
+    ));
+    assert_eq!(
+        cpr.get_failure_index(),
+        Some(0),
+        "the anchor's key fails first"
+    );
+
+    let (r, _) = validate(Some(0));
+    assert!(r.is_ok(), "a minimum of 0 checks nothing: {r:?}");
+}

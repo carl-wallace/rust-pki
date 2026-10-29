@@ -41,7 +41,7 @@ fn err(text: String) -> ResultLine {
 /// Two copies is how the 2026-08-20 bug got in: `validate_target` decoded PEM and the harvest did
 /// not, so a PEM target validated normally and contributed nothing to retrieve. Having one is the
 /// point — a caller cannot reach for the wrong one if there is only one.
-pub use pittv3_lib::der_or_pem::{candidate_certs_in, maybe_pem};
+pub use pittv3_lib::der_or_pem::{candidate_certs_in, looks_like_cbor_store, maybe_pem};
 
 /// A [`PkiEnvironment`] prepared for validation: trust anchors and CA
 /// certificates parsed and merged, and — when uploads are present — a partial-path discovery pass
@@ -301,11 +301,19 @@ fn assemble(
     // how that read before.
     let uploaded_tas_before = ta_store.len();
     for (name, bytes) in tas {
-        // A `.cbor` trust-anchor store (BuffersAndPaths) merges all of its anchors; new_from_cbor
-        // rejects anything else, so a PEM/DER certificate falls through to the single-cert path.
-        if let Ok(src) = TaSource::new_from_cbor(bytes) {
-            for cf in src.get_tas() {
-                ta_store.push(cf);
+        // A `.cbor` trust-anchor store (BuffersAndPaths) merges all of its anchors. One that does not
+        // decode is reported as a damaged store rather than tried as certificate material, which
+        // would report it as a file holding no certificate.
+        if looks_like_cbor_store(bytes) {
+            match TaSource::new_from_cbor(bytes) {
+                Ok(src) => {
+                    for cf in src.get_tas() {
+                        ta_store.push(cf);
+                    }
+                }
+                Err(e) => out.push(err(format!(
+                    "Failed to decode uploaded trust anchor store {name}: {e:?}"
+                ))),
             }
             continue;
         }
@@ -365,10 +373,18 @@ fn assemble(
     };
     let uploaded_cas_before = cert_source.len();
     for (name, bytes) in cas {
-        // A `.cbor` CA store merges all of its buffers; otherwise treat as a single PEM/DER cert.
-        if let Ok(src) = CertSource::new_from_cbor(bytes) {
-            for cf in src.get_buffers() {
-                cert_source.push(cf);
+        // A `.cbor` CA store merges all of its buffers, and one that does not decode is reported
+        // as a damaged store; anything else is certificate material.
+        if looks_like_cbor_store(bytes) {
+            match CertSource::new_from_cbor(bytes) {
+                Ok(src) => {
+                    for cf in src.get_buffers() {
+                        cert_source.push(cf);
+                    }
+                }
+                Err(e) => out.push(err(format!(
+                    "Failed to decode uploaded CA store {name}: {e:?}"
+                ))),
             }
             continue;
         }

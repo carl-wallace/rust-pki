@@ -238,6 +238,11 @@ pub static PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS: &str = "psEnforceTrustAnchorCons
 /// require checking trust anchor (TA) validity. Turn this value off to refrain from checking TA validity.
 pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidity";
 
+/// `PS_MIN_RSA_MODULUS_BITS` is used to retrieve the shortest RSA modulus, in bits, that a key
+/// verifying a signature in a certification path may have, i.e., the key of the trust anchor or of an
+/// intermediate CA certificate. By default, this value is 2048. Set it to 0 to accept any size.
+pub static PS_MIN_RSA_MODULUS_BITS: &str = "psMinRsaModulusBits";
+
 /// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
 /// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
 /// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
@@ -701,6 +706,7 @@ cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, TimeOfInterest, {
 });
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_VALIDITY, bool, true);
+cps_gets_and_sets_with_default!(PS_MIN_RSA_MODULUS_BITS, u16, 2048);
 
 impl CertificationPathSettings {
     // PS_KEY_USAGE (see below, need lifetime aware macro to avoid manual implementation)

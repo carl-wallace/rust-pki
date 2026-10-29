@@ -121,6 +121,7 @@ pub fn validate_path_rfc5280(
         }
     }
 
+    check_key_sizes(pe, cps, cp, cpr)?;
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
     // Certificate policy processing is always graph-based (RFC 9618).
@@ -249,6 +250,67 @@ pub fn check_basic_constraints(
     }
 
     Ok(())
+}
+
+/// `check_key_sizes` rejects a path in which the trust anchor or an intermediate CA certificate
+/// carries an RSA key with a modulus shorter than [`PS_MIN_RSA_MODULUS_BITS`]. Each of those keys
+/// verifies a signature in the path; the target's key verifies none, so it is not checked.
+pub fn check_key_sizes(
+    _pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    cp: &CertificationPath,
+    cpr: &mut CertificationPathResults,
+) -> Result<()> {
+    #[cfg(feature = "rsa")]
+    {
+        let min = usize::from(cps.get_min_rsa_modulus_bits());
+        if min == 0 {
+            return Ok(());
+        }
+        // failure_index uses the trust-anchor-first convention of PR_FAILURE_INDEX
+        let mut check =
+            |spki: &spki::SubjectPublicKeyInfoOwned, failure_index: u32| -> Result<()> {
+                match rsa_modulus_bits(spki) {
+                    Some(bits) if bits < min => {
+                        info!("RSA key of {bits} bits is shorter than the {min}-bit minimum");
+                        cpr.set_validation_status(PathValidationStatus::InsufficientKeySize);
+                        cpr.set_failure_index(failure_index);
+                        Err(Error::PathValidation(
+                            PathValidationStatus::InsufficientKeySize,
+                        ))
+                    }
+                    _ => Ok(()),
+                }
+            };
+        check(
+            get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded()),
+            0,
+        )?;
+        for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
+            check(
+                ca_cert
+                    .decoded()
+                    .tbs_certificate()
+                    .subject_public_key_info(),
+                pos as u32 + 1,
+            )?;
+        }
+    }
+    #[cfg(not(feature = "rsa"))]
+    let _ = (cps, cp, cpr);
+    Ok(())
+}
+
+/// The length in bits of an RSA key's modulus, or None for a key that is not RSA or does not decode.
+#[cfg(feature = "rsa")]
+fn rsa_modulus_bits(spki: &spki::SubjectPublicKeyInfoOwned) -> Option<usize> {
+    if spki.algorithm.oid != RSA_ENCRYPTION && spki.algorithm.oid != ID_RSASSA_PSS {
+        return None;
+    }
+    let key = pkcs1::RsaPublicKeyRef::from_der(spki.subject_public_key.raw_bytes()).ok()?;
+    let modulus = key.modulus.as_bytes();
+    let first = *modulus.first()?;
+    Some(modulus.len() * 8 - first.leading_zeros() as usize)
 }
 
 /// `check_validity` evaluates the target certificate and intermediate certificates against the

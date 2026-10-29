@@ -89,6 +89,10 @@ pub enum PathValidationStatus {
     /// example when a certificate presents a policies-by-mappings graph large enough to exhaust the
     /// policy node pool. It is raised to fail closed rather than allow unbounded resource use.
     ProcessingLimitExceeded,
+    /// InsufficientKeySize occurs when the trust anchor or an intermediate CA certificate carries an
+    /// RSA key whose modulus is shorter than the minimum the settings allow
+    /// (`PS_MIN_RSA_MODULUS_BITS`).
+    InsufficientKeySize,
     /// InvalidPolicyMapping occurs when a policy mappings extension maps to or from anyPolicy
     /// (RFC 5280 section 6.1.4 (a)).
     InvalidPolicyMapping,
@@ -211,6 +215,7 @@ impl fmt::Display for PathValidationStatus {
             PathValidationStatus::ProcessingLimitExceeded => {
                 write!(f, "ProcessingLimitExceeded")
             }
+            PathValidationStatus::InsufficientKeySize => write!(f, "InsufficientKeySize"),
         }
     }
 }
