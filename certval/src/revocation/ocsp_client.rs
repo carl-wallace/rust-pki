@@ -447,7 +447,7 @@ impl<'a> ::der::DecodeValue<'a> for DeferDecodeBasicOcspResponse {
     }
 }
 
-fn no_check_present(exts: &Option<&Extensions>) -> bool {
+pub(crate) fn no_check_present(exts: &Option<&Extensions>) -> bool {
     if let Some(exts) = exts {
         for ext in exts.as_slice() {
             if ext.extn_id == ID_PKIX_OCSP_NOCHECK {
@@ -458,6 +458,14 @@ fn no_check_present(exts: &Option<&Extensions>) -> bool {
     false
 }
 
+/// Returns true if the id-pkix-ocsp-nocheck extension exempts the certificate from revocation
+/// checking: it carries the extension and asserts id-kp-OCSPSigning, the OCSP responder certificate
+/// RFC 6960 4.2.2.2.1 gives the extension meaning in.
+#[cfg(feature = "revocation")]
+pub(crate) fn nocheck_applies(exts: &Option<&Extensions>) -> bool {
+    no_check_present(exts) && has_ocsp_signing_eku(exts)
+}
+
 /// Returns true if the certificate asserts the id-kp-OCSPSigning extended key usage.
 ///
 /// RFC 6960 Section 4.2.2.2 requires a delegated OCSP responder certificate (one that is not the
@@ -465,7 +473,7 @@ fn no_check_present(exts: &Option<&Extensions>) -> bool {
 /// A certificate with no EKU extension, an unparseable EKU, or an EKU that lacks this value is not
 /// an authorized delegated responder and is rejected (fail closed).
 #[cfg(feature = "revocation")]
-fn has_ocsp_signing_eku(exts: &Option<&Extensions>) -> bool {
+pub(crate) fn has_ocsp_signing_eku(exts: &Option<&Extensions>) -> bool {
     if let Some(exts) = exts {
         for ext in exts.as_slice() {
             if ext.extn_id == ID_CE_EXT_KEY_USAGE {
@@ -1701,5 +1709,40 @@ mod tests {
             !check_response_time(&cps_with(3600), &no_nu),
             "a max age shorter than the response age rejects it"
         );
+    }
+
+    // id-pkix-ocsp-nocheck exempts a certificate from revocation checking only in an OCSP responder
+    // certificate, which asserts id-kp-OCSPSigning (RFC 6960 4.2.2.2.1); anywhere else it is
+    // ignored, so a CA cannot make an arbitrary certificate unrevocable by adding it.
+    #[cfg(feature = "revocation")]
+    #[test]
+    fn nocheck_applies_only_with_ocsp_signing_eku() {
+        use const_oid::db::rfc5912::ID_KP_SERVER_AUTH;
+        use der::Encode;
+
+        let nocheck = Extension {
+            extn_id: ID_PKIX_OCSP_NOCHECK,
+            critical: false,
+            extn_value: OctetString::new(vec![0x05, 0x00]).unwrap(),
+        };
+        let eku = |purpose| Extension {
+            extn_id: ID_CE_EXT_KEY_USAGE,
+            critical: false,
+            extn_value: OctetString::new(ExtendedKeyUsage(vec![purpose]).to_der().unwrap())
+                .unwrap(),
+        };
+
+        let responder = vec![nocheck.clone(), eku(ID_KP_OCSP_SIGNING)];
+        assert!(nocheck_applies(&Some(&responder)));
+
+        let no_eku = vec![nocheck.clone()];
+        assert!(no_check_present(&Some(&no_eku)));
+        assert!(!nocheck_applies(&Some(&no_eku)));
+
+        let other_eku = vec![nocheck, eku(ID_KP_SERVER_AUTH)];
+        assert!(!nocheck_applies(&Some(&other_eku)));
+
+        let eku_only = vec![eku(ID_KP_OCSP_SIGNING)];
+        assert!(!nocheck_applies(&Some(&eku_only)));
     }
 }
