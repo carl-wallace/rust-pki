@@ -1192,3 +1192,22 @@ fn test_no_default_sets_cps() {
     cps.set_download_folder(f.clone());
     assert_eq!(&f, &cps.get_download_folder().unwrap());
 }
+
+// A settings file can state a value under the wrong variant, e.g. `{"psCheckCrls": {"String":
+// "false"}}`. The getter cannot use it, so it answers as though the setting were absent -- the
+// default here, None for a getter without one -- and logs the mismatch at warn.
+#[test]
+fn a_setting_stored_under_the_wrong_variant_reads_as_unset() {
+    let mut cps = CertificationPathSettings::new();
+    cps.0.insert(
+        PS_CHECK_CRLS.to_string(),
+        CertificationPathProcessingTypes::String("false".to_string()),
+    );
+    assert!(cps.get_check_crls(), "the default, not the misstated false");
+
+    cps.0.insert(
+        PS_DOWNLOAD_FOLDER.to_string(),
+        CertificationPathProcessingTypes::Bool(true),
+    );
+    assert_eq!(cps.get_download_folder(), None);
+}

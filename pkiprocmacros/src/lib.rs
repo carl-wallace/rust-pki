@@ -110,7 +110,8 @@ impl Parse for Signature {
 /// Generates a getter/setter pair on `CertificationPathSettings` for one setting.
 ///
 /// Takes a setting name and the type of the value it stores. The getter answers `None` when the
-/// setting is absent *and* when it is present under a different variant; use
+/// setting is absent *and* when it is present under a different variant, logging the latter at
+/// warn since it usually means a settings file stated the wrong type; use
 /// [`cps_gets_and_sets_with_default`] where a caller should see a value either way.
 ///
 /// ```text
@@ -148,6 +149,7 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let getter = syn::Ident::new(&getter_str, flag.span());
     let setter = syn::Ident::new(&setter_str, flag.span());
     let cps_type = syn::Ident::new(&upper_cps_type_str, return_t.span());
+    let expected = upper_cps_type_str.clone();
 
     let getter_comment = format!(
         "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathSettings`] instance"
@@ -163,7 +165,14 @@ pub fn cps_gets_and_sets(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                 if self.0.contains_key(#flag) {
                     return match &self.0[#flag] {
                         CertificationPathProcessingTypes::#cps_type(v) => Some(v.clone()),
-                        _ => None,
+                        _ => {
+                            ::log::warn!(
+                                "Setting {} does not hold a {} value, so it is treated as unset",
+                                #flag,
+                                #expected
+                            );
+                            None
+                        }
                     };
                 }
                 None
@@ -302,7 +311,8 @@ impl Parse for SignatureWithDefault {
 /// Takes a setting name, the type of the value it stores, and the value to return when the setting
 /// has not been set. The getter returns `T` rather than `Option<T>`, answering the default both when
 /// the key is absent and when it holds a different variant, so a caller reads a usable value without
-/// restating the default at every call site.
+/// restating the default at every call site. A different variant is logged at warn, since it usually
+/// means a settings file stated the wrong type.
 ///
 /// ```text
 /// cps_gets_and_sets_with_default!(PS_CHECK_REVOCATION_STATUS, bool, true);
@@ -342,6 +352,7 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
     let getter = syn::Ident::new(&getter_str, flag.span());
     let setter = syn::Ident::new(&setter_str, flag.span());
     let cps_type = syn::Ident::new(&upper_cps_type_str, return_t.span());
+    let expected = upper_cps_type_str.clone();
 
     let getter_comment = format!(
         "`{getter_str}` is used to retrieve `{flag}` items from a [`CertificationPathSettings`] instance"
@@ -357,7 +368,14 @@ pub fn cps_gets_and_sets_with_default(input: proc_macro::TokenStream) -> proc_ma
                 if self.0.contains_key(#flag) {
                     return match self.0[#flag] {
                         CertificationPathProcessingTypes::#cps_type(v) => v.clone(),
-                        _ => #default_value,
+                        _ => {
+                            ::log::warn!(
+                                "Setting {} does not hold a {} value, so the default is used",
+                                #flag,
+                                #expected
+                            );
+                            #default_value
+                        }
                     };
                 }
                 #default_value
