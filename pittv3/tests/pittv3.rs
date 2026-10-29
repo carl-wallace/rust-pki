@@ -152,7 +152,7 @@ fn dump_cert_at_index() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::new(cargo::cargo_bin!());
     cmd.arg("-b").arg("tests/examples/fpki_and_crtsh.cbor");
     cmd.arg("--dump-cert-at-index").arg("1781");
-    cmd.assert().stdout(predicate::str::contains("Encountered error while processing certificate with subject CN=DOD ID SW CA-45,OU=PKI,OU=DoD,O=U.S. Government,C=US: certificate is expired: not_after"));
+    cmd.assert().success();
     let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     d.push("1781.der");
     let p = Path::new(&d);
@@ -910,14 +910,10 @@ fn generate_then_validate_skip_expired() -> Result<(), Box<dyn std::error::Error
             .arg("tests/examples/disable_revocation_checking.json");
         cmd.arg("-c").arg("tests/examples/cert_store_with_expired");
         cmd.arg("--generate");
+        // Three of the five certificates: 178.der and subfolder/3.der are not valid at the time
+        // of interest, so they are left out.
         cmd.assert().stdout(predicate::str::contains(
             "Serializing 3 buffers and 4 partial paths",
-        ));
-        cmd.assert().stdout(predicate::str::contains(
-            "Ignored an object in tests/examples/cert_store_with_expired/subfolder/3.der as not valid at indicated time of interest",
-        ));
-        cmd.assert().stdout(predicate::str::contains(
-            "Ignored an object in tests/examples/cert_store_with_expired/178.der as not valid at indicated time of interest",
         ));
         assert!(p.exists());
     }
@@ -1138,9 +1134,10 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         cmd.assert().stdout(predicate::str::contains(
             "SKID: 79F00049EB7F77C25D410265348A90239B1E076F",
         ));
-        cmd.assert().stdout(predicate::str::contains(
-            "Certificate from 178.der is not valid at indicated time of interest",
-        ));
+        // At the current time 178.der, a DoD Root CA 3 certificate that expired in 2022, is not
+        // listed, and neither is the other DoD Root CA 3 certificate here, which expired in 2024.
+        cmd.assert()
+            .stdout(predicate::str::contains("Subject: CN=DoD Root CA 3").not());
     }
 
     {
@@ -1205,9 +1202,6 @@ fn generate_then_validate_with_expired() -> Result<(), Box<dyn std::error::Error
         ));
         cmd.assert()
             .stdout(predicate::str::contains("Invalid paths found: 0"));
-        cmd.assert().stdout(predicate::str::contains(
-            "Certificate from 178.der is not valid at indicated time of interest",
-        ));
     }
 
     {

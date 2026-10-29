@@ -1049,8 +1049,8 @@
     },
     {
       "id": "webpki::forbidden-weak-rsa-key-in-root",
-      "actual_result": "SUCCESS",
-      "context": null
+      "actual_result": "FAILURE",
+      "context": "[]: [\"validate_path failed with PathValidation(InsufficientKeySize)\"]"
     },
     {
       "id": "webpki::forbidden-weak-rsa-in-leaf",

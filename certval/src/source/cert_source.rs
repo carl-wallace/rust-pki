@@ -667,7 +667,10 @@ impl CertSource {
     pub fn new_from_cbor(cbor: &[u8]) -> Result<Self> {
         let buffers_and_paths: BuffersAndPaths = match from_reader(cbor) {
             Ok(buffers_and_paths) => buffers_and_paths,
-            Err(_e) => return Err(Error::ParseError),
+            Err(e) => {
+                error!("Failed to decode a CBOR certificate store: {e:?}");
+                return Err(Error::ParseError);
+            }
         };
         validate_partial_path_indices(&buffers_and_paths)?;
         Ok(Self {
@@ -1258,10 +1261,12 @@ impl CertSource {
                 let valid = if time_of_interest.is_disabled() {
                     true
                 } else {
-                    let r = valid_at_time(cert.tbs_certificate(), time_of_interest, false);
+                    // A CA certificate in a store expiring is ordinary lifecycle, not an error.
+                    let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
                     if r.is_err() {
-                        error!(
-                            "Certificate from {} is not valid at indicated time of interest",
+                        debug!(
+                            "Ignoring certificate {} from {} as not valid at the time of interest",
+                            name_to_string(cert.tbs_certificate().subject()),
                             cert_file.filename
                         );
                     }
@@ -1429,7 +1434,7 @@ impl CertSource {
         for i in path.iter() {
             if let Some(Some(ca_cert)) = self.certs.get(*i) {
                 if let Err(_e) =
-                    valid_at_time(ca_cert.decoded().tbs_certificate(), time_of_interest, false)
+                    valid_at_time(ca_cert.decoded().tbs_certificate(), time_of_interest, true)
                 {
                     return false;
                 }

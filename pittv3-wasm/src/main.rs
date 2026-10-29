@@ -26,7 +26,9 @@ use pittv3_gui_lib::gui_settings_model::SettingsModel;
 use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckIntro, UriCheckResults};
 use pittv3_gui_lib::settings_store::SettingsStore;
-use pittv3_gui_lib::validate::{candidate_certs_in, inspect, InspectRequest, Inspected};
+use pittv3_gui_lib::validate::{
+    candidate_certs_in, inspect, looks_like_cbor_store, InspectRequest, Inspected,
+};
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
@@ -619,11 +621,14 @@ fn App() -> Element {
         pe.populate_5280_pki_environment();
         let mut ta_store = TaSource::new();
         for (name, bytes) in uploaded_tas().iter() {
-            // A `.cbor` trust-anchor store merges all of its anchors; new_from_cbor rejects
-            // anything else, so certificates and bundles fall through to the parse below
-            if let Ok(src) = TaSource::new_from_cbor(bytes) {
-                for cf in src.get_tas() {
-                    ta_store.push(cf);
+            // A `.cbor` trust-anchor store merges all of its anchors. A damaged one counts for
+            // nothing here and is reported by prepare_validation, rather than being tried as
+            // certificates and bundles below.
+            if looks_like_cbor_store(bytes) {
+                if let Ok(src) = TaSource::new_from_cbor(bytes) {
+                    for cf in src.get_tas() {
+                        ta_store.push(cf);
+                    }
                 }
                 continue;
             }
@@ -652,9 +657,11 @@ fn App() -> Element {
         pe.populate_5280_pki_environment();
         let mut cert_source = CertSource::new();
         for (name, bytes) in uploaded_cas().iter() {
-            if let Ok(src) = CertSource::new_from_cbor(bytes) {
-                for cf in src.get_buffers() {
-                    cert_source.push(cf);
+            if looks_like_cbor_store(bytes) {
+                if let Ok(src) = CertSource::new_from_cbor(bytes) {
+                    for cf in src.get_buffers() {
+                        cert_source.push(cf);
+                    }
                 }
                 continue;
             }

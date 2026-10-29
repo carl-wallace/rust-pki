@@ -39,8 +39,10 @@ use certval::{
 
 type Certificate = CertificateInner<Raw>;
 
+// Key checks certval does not make: the size of the leaf's key, which verifies no signature in the
+// path (the anchor's and the CAs' keys are held to psMinRsaModulusBits), and webpki's rule that an
+// RSA modulus be a multiple of 8 bits.
 const WEAK_KEY_CHECKS: &[&str] = &[
-    "webpki::forbidden-weak-rsa-key-in-root",
     "webpki::forbidden-weak-rsa-in-leaf",
     "webpki::forbidden-rsa-not-divisible-by-8-in-root",
     "webpki::forbidden-rsa-key-not-divisible-by-8-in-leaf",
@@ -211,7 +213,7 @@ fn main() {
         LINTER_TESTS.len()
     );
     eprintln!(
-        "- {} featured results that are ignored until weak key detection is added.",
+        "- {} featured results that were ignored as key checks certval does not make.",
         WEAK_KEY_CHECKS.len()
     );
     eprintln!(

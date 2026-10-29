@@ -60,6 +60,16 @@ pub fn maybe_pem(bytes: &[u8]) -> Result<Vec<u8>> {
         .ok_or(Error::Unrecognized)
 }
 
+/// Whether `bytes` begin the way a certval CBOR store does, trust anchor or certificate. A store is
+/// a map of two entries, its buffers and its partial paths, and so begins with 0xA2; DER begins with
+/// a tag such as 0x30 (SEQUENCE) and PEM with '-', so neither is taken for one.
+///
+/// A file this answers true for is treated as a store and nothing else: a failure to decode it is a
+/// damaged store, reported as one, not a sign that the file holds certificates instead.
+pub fn looks_like_cbor_store(bytes: &[u8]) -> bool {
+    bytes.first() == Some(&0xA2)
+}
+
 /// Returns every object a caller's buffer carries in a certificate position, in DER, whatever
 /// container it arrived in.
 ///

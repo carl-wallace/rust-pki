@@ -5099,7 +5099,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pittv3"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "assert_cmd",
  "cfg-if",
@@ -5116,7 +5116,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-capi"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "certval",
  "der",
@@ -5128,7 +5128,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-gui"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "anyhow",
  "certval",
@@ -5162,7 +5162,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-gui-lib"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -5186,7 +5186,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-lib"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "base64ct",
  "bytes",
@@ -5216,7 +5216,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-relay"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "base64ct",
  "log",
@@ -5229,7 +5229,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-service"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "actix-files",
  "actix-rt",
@@ -5257,7 +5257,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-wasm"
-version = "0.2.0-pre.2"
+version = "0.2.0-rc.1"
 dependencies = [
  "base64 0.23.1",
  "certval",

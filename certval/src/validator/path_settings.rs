@@ -238,6 +238,11 @@ pub static PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS: &str = "psEnforceTrustAnchorCons
 /// require checking trust anchor (TA) validity. Turn this value off to refrain from checking TA validity.
 pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidity";
 
+/// `PS_MIN_RSA_MODULUS_BITS` is used to retrieve the shortest RSA modulus, in bits, that a key
+/// verifying a signature in a certification path may have, i.e., the key of the trust anchor or of an
+/// intermediate CA certificate. By default, this value is 2048. Set it to 0 to accept any size.
+pub static PS_MIN_RSA_MODULUS_BITS: &str = "psMinRsaModulusBits";
+
 /// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
 /// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
 /// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
@@ -701,6 +706,7 @@ cps_gets_and_sets_with_default!(PS_TIME_OF_INTEREST, TimeOfInterest, {
 });
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_CONSTRAINTS, bool, false);
 cps_gets_and_sets_with_default!(PS_ENFORCE_TRUST_ANCHOR_VALIDITY, bool, true);
+cps_gets_and_sets_with_default!(PS_MIN_RSA_MODULUS_BITS, u16, 2048);
 
 impl CertificationPathSettings {
     // PS_KEY_USAGE (see below, need lifetime aware macro to avoid manual implementation)
@@ -1191,4 +1197,23 @@ fn test_no_default_sets_cps() {
     assert_eq!(&f, &cps.get_certification_authority_folder().unwrap());
     cps.set_download_folder(f.clone());
     assert_eq!(&f, &cps.get_download_folder().unwrap());
+}
+
+// A settings file can state a value under the wrong variant, e.g. `{"psCheckCrls": {"String":
+// "false"}}`. The getter cannot use it, so it answers as though the setting were absent -- the
+// default here, None for a getter without one -- and logs the mismatch at warn.
+#[test]
+fn a_setting_stored_under_the_wrong_variant_reads_as_unset() {
+    let mut cps = CertificationPathSettings::new();
+    cps.0.insert(
+        PS_CHECK_CRLS.to_string(),
+        CertificationPathProcessingTypes::String("false".to_string()),
+    );
+    assert!(cps.get_check_crls(), "the default, not the misstated false");
+
+    cps.0.insert(
+        PS_DOWNLOAD_FOLDER.to_string(),
+        CertificationPathProcessingTypes::Bool(true),
+    );
+    assert_eq!(cps.get_download_folder(), None);
 }

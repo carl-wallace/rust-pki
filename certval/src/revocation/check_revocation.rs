@@ -16,19 +16,20 @@
 extern crate alloc;
 
 use alloc::vec;
-use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
 use log::info;
 
 use crate::name_to_string;
 use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::{
     CertificationPath, CertificationPathResults, CertificationPathSettings, Error,
-    ExtensionProcessing, PDVExtension, PathValidationStatus::*, PkiEnvironment, Result,
-    RevocationSource,
+    PathValidationStatus::*, PkiEnvironment, Result, RevocationSource,
 };
 
 #[cfg(feature = "revocation")]
-use crate::{crl::process_crl, ocsp_client::process_ocsp_response};
+use crate::{
+    crl::process_crl,
+    ocsp_client::{no_check_present, nocheck_applies, process_ocsp_response},
+};
 
 #[cfg(feature = "remote")]
 use crate::revocation::crl::check_revocation_crl_remote;
@@ -59,7 +60,9 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// - **cache** — `pe.get_status`, consulted before anything else, including the no-check extension,
 ///   so a cached revocation wins over a certificate that asks not to be checked.
 /// - **no-check ext** — `id-pkix-ocsp-nocheck` sets the status to `Valid` outright rather than
-///   merely skipping a source, so nothing after it runs for that certificate.
+///   merely skipping a source, so nothing after it runs for that certificate. It is honoured only
+///   on a certificate that also asserts id-kp-OCSPSigning, the OCSP responder certificate RFC 6960
+///   4.2.2.2.1 gives it meaning in; elsewhere it is ignored and revocation is checked as usual.
 /// - **stapled OCSP and stapled CRL are alternatives, not a sequence.** The block is entered only
 ///   when [`CertificationPath::stapled_rev_info_available`] is true, and a stapled OCSP response
 ///   that is present but fails for any reason other than revocation does **not** fall through to a
@@ -70,6 +73,10 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
 ///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
 ///   [`check_revocation_local`] is the same chain stopping after local CRLs.
+/// - **revocation data is used only when current at the time of interest** — a CRL whose thisUpdate
+///   is later than the time of interest is not used, nor is an OCSP response, whether it reports the
+///   certificate good or revoked. Data issued later may report a revocation dated after the time of
+///   interest, which matters when evaluating retroactively.
 ///
 /// Returns `Ok` when the status of every certificate was determined and none was revoked. A
 /// revocation yields `Error::PathValidation(CertificateRevokedEndEntity)` or
@@ -146,14 +153,15 @@ pub async fn check_revocation(
             cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
         }
 
-        if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
-            ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
-        {
+        let exts = ca_cert_ref.decoded().tbs_certificate().extensions();
+        if nocheck_applies(&exts) {
             info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {cur_cert_subject}");
-            // Recorded even when the cache already answered: the extension is why no revocation data
-            // was examined, which is the more useful thing to report.
+            // Recorded even when the cache already answered: the extension is why no revocation
+            // data was examined, which is the more useful thing to report.
             cpr.set_revocation_source_for_item(pos, RevocationSource::NoCheckExtension);
             cur_status = Valid;
+        } else if no_check_present(&exts) {
+            info!("Ignoring the OCSP no-check extension in the certificate issued to {cur_cert_subject}, which is not an OCSP responder certificate");
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {
@@ -358,12 +366,13 @@ pub fn check_revocation_local(
             cpr.set_revocation_source_for_item(pos, RevocationSource::Cache);
         }
 
-        if let Ok(Some(PDVExtension::OcspNoCheck(_nc))) =
-            ca_cert_ref.get_extension(&ID_PKIX_OCSP_NOCHECK)
-        {
+        let exts = ca_cert_ref.decoded().tbs_certificate().extensions();
+        if nocheck_applies(&exts) {
             info!("Skipping revocation check due to presence of OCSP no-check extension for certificate issued to {}", cur_cert_subject);
             cpr.set_revocation_source_for_item(pos, RevocationSource::NoCheckExtension);
             cur_status = Valid;
+        } else if no_check_present(&exts) {
+            info!("Ignoring the OCSP no-check extension in the certificate issued to {cur_cert_subject}, which is not an OCSP responder certificate");
         }
 
         if cur_status == RevocationStatusNotDetermined && cp.stapled_rev_info_available() {

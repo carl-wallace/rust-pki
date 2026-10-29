@@ -207,7 +207,7 @@ fn add_file_to_vec(
                 }
             };
             if ta_valid_at_time(&ta, time_of_interest, true).is_err() {
-                error!(
+                debug!(
                     "Ignored an object in {} as not valid at indicated time of interest",
                     path.to_str().unwrap_or("")
                 );
@@ -218,7 +218,7 @@ fn add_file_to_vec(
             if let Ok(cert) = r {
                 let r = valid_at_time(cert.tbs_certificate(), time_of_interest, true);
                 if let Err(_e) = r {
-                    error!(
+                    debug!(
                         "Ignored an object in {} as not valid at indicated time of interest",
                         path.to_str().unwrap_or("")
                     );
