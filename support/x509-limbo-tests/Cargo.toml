@@ -15,8 +15,3 @@ x509-cert = { version = "0.3.0", features = ["hazmat"] }
 rayon = "1.12.0"
 
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"] }
-
-[patch.crates-io]
-# x509-ocsp has no 0.3 crates.io release yet (max published 0.2.1), so pull it from formats.git to
-# match the now-published x509-cert 0.3.0. Drop this patch once x509-ocsp 0.3 publishes.
-x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }

@@ -162,7 +162,6 @@ dependencies = [
  "walkdir",
  "webpki-roots",
  "x509-cert",
- "x509-ocsp",
 ]
 
 [[package]]
@@ -2655,17 +2654,6 @@ dependencies = [
  "der",
  "spki",
  "tls_codec",
-]
-
-[[package]]
-name = "x509-ocsp"
-version = "0.3.0-pre"
-source = "git+https://github.com/RustCrypto/formats.git#4c5fadb155ebc05c4a8a3abc05e4e64a6a100614"
-dependencies = [
- "const-oid",
- "der",
- "spki",
- "x509-cert",
 ]
 
 [[package]]

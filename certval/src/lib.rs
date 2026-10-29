@@ -9,6 +9,7 @@
 
 pub mod asn1;
 pub mod environment;
+pub mod ocsp;
 pub mod source;
 pub mod util;
 pub mod validator;

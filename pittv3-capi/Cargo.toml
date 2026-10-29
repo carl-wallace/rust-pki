@@ -1,6 +1,7 @@
 [package]
 name = "pittv3-capi"
 version = "0.2.0-pre.2"
+publish = false
 description = """
 Certification path building and validation via the Microsoft CryptoAPI chain engine, for use as a
 second opinion alongside the certval-based validation performed by the PKI Interoperability Test

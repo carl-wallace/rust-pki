@@ -78,7 +78,7 @@ pub fn is_usable_artifact(body: &[u8]) -> bool {
         return true;
     }
     use der::Decode;
-    x509_ocsp::OcspResponse::from_der(body).is_ok()
+    certval::ocsp::OcspResponse::from_der(body).is_ok()
 }
 
 /// Whether one buffer [`candidate_certificates_in`] returned is a certificate.

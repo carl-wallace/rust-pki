@@ -3,13 +3,13 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
+use crate::ocsp::*;
 use const_oid::ObjectIdentifier;
 use der::{Any, Decode, Encode};
 use sha1::{Digest, Sha1};
 use sha2::{Sha256, Sha384, Sha512};
 use x509_cert::certificate::{CertificateInner, Profile, Raw};
 use x509_cert::ext::Extensions;
-use x509_ocsp::*;
 
 use log::{error, warn};
 
@@ -46,7 +46,7 @@ use const_oid::db::rfc6960::{ID_PKIX_OCSP_BASIC, ID_PKIX_OCSP_NOCHECK, ID_PKIX_O
 use spki::AlgorithmIdentifier;
 use x509_cert::serial_number::SerialNumber;
 
-use x509_ocsp::Version::V1;
+use crate::ocsp::Version::V1;
 
 use crate::TimeOfInterest;
 #[cfg(feature = "remote")]
@@ -55,7 +55,7 @@ use crate::{PKIXALG_SHA1, PKIXALG_SHA256, PKIXALG_SHA384, PKIXALG_SHA512};
 
 use x509_cert::ext::Extension;
 
-use x509_ocsp::ext::Nonce;
+use crate::ocsp::ext::Nonce;
 
 fn get_key_hash(issuer: &dyn SubjectNameAndKey) -> Result<Vec<u8>> {
     Ok(Sha1::digest(issuer.spki().subject_public_key.raw_bytes()).to_vec())
@@ -1366,7 +1366,7 @@ mod tests {
     #[cfg(feature = "remote")]
     #[test]
     fn prepare_ocsp_request_round_trips_nonce() {
-        use x509_ocsp::OcspRequest;
+        use crate::ocsp::OcspRequest;
 
         let target = CertificateInner::<Raw>::from_der(include_bytes!(
             "../../tests/examples/ocsp_dod/47.der"
@@ -1663,7 +1663,7 @@ mod tests {
     #[cfg(all(feature = "std", feature = "revocation"))]
     #[test]
     fn check_response_time_missing_next_update_honours_max_age() {
-        use x509_ocsp::{BasicOcspResponse, OcspResponse};
+        use crate::ocsp::{BasicOcspResponse, OcspResponse};
 
         let enc_resp = include_bytes!("../../tests/examples/ocsp_dod/47-ocsp-resp.der").as_slice();
         let or = OcspResponse::from_der(enc_resp).unwrap();

@@ -27,7 +27,6 @@ cms = "=0.3.0-rc.0"
 # declared here rather than left to `cms`, which happens to turn it on today: a feature this crate
 # calls `from_ber` under is this crate's to state.
 der = { version="0.8.3", features = ["alloc", "ber", "derive", "flagset", "oid"] }
-x509-ocsp = { version = "0.3.0-pre" }
 # base64ct is no_std+alloc capable, so it is a non-optional dependency (used by the lenient PEM
 # decoder in pdv_utilities, which must be available in no_std builds too).
 base64ct = { version="1.8.3", default-features = false, features = ["alloc"] }
