@@ -78,7 +78,6 @@ webpki-roots = {version = "1.0.11", optional = true}
 # webpki-roots 1.0 moved TrustAnchor into rustls-pki-types (it no longer re-exports it), so the
 # webpki store initializer imports the type directly. Gated with webpki so it stays out of no-std.
 rustls-pki-types = {version = "1.15.1", default-features = false, optional = true}
-hex-literal = "1.1.0"
 
 # Safe wrapper over the CryptoAPI certificate store functions, used by the `capi` feature. Taken
 # rather than binding CertOpenStore and friends directly because the crate is forbid(unsafe_code)
@@ -87,6 +86,7 @@ hex-literal = "1.1.0"
 schannel = { version = "0.1.29", optional = true }
 
 [dev-dependencies]
+hex-literal = "1.1.0"
 tempfile = "3.27.0"
 tokio-test = "0.4.5"
 pretty_env_logger = "0.5"

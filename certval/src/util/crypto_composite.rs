@@ -21,7 +21,6 @@ use der::asn1::BitString;
 use der::Decode;
 use der::Encode;
 use der::{Any, AnyRef};
-use hex_literal::hex;
 use log::error;
 use pkcs1::{RsaPssParams, TrailerField};
 use sha2::Digest;
@@ -366,7 +365,7 @@ fn hash_message(composite_oid: ObjectIdentifier, message: &[u8]) -> crate::Resul
     }
 }
 
-const PREFIX: [u8; 32] = hex!("436F6D706F73697465416C676F726974686D5369676E61747572657332303235");
+const PREFIX: [u8; 32] = *b"CompositeAlgorithmSignatures2025";
 
 /// Gets the domain separator for a given OID.
 pub fn get_domain(oid: ObjectIdentifier) -> crate::Result<Vec<u8>> {

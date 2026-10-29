@@ -12,7 +12,6 @@
 #![allow(missing_docs)]
 
 use const_oid::ObjectIdentifier;
-use hex_literal::hex;
 
 // HACKATHON OIDs (NON-STANDARD - DO NOT USE)
 // These are the OQS/open-quantum-safe OID assignments for the NIST round-3 Falcon
@@ -63,7 +62,7 @@ pub const ID_MLKEM1024_ECDH_P521_SHA3_256: ObjectIdentifier =
 pub const DS_MLKEM768_RSA2048_SHA3_256: &[u8; 20] = b"MLKEM768-RSAOAEP2048";
 pub const DS_MLKEM768_RSA3072_SHA3_256: &[u8; 20] = b"MLKEM768-RSAOAEP3072";
 pub const DS_MLKEM768_RSA4096_SHA3_256: &[u8; 20] = b"MLKEM768-RSAOAEP4096";
-pub const DS_MLKEM768_X25519_SHA3_256: &[u8; 6] = &hex!("5C2E2F2F5E5C"); // \.//^\
+pub const DS_MLKEM768_X25519_SHA3_256: &[u8; 6] = b"\\.//^\\";
 pub const DS_MLKEM768_ECDH_P256_SHA3_256: &[u8; 13] = b"MLKEM768-P256";
 pub const DS_MLKEM768_ECDH_P384_SHA3_256: &[u8; 13] = b"MLKEM768-P384";
 pub const DS_MLKEM768_ECDH_BRAINPOOL_P256R1_SHA3_256: &[u8; 14] = b"MLKEM768-BP256";
