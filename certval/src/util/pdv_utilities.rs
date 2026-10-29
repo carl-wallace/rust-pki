@@ -567,18 +567,33 @@ pub(crate) fn rfc822_constraint_contains(base: &str, cand: &str) -> bool {
     }
 }
 
+/// `split_mailbox` splits a mailbox into its local part and host at the last '@', since a host
+/// cannot contain one. The local part may contain '@' only within a quoted string (RFC 5321
+/// 4.1.2). Returns None for anything that is not a single mailbox, and for a host ending in a
+/// period, which the preferred name syntax does not admit (RFC 5280 4.2.1.6).
+///
+/// Name-constraint checks treat None as unreadable: such an address is within no permitted subtree
+/// and within every excluded one.
+pub(crate) fn split_mailbox(addr: &str) -> Option<(&str, &str)> {
+    let (local, host) = addr.rsplit_once('@')?;
+    if local.is_empty() || host.is_empty() || host.ends_with('.') {
+        return None;
+    }
+    let quoted = local.len() >= 2 && local.starts_with('"') && local.ends_with('"');
+    if local.contains('@') && !quoted {
+        return None;
+    }
+    Some((local, host))
+}
+
 /// `descended_from_rfc822_str` is the string-valued core of [`descended_from_rfc822`]. Pure string
 /// comparison, so it needs no std.
 pub(crate) fn descended_from_rfc822_str(base: &str, cand: &str) -> bool {
-    // A candidate rfc822Name must be a single well-formed mailbox. A malformed address such as
+    // A candidate rfc822Name must be a single readable mailbox. A malformed address such as
     // "a@b@example.com" is not within any permitted namespace even though it ends with a permitted
-    // host, so reject anything that does not contain exactly one '@'.
-    if cand.matches('@').count() != 1 {
+    // host.
+    let Some((cand_local, cand_host)) = split_mailbox(cand) else {
         return false;
-    }
-    let (cand_local, cand_host) = match cand.split_once('@') {
-        Some(parts) => parts,
-        None => return false,
     };
 
     // a constraint with more than one '@' matches nothing

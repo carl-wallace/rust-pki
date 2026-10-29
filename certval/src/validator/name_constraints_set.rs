@@ -37,56 +37,93 @@ use crate::{buffer_to_hex, util::pdv_utilities::*, Error, Result};
 /// OID for uid attribute from RFC4519: 0.9.2342.19200300.100.1.1
 pub const UID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.9.2342.19200300.100.1.1");
 
+/// The host of a URI, as name-constraint matching reads it.
+#[derive(Debug, PartialEq)]
+enum UriHost<'a> {
+    /// The host of the URI's authority.
+    Host(&'a str),
+    /// The URI has no authority: a scheme-only or opaque URI such as `mailto:` or `urn:`. It is
+    /// within no permitted URI subtree and no excluded one.
+    NoAuthority,
+    /// The URI has an authority whose host cannot be read unambiguously. It is within no permitted
+    /// URI subtree and within every excluded one.
+    Unreadable,
+}
+
 /// Extracts the authority host from a URI string for name-constraint matching — no_std, replacing
 /// the `url` crate for this narrow purpose. Skips the scheme up to `://`, takes the authority up to
 /// the first `/`, `?` or `#`, drops a `userinfo@` prefix and a `:port` suffix, and unwraps a
-/// bracketed `[IPv6]` literal. Returns None when there is no authority (a scheme-only or opaque
-/// URI), which mirrors how a hostless URI SAN fails a URI name constraint.
-fn uri_host(uri: &str) -> Option<&str> {
-    let after_scheme = uri.split_once("://")?.1;
+/// bracketed `[IPv6]` literal.
+///
+/// The authority is unreadable when it holds a character RFC 3986 3.2 does not admit unencoded
+/// (a parser that treats `\` as `/` would find a different host), more than one '@', or a host that
+/// is empty, percent-encoded or ends in a period.
+fn uri_host(uri: &str) -> UriHost<'_> {
+    let Some((_, after_scheme)) = uri.split_once("://") else {
+        return UriHost::NoAuthority;
+    };
     let authority = after_scheme
         .split(['/', '?', '#'])
         .next()
         .unwrap_or(after_scheme);
+    // unreserved, pct-encoded, sub-delims, ':', '@', and the brackets of an IP literal
+    let admitted = |c: char| c.is_ascii_alphanumeric() || "-._~%!$&'()*+,;=:@[]".contains(c);
+    if !authority.chars().all(admitted) || authority.matches('@').count() > 1 {
+        return UriHost::Unreadable;
+    }
     let host_port = authority
         .rsplit_once('@')
         .map(|(_, hp)| hp)
         .unwrap_or(authority);
-    if let Some(rest) = host_port.strip_prefix('[') {
+    let host = if let Some(rest) = host_port.strip_prefix('[') {
         // bracketed IPv6 literal, e.g. [::1]:443
-        return rest
-            .split_once(']')
+        match rest.split_once(']') {
+            Some((h, _)) => h,
+            None => return UriHost::Unreadable,
+        }
+    } else {
+        host_port
+            .split_once(':')
             .map(|(h, _)| h)
-            .filter(|h| !h.is_empty());
+            .unwrap_or(host_port)
+    };
+    if host.is_empty() || host.contains('%') || host.ends_with('.') {
+        UriHost::Unreadable
+    } else {
+        UriHost::Host(host)
     }
-    let host = host_port
-        .split_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(host_port);
-    (!host.is_empty()).then_some(host)
 }
 
 #[test]
 fn uri_host_extracts_authority() {
     assert_eq!(
         uri_host("http://testserver.testcertificates.gov/index.html"),
-        Some("testserver.testcertificates.gov")
+        UriHost::Host("testserver.testcertificates.gov")
     );
     // userinfo + port are stripped
     assert_eq!(
         uri_host("https://user:pass@host.example.com:8443/p?q#f"),
-        Some("host.example.com")
+        UriHost::Host("host.example.com")
     );
     // bracketed IPv6 literal, port dropped
-    assert_eq!(uri_host("http://[2001:db8::1]:443/x"), Some("2001:db8::1"));
+    assert_eq!(
+        uri_host("http://[2001:db8::1]:443/x"),
+        UriHost::Host("2001:db8::1")
+    );
     // no path/query/fragment
     assert_eq!(
         uri_host("http://host.example.com"),
-        Some("host.example.com")
+        UriHost::Host("host.example.com")
     );
-    // no authority -> None (mirrors a hostless URI SAN failing a URI constraint)
-    assert_eq!(uri_host("mailto:user@example.com"), None);
-    assert_eq!(uri_host("http://"), None);
+    // no authority
+    assert_eq!(uri_host("mailto:user@example.com"), UriHost::NoAuthority);
+    // an authority with no readable host
+    assert_eq!(uri_host("http://"), UriHost::Unreadable);
+    assert_eq!(uri_host("http://[::1/x"), UriHost::Unreadable);
+    assert_eq!(uri_host("http://a\\@b.example.com/"), UriHost::Unreadable);
+    assert_eq!(uri_host("http://a@b@c.example.com/"), UriHost::Unreadable);
+    assert_eq!(uri_host("http://example.com./"), UriHost::Unreadable);
+    assert_eq!(uri_host("http://ex%61mple.com/"), UriHost::Unreadable);
 }
 
 /// The `NameConstraintsSet` structure is used to define inputs for path validation, i.e.,
@@ -374,7 +411,7 @@ impl NameConstraintsSet {
 
                         // Extract the SAN URI's host once; it does not vary across the permitted
                         // subtrees compared below.
-                        if let Some(host) = uri_host(uri_san.as_str()) {
+                        if let UriHost::Host(host) = uri_host(uri_san.as_str()) {
                             for gn_state in &self.uniform_resource_identifier {
                                 if let GeneralName::UniformResourceIdentifier(uri_state) =
                                     &gn_state.base
@@ -458,6 +495,10 @@ impl NameConstraintsSet {
                     if self.rfc822_name_null {
                         return true;
                     }
+                    // an address that is not a readable mailbox is excluded (see split_mailbox)
+                    if split_mailbox(email.as_ref()).is_none() {
+                        return true;
+                    }
                     // otherwise reject if the address falls within an excluded rfc822 subtree
                     for gn in &self.rfc822_name {
                         if let GeneralName::Rfc822Name(subtree) = &gn.base {
@@ -530,6 +571,10 @@ impl NameConstraintsSet {
                             continue;
                         }
 
+                        // an address that is not a readable mailbox is excluded (see split_mailbox)
+                        if split_mailbox(rfc822_san.as_ref()).is_none() {
+                            return true;
+                        }
                         for gn_state in &self.rfc822_name {
                             if let GeneralName::Rfc822Name(rfc822_state) = &gn_state.base {
                                 if descended_from_rfc822(rfc822_state, rfc822_san) {
@@ -569,16 +614,20 @@ impl NameConstraintsSet {
 
                         // Extract the SAN URI's host once; it does not vary across the excluded
                         // subtrees compared below.
-                        if let Some(host) = uri_host(uri_san.as_str()) {
-                            for gn_state in &self.uniform_resource_identifier {
-                                if let GeneralName::UniformResourceIdentifier(uri_state) =
-                                    &gn_state.base
-                                {
-                                    if descended_from_host(uri_state, host, true) {
-                                        return true;
+                        match uri_host(uri_san.as_str()) {
+                            UriHost::Host(host) => {
+                                for gn_state in &self.uniform_resource_identifier {
+                                    if let GeneralName::UniformResourceIdentifier(uri_state) =
+                                        &gn_state.base
+                                    {
+                                        if descended_from_host(uri_state, host, true) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
+                            UriHost::Unreadable => return true,
+                            UriHost::NoAuthority => {}
                         }
                     }
                     #[allow(unused_variables)]
@@ -1858,4 +1907,107 @@ fn repeated_permitted_subtrees_are_held_once() {
     }
     assert_eq!(permitted.dns_name.len(), 1);
     assert!(!permitted.dns_name_null);
+}
+
+// A name the matching code cannot read is outside every permitted subtree, which denies it, and must
+// be inside every excluded subtree, which denies it too. Each test below is a name that a lenient
+// reading places outside an excluded subtree. Each opens with a control showing the constraint
+// matches the plain form of the name, so a set that constrains nothing cannot pass.
+#[cfg(all(test, feature = "std"))]
+fn uri_subtree(base: &str) -> GeneralSubtree {
+    GeneralSubtree {
+        base: GeneralName::UniformResourceIdentifier(Ia5String::new(base).unwrap()),
+        minimum: 0,
+        maximum: None,
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn uri_san(uri: &str) -> SubjectAltName {
+    SubjectAltName(vec![GeneralName::UniformResourceIdentifier(
+        Ia5String::new(uri).unwrap(),
+    )])
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn uri_host_with_trailing_period_is_within_excluded_domain() {
+    let excluded = NameConstraintsSet {
+        uniform_resource_identifier: vec![uri_subtree(".example.com")],
+        ..Default::default()
+    };
+    assert!(excluded.san_within_excluded_subtrees(&Some(&uri_san("http://evil.example.com/"))));
+    assert!(
+        excluded.san_within_excluded_subtrees(&Some(&uri_san("http://evil.example.com./"))),
+        "the absolute form of an excluded host is excluded"
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn uri_with_backslash_in_authority_matches_no_permitted_and_every_excluded_subtree() {
+    // A browser-style parser reads the host of this URI as evil.com; reading past the backslash to
+    // the last '@' gives good.example.com. RFC 3986 admits neither '\' nor a second reading.
+    let ambiguous = uri_san("http://evil.com\\@good.example.com/");
+
+    let excluded = NameConstraintsSet {
+        uniform_resource_identifier: vec![uri_subtree("evil.com")],
+        ..Default::default()
+    };
+    assert!(excluded.san_within_excluded_subtrees(&Some(&uri_san("http://evil.com/"))));
+    assert!(
+        excluded.san_within_excluded_subtrees(&Some(&ambiguous)),
+        "a URI whose host cannot be read is excluded"
+    );
+
+    let permitted = NameConstraintsSet {
+        uniform_resource_identifier: vec![uri_subtree("good.example.com")],
+        ..Default::default()
+    };
+    assert!(permitted.san_within_permitted_subtrees(&Some(&uri_san("http://good.example.com/"))));
+    assert!(
+        !permitted.san_within_permitted_subtrees(&Some(&ambiguous)),
+        "a URI whose host cannot be read is not permitted"
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn rfc822_quoted_local_part_containing_at_sign_is_within_excluded_host() {
+    let excluded = NameConstraintsSet {
+        rfc822_name: vec![GeneralSubtree {
+            base: GeneralName::Rfc822Name(Ia5String::new("evil.com").unwrap()),
+            minimum: 0,
+            maximum: None,
+        }],
+        ..Default::default()
+    };
+    let san =
+        |addr: &str| SubjectAltName(vec![GeneralName::Rfc822Name(Ia5String::new(addr).unwrap())]);
+    assert!(excluded.san_within_excluded_subtrees(&Some(&san("x@evil.com"))));
+    assert!(
+        excluded.san_within_excluded_subtrees(&Some(&san("\"x@y\"@evil.com"))),
+        "a quoted local part may contain '@', and the host is what follows the last one"
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn dn_email_address_with_trailing_period_is_within_excluded_host() {
+    let excluded = NameConstraintsSet {
+        rfc822_name: vec![GeneralSubtree {
+            base: GeneralName::Rfc822Name(Ia5String::new("evil.com").unwrap()),
+            minimum: 0,
+            maximum: None,
+        }],
+        ..Default::default()
+    };
+    // 1.2.840.113549.1.9.1 is PKCS#9 emailAddress.
+    let subject =
+        |addr: &str| Name::from_str(&format!("CN=x,1.2.840.113549.1.9.1={addr}")).unwrap();
+    assert!(excluded.subject_within_excluded_subtrees(&subject("x@evil.com")));
+    assert!(
+        excluded.subject_within_excluded_subtrees(&subject("x@evil.com.")),
+        "the absolute form of an excluded host is excluded"
+    );
 }
