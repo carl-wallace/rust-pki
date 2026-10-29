@@ -175,6 +175,25 @@ fn time_of_interest_with_skew(time_of_interest: TimeOfInterest) -> TimeOfInteres
     .unwrap_or(time_of_interest)
 }
 
+/// The status a single response settles at the time of interest. Good and revoked alike are settled
+/// only by a response that is current at that time, as a CRL is used only when current: a response
+/// produced later may report a revocation dated after the time of interest.
+fn single_response_status(
+    cps: &CertificationPathSettings,
+    sr: &SingleResponse,
+) -> PathValidationStatus {
+    let status = match sr.cert_status {
+        CertStatus::Good(_) => PathValidationStatus::Valid,
+        CertStatus::Revoked(_) => PathValidationStatus::CertificateRevoked,
+        CertStatus::Unknown(_) => return PathValidationStatus::RevocationStatusNotDetermined,
+    };
+    if check_response_time(cps, sr) {
+        status
+    } else {
+        PathValidationStatus::RevocationStatusNotDetermined
+    }
+}
+
 fn check_response_time(cps: &CertificationPathSettings, sr: &SingleResponse) -> bool {
     let time_of_interest = cps.get_time_of_interest();
     if time_of_interest.is_disabled() {
@@ -908,32 +927,17 @@ fn process_ocsp_response_internal(
             ));
         }
 
-        match sr.cert_status {
-            CertStatus::Good(_null) => {
-                if check_response_time(cps, &sr) {
-                    if let Some(nu) = sr.next_update {
-                        pe.add_status(
-                            target_cert,
-                            issuer,
-                            nu.0.to_unix_duration().as_secs(),
-                            PathValidationStatus::Valid,
-                        );
-                    }
-                    retval = PathValidationStatus::Valid;
-                }
+        let status = single_response_status(cps, &sr);
+        if status != PathValidationStatus::RevocationStatusNotDetermined {
+            if let Some(nu) = sr.next_update {
+                pe.add_status(
+                    target_cert,
+                    issuer,
+                    nu.0.to_unix_duration().as_secs(),
+                    status,
+                );
             }
-            CertStatus::Revoked(_revinfo) => {
-                if let Some(nu) = sr.next_update {
-                    pe.add_status(
-                        target_cert,
-                        issuer,
-                        nu.0.to_unix_duration().as_secs(),
-                        PathValidationStatus::CertificateRevoked,
-                    );
-                }
-                retval = PathValidationStatus::CertificateRevoked;
-            }
-            CertStatus::Unknown(_null) => {}
+            retval = status;
         }
         if retval != PathValidationStatus::RevocationStatusNotDetermined {
             break;
@@ -1708,6 +1712,53 @@ mod tests {
         assert!(
             !check_response_time(&cps_with(3600), &no_nu),
             "a max age shorter than the response age rejects it"
+        );
+    }
+
+    // A revoked verdict, like a good one, is taken only from a response current at the time of
+    // interest: one produced after it may report a revocation dated later than the time asked about,
+    // the same reason a CRL issued after the time of interest is not used.
+    #[cfg(all(feature = "std", feature = "revocation"))]
+    #[test]
+    fn a_response_settles_good_or_revoked_only_when_current() {
+        use crate::ocsp::{BasicOcspResponse, OcspResponse, RevokedInfo};
+
+        let enc_resp = include_bytes!("../../tests/examples/ocsp_dod/47-ocsp-resp.der").as_slice();
+        let or = OcspResponse::from_der(enc_resp).unwrap();
+        let rb = or.response_bytes.unwrap();
+        let bor = BasicOcspResponse::from_der(rb.response.as_bytes()).unwrap();
+        // thisUpdate 2026-07-15T00:00:01Z, nextUpdate 2026-07-22T01:00:00Z
+        let good = bor.tbs_response_data.responses.into_iter().next().unwrap();
+        let mut revoked = good.clone();
+        revoked.cert_status = CertStatus::Revoked(RevokedInfo {
+            revocation_time: good.this_update,
+            revocation_reason: None,
+        });
+
+        let cps_at = |secs: u64| {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_time_of_interest(crate::TimeOfInterest::from_unix_secs(secs).unwrap());
+            cps
+        };
+        let current = cps_at(1784203200); // 2026-07-16T12:00:00Z
+        let before = cps_at(1782000000); // 2026-06-21, before thisUpdate
+
+        assert_eq!(
+            single_response_status(&current, &good),
+            PathValidationStatus::Valid
+        );
+        assert_eq!(
+            single_response_status(&current, &revoked),
+            PathValidationStatus::CertificateRevoked
+        );
+        assert_eq!(
+            single_response_status(&before, &good),
+            PathValidationStatus::RevocationStatusNotDetermined
+        );
+        assert_eq!(
+            single_response_status(&before, &revoked),
+            PathValidationStatus::RevocationStatusNotDetermined,
+            "a response produced after the time of interest does not settle a revocation"
         );
     }
 

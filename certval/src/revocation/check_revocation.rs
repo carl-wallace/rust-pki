@@ -73,6 +73,10 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 /// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
 ///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
 ///   [`check_revocation_local`] is the same chain stopping after local CRLs.
+/// - **revocation data is used only when current at the time of interest** — a CRL whose thisUpdate
+///   is later than the time of interest is not used, nor is an OCSP response, whether it reports the
+///   certificate good or revoked. Data issued later may report a revocation dated after the time of
+///   interest, which matters when evaluating retroactively.
 ///
 /// Returns `Ok` when the status of every certificate was determined and none was revoked. A
 /// revocation yields `Error::PathValidation(CertificateRevokedEndEntity)` or
