@@ -2,6 +2,8 @@
 
 ![Apache2/MIT licensed][license-image]
 ![Rust Version][rustc-image]
+![no_std compatible][no-std-image]
+![unsafe forbidden][unsafe-image]
 
 Pure Rust implementation of X.509 public key infrastructure certification path validation algorithm described in [RFC 5280] as 
 as augmented by [RFC 5937]. Support for certification path building and revocation status determination is also included. 
@@ -118,6 +120,8 @@ dual licensed as above, without any additional terms or conditions.
 
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
 [rustc-image]: https://img.shields.io/badge/rustc-1.88+-blue.svg
+[no-std-image]: https://img.shields.io/badge/no__std-compatible-blue.svg
+[unsafe-image]: https://img.shields.io/badge/unsafe-forbidden-success.svg
 
 [//]: # (links)
 

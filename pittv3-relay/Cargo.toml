@@ -31,7 +31,7 @@ reqwest = { version = "0.13.4" }
 # The handshake that takes a server's certificates is made here rather than through the HTTP client,
 # which reports only what it retrieved and never who presented it. `ring` is named rather than left
 # to the default so the provider does not depend on which crate in the workspace resolved first.
-rustls = { version = "0.23.42", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["logging", "ring", "tls12"] }
 serde = { version = "1.0.228", features = ["derive"] }
 # Encoding only, and the same crate the rest of the workspace uses so one resolves. Recognizing
