@@ -10,6 +10,11 @@ ASN.1 encoders and decoders and cryptographic support are primarily provided by 
 
 A change log is available at the root of the `certval` project.
 
+[PITTv3](https://github.com/carl-wallace/rust-pki/tree/main/pittv3), in this repository, is a complete application
+built on certval, as a command-line tool, a desktop application and a browser application. For a short demonstration,
+see [certval-verify](https://github.com/carl-wallace/certval-verify), a certificate validator in one source file that
+takes its trust anchors and CA certificates from the `certval_stores_*` crates.
+
 ## Crate Feature Flags
 
 The certval library provides nine feature gates that enable varying levels of support.
