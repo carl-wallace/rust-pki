@@ -31,8 +31,8 @@ The endpoints are:
 The service comes up offering a catalogue whether or not it is configured with one. The built-in
 stores are generated when the crate is built, by the same `serialize_environment` call on the same
 `certval_stores_*` provider environments that the browser application's build script makes:
-`dod_nipr_prod`, `webpki` (Mozilla roots for all purposes, with the CCADB intermediates),
-`webpki_tls`, `webpki_email`, `fpki` and `dod_purebred_dev`. Because they are generated the same
+`dod_nipr_prod`, `mozilla_all` (Mozilla roots for all purposes, with the CCADB intermediates),
+`mozilla_tls`, `mozilla_email`, `fpki` and `dod_purebred_dev`. Because they are generated the same
 way and named the same way, a store the browser already ships is recognized as the same material and
 not offered twice.
 

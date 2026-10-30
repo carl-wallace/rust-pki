@@ -64,10 +64,10 @@ pub const STORES: &[Store] = &[
     Store {
         id: "mozilla_all",
         label: env!("PITTV3_STORE_LABEL_MOZILLA_ALL"),
-        ta_url: "resources/webpki_ta.cbor",
+        ta_url: "resources/mozilla_all_ta.cbor",
         // CCADB intermediate set with precomputed partial paths; AIA fallback (once the
         // fetch proxy lands) will cover anything not preloaded here
-        ca_url: Some("resources/webpki_ca.cbor"),
+        ca_url: Some("resources/mozilla_all_ca.cbor"),
         published: option_env!("PITTV3_STORE_PUBLISHED_MOZILLA_ALL"),
         collected: option_env!("PITTV3_STORE_COLLECTED_MOZILLA_ALL"),
     },
@@ -316,7 +316,7 @@ pub fn shipped_catalog() -> Vec<CatalogEntry> {
 /// A served store whose identifier this application already ships is dropped rather than offered
 /// twice. That is not deduplication by name and luck: `pittv3-service` generates its built-in
 /// stores by the same `serialize_environment` call on the same provider environment that this
-/// crate's build script makes, and names them accordingly, so `webpki` there and `webpki` here are
+/// crate's build script makes, and names them accordingly, so `mozilla_all` there and `mozilla_all` here are
 /// the same material by construction. A deployment that means to override one puts it in the
 /// service's store directory, where it replaces the built-in of that name before the listing is
 /// ever produced — so what arrives here under a shipped identifier is only ever the same store.
@@ -628,7 +628,7 @@ mod tests {
         assert_eq!(catalog.len(), shipped);
         // and the shipped URLs are the ones still in use, not the service's
         let mozilla = catalog.iter().find(|e| e.id == "mozilla_all").unwrap();
-        assert_eq!(mozilla.ta_url, "resources/webpki_ta.cbor");
+        assert_eq!(mozilla.ta_url, "resources/mozilla_all_ta.cbor");
     }
 
     /// The dates arrive through environment variables the build script names from each

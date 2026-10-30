@@ -1689,6 +1689,6 @@
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
-  ta_store  webpki_ta.cbor  187415 bytes  sha256:8e5309f89ec9d948b762358403dbba14262461052365e63eb29dad7f031f338d
-  ca_store  webpki_ca.cbor  3864447 bytes  sha256:f5e69f2f697b20542e4c86d9c8fc5463eb1e35c029fb5b4c54876b123c92830c
+  ta_store  mozilla_all_ta.cbor  187415 bytes  sha256:8e5309f89ec9d948b762358403dbba14262461052365e63eb29dad7f031f338d
+  ca_store  mozilla_all_ca.cbor  3864447 bytes  sha256:f5e69f2f697b20542e4c86d9c8fc5463eb1e35c029fb5b4c54876b123c92830c
 

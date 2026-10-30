@@ -5,8 +5,8 @@
 //! linked in: the material is ~9 MB, and embedding it would be paid on every
 //! page load whether or not a given store is ever selected. Generating it here
 //! from the provider crates keeps it in step with them instead of being
-//! refreshed by hand — `resources/webpki_*.cbor` was last built by hand in July
-//! 2026, and had no way to notice the upstream root program moving.
+//! refreshed by hand — the Mozilla store's files (then `webpki_*.cbor`) were last built
+//! by hand in July 2026, and had no way to notice the upstream root program moving.
 //!
 //! Writing into the source tree from a build script is unusual, and is done
 //! because `resources/` is what Trunk publishes. `write_if_changed` keeps it
@@ -238,8 +238,8 @@ fn artifacts() -> Vec<Artifact> {
         Artifact {
             provider: certval_stores_mozilla::provider(),
             id: certval_stores_mozilla::MOZILLA_ALL,
-            ta: "webpki_ta.cbor",
-            ca: Some("webpki_ca.cbor"),
+            ta: "mozilla_all_ta.cbor",
+            ca: Some("mozilla_all_ca.cbor"),
         },
     ]
     // The ML-DSA PKITS store is not a provider — it is test collateral for the

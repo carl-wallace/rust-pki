@@ -6,7 +6,7 @@
 PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets 
 of trust anchors, intermediate CA certificates and end entity certificates. It uses ASN.1 encoders and decoders and 
 cryptographic support provided by various [RustCrypto] libraries. It also serves as a sample app for using the 
-[certval](../certval/index.html) library and related RustCrypto formats libraries.
+[certval](https://docs.rs/certval/latest/certval/) library and related RustCrypto formats libraries.
 
 A change log is available at the root of the `pittv3` project.
 
@@ -24,7 +24,7 @@ guide above is the reference, and `pittv3 --help` lists every option the build y
 **1) Serialize a set intermediate CA certificates and partial certification paths**
 
 PITTv3 works best when using a set of intermediate CA certificates and partial certification
-paths that have been serialized to a [CBOR file](../certval/source/cert_source/struct.BuffersAndPaths.html).
+paths that have been serialized to a [CBOR file](https://docs.rs/certval/latest/certval/source/cert_source/struct.BuffersAndPaths.html).
 To generate a CBOR file for a given PKI:
 - prepare a set of trust anchor certificates in a folder
 - prepare a set of CA certificates in a folder,
@@ -67,7 +67,7 @@ to receive the results using the `results-folder` option.
 The `dynamic-build` and `download-folder` options can be added to dynamically develop certification paths for validation by
 downloading certificates from location specified in AIA or SIA extensions. Download operations
 can be influenced by the last-modified map and URI blocklist, which are
-[CertificationPathSettings](../certval/validator/path_settings/index.html) values rather than
+[CertificationPathSettings](https://docs.rs/certval/latest/certval/validator/path_settings/index.html) values rather than
 command line options and are read from the folder used to download artifacts. Generation and validation
 operations use the `time-of-interest` option to determine if certificates are expired or not yet
 valid. By default, the current time is used. An alternative time of interest can be specified

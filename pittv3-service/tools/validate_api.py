@@ -19,13 +19,13 @@ service decodes either -- so files are read as bytes and encoded as they are.
     validate_api.py --ta root.der --ca intermediate.der ee.der
 
     # every path for each target, not just the first that validates
-    validate_api.py --store-id webpki --validate-all ee.der
+    validate_api.py --store-id mozilla_all --validate-all ee.der
 
     # the whole report rather than a summary
     validate_api.py --store-id fpki --json ee.der
 
     # take a live host's chain and validate what it presented, in one call
-    validate_api.py --peek letsencrypt.org --store-id webpki_tls
+    validate_api.py --peek letsencrypt.org --store-id mozilla_tls
 
     # retrieve one artifact through the relay, without validating anything
     validate_api.py --fetch http://crl.example.com/ca.crl
