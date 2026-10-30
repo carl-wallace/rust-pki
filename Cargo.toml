@@ -62,8 +62,8 @@ inherits = "dev"
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
 # The certval_stores_* crates (build-dependencies of pittv3-service and pittv3-wasm, a dependency of
-# pittv3-gui) take certval from this repository's main branch on GitHub. Pointing that at the
-# workspace crate compiles one certval rather than two, and generates the built-in stores with the
-# same certval that reads them.
-[patch."https://github.com/carl-wallace/rust-pki.git"]
+# pittv3-gui) take certval and pkiprocmacros from crates.io. Pointing those at the workspace crates
+# compiles one certval rather than two, and generates the built-in stores with the same certval
+# that reads them. It applies while the workspace version satisfies the store crates' requirement.
 certval = { path = "certval" }
+pkiprocmacros = { path = "pkiprocmacros" }
