@@ -61,9 +61,11 @@ inherits = "dev"
 # (ml-dsa dropped 2026-07-16 — 0.1.1 is now on crates.io.)
 x509-ocsp = { git = "https://github.com/RustCrypto/formats.git" }
 
-# The certval_stores_* crates (build-dependencies of pittv3-service and pittv3-wasm, a dependency of
-# pittv3-gui) take certval and pkiprocmacros from crates.io. Pointing those at the workspace crates
-# compiles one certval rather than two, and generates the built-in stores with the same certval
-# that reads them. It applies while the workspace version satisfies the store crates' requirement.
+# For pittv3 only, though it has to be here: cargo reads [patch] from the workspace root alone. Its
+# certval_stores_* dependencies (build-dependencies of pittv3-service and pittv3-wasm, a dependency
+# of pittv3-gui) take certval and pkiprocmacros from crates.io; pointing those at the workspace
+# crates gives pittv3 one certval rather than two, and generates its built-in stores with the same
+# certval that reads them. It applies while the workspace version satisfies the store crates'
+# requirement.
 certval = { path = "certval" }
 pkiprocmacros = { path = "pkiprocmacros" }
