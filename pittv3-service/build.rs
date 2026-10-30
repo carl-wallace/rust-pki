@@ -8,8 +8,8 @@
 //!
 //! Generating them rather than committing them is the same argument `pittv3-wasm/build.rs` makes:
 //! a committed artifact has no way to notice its provider moving. Making it the *same call* those
-//! build scripts make is the other half — the browser fetches `webpki_ta.cbor` from the files its
-//! own build script wrote, this service serves `webpki` from bytes this one wrote, and both come
+//! build scripts make is the other half — the browser fetches `mozilla_all_ta.cbor` from the files its
+//! own build script wrote, this service serves `mozilla_all` from bytes this one wrote, and both come
 //! out of `serialize_environment` for the same environment. That is why the browser can drop a
 //! service store whose identifier it already ships: they are the same material by construction, not
 //! by anyone remembering to refresh both.
