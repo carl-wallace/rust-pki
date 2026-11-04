@@ -92,6 +92,43 @@ pub struct CertPool {
     pub certs: BTreeMap<String, Vec<u8>>,
 }
 
+/// Returns the name to pass to the `get_pkits_crl_ca_bytes` functions to get the CRL for the
+/// intermediate CA `ca` in `case`, or None when the case uses no CRL for that CA.
+fn crl_name_for_ca(case: &PkitsTestCase, ca: &'static str) -> Option<&'static str> {
+    if ca == "NameOrdering" {
+        Some("NameOrder")
+    } else if ca == "PoliciesP123subsubCAP12P2" {
+        Some("PoliciesP123subsubCAP12P1")
+    } else if ca.contains("NoCRLCA") {
+        None
+    } else if ca.contains("TwoCRLsCA") {
+        if case.alt_test_name.is_none() {
+            Some("TwoCRLsCAGood")
+        } else {
+            Some("TwoCRLsCABad")
+        }
+    } else if ca.contains("SeparateCertificateandCRLKeys") {
+        Some("SeparateCertificateandCRLKeys")
+    } else if ca.contains("onlySomeReasonsCA1") {
+        //TODO add a case with the other CRL (onlySomeReasonsCA1otherreasonsCRL.crl)
+        Some("onlySomeReasonsCA1compromise")
+    } else if ca.contains("Self") {
+        // TODO address need for multiple CRL signers due to self-issued
+        None
+    } else {
+        Some(ca)
+    }
+}
+
+/// certval verifies a CRL only with the key that verifies the certificate (see the README), so CRLs
+/// signed by a rollover key or a separate CRL signing key are not used and revocation is not checked
+/// for these cases.
+#[cfg(feature = "revocation")]
+const SELF_ISSUED_TESTS: [&str; 14] = [
+    "4.11.7", "4.12.7", "4.12.9", "4.13.19", "4.5.1", "4.5.2", "4.5.3", "4.5.4", "4.5.5", "4.5.6",
+    "4.6.15", "4.6.17", "4.9.6", "4.4.19",
+];
+
 // Only 2048 and 256 are supported in test so far owing to lack of 384 support in Rust and lack
 // of suitable 4096 PKITS data set.
 pub enum PkitsFlavor {
@@ -331,7 +368,8 @@ pub fn pkits_guts_pqc_sync(folder: &str) {
                 format!("{}.{}", *k, i + 1)
             };
 
-            // Skip revocation-heavy tests; no ta5914 TAs are present for PQC
+            // Without revocation support, skip the tests that depend on it
+            #[cfg(not(feature = "revocation"))]
             if case_name.starts_with("4.4.")
                 || [
                     "4.14.2", "4.14.3", "4.14.6", "4.14.8", "4.14.9", "4.7.4", "4.7.5",
@@ -372,21 +410,25 @@ pub fn pkits_guts_pqc_sync(folder: &str) {
 
             let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
 
-            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCertificate.crl").unwrap();
+            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCRL.crl").unwrap();
             cert_path.crls[0] = Some(crl);
             for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
-                if n.contains("NoCRLCA") {
-                    // no CRL for this CA
-                } else if !n.contains("Self") {
-                    let crl = get_pkits_crl_ca_bytes_pqc(folder, n).unwrap();
-                    cert_path.crls[i + 1] = Some(crl);
+                if let Some(name) = crl_name_for_ca(case, n) {
+                    cert_path.crls[i + 1] = Some(get_pkits_crl_ca_bytes_pqc(folder, name).unwrap());
                 }
             }
 
             let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
+            #[cfg(not(feature = "revocation"))]
             let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
+            #[cfg(feature = "revocation")]
+            let mut r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
+            #[cfg(feature = "revocation")]
+            if r.is_ok() && !SELF_ISSUED_TESTS.contains(&case_name.as_str()) {
+                r = check_revocation_local(&pe, &tmp_settings, &cert_path, &mut cpr);
+            }
 
             if (r.is_err() && case.expected_error.is_none())
                 || (r.is_ok() && case.expected_error.is_some())
@@ -475,7 +517,8 @@ pub async fn pkits_guts_pqc(folder: &str) {
                 format!("{}.{}", *k, i + 1)
             };
 
-            // Skip revocation-heavy tests; no ta5914 TAs are present for PQC
+            // Without revocation support, skip the tests that depend on it
+            #[cfg(not(feature = "revocation"))]
             if case_name.starts_with("4.4.")
                 || [
                     "4.14.2", "4.14.3", "4.14.6", "4.14.8", "4.14.9", "4.7.4", "4.7.5",
@@ -516,21 +559,25 @@ pub async fn pkits_guts_pqc(folder: &str) {
 
             let mut cert_path = CertificationPath::new(ta.clone(), chain, ee);
 
-            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCertificate.crl").unwrap();
+            let crl = get_pkits_crl_bytes_pqc(folder, "TrustAnchorRootCRL.crl").unwrap();
             cert_path.crls[0] = Some(crl);
             for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
-                if n.contains("NoCRLCA") {
-                    // no CRL for this CA
-                } else if !n.contains("Self") {
-                    let crl = get_pkits_crl_ca_bytes_pqc(folder, n).unwrap();
-                    cert_path.crls[i + 1] = Some(crl);
+                if let Some(name) = crl_name_for_ca(case, n) {
+                    cert_path.crls[i + 1] = Some(get_pkits_crl_ca_bytes_pqc(folder, name).unwrap());
                 }
             }
 
             let tmp_settings = case.settings.clone();
 
             let mut cpr = CertificationPathResults::new();
+            #[cfg(not(feature = "revocation"))]
             let r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
+            #[cfg(feature = "revocation")]
+            let mut r = pe.validate_path(&pe, &tmp_settings, &cert_path, &mut cpr);
+            #[cfg(feature = "revocation")]
+            if r.is_ok() && !SELF_ISSUED_TESTS.contains(&case_name.as_str()) {
+                r = check_revocation(&pe, &tmp_settings, &cert_path, &mut cpr).await;
+            }
 
             if (r.is_err() && case.expected_error.is_none())
                 || (r.is_ok() && case.expected_error.is_some())
@@ -736,47 +783,15 @@ pub fn pkits_guts_sync(
                 #[allow(unused_variables, unused_mut)]
                 let mut skip_revocation_check = skip_revocation;
                 #[cfg(feature = "revocation")]
-                {
-                    // key rollover support or seperate cert and CRL signing keys for revocation checking is not yet implemented, skip those for now
-                    let self_issued_tests = [
-                        "4.11.7", "4.12.7", "4.12.9", "4.13.19", "4.5.1", "4.5.2", "4.5.3",
-                        "4.5.4", "4.5.5", "4.5.6", "4.6.15", "4.6.17", "4.9.6", "4.4.19",
-                    ];
-                    if self_issued_tests.contains(&case_name.as_str()) {
-                        skip_revocation_check = true;
-                    }
+                if SELF_ISSUED_TESTS.contains(&case_name.as_str()) {
+                    skip_revocation_check = true;
                 }
 
                 let crl = get_pkits_crl_bytes("TrustAnchorRootCRL.crl").unwrap();
                 cert_path.crls[0] = Some(crl);
                 for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
-                    if *n == "NameOrdering" {
-                        let crl = get_pkits_crl_ca_bytes("NameOrder").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if *n == "PoliciesP123subsubCAP12P2" {
-                        let crl = get_pkits_crl_ca_bytes("PoliciesP123subsubCAP12P1").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if n.contains("NoCRLCA") {
-                    } else if n.contains("TwoCRLsCA") {
-                        if case.alt_test_name.is_none() {
-                            let crl = get_pkits_crl_ca_bytes("TwoCRLsCAGood").unwrap();
-                            cert_path.crls[i + 1] = Some(crl);
-                        } else {
-                            let crl = get_pkits_crl_ca_bytes("TwoCRLsCABad").unwrap();
-                            cert_path.crls[i + 1] = Some(crl);
-                        }
-                    } else if n.contains("SeparateCertificateandCRLKeys") {
-                        let crl = get_pkits_crl_ca_bytes("SeparateCertificateandCRLKeys").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if n.contains("onlySomeReasonsCA1") {
-                        //TODO add a case with the other CRL (onlySomeReasonsCA1otherreasonsCRL.crl)
-                        let crl = get_pkits_crl_ca_bytes("onlySomeReasonsCA1compromise").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if !n.contains("Self") {
-                        let crl = get_pkits_crl_ca_bytes(n).unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else {
-                        //println!("{}", n);
+                    if let Some(name) = crl_name_for_ca(case, n) {
+                        cert_path.crls[i + 1] = Some(get_pkits_crl_ca_bytes(name).unwrap());
                     }
                 }
 
@@ -1071,47 +1086,15 @@ pub async fn pkits_guts(
                 #[allow(unused_variables, unused_mut)]
                 let mut skip_revocation_check = skip_revocation;
                 #[cfg(feature = "revocation")]
-                {
-                    // key rollover support or seperate cert and CRL signing keys for revocation checking is not yet implemented, skip those for now
-                    let self_issued_tests = [
-                        "4.11.7", "4.12.7", "4.12.9", "4.13.19", "4.5.1", "4.5.2", "4.5.3",
-                        "4.5.4", "4.5.5", "4.5.6", "4.6.15", "4.6.17", "4.9.6", "4.4.19",
-                    ];
-                    if self_issued_tests.contains(&case_name.as_str()) {
-                        skip_revocation_check = true;
-                    }
+                if SELF_ISSUED_TESTS.contains(&case_name.as_str()) {
+                    skip_revocation_check = true;
                 }
 
                 let crl = get_pkits_crl_bytes("TrustAnchorRootCRL.crl").unwrap();
                 cert_path.crls[0] = Some(crl);
                 for (i, n) in case.intermediate_ca_file_names.iter().enumerate() {
-                    if *n == "NameOrdering" {
-                        let crl = get_pkits_crl_ca_bytes("NameOrder").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if *n == "PoliciesP123subsubCAP12P2" {
-                        let crl = get_pkits_crl_ca_bytes("PoliciesP123subsubCAP12P1").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if n.contains("NoCRLCA") {
-                    } else if n.contains("TwoCRLsCA") {
-                        if case.alt_test_name.is_none() {
-                            let crl = get_pkits_crl_ca_bytes("TwoCRLsCAGood").unwrap();
-                            cert_path.crls[i + 1] = Some(crl);
-                        } else {
-                            let crl = get_pkits_crl_ca_bytes("TwoCRLsCABad").unwrap();
-                            cert_path.crls[i + 1] = Some(crl);
-                        }
-                    } else if n.contains("SeparateCertificateandCRLKeys") {
-                        let crl = get_pkits_crl_ca_bytes("SeparateCertificateandCRLKeys").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if n.contains("onlySomeReasonsCA1") {
-                        //TODO add a case with the other CRL (onlySomeReasonsCA1otherreasonsCRL.crl)
-                        let crl = get_pkits_crl_ca_bytes("onlySomeReasonsCA1compromise").unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else if !n.contains("Self") {
-                        let crl = get_pkits_crl_ca_bytes(n).unwrap();
-                        cert_path.crls[i + 1] = Some(crl);
-                    } else {
-                        // TODO address need for multiple CRL signers due to self-issued
+                    if let Some(name) = crl_name_for_ca(case, n) {
+                        cert_path.crls[i + 1] = Some(get_pkits_crl_ca_bytes(name).unwrap());
                     }
                 }
 

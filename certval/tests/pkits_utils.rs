@@ -169,7 +169,7 @@ pub fn get_pkits_crl_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
 #[cfg(feature = "pqc")]
 pub fn get_pkits_crl_ca_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> {
     let f = format!(
-        "{}/tests/examples/{}/crls/{}CACert.crl",
+        "{}/tests/examples/{}/crls/{}CACRL.crl",
         env!("CARGO_MANIFEST_DIR"),
         folder,
         fname
@@ -179,7 +179,7 @@ pub fn get_pkits_crl_ca_bytes_pqc(folder: &str, fname: &str) -> Result<Vec<u8>> 
         get_file_as_byte_vec(p)
     } else {
         let f = format!(
-            "{}/tests/examples/{}/crls/{}Cert.crl",
+            "{}/tests/examples/{}/crls/{}CRL.crl",
             env!("CARGO_MANIFEST_DIR"),
             folder,
             fname
