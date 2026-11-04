@@ -1,7 +1,7 @@
-# Keep dependency resolution aware of our declared MSRV (rust-version = "1.88").
+# Keep dependency resolution aware of our declared MSRV (rust-version = "1.89").
 # With "fallback", `cargo update` prefers the newest dependency versions that
-# still build on 1.88 and only picks a version requiring a newer rustc when a
-# 1.88-compatible one does not exist. This stops a routine `cargo update` from
+# still build on 1.89 and only picks a version requiring a newer rustc when a
+# 1.89-compatible one does not exist. This stops a routine `cargo update` from
 # silently pulling MSRV-breaking transitives and turning the MSRV CI leg red.
 [resolver]
 incompatible-rust-versions = "fallback"

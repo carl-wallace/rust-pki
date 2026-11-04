@@ -96,7 +96,7 @@ Neither suite is a substitute for an audit.
 
 ## Minimum Supported Rust Version (MSRV) Policy
 
-This crate requires **Rust 1.88** at a minimum.
+This crate requires **Rust 1.89** at a minimum.
 
 MSRV increases are not considered breaking changes and can happen in patch releases.
 
@@ -119,7 +119,7 @@ dual licensed as above, without any additional terms or conditions.
 [//]: # (badges)
 
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.88+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.89+-blue.svg
 [no-std-image]: https://img.shields.io/badge/no__std-compatible-blue.svg
 [unsafe-image]: https://img.shields.io/badge/unsafe-forbidden-success.svg
 
