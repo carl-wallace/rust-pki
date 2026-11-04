@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-lib"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 publish = false
 description = """
 Library underpinning the PKI Interoperability Test Tool v3 (PITTv3), which can be used to build and
@@ -15,7 +15,7 @@ categories = ["cryptography", "no-std", "encoding"]
 keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -53,6 +53,23 @@ walkdir = { version = "2.5.0", optional = true}
 # the browser build, which cannot build clap, never sees it.
 clap = { version = "4.6.2", features = ["std", "derive"], optional = true }
 
+# The crypto providers `--crypto` can name besides certval's software implementations. Not yet on
+# crates.io, hence git. Each is optional, switched on by the `crypto-providers` feature (and OpenSSL by
+# `openssl`), and present only where it can build: none of them builds for the browser.
+[target.'cfg(target_os = "macos")'.dependencies]
+certval-security-framework = { git = "https://github.com/carl-wallace/certval-security-framework.git", branch = "main", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+certval-cng = { git = "https://github.com/carl-wallace/certval-cng.git", branch = "main", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+certval-awslc = { git = "https://github.com/carl-wallace/certval-awslc.git", branch = "main", optional = true }
+
+# Windows has no system OpenSSL to link, so there the `openssl` feature contributes nothing and an
+# --all-features build still succeeds.
+[target.'cfg(not(any(windows, target_arch = "wasm32")))'.dependencies]
+certval-openssl = { git = "https://github.com/carl-wallace/certval-openssl.git", branch = "main", optional = true }
+
 [dev-dependencies]
 # Only to spell a fixture as base64 in the der_or_pem tests; the decoding itself is certval's.
 base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }
@@ -76,7 +93,7 @@ default = ["remote", "webpki"]
 # does -- including a browser, which reaches repositories through a relay rather than an HTTP client.
 revocation = ["certval/revocation", "dep:cms"]
 std_app = ["certval/revocation"]
-std = ["std_app", "certval/std", "revocation", "walkdir", "csv", "dep:tokio"]
+std = ["std_app", "certval/std", "revocation", "walkdir", "csv", "dep:tokio", "crypto-providers"]
 remote = ["certval/remote", "revocation", "std", "dep:reqwest"]
 pqc = ["certval/pqc"]
 webpki = ["certval/webpki"]
@@ -91,6 +108,13 @@ rsa = ["certval/rsa"]
 eddsa = ["certval/eddsa"]
 # Derives the command line parser on `Pittv3Args`.
 clap = ["dep:clap"]
+# The platform's crypto provider (Security.framework on macOS, CNG on Windows) and AWS-LC as `--crypto`
+# choices. Enabled by `std`; the service, which builds below `std`, enables it by name.
+crypto-providers = ["dep:certval-security-framework", "dep:certval-cng", "dep:certval-awslc"]
+# OpenSSL as a `--crypto` choice, on Linux and macOS. It links the system's OpenSSL 3, so a binary built
+# with it does not start on a machine that has none; off by default for that reason. No effect on
+# Windows.
+openssl = ["crypto-providers", "dep:certval-openssl"]
 
 [package.metadata.docs.rs]
 all-features = true

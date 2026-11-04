@@ -7,6 +7,9 @@
 extern crate alloc;
 
 pub mod args;
+// Which implementations verify signatures, chosen with --crypto. Ungated: every build parses the
+// choice, and one without a provider refuses it when a run starts.
+pub mod crypto;
 // Available in every build: it is the decode every entry point taking caller bytes has to do, and a
 // build that cannot do it is one where a PEM file fails in a way that looks like something else.
 pub mod der_or_pem;

@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.88.0 # MSRV
+          - 1.89.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -42,7 +42,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.88.0 # MSRV
+          - 1.89.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -66,7 +66,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - 1.88.0 # MSRV
+          - 1.89.0 # MSRV
           - stable
     steps:
       - uses: actions/checkout@v7
@@ -82,7 +82,7 @@ jobs:
   # green until someone ran the suite on Windows.
   #
   # Stable only, and not part of the MSRV matrix: this is here to cover a platform, not a toolchain
-  # floor, and the Ubuntu legs above already hold the 1.88 line.
+  # floor, and the Ubuntu legs above already hold the 1.89 line.
   windows:
     name: windows (build + test, incl. capi)
     runs-on: windows-latest
@@ -131,7 +131,7 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
 
   # Lints run on stable only, deliberately not across the MSRV matrix: clippy's diagnostics differ
-  # between toolchains, so linting against the 1.88 pin reports on a compiler nobody develops with.
+  # between toolchains, so linting against the 1.89 pin reports on a compiler nobody develops with.
   # The pre-commit hook runs the same commands locally so they fail before a push — an early warning,
   # not a replacement for these jobs.
   fmt:
@@ -197,7 +197,7 @@ jobs:
   # pittv3-lib contains desynchronizes there, which is how three of these six stopped compiling.
   #
   # Cheap despite naming the frontends: only the pittv3 bin target is built, so the dioxus tree is
-  # resolved into the graph and never compiled. That keeps this leg clear of the 1.88 MSRV and the
+  # resolved into the graph and never compiled. That keeps this leg clear of the 1.89 MSRV and the
   # Linux system packages the other jobs exclude those crates for, hence stable only.
   documented-builds:
     runs-on: ubuntu-latest

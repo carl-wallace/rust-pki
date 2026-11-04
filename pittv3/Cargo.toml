@@ -1,6 +1,6 @@
 [package]
 name = "pittv3"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 publish = false
 description = """
 PKI Interoperability Test Tool v3 (PITTv3) can be used to build and validate certification paths using different sets
@@ -13,7 +13,7 @@ categories = ["cryptography", "no-std", "encoding"]
 keywords = ["x509", "pki", "ocsp", "crl", "certificate"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -54,6 +54,8 @@ capi = ["pittv3-lib/capi"]
 sha1_sig = ["pittv3-lib/sha1_sig"]
 rsa = ["pittv3-lib/rsa"]
 eddsa = ["pittv3-lib/eddsa"]
+# OpenSSL as a `--crypto` choice, on Linux and macOS. Links the system's OpenSSL 3.
+openssl = ["pittv3-lib/openssl"]
 
 [package.metadata.docs.rs]
 all-features = true

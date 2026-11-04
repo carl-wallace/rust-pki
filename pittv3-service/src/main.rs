@@ -11,6 +11,7 @@ use actix_web::{web, App, HttpServer};
 use clap::Parser;
 use log::{info, warn};
 
+use pittv3_lib::crypto::{describe, CryptoProvider};
 use pittv3_service::config::{ServiceConfig, ServiceState};
 use pittv3_service::routes;
 
@@ -67,6 +68,13 @@ struct Args {
     /// nothing else.
     #[clap(long)]
     no_tls_peek: bool,
+
+    /// Implementations that verify signatures during validation, in the order they are consulted,
+    /// separated by commas. Each is checked in turn until one reaches a verdict, and only those named
+    /// are checked: list software last to have certval's own implementations verify whatever the
+    /// others decline. Replaces the configuration file's list. Defaults to software alone.
+    #[clap(long, value_name = "PROVIDER", value_delimiter = ',')]
+    crypto: Option<Vec<CryptoProvider>>,
 }
 
 fn load_config(args: &Args) -> Result<ServiceConfig, String> {
@@ -103,6 +111,9 @@ fn load_config(args: &Args) -> Result<ServiceConfig, String> {
     }
     if args.no_tls_peek {
         config.allow_tls_peek = false;
+    }
+    if let Some(crypto) = &args.crypto {
+        config.crypto = crypto.clone();
     }
     for note in config.rate_limit.replace_unusable_values() {
         warn!("{note}");
@@ -150,6 +161,7 @@ async fn main() -> std::io::Result<()> {
         enabled(state.config.allow_dynamic_build),
         enabled(state.config.allow_tls_peek)
     );
+    info!("Signature verification: {}", describe(&state.config.crypto));
     // Said at startup rather than left in the file: an operator asked what a deployment allows one
     // client to do should not have to read the configuration back to find out.
     let rate = &state.config.rate_limit;

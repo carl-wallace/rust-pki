@@ -95,7 +95,7 @@ level and higher is directed to stdout.
 
 ## Crate Feature Flags
 
-The pittv3 binary features the seven feature gates of the certval library, plus two of its own.
+The pittv3 binary features the seven feature gates of the certval library, plus three of its own.
 The gates shared with certval enable varying levels of support and are as follows:
 
 - `default-features = false` provides path validation support for no-std applications without support for revocation status determination or multi-thread support.
@@ -117,6 +117,12 @@ builds pittv3 with std support so that end entity files can be selected for vali
 work could be done to broaden the capabilities of the app while using certval in no-std but for now
 it's only for selecting end entity files).
 
+`std` also brings the implementations `--crypto` can choose to verify signatures instead of, or
+ahead of, certval's software: Security.framework on macOS, CNG on Windows and AWS-LC everywhere. The
+`openssl` gate adds OpenSSL as a choice on Linux and macOS. It links the system's OpenSSL 3, so a
+binary built with it does not start on a machine without one, and it is off by default for that
+reason. It has no effect on Windows.
+
 ## ⚠️ Security Warning
 
 PITTv3 is a diagnostic tool built on `certval`, which has never been independently audited. See the
@@ -125,7 +131,7 @@ x509-limbo and NIST PKITS — and what they do and do not establish.
 
 ## Minimum Supported Rust Version
 
-This crate requires **Rust 1.88** at a minimum, and tracks `certval`'s MSRV; see that crate's MSRV
+This crate requires **Rust 1.89** at a minimum, and tracks `certval`'s MSRV; see that crate's MSRV
 policy. No promise is made about when it moves — nothing resolves against this binary, so an
 increase cannot break a downstream build.
 
@@ -145,7 +151,7 @@ dual licensed as above, without any additional terms or conditions.
 [//]: # (badges)
 
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
-[rustc-image]: https://img.shields.io/badge/rustc-1.88+-blue.svg
+[rustc-image]: https://img.shields.io/badge/rustc-1.89+-blue.svg
 
 [//]: # (links)
 

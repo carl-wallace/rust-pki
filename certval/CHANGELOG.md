@@ -148,3 +148,8 @@ code that uses the types through `certval::ocsp` will still work.
 
 **1.88.** MSRV increases are not considered breaking changes and can happen in patch releases,
 matching the policy of the RustCrypto crates this library is built on.
+
+## [0.2.0-rc.2]
+
+### Changed
+- The minimum supported Rust version is 1.89.

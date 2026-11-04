@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::crypto::CryptoProvider;
+
 #[cfg(feature = "std_app")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -244,6 +246,22 @@ pub struct Pittv3Args {
     #[cfg(feature = "remote")]
     #[cfg_attr(feature = "clap", arg(short = 'y', long, help_heading = "VALIDATION"))]
     pub dynamic_build: bool,
+
+    /// Implementations that verify signatures, in the order they are consulted, separated by commas.
+    /// Each is checked in turn until one reaches a verdict, and only those named are checked: list
+    /// software last to have certval's own implementations verify whatever the others decline, or
+    /// leave it out to have no software fallback. Defaults to software alone.
+    #[serde(default)]
+    #[cfg_attr(
+        feature = "clap",
+        arg(
+            long,
+            value_name = "PROVIDER",
+            value_delimiter = ',',
+            help_heading = "VALIDATION"
+        )
+    )]
+    pub crypto: Vec<CryptoProvider>,
 
     /// Full path and filename of a binary DER-encoded certificate to validate.
     #[cfg(feature = "std_app")]

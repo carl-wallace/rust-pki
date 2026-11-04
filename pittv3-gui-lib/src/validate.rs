@@ -11,6 +11,7 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use certval::*;
+use pittv3_lib::crypto::{populate_with_crypto, CryptoProvider};
 #[cfg(feature = "installroot")]
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport, TargetStatus};
@@ -159,6 +160,29 @@ pub fn prepare_validation(
     #[cfg(feature = "revocation")] rev_cache: Option<&Arc<RevocationCache>>,
     // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
 ) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
+    prepare_validation_with_crypto(
+        store,
+        tas,
+        cas,
+        cps,
+        #[cfg(feature = "revocation")]
+        rev_cache,
+        &[],
+    )
+}
+
+/// [`prepare_validation`], with signatures verified by the providers `crypto` names, in that order
+/// and no others (see [`populate_with_crypto`]). An empty list is certval's software alone, which is
+/// what [`prepare_validation`] uses. A provider this build does not contain is a fatal note.
+pub fn prepare_validation_with_crypto(
+    store: Option<(&str, &[u8], &[u8])>,
+    tas: &[(String, Vec<u8>)],
+    cas: &[(String, Vec<u8>)],
+    cps: &CertificationPathSettings,
+    #[cfg(feature = "revocation")] rev_cache: Option<&Arc<RevocationCache>>,
+    crypto: &[CryptoProvider],
+    // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
+) -> core::result::Result<(PreparedValidation, Vec<ResultLine>), Vec<ResultLine>> {
     let mut out = vec![];
 
     let Assembled {
@@ -166,7 +190,7 @@ pub fn prepare_validation(
         ta_store,
         mut cert_source,
         uploaded,
-    } = assemble(store, tas, cas, cps, &mut out)?;
+    } = assemble(store, tas, cas, cps, crypto, &mut out)?;
 
     // --- prepare the environment ---
     // The graph and the paths built over it re-present the same CA signatures many times;
@@ -273,13 +297,16 @@ fn assemble(
     tas: &[(String, Vec<u8>)],
     cas: &[(String, Vec<u8>)],
     cps: &CertificationPathSettings,
+    crypto: &[CryptoProvider],
     out: &mut Vec<ResultLine>,
     // certval's glob import shadows the 1-arg `Result` alias, so name the 2-arg form explicitly
 ) -> core::result::Result<Assembled, Vec<ResultLine>> {
     // Built here rather than after the inputs: reading an InstallRoot stream screens its CA
     // message for self-signed certificates, which needs signature verification.
     let mut pe = PkiEnvironment::default();
-    pe.populate_5280_pki_environment();
+    if let Err(e) = populate_with_crypto(&mut pe, crypto) {
+        return Err(vec![err(e)]);
+    }
 
     // Certificates an InstallRoot stream named as a trust anchor input carried in its CA message,
     // held until the CA store below exists to take them.
@@ -502,7 +529,7 @@ pub fn inspect(
         ta_store,
         mut cert_source,
         uploaded,
-    } = assemble(store, tas, cas, cps, &mut out)?;
+    } = assemble(store, tas, cas, cps, &[], &mut out)?;
 
     // Before the anchors are registered, because registering moves them and the rows are a method
     // on the source rather than something the environment exposes.

@@ -41,7 +41,7 @@ jobs:
       - run: cargo test -p pittv3-wasm -p pittv3-gui -p pittv3-gui-lib --all-features
 
   # The service depends on pittv3-gui-lib for the shared validation path, so it carries the same
-  # 1.88 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
+  # 1.89 floor and belongs here rather than in certval.yml's MSRV legs. Tested rather than merely
   # checked: unlike the GUI crates these have a headless test surface.
   service:
     runs-on: ubuntu-latest

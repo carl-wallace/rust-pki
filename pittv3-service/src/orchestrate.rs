@@ -21,7 +21,9 @@ use certval::{
 use pittv3_gui_lib::retrieval::{
     add_crl, candidate_certificates_in, harvest_revocation_work, insert_status_response,
 };
-use pittv3_gui_lib::validate::{prepare_validation, validate_prepared, PreparedValidation};
+use pittv3_gui_lib::validate::{
+    prepare_validation_with_crypto, validate_prepared, PreparedValidation,
+};
 use pittv3_lib::report::{RevocationStatus, TargetReport, ValidationReport};
 use pittv3_relay::{ChaseBudget, FetchRequest, Relay};
 
@@ -191,25 +193,31 @@ async fn run(
     // including a time of interest -- and a shared cache would have to be cleared against all of
     // them. Scoping it here keeps a request's answers derived under that request's settings.
     let rev_cache = Arc::new(RevocationCache::new());
-    let (prepared, mut lines) =
-        match prepare_validation(store, &input.trust_anchors, cas, settings, Some(&rev_cache)) {
-            Ok((prepared, lines)) => (
-                prepared,
+    let (prepared, mut lines) = match prepare_validation_with_crypto(
+        store,
+        &input.trust_anchors,
+        cas,
+        settings,
+        Some(&rev_cache),
+        &state.config.crypto,
+    ) {
+        Ok((prepared, lines)) => (
+            prepared,
+            lines
+                .iter()
+                .map(|l| l.text.clone())
+                .collect::<Vec<String>>(),
+        ),
+        Err(lines) => {
+            return (
+                vec![],
                 lines
                     .iter()
                     .map(|l| l.text.clone())
                     .collect::<Vec<String>>(),
-            ),
-            Err(lines) => {
-                return (
-                    vec![],
-                    lines
-                        .iter()
-                        .map(|l| l.text.clone())
-                        .collect::<Vec<String>>(),
-                )
-            }
-        };
+            )
+        }
+    };
 
     if state.config.fetch_revocation_data && settings.get_check_revocation_status() {
         retrieve_revocation_data(state, &prepared, input, settings, notes, budget).await;
