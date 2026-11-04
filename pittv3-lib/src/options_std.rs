@@ -129,6 +129,7 @@ use std::time::Instant;
 use log::{debug, error, info};
 
 use crate::args::Pittv3Args;
+use crate::crypto::{describe, populate_with_crypto};
 use crate::graph_cache;
 use crate::inspect::{InspectReport, Inspected};
 use crate::prepared_graph::PreparedGraph;
@@ -358,7 +359,7 @@ pub fn assemble_for_diagnostics(
         error!("Failed to populate cert vector with: {e:?}");
     }
 
-    pe.populate_5280_pki_environment();
+    populate_with_crypto(&mut pe, &args.crypto).map_err(InspectError::Failed)?;
 
     // CA material named alongside the store, merged into the same pool — the counterpart of the
     // anchors `load_trust_anchors` merges below, and the same loader validation uses. Without it
@@ -867,7 +868,9 @@ async fn options_std_inner(
                 match parse_cert(t.as_slice(), eff.as_str()) {
                     Ok(target_cert) => {
                         let mut pe = PkiEnvironment::default();
-                        pe.populate_5280_pki_environment();
+                        if let Err(e) = populate_with_crypto(&mut pe, &args.crypto) {
+                            return ValidationReport::failed(e);
+                        }
 
                         let outcome = crate::self_signed::evaluate(&pe, &target_cert);
                         println!("{}", crate::self_signed::describe(eff, &outcome));
@@ -1023,7 +1026,13 @@ async fn generate_and_validate(
 
     let mut pe = PkiEnvironment::default();
     pe.add_signature_cache(Box::new(DefaultSignatureVerificationCache::default()));
-    pe.populate_5280_pki_environment();
+    if let Err(e) = populate_with_crypto(&mut pe, &args.crypto) {
+        return ValidationReport::failed(e);
+    }
+    // Said only when --crypto was given, so a run that did not ask prints what it always has.
+    if !args.crypto.is_empty() {
+        info!("Signature verification: {}", describe(&args.crypto));
+    }
 
     let mut ta_store_added = false;
     #[cfg(feature = "webpki")]

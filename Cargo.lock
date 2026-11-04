@@ -507,9 +507,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.18.2"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
+checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -517,9 +517,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.46.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
+checksum = "8bfbe32ac36b3c428696ce315464181bc4029d689fd58e3f2a4e58c252242f52"
 dependencies = [
  "cc",
  "cmake",
@@ -839,6 +839,62 @@ dependencies = [
  "walkdir",
  "webpki-roots",
  "x509-cert",
+]
+
+[[package]]
+name = "certval-awslc"
+version = "0.1.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-awslc.git?branch=main#d8865617a14986fb5341494dba82d2fcb5601b01"
+dependencies = [
+ "aws-lc-rs",
+ "certval",
+ "const-oid",
+ "der",
+ "log",
+ "spki",
+]
+
+[[package]]
+name = "certval-cng"
+version = "0.1.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-cng.git?branch=main#4dc1e54b6af6bf67146fb93f29a29ab7af9f9c60"
+dependencies = [
+ "certval",
+ "const-oid",
+ "der",
+ "log",
+ "spki",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "certval-openssl"
+version = "0.1.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-openssl.git?branch=main#311757f832fedfe34af9f98bd12944aa99d3eeac"
+dependencies = [
+ "certval",
+ "const-oid",
+ "der",
+ "foreign-types 0.3.2",
+ "log",
+ "openssl",
+ "openssl-sys",
+ "spki",
+]
+
+[[package]]
+name = "certval-security-framework"
+version = "0.1.0-rc.1"
+source = "git+https://github.com/carl-wallace/certval-security-framework.git?branch=main#5509bd88b51495da4a08b277d4eafa133a13c357"
+dependencies = [
+ "certval",
+ "const-oid",
+ "core-foundation 0.10.1",
+ "der",
+ "log",
+ "security-framework",
+ "security-framework-sys",
+ "spki",
 ]
 
 [[package]]
@@ -5099,7 +5155,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pittv3"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "assert_cmd",
  "cfg-if",
@@ -5116,7 +5172,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-capi"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "certval",
  "der",
@@ -5128,7 +5184,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-gui"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "certval",
@@ -5162,7 +5218,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-gui-lib"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -5186,11 +5242,15 @@ dependencies = [
 
 [[package]]
 name = "pittv3-lib"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "base64ct",
  "bytes",
  "certval",
+ "certval-awslc",
+ "certval-cng",
+ "certval-openssl",
+ "certval-security-framework",
  "ciborium",
  "clap",
  "cms",
@@ -5216,7 +5276,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-relay"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "base64ct",
  "log",
@@ -5229,7 +5289,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-service"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "actix-files",
  "actix-rt",
@@ -5257,7 +5317,7 @@ dependencies = [
 
 [[package]]
 name = "pittv3-wasm"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "base64 0.23.1",
  "certval",
@@ -7070,7 +7130,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

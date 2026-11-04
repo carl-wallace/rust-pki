@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use pittv3_lib::crypto::CryptoProvider;
+
 use pittv3_relay::{ChaseBudgetLimits, FetchBudget, NetworkPolicy, Relay};
 
 use crate::limit::RateLimiter;
@@ -244,6 +246,11 @@ pub struct ServiceConfig {
     /// Unlike chasing, the retrieval is bounded by the paths already built — one distribution point
     /// per certificate on them — and it goes through the relay, so the network policy governs it.
     pub fetch_revocation_data: bool,
+    /// Implementations that verify signatures during validation, in the order they are consulted,
+    /// and only those (see `pittv3_lib::crypto`). Empty, the default, is certval's software alone,
+    /// which is also all a browser can use, so the two tiers agree unless a deployment chooses
+    /// otherwise. A provider this build does not contain stops the service at startup.
+    pub crypto: Vec<CryptoProvider>,
 }
 
 impl Default for ServiceConfig {
@@ -262,6 +269,7 @@ impl Default for ServiceConfig {
             enable_validation: true,
             allow_tls_peek: true,
             fetch_revocation_data: true,
+            crypto: vec![],
         }
     }
 }
@@ -291,6 +299,12 @@ impl ServiceState {
     /// unless they were turned off, then whatever the configured directory holds, which augments
     /// them and replaces any of the same name.
     pub fn new(config: ServiceConfig) -> Result<Self, String> {
+        if let Some(p) = config.crypto.iter().find(|p| !p.is_available()) {
+            return Err(format!(
+                "crypto provider {} is not available in this build",
+                p.name()
+            ));
+        }
         let relay = Relay::new(config.policy.clone(), config.fetch_budget.clone())
             .map_err(|e| e.to_string())?;
         let mut stores = match config.builtin_stores {

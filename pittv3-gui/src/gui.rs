@@ -48,6 +48,7 @@ use pittv3_gui_lib::settings_store::{
 };
 use pittv3_gui_lib::PITTV3_CSS;
 use pittv3_lib::args::{get_now_as_unix_epoch, Pittv3Args};
+use pittv3_lib::crypto::CryptoProvider;
 use pittv3_lib::graph_cache;
 use pittv3_lib::options_std::options_std_retaining;
 use pittv3_lib::prepared_graph::PreparedGraph;
@@ -1578,6 +1579,27 @@ pub(crate) fn App() -> Element {
     // keeps the two apps' controls reading the same way round -- see the wasm app's
     // "Reuse revocation determinations".
     let s_reuse_rev_cache = use_signal(|| !sa.no_revocation_cache);
+    // One box per provider in `CryptoProvider::ALL`, which is also the order a run consults the
+    // checked ones. Seeded from the saved arguments' providers this build contains; when that leaves
+    // none (an empty list, or only providers from another build), software alone, which is what an
+    // empty list means on the command line.
+    let mut saved_crypto: Vec<CryptoProvider> = sa
+        .crypto
+        .iter()
+        .copied()
+        .filter(|p| p.is_available())
+        .collect();
+    if saved_crypto.is_empty() {
+        saved_crypto.push(CryptoProvider::Software);
+    }
+    let s_crypto = CryptoProvider::ALL.map(|p| use_signal(|| saved_crypto.contains(&p)));
+    let crypto_checked = move || {
+        CryptoProvider::ALL
+            .into_iter()
+            .zip(s_crypto)
+            .filter(|(p, checked)| p.is_available() && *checked.read())
+            .count()
+    };
     // Whether fetched CRLs are kept in memory for the run instead of in the CRL folder. Not
     // inverted like the box above: the argument and the control name the same state.
     let s_crl_in_memory = use_signal(|| sa.crl_in_memory);
@@ -1714,6 +1736,13 @@ pub(crate) fn App() -> Element {
             Err(_e) => (get_now_as_unix_epoch(), false),
         };
 
+        let crypto: Vec<CryptoProvider> = CryptoProvider::ALL
+            .into_iter()
+            .zip(s_crypto)
+            .filter(|(p, checked)| p.is_available() && *checked.read())
+            .map(|(p, _)| p)
+            .collect();
+
         Ok(Pittv3Args {
             ta_folder: path_or_none(s_ta_folder),
             ta_cbor: store_ta_cbor.or_else(|| path_or_none(s_ta_cbor)),
@@ -1754,6 +1783,7 @@ pub(crate) fn App() -> Element {
             check_uris_when_validating: s_check_uris(),
             validate_self_signed: false,
             dynamic_build: s_dynamic_build(),
+            crypto,
             use_downloaded_cas: s_use_downloaded_cas(),
             // No singular counterpart: unlike the trust anchor and CA arguments these had rows on
             // the Validate view alone, so the pool replaced them outright rather than joining them.
@@ -3000,6 +3030,30 @@ pub(crate) fn App() -> Element {
                                 // request (Revert to Saved) or because it is no longer there
                                 // (Delete).
                                 reload_token: s_settings_gen(),
+                                // One box per crypto provider this build contains. Kept with the
+                                // args, not the settings file, for the same reason as the folder
+                                // rows below: the browser reads that file and can use none of them.
+                                extra_crypto_rows: Some(rsx! {
+                                    for (p, sig) in CryptoProvider::ALL.into_iter().zip(s_crypto).filter(|(p, _)| p.is_available()) {
+                                        CheckboxRow {
+                                            key: "{p.name()}",
+                                            label: match p.fips_status() {
+                                                Some(status) => format!("{} ({status})", p.label()),
+                                                None => p.label().to_string(),
+                                            },
+                                            name: format!("crypto-{}", p.name()),
+                                            sig,
+                                            // The last box checked cannot be unchecked, so a run always
+                                            // has a verifier and the boxes always show which.
+                                            disabled: sig() && crypto_checked() == 1,
+                                            title: if sig() && crypto_checked() == 1 {
+                                                "At least one verifier must be checked. Check another to uncheck this one."
+                                            } else {
+                                                "Verifiers are checked in the order shown until one reaches a verdict. Keep certval software checked to have it verify what the others decline; uncheck it to have no software fallback."
+                                            },
+                                        }
+                                    }
+                                }),
                                 // Folders the run writes to, and the actions that maintain
                                 // them, beside the folders it reads from. They persist with the
                                 // rest of the args rather than into the settings file, which

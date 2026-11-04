@@ -1,6 +1,6 @@
 [package]
 name = "pittv3-service"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 publish = false
 description = """
 Web service frontend for the PKI Interoperability Test Tool v3 (PITTv3). It serves the browser
@@ -15,12 +15,14 @@ categories = ["cryptography", "pki", "web-programming"]
 keywords = ["crypto", "x.509", "OCSP"]
 readme = "README.md"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 default = ["builtin-stores"]
+# OpenSSL as a `crypto` choice, on Linux and macOS. Links the system's OpenSSL 3.
+openssl = ["pittv3-lib/openssl"]
 # Generates the trust stores from the certval-stores providers at build time and links them in, so
 # a service started with no `--stores` directory still offers DoD NIPR and its JITC operational-test
 # counterpart, the Mozilla set, the U.S. Federal PKI and the Purebred development environment. Off, the build reaches none of the trust
@@ -44,7 +46,7 @@ builtin-stores = [
 # synchronous one the shared path is written against, so it stays off for correctness as well.
 [dependencies]
 certval = { path = "../certval", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
-pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["eddsa", "pqc", "revocation", "rsa"] }
+pittv3-lib = { path = "../pittv3-lib", default-features = false, features = ["clap", "crypto-providers", "eddsa", "pqc", "revocation", "rsa"] }
 pittv3-gui-lib = { path = "../pittv3-gui-lib", default-features = false, features = ["pqc", "revocation"] }
 pittv3-relay = { path = "../pittv3-relay" }
 

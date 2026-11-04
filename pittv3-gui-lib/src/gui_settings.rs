@@ -571,6 +571,7 @@ enum SettingsTab {
     Revocation,
     Fetching,
     Folders,
+    Crypto,
 }
 
 const TABS: &[(SettingsTab, &str)] = &[
@@ -581,6 +582,7 @@ const TABS: &[(SettingsTab, &str)] = &[
     (SettingsTab::Revocation, "Revocation"),
     (SettingsTab::Fetching, "SIA/AIA"),
     (SettingsTab::Folders, "Folders & files"),
+    (SettingsTab::Crypto, "Signature verification"),
 ];
 
 /// An action that would throw away unsaved edits, held while the confirmation is on screen.
@@ -621,9 +623,13 @@ impl PendingDiscard {
 /// own absence of effect costs a reader more than it tells them. The values are not discarded with
 /// it — they stay in the model, so a settings file carrying paths still loads here, keeps them, and
 /// hands them back intact to the CLI or the desktop app that can act on them.
-fn tab_applies(tab: SettingsTab, caps: &Capabilities) -> bool {
+///
+/// Signature verification is shown only where the frontend supplies its rows, which only the desktop
+/// does: the browser can use none of the providers.
+fn tab_applies(tab: SettingsTab, caps: &Capabilities, has_crypto_rows: bool) -> bool {
     match tab {
         SettingsTab::Folders => caps.filesystem,
+        SettingsTab::Crypto => has_crypto_rows,
         _ => true,
     }
 }
@@ -658,6 +664,13 @@ pub fn EditSettings(
     /// `Option` because `Element` is a `Result` and has no `Default` for the props derive.
     #[props(default)]
     extra_folder_rows: Option<Element>,
+    /// The rows of the Signature verification tab, which is shown only when this is supplied.
+    ///
+    /// Like [`extra_folder_rows`](EditSettingsProps::extra_folder_rows), these are `Pittv3Args`
+    /// fields rather than settings-file keys, so the frontend persists them and they take effect
+    /// without Save. The desktop supplies one checkbox per crypto provider it was built with.
+    #[props(default)]
+    extra_crypto_rows: Option<Element>,
     on_save: EventHandler<SettingsModel>,
     /// Asked to re-read the store this frontend is backed by -- the file at the settings path on
     /// the desktop, localStorage in the browser -- and hand it back as a fresh `initial`.
@@ -715,7 +728,7 @@ pub fn EditSettings(
     rsx! {
         div { class: "settings-editor",
             div { class: "tab-bar",
-                for (t , label) in TABS.iter().filter(|(t, _)| tab_applies(*t, &caps)) {
+                for (t , label) in TABS.iter().filter(|(t, _)| tab_applies(*t, &caps, extra_crypto_rows.is_some())) {
                     button {
                         r#type: "button",
                         class: if tab() == *t { "tab tab-active" } else { "tab" },
@@ -727,9 +740,12 @@ pub fn EditSettings(
                     }
                 }
             }
-            p { class: "hint",
-                "Fields marked \"default\" are not present in the settings and use certval "
-                "defaults; editing a field records an override."
+            // Not on Signature verification, whose rows are not settings-file fields at all.
+            if tab() != SettingsTab::Crypto {
+                p { class: "hint",
+                    "Fields marked \"default\" are not present in the settings and use certval "
+                    "defaults; editing a field records an override."
+                }
             }
 
             // The selected tab's fields, boxed. A tab body is a group in exactly the sense
@@ -1012,6 +1028,14 @@ pub fn EditSettings(
                         {extra_folder_rows.clone()}
                     }
                 },
+                SettingsTab::Crypto => rsx! {
+                    p { class: "hint",
+                        "Verifiers are checked in the order shown until one reaches a verdict. "
+                        "These choices take effect at once and are kept with the application, not in "
+                        "the settings file, so Save, Revert and Reset do not apply to them."
+                    }
+                    div { class: "controls", {extra_crypto_rows.clone()} }
+                },
             }
             }
 
@@ -1097,6 +1121,9 @@ pub fn EditSettingsFile(
     /// Passed to [`EditSettings`]; see its documentation.
     #[props(default)]
     extra_folder_rows: Option<Element>,
+    /// Passed to [`EditSettings`]; see its documentation.
+    #[props(default)]
+    extra_crypto_rows: Option<Element>,
     /// Passed to [`EditSettings`]; the caller satisfies it by changing `reload_token`.
     on_reload: EventHandler<()>,
     /// Passed to [`EditSettings`]; see its documentation.
@@ -1144,6 +1171,7 @@ pub fn EditSettingsFile(
             initial: initial(),
             caps: Capabilities::desktop(),
             extra_folder_rows,
+            extra_crypto_rows,
             on_save,
             on_reload,
             on_dirty_change,

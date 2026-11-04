@@ -51,6 +51,7 @@ use std::path::Path;
 use certval::*;
 
 use crate::args::Pittv3Args;
+use crate::crypto::populate_with_crypto;
 use crate::der_or_pem::maybe_pem;
 use crate::no_std_utils::validate_cert;
 use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
@@ -104,7 +105,10 @@ pub fn options_std_app(args: &Pittv3Args) {
     }
 
     let mut pe = PkiEnvironment::default();
-    pe.populate_5280_pki_environment();
+    if let Err(e) = populate_with_crypto(&mut pe, &args.crypto) {
+        error!("{e}");
+        return;
+    }
     // The graph and the paths built over it re-present the same CA signatures many times;
     // caching them is sound because a hit means this exact signature already verified under
     // this exact key.

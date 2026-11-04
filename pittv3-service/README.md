@@ -94,6 +94,14 @@ revocation retrieval is not: one uploaded certificate naming a subject informati
 lead to a great deal of retrieval, whereas the CRLs worth fetching are those named on paths that
 have already been built.
 
+Signatures are verified by certval's software, as in the browser, unless the configuration's
+`crypto` list or `--crypto` names other implementations: `security-framework` (macOS), `cng`
+(Windows), `aws-lc`, `openssl` (Linux and macOS, with the `openssl` feature) and `software`. Each is
+checked in the order listed until one reaches a verdict, and only those listed are checked, so
+`software` listed last verifies whatever the others decline. A list naming an implementation the build does not
+contain stops the service at startup, and the startup log names the implementations in use and what
+each reports about FIPS mode.
+
 Settings arriving over the wire are sanitized before use: `CertificationPathSettings` can name
 folders and files, which are meaningless to a client and dangerous to honor, so those keys are
 removed server-side rather than trusted to be absent.
