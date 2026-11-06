@@ -64,8 +64,8 @@
   ta_store  dod_wcf_ta.cbor  962 bytes  sha256:3c5403443d35f762303752b4a0115d59f60cec9020c2872a9cbb6277d1ff4937
   ca_store  dod_wcf_ca.cbor  17731 bytes  sha256:10e5a9eb2068915d26ba7ae2db35074c4ec9796bff6126e28e84aee08c398e8b
 
-[msft_all]  published=2026-08-25  collected=2026-09-22
-  anchors 357
+[msft_all]  published=2026-10-23  collected=2026-11-02
+  anchors 350
     2.5.4.97=#13134e54524a502d34303131303031303430373831,CN=SECOM Document Signing RSA Root CA 2023,O=SECOM Trust Systems Co.\, Ltd.,C=JP  sha256:46219bbf9148f00e8b7a4c619b57cf7602701ff81348400718870fabd31fc5be
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/ECC 05/2022  sha256:3808ce3e961ca532682ffb8708b544e8f175aa065601a45902df92128fc38532
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/RSA 05/2022  sha256:d279c01a12e8dd9a6230e459faa447ceb336998477338c2ee4135c96737418eb
@@ -79,7 +79,6 @@
     C=IL,O=ComSign Ltd.,CN=ComSign Global Root CA  sha256:2605875afcc176b2d66dd66a995d7f8d5ebb86ce120d0e7e9e7c6ef294a27d4c
     CN=A-Trust-Root-07,OU=A-Trust-Root-07,O=A-Trust Ges. f. Sicherheitssysteme im elektr. Datenverkehr GmbH,C=AT  sha256:8ac552ad577e37ad2c6808d72aa331d6a96b4b3febff34ce9bc0578e08055ec3
     CN=A-Trust-Root-09,OU=A-Trust-Root-09,O=A-Trust GmbH,C=AT  sha256:7a38f708a35a31e42e1cf3220f9a2d273e7666354618b2464657d43d8e77adc2
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC RAIZ FNMT-RCM G2,2.5.4.97=#0c0f56415445532d51323832363030344a,O=FNMT-RCM,C=ES  sha256:020786539f02b623cfdf325b2e4e45e0d9e3f1b8e5ec9600ebf0ac8fbf03fbe2
     CN=AC RAIZ FNMT-RCM SERVIDORES SEGUROS G2R,O=FNMT-RCM,C=ES  sha256:fc23ddfb7aa505d605b2f492fa1587e3738a074a17c0cf06fadfc725650fa42a
     CN=AC RAIZ FNMT-RCM SERVIDORES SEGUROS,2.5.4.97=#0c0f56415445532d51323832363030344a,OU=Ceres,O=FNMT-RCM,C=ES  sha256:554153b13d2cf9ddb753bfbe1a4e0ae08d0aa4187058fe60a2b862b2e4b87bcb
@@ -396,21 +395,15 @@
     CN=ePKI Root Certification Authority - G4,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:19a2fa09332c6d8eac1393d5f30371dd8b4dd687b0e1e50a6b48ae762caba2b5
     CN=eSignTrust Root Certification Authority (G03),O=Macao Post and Telecommunications Bureau,C=MO  sha256:0e30d04a94dcc423e26fdc4c24afcf4923bd80d83b661b06a2f5856361560407
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
     CN=emSign Root CA - C2,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:46cd083b47e80402028df493960ea19c85fe851950d5165f1c7da4faa951e2f8
     CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
     CN=emSign Root CA - G2,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:1aa0c2709e831bd6e3b5129a00ba41f7eeef020872f1e6504bf0f6c3f24f3af3
     CN=emSign Root CS CA - G2,O=eMudhra Technologies Limited,C=IN  sha256:0d74ef67c88de3560365e225aef976f915e901347b73352d81ab5b4132bb2150
-    CN=emSign Root CS CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:f2edaaff3d9b701fb4d14c9f285f8c0bad90fc3bcc1fa07d47f4718edaba34a5
     CN=emSign Root Client Auth CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:8abfc40faeaf13cbc8bb67b61c8d097a321cd2fee047c54256927e0f8bfeadfd
-    CN=emSign Root Client Auth CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:bbd8b3d745efb79198d93b9c482b9d934537325729ea2f02c129261f91be2e3d
     CN=emSign Root SMIME CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:47911bc8f32a11b029e0bb10a348b459404b87731b870a2f3fa97b4705dc4c25
-    CN=emSign Root SMIME CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:f76a0d440c418dc5b362be8e11e0a5d06023f4396093e4f455827bf55153d8a4
     CN=emSign Root TLS CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:cef71e70b7c29addf6c30cd19e614b38fd5f02a435a0eeddd0087e183d101a51
-    CN=emSign Root TLS CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:7dd78d5f4f13459a83dff9abbba62edbaf6f2d102bf257fd712f4d9f2746ed8d
     CN=emSign Root TSA CA - G2,O=eMudhra Technologies Limited,C=IN  sha256:1997770a5633fb6d0440abf7d7e87e15d795f094f8c2959dadb00e785866bf48
-    CN=emSign Root TSA CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:75d2ce75979cf2a43b172c9f89f733dda2136031db4bbf3698b053714c077155
     CN=thawte Primary Root CA,OU=(c) 2006 thawte\, Inc. - For authorized use only,OU=Certification Services Division,O=thawte\, Inc.,C=US  sha256:8d722f81a9c113c0791df136a2966db26c950a971db46b4199f4ea54b78bfb9f
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
@@ -423,10 +416,10 @@
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_all_ta.cbor  468907 bytes  sha256:231ec59c8e97e46057fd0746a7e1121a446317acfd5b10574dab7a85b7da3811
+  ta_store  msft_all_ta.cbor  464173 bytes  sha256:e8ea9af1a57f8810466cdb4ea7ed0bfb0023f9316ef28d0df5007d1443bfb979
 
-[msft_tls]  published=2026-08-25  collected=2026-09-22
-  anchors 234
+[msft_tls]  published=2026-10-23  collected=2026-11-02
+  anchors 229
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA TLS Root CA/RSA 05/2022  sha256:f9a17a00e5c294ba9614a715819af57f3fd48cc413453fbb8a5fc7e97964e2bc
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
@@ -437,11 +430,9 @@
     C=IL,O=ComSign Ltd.,CN=ComSign Global Root CA  sha256:2605875afcc176b2d66dd66a995d7f8d5ebb86ce120d0e7e9e7c6ef294a27d4c
     CN=A-Trust-Root-07,OU=A-Trust-Root-07,O=A-Trust Ges. f. Sicherheitssysteme im elektr. Datenverkehr GmbH,C=AT  sha256:8ac552ad577e37ad2c6808d72aa331d6a96b4b3febff34ce9bc0578e08055ec3
     CN=A-Trust-Root-09,OU=A-Trust-Root-09,O=A-Trust GmbH,C=AT  sha256:7a38f708a35a31e42e1cf3220f9a2d273e7666354618b2464657d43d8e77adc2
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC RAIZ FNMT-RCM SERVIDORES SEGUROS G2R,O=FNMT-RCM,C=ES  sha256:fc23ddfb7aa505d605b2f492fa1587e3738a074a17c0cf06fadfc725650fa42a
     CN=AC RAIZ FNMT-RCM SERVIDORES SEGUROS,2.5.4.97=#0c0f56415445532d51323832363030344a,OU=Ceres,O=FNMT-RCM,C=ES  sha256:554153b13d2cf9ddb753bfbe1a4e0ae08d0aa4187058fe60a2b862b2e4b87bcb
     CN=ACA ROOT,O=CONSEJO GENERAL DE LA ABOGACIA,SERIALNUMBER=Q2863006I,C=ES  sha256:97f654859cbde586fd90311e82ec7902c238cba0d6e529564c9c88f44895ec50
-    CN=ANCERT Certificados CGN V2,O=Agencia Notarial de Certificacion S.L.U. - CIF B83395988,C=ES  sha256:f4336bc2ac75950beccf1c1f2f9da6dddafd1f41161ca71f59c76889bd474033
     CN=ANCERT Certificados Notariales V2,O=Agencia Notarial de Certificacion S.L.U. - CIF B83395988,C=ES  sha256:4be8b5a1c76c6aead0611918fccf9dbd398b67fb12294758bdf994d0f9682f60
     CN=Actalis Authentication Root CA,O=Actalis S.p.A./03358520967,L=Milan,C=IT  sha256:55926084ec963a64b96e2abe01ce0ba86a64fbfebcc7aab5afc155b37fd76066
     CN=Actalis TLS Server ECC Root CA 2025,O=Actalis S.p.A.,C=IT  sha256:4efaada2543e1e02666998574b3bad96ae264088fa5917f75d32e7a609d1869c
@@ -644,27 +635,24 @@
     CN=e-Szigno TLS Root CA 2023,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:b49141502d00663d740f2e7ec340c52800962666121a36d09cf7dd2b90384fb4
     CN=ePKI Root Certification Authority - G2,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:1e51942b84fd467bf77d1c89da241c04254dc8f3ef4c22451fe7a89978bdcd4f
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
     CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
     CN=emSign Root TLS CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:cef71e70b7c29addf6c30cd19e614b38fd5f02a435a0eeddd0087e183d101a51
-    CN=emSign Root TLS CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:7dd78d5f4f13459a83dff9abbba62edbaf6f2d102bf257fd712f4d9f2746ed8d
     CN=thawte Primary Root CA,OU=(c) 2006 thawte\, Inc. - For authorized use only,OU=Certification Services Division,O=thawte\, Inc.,C=US  sha256:8d722f81a9c113c0791df136a2966db26c950a971db46b4199f4ea54b78bfb9f
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Go Daddy Class 2 Certification Authority,O=The Go Daddy Group\, Inc.,C=US  sha256:c3846bf24b9e93ca64274c0ec67c1ecc5e024ffcacd2d74019350e81fe546ae4
-    OU=Saudi National Root CA,O=National Center for Digital Certification,C=SA  sha256:34bb34e14faed0d3392f2fc441c0ecd5fd88ad88118df2d1ba76cdec1eea10b8
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=Starfield Class 2 Certification Authority,O=Starfield Technologies\, Inc.,C=US  sha256:1465fa205397b876faa6f0a9958e5590e40fcc7faa4fb7c2c8677521fb5fb658
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_tls_ta.cbor  325328 bytes  sha256:27b1997f2176b359e51f796421bcf313943fb585f5ef5fcde17f8e654b81bb0a
+  ta_store  msft_tls_ta.cbor  319889 bytes  sha256:cecccd1a48523b43a64d857bf54362942f8db819a4460b33697832e895856dee
 
-[msft_client_auth]  published=2026-08-25  collected=2026-09-22
-  anchors 267
+[msft_client_auth]  published=2026-10-23  collected=2026-11-02
+  anchors 264
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/ECC 05/2022  sha256:3808ce3e961ca532682ffb8708b544e8f175aa065601a45902df92128fc38532
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/RSA 05/2022  sha256:d279c01a12e8dd9a6230e459faa447ceb336998477338c2ee4135c96737418eb
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA TLS Root CA/RSA 05/2022  sha256:f9a17a00e5c294ba9614a715819af57f3fd48cc413453fbb8a5fc7e97964e2bc
@@ -675,7 +663,6 @@
     C=ES,O=EDICOM,CN=CAEDICOM Root  sha256:1501f89c5c4dcf36cf588a17c9fd7cfceb9ee01e8729be355e25de80eb6284b4
     C=IL,O=ComSign Ltd.,CN=ComSign Global Root CA  sha256:2605875afcc176b2d66dd66a995d7f8d5ebb86ce120d0e7e9e7c6ef294a27d4c
     CN=A-Trust-Root-09,OU=A-Trust-Root-09,O=A-Trust GmbH,C=AT  sha256:7a38f708a35a31e42e1cf3220f9a2d273e7666354618b2464657d43d8e77adc2
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC RAIZ FNMT-RCM G2,2.5.4.97=#0c0f56415445532d51323832363030344a,O=FNMT-RCM,C=ES  sha256:020786539f02b623cfdf325b2e4e45e0d9e3f1b8e5ec9600ebf0ac8fbf03fbe2
     CN=AC Raíz Certicámara S.A.,O=Sociedad Cameral de Certificación Digital - Certicámara S.A.,C=CO  sha256:d2a90e5d35cac4d41f7d44ce66aff885e1815fb339185853a87e66c05c9bef1e
     CN=ACA ROOT,O=CONSEJO GENERAL DE LA ABOGACIA,SERIALNUMBER=Q2863006I,C=ES  sha256:97f654859cbde586fd90311e82ec7902c238cba0d6e529564c9c88f44895ec50
@@ -915,11 +902,9 @@
     CN=ePKI Root Certification Authority - G2,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:1e51942b84fd467bf77d1c89da241c04254dc8f3ef4c22451fe7a89978bdcd4f
     CN=eSignTrust Root Certification Authority (G03),O=Macao Post and Telecommunications Bureau,C=MO  sha256:0e30d04a94dcc423e26fdc4c24afcf4923bd80d83b661b06a2f5856361560407
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
     CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
     CN=emSign Root Client Auth CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:8abfc40faeaf13cbc8bb67b61c8d097a321cd2fee047c54256927e0f8bfeadfd
-    CN=emSign Root Client Auth CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:bbd8b3d745efb79198d93b9c482b9d934537325729ea2f02c129261f91be2e3d
     CN=thawte Primary Root CA,OU=(c) 2006 thawte\, Inc. - For authorized use only,OU=Certification Services Division,O=thawte\, Inc.,C=US  sha256:8d722f81a9c113c0791df136a2966db26c950a971db46b4199f4ea54b78bfb9f
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
@@ -932,17 +917,16 @@
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_client_auth_ta.cbor  318217 bytes  sha256:26c7c48f072e8ae04b63b9bc73995104d5457c2413708a6bb6484e3a641d7380
+  ta_store  msft_client_auth_ta.cbor  315834 bytes  sha256:0228f4fb61a03907cc97275d964044bd72b10604474d254c262f771c1e871209
 
-[msft_email]  published=2026-08-25  collected=2026-09-22
-  anchors 215
+[msft_email]  published=2026-10-23  collected=2026-11-02
+  anchors 212
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/ECC 05/2022  sha256:3808ce3e961ca532682ffb8708b544e8f175aa065601a45902df92128fc38532
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/RSA 05/2022  sha256:d279c01a12e8dd9a6230e459faa447ceb336998477338c2ee4135c96737418eb
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=ES,O=ACCV,OU=PKIACCV,CN=ACCVRAIZ1  sha256:9a6ec012e1a7da9dbe34194d478ad7c0db1822fb071df12981496ed104384113
     C=ES,O=EDICOM,CN=CAEDICOM Root  sha256:1501f89c5c4dcf36cf588a17c9fd7cfceb9ee01e8729be355e25de80eb6284b4
     C=IL,O=ComSign Ltd.,CN=ComSign Global Root CA  sha256:2605875afcc176b2d66dd66a995d7f8d5ebb86ce120d0e7e9e7c6ef294a27d4c
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC Raíz Certicámara S.A.,O=Sociedad Cameral de Certificación Digital - Certicámara S.A.,C=CO  sha256:d2a90e5d35cac4d41f7d44ce66aff885e1815fb339185853a87e66c05c9bef1e
     CN=ACA ROOT,O=CONSEJO GENERAL DE LA ABOGACIA,SERIALNUMBER=Q2863006I,C=ES  sha256:97f654859cbde586fd90311e82ec7902c238cba0d6e529564c9c88f44895ec50
     CN=ANCERT Certificados CGN V2,O=Agencia Notarial de Certificacion S.L.U. - CIF B83395988,C=ES  sha256:f4336bc2ac75950beccf1c1f2f9da6dddafd1f41161ca71f59c76889bd474033
@@ -1134,11 +1118,9 @@
     CN=ePKI Root Certification Authority - G4,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:19a2fa09332c6d8eac1393d5f30371dd8b4dd687b0e1e50a6b48ae762caba2b5
     CN=eSignTrust Root Certification Authority (G03),O=Macao Post and Telecommunications Bureau,C=MO  sha256:0e30d04a94dcc423e26fdc4c24afcf4923bd80d83b661b06a2f5856361560407
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C1,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:125609aa301da0a249b97a8239cb6a34216f44dcac9f3954b14292f2e8c8608f
     CN=emSign Root CA - G1,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367
     CN=emSign Root SMIME CA - G1,O=eMudhra Technologies Limited,C=IN  sha256:47911bc8f32a11b029e0bb10a348b459404b87731b870a2f3fa97b4705dc4c25
-    CN=emSign Root SMIME CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:f76a0d440c418dc5b362be8e11e0a5d06023f4396093e4f455827bf55153d8a4
     CN=thawte Primary Root CA,OU=(c) 2006 thawte\, Inc. - For authorized use only,OU=Certification Services Division,O=thawte\, Inc.,C=US  sha256:8d722f81a9c113c0791df136a2966db26c950a971db46b4199f4ea54b78bfb9f
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
@@ -1151,14 +1133,13 @@
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_email_ta.cbor  259507 bytes  sha256:ddd771d93703f89d63be0fe271c8176ad74c85892e1f88d7a81d2c0211709047
+  ta_store  msft_email_ta.cbor  257158 bytes  sha256:38dad30619a0483dda107a94f39d35e57be9eb732e826ade29fe94c11a4c571f
 
-[msft_code_signing]  published=2026-08-25  collected=2026-09-22
-  anchors 143
+[msft_code_signing]  published=2026-10-23  collected=2026-11-02
+  anchors 140
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=ES,O=ACCV,OU=PKIACCV,CN=ACCVRAIZ1  sha256:9a6ec012e1a7da9dbe34194d478ad7c0db1822fb071df12981496ed104384113
     C=ES,O=EDICOM,CN=CAEDICOM Root  sha256:1501f89c5c4dcf36cf588a17c9fd7cfceb9ee01e8729be355e25de80eb6284b4
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC Raíz Certicámara S.A.,O=Sociedad Cameral de Certificación Digital - Certicámara S.A.,C=CO  sha256:d2a90e5d35cac4d41f7d44ce66aff885e1815fb339185853a87e66c05c9bef1e
     CN=ACA ROOT,O=CONSEJO GENERAL DE LA ABOGACIA,SERIALNUMBER=Q2863006I,C=ES  sha256:97f654859cbde586fd90311e82ec7902c238cba0d6e529564c9c88f44895ec50
     CN=ANCERT Certificados CGN V2,O=Agencia Notarial de Certificacion S.L.U. - CIF B83395988,C=ES  sha256:f4336bc2ac75950beccf1c1f2f9da6dddafd1f41161ca71f59c76889bd474033
@@ -1284,11 +1265,9 @@
     CN=e-Szigno Root CA 2017,2.5.4.97=#0c0e56415448552d3233353834343937,O=Microsec Ltd.,L=Budapest,C=HU  sha256:beb00b30839b9bc32c32e4447905950641f26421b15ed089198b518ae2ea1b99
     CN=ePKI Root Certification Authority - G2,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:1e51942b84fd467bf77d1c89da241c04254dc8f3ef4c22451fe7a89978bdcd4f
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C2,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:46cd083b47e80402028df493960ea19c85fe851950d5165f1c7da4faa951e2f8
     CN=emSign Root CA - G2,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:1aa0c2709e831bd6e3b5129a00ba41f7eeef020872f1e6504bf0f6c3f24f3af3
     CN=emSign Root CS CA - G2,O=eMudhra Technologies Limited,C=IN  sha256:0d74ef67c88de3560365e225aef976f915e901347b73352d81ab5b4132bb2150
-    CN=emSign Root CS CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:f2edaaff3d9b701fb4d14c9f285f8c0bad90fc3bcc1fa07d47f4718edaba34a5
     CN=thawte Primary Root CA,OU=(c) 2006 thawte\, Inc. - For authorized use only,OU=Certification Services Division,O=thawte\, Inc.,C=US  sha256:8d722f81a9c113c0791df136a2966db26c950a971db46b4199f4ea54b78bfb9f
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
@@ -1298,17 +1277,16 @@
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_code_signing_ta.cbor  172919 bytes  sha256:1dfb7a7c2d80af4939b76b20a5fe4009183aa3a563968d9eb67765fa8e599c19
+  ta_store  msft_code_signing_ta.cbor  170550 bytes  sha256:3d372d0d04033fb8191907722933ae2345d2ea34c0347806e1d6b0075fffc0b6
 
-[msft_timestamping]  published=2026-08-25  collected=2026-09-22
-  anchors 162
+[msft_timestamping]  published=2026-10-23  collected=2026-11-02
+  anchors 159
     2.5.4.97=#13134e54524a502d34303131303031303430373831,CN=SECOM Document Signing RSA Root CA 2023,O=SECOM Trust Systems Co.\, Ltd.,C=JP  sha256:46219bbf9148f00e8b7a4c619b57cf7602701ff81348400718870fabd31fc5be
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/ECC 05/2022  sha256:3808ce3e961ca532682ffb8708b544e8f175aa065601a45902df92128fc38532
     C=CZ,2.5.4.97=#0c0e4e5452435a2d3236343339333935,O=První certifikační autorita\, a.s.,CN=I.CA Root CA/RSA 05/2022  sha256:d279c01a12e8dd9a6230e459faa447ceb336998477338c2ee4135c96737418eb
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=ES,O=EDICOM,CN=CAEDICOM Root  sha256:1501f89c5c4dcf36cf588a17c9fd7cfceb9ee01e8729be355e25de80eb6284b4
     C=IL,O=ComSign Ltd.,CN=ComSign Global Root CA  sha256:2605875afcc176b2d66dd66a995d7f8d5ebb86ce120d0e7e9e7c6ef294a27d4c
-    CN=AAA Certificate Services,O=Comodo CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:d7a7a0fb5d7e2731d771e9484ebcdef71d5f0c3e0a2948782bc83ee0ea699ef4
     CN=AC Raíz Certicámara S.A.,O=Sociedad Cameral de Certificación Digital - Certicámara S.A.,C=CO  sha256:d2a90e5d35cac4d41f7d44ce66aff885e1815fb339185853a87e66c05c9bef1e
     CN=ACA ROOT,O=CONSEJO GENERAL DE LA ABOGACIA,SERIALNUMBER=Q2863006I,C=ES  sha256:97f654859cbde586fd90311e82ec7902c238cba0d6e529564c9c88f44895ec50
     CN=ANCERT Certificados CGN V2,O=Agencia Notarial de Certificacion S.L.U. - CIF B83395988,C=ES  sha256:f4336bc2ac75950beccf1c1f2f9da6dddafd1f41161ca71f59c76889bd474033
@@ -1451,11 +1429,9 @@
     CN=ePKI Root Certification Authority - G4,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:19a2fa09332c6d8eac1393d5f30371dd8b4dd687b0e1e50a6b48ae762caba2b5
     CN=eSignTrust Root Certification Authority (G03),O=Macao Post and Telecommunications Bureau,C=MO  sha256:0e30d04a94dcc423e26fdc4c24afcf4923bd80d83b661b06a2f5856361560407
     CN=emSign ECC Root CA - C3,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:bc4d809b15189d78db3e1d8cf4f9726a795da1643ca5f1358e1ddb0edc0d7eb3
-    CN=emSign ECC Root CA - G3,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
     CN=emSign Root CA - C2,O=eMudhra Inc,OU=emSign PKI,C=US  sha256:46cd083b47e80402028df493960ea19c85fe851950d5165f1c7da4faa951e2f8
     CN=emSign Root CA - G2,O=eMudhra Technologies Limited,OU=emSign PKI,C=IN  sha256:1aa0c2709e831bd6e3b5129a00ba41f7eeef020872f1e6504bf0f6c3f24f3af3
     CN=emSign Root TSA CA - G2,O=eMudhra Technologies Limited,C=IN  sha256:1997770a5633fb6d0440abf7d7e87e15d795f094f8c2959dadb00e785866bf48
-    CN=emSign Root TSA CA - G3,O=eMudhra Technologies Limited,C=IN  sha256:75d2ce75979cf2a43b172c9f89f733dda2136031db4bbf3698b053714c077155
     EMAIL=info@e-szigno.hu,CN=Microsec e-Szigno Root CA 2009,O=Microsec Ltd.,L=Budapest,C=HU  sha256:3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378
     EMAIL=info@globaltrust.info,CN=GLOBALTRUST,OU=GLOBALTRUST Certification Service,O=ARGE DATEN - Austrian Society for Data Protection,ST=Austria,L=Vienna,C=AT  sha256:5e3571f33f45a7df1537a68b5ffb9e036af9d2f5bc4c9717130dc43d7175aac7
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
@@ -1464,7 +1440,7 @@
     OU=certSIGN ROOT CA,O=certSIGN,C=RO  sha256:eaa962c4fa4a6bafebe415196d351ccd888d4f53f3fa8ae6d7c466a94e6042bb
     OU=ePKI Root Certification Authority,O=Chunghwa Telecom Co.\, Ltd.,C=TW  sha256:c0a6f4dc63a24bfdcf54ef2a6a082a0a72de35803e2ff5ff527ae5d87206dfd5
     SERIALNUMBER=NTRCZ-26439395,CN=I.CA Root CA/RSA,O=První certifikační autorita\, a.s.,C=CZ  sha256:d3d607a9ff24a19523b6da9d2c649446f8788cb96d9fd130972e120c13677730
-  ta_store  msft_timestamping_ta.cbor  198800 bytes  sha256:276fc9a82154179b7b63dc213d7aa63f1018234b8e02c0a52f6c024c33ac115f
+  ta_store  msft_timestamping_ta.cbor  196430 bytes  sha256:20a149f987b86d42a93eefe3f2515105ea7a2bf25e57e5a9e233158a26ee937f
 
 [tpm]  published=2026-10-23  collected=2026-10-26
   anchors 49
@@ -1520,7 +1496,7 @@
   ta_store  tpm_ta.cbor  44120 bytes  sha256:cdac76ec91142492e43661394013799218d5520899bb0d4371f7c50e1ade0322
   ca_store  tpm_ca.cbor  3738244 bytes  sha256:b2711cfa05a49e848188ae8e10a0cdcc01c01143f84370a21f74342eb5134a83
 
-[mozilla_all]  collected=2026-10-25
+[mozilla_all]  collected=2026-11-02
   anchors 167
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
@@ -1690,5 +1666,5 @@
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
   ta_store  mozilla_all_ta.cbor  187415 bytes  sha256:8e5309f89ec9d948b762358403dbba14262461052365e63eb29dad7f031f338d
-  ca_store  mozilla_all_ca.cbor  3864447 bytes  sha256:f5e69f2f697b20542e4c86d9c8fc5463eb1e35c029fb5b4c54876b123c92830c
+  ca_store  mozilla_all_ca.cbor  3871216 bytes  sha256:24c5db52178e41abc8bd2b7615d0534eaae27653cad463526c24a1174504d8ef
 

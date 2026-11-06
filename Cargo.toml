@@ -64,3 +64,7 @@ inherits = "dev"
 # requirement.
 certval = { path = "certval" }
 pkiprocmacros = { path = "pkiprocmacros" }
+# The store crates come from certval-stores' git main (see pittv3-gui, -service and -wasm), but
+# certval-stores-mozilla takes certval_stores_provider_core from crates.io. Two copies give two
+# TrustStoreProvider traits, which pittv3-wasm's build script cannot mix; this keeps one, the git one.
+certval_stores_provider_core = { git = "https://github.com/carl-wallace/certval-stores.git", branch = "main" }
