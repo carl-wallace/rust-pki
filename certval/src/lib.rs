@@ -9,7 +9,8 @@
 
 pub mod asn1;
 pub mod environment;
-pub mod ocsp;
+/// The RFC 6960 OCSP types, from the RustCrypto x509-ocsp crate.
+pub use x509_ocsp as ocsp;
 pub mod source;
 pub mod util;
 pub mod validator;

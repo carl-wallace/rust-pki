@@ -21,7 +21,9 @@ rust-version = "1.89"
 [dependencies]
 x509-cert = { version = "0.3.0", default-features = false, features = ["hazmat","pem"] }
 const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
-cms = "=0.3.0-rc.0"
+cms = "=0.3.0-rc.1"
+# RFC 6960 OCSP types, re-exported as `certval::ocsp`.
+x509-ocsp = { version = "=0.3.0-rc.0", default-features = false }
 # `ber` for `certs_from_signed_data`: a certs-only PKCS#7 message is the one artifact a repository
 # plausibly publishes in BER, since a signer streaming one has no length to write up front. It is
 # declared here rather than left to `cms`, which happens to turn it on today: a feature this crate
@@ -41,8 +43,8 @@ p256 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs
 p384 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 p521 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs8"]}
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
-rsa = {version = "=0.10.0-rc.19", default-features = false, optional=true, features = ["encoding"]}
-pkcs1 = {version = "=0.8.0-rc.5", default-features = false, optional = true}
+rsa = {version = "=0.10.0-rc.21", default-features = false, optional=true, features = ["encoding"]}
+pkcs1 = {version = "0.8.0", default-features = false, optional = true}
 sha1 = {version = "0.11.0", default-features = false}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 
