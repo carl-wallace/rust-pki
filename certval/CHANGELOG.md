@@ -153,3 +153,10 @@ matching the policy of the RustCrypto crates this library is built on.
 
 ### Changed
 - The minimum supported Rust version is 1.89.
+- `cms` 0.3.0-rc.1, `rsa` 0.10.0-rc.21 and `pkcs1` 0.8.0, so that certval can be used alongside
+  crates that need `cms` rc.1, such as `pkcs12` 0.2.0-rc.0 and `x509-tsp` 0.2.0-rc.0. `cms` rc.1 is
+  rc.0 with documentation changes and needs `rsa` rc.20 or later; `rsa` from rc.20 needs `pkcs1`
+  0.8.
+- `certval::ocsp` re-exports the RustCrypto `x509-ocsp` crate, now published as 0.3.0-rc.0, in
+  place of the copy of it certval carried. The types and their names are unchanged, so code that
+  uses them through `certval::ocsp` still compiles; they are now the same types as `x509_ocsp`'s.
