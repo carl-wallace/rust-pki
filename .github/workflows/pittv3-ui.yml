@@ -36,6 +36,12 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
       - uses: dtolnay/rust-toolchain@stable
+      # Restores the dependency build from main's last run: without it every run compiles the whole
+      # tree (aws-lc-sys's C library among it), which on a hosted runner approaches the timeout.
+      # Saved from main only, so pull requests start warm without filling the cache with their own.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check -p pittv3-gui-lib
       - run: cargo check -p pittv3-gui
       - run: cargo test -p pittv3-wasm -p pittv3-gui -p pittv3-gui-lib --all-features
@@ -110,6 +116,12 @@ jobs:
         with:
           components: clippy
           targets: wasm32-unknown-unknown
+      # Restores the dependency build from main's last run: without it every run compiles the whole
+      # tree (aws-lc-sys's C library among it), which on a hosted runner approaches the timeout.
+      # Saved from main only, so pull requests start warm without filling the cache with their own.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets -p pittv3-gui-lib -p pittv3-gui -p pittv3-relay -p pittv3-service -- -D warnings
       - run: cargo clippy --all-targets --all-features -p pittv3-gui-lib -p pittv3-gui -p pittv3-relay -p pittv3-service -- -D warnings
       # Linted for wasm32 for the reason it is documented for wasm32: that is the target its cfg'd
@@ -140,6 +152,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      # Restores the dependency build from main's last run: without it every run compiles the whole
+      # tree (aws-lc-sys's C library among it), which on a hosted runner approaches the timeout.
+      # Saved from main only, so pull requests start warm without filling the cache with their own.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc -p pittv3-gui-lib -p pittv3-gui --no-deps
       # pittv3-gui-lib gates items on `std`, and a link to one resolves only when it is enabled;
       # the run above covers the links that must hold without it.
