@@ -168,3 +168,6 @@ matching the policy of the RustCrypto crates this library is built on.
   the earlier of the CRL or OCSP response's `nextUpdate` and its `thisUpdate` plus the lifetime, so
   a newer CRL or OCSP response on hand is consulted sooner. The default, zero, applies no bound and
   caches until `nextUpdate`, as before.
+- `CertificateListHeader` decodes a CRL's issuer, dates and extensions without decoding its revoked
+  certificate entries, and `get_crl_info_from_header` builds a `CrlInfo` from one.
+  `CrlSourceFolders` indexes CRLs this way.

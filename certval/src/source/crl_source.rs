@@ -18,19 +18,22 @@ use const_oid::db::rfc5912::{
     ID_CE_AUTHORITY_KEY_IDENTIFIER, ID_CE_CRL_DISTRIBUTION_POINTS, ID_CE_ISSUING_DISTRIBUTION_POINT,
 };
 use der::{Decode, Encode};
-use x509_cert::{certificate::Raw, crl::CertificateList, ext::pkix::IssuingDistributionPoint};
+use x509_cert::{
+    certificate::Raw, crl::CertificateList, ext::pkix::IssuingDistributionPoint, ext::Extensions,
+};
 
 use crate::pdv_extension::ExtensionProcessing;
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{buffer_to_hex, CheckRemoteResource, PathValidationStatus, RevocationStatusCache};
 use crate::{
-    get_file_as_byte_vec_pem, name_to_string, CrlSource, Error, PDVCertificate, PDVExtension,
-    Result, SubjectNameAndKey, TimeOfInterest,
+    get_file_as_byte_vec_pem, name_to_string, CertificateListHeader, CrlSource, Error,
+    PDVCertificate, PDVExtension, Result, SubjectNameAndKey, TimeOfInterest,
 };
 
 #[cfg(feature = "revocation")]
 use crate::revocation::crl::{
-    build_kept_serials, check_crl_validity, crl_covers_cert, get_crl_info, CrlInfo, CrlScope,
+    build_kept_serials, check_crl_times, crl_covers_cert, get_crl_info, get_crl_info_from_header,
+    CrlInfo, CrlScope,
 };
 
 /// This is the inner structure in [`CrlSourceFolders`].
@@ -327,7 +330,7 @@ impl CrlSource for CrlSourceFolders {
                 &mut inner.issuer_map,
                 &mut inner.dp_map,
                 &mut inner.skid_map,
-                crl,
+                crl.tbs_cert_list.crl_extensions.as_ref(),
                 cur_crl_info,
             );
         }
@@ -493,8 +496,8 @@ fn get_dps_from_cert(cert: &PDVCertificate) -> Option<Vec<Vec<u8>>> {
     }
 }
 
-fn get_dp_from_crl(crl: &CertificateList<Raw>) -> Option<Vec<u8>> {
-    if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
+fn get_dp_from_crl_extensions(crl_extensions: Option<&Extensions>) -> Option<Vec<u8>> {
+    if let Some(exts) = crl_extensions {
         for ext in exts {
             if ext.extn_id == ID_CE_ISSUING_DISTRIBUTION_POINT {
                 if let Ok(idp) = IssuingDistributionPoint::from_der(ext.extn_value.as_bytes()) {
@@ -515,7 +518,7 @@ fn add_crl_info(
     issuer_map: &mut BTreeMap<String, Vec<usize>>,
     idp_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
     skid_map: &mut BTreeMap<Vec<u8>, Vec<usize>>,
-    crl: &CertificateList<Raw>,
+    crl_extensions: Option<&Extensions>,
     cur_crl_info: CrlInfo,
 ) {
     if !crl_info.contains(&cur_crl_info) {
@@ -531,7 +534,7 @@ fn add_crl_info(
             return;
         }
 
-        if let Some(dp) = get_dp_from_crl(crl) {
+        if let Some(dp) = get_dp_from_crl_extensions(crl_extensions) {
             // assuming that partitions are managed such that key rollover does not occur
             //  within a partition
             if idp_map.contains_key(&dp) {
@@ -553,7 +556,7 @@ fn add_crl_info(
         }
 
         if !is_dp && ti.scope == CrlScope::Complete {
-            let issuer_name = name_to_string(&crl.tbs_cert_list.issuer);
+            let issuer_name = cur_crl_info.issuer_name.clone();
             if issuer_map.contains_key(&issuer_name) {
                 let mut v = issuer_map[&issuer_name].clone();
                 v.push(index);
@@ -599,14 +602,17 @@ fn index_crls_internal(
                         }
                     };
 
-                    let crl = match CertificateList::from_der(crl_buf.as_slice()) {
+                    // Decoded only as far as the header: indexing needs the issuer, dates and
+                    // extensions, not the revoked certificate entries.
+                    let crl = match CertificateListHeader::from_der(crl_buf.as_slice()) {
                         Ok(crl) => crl,
                         Err(e) => {
                             error!("Failed to parse CRL with {e}");
                             continue;
                         }
                     };
-                    match get_crl_info(&crl) {
+                    let tbs = &crl.tbs_cert_list;
+                    match get_crl_info_from_header(&crl) {
                         Ok(mut cur_crl_info) => {
                             if let Some(filename) = e.path().to_str() {
                                 cur_crl_info.filename = Some(filename.to_string());
@@ -620,13 +626,21 @@ fn index_crls_internal(
                             //
                             // A CRL that does not cover the time of interest is skipped, NOT deleted.
                             // Skipping leaves the file for a run whose time of interest it does cover.
-                            if check_crl_validity(toi, core::time::Duration::MAX, &crl).is_ok() {
+                            if check_crl_times(
+                                toi,
+                                core::time::Duration::MAX,
+                                &tbs.issuer,
+                                tbs.this_update,
+                                tbs.next_update,
+                            )
+                            .is_ok()
+                            {
                                 add_crl_info(
                                     crl_info,
                                     issuer_map,
                                     idp_map,
                                     skid_map,
-                                    &crl,
+                                    tbs.crl_extensions.as_ref(),
                                     cur_crl_info,
                                 );
                             } else if let Some(filename) = e.path().to_str() {
