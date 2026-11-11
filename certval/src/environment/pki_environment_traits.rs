@@ -506,7 +506,10 @@ pub trait RevocationStatusCache {
         time_of_interest: TimeOfInterest,
     ) -> PathValidationStatus;
 
-    /// Sets status for certificate to one of Valid or Revoked and a next update value. `issuer` is
+    /// Sets status for certificate to one of Valid or Revoked and the time, in seconds since the Unix
+    /// epoch, after which the determination is no longer used. Callers in this crate pass the
+    /// revocation data's `nextUpdate`, or its `thisUpdate` plus a non-zero
+    /// `PS_REVOCATION_CACHE_LIFETIME` when that is earlier. `issuer` is
     /// the subject whose key verified the revocation data behind the determination and must key the
     /// cached entry alongside the certificate identity (see `get_status`).
     fn add_status(

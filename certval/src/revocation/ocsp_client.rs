@@ -16,6 +16,7 @@ use log::{error, warn};
 #[cfg(feature = "remote")]
 use log::{debug, info};
 
+use crate::revocation::check_revocation::revocation_cache_expiry;
 use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::{
     crl::process_crl, util::pdv_utilities::compare_names, valid_at_time, CertificationPathResults,
@@ -933,7 +934,11 @@ fn process_ocsp_response_internal(
                 pe.add_status(
                     target_cert,
                     issuer,
-                    nu.0.to_unix_duration().as_secs(),
+                    revocation_cache_expiry(
+                        cps,
+                        sr.this_update.0.to_unix_duration().as_secs(),
+                        nu.0.to_unix_duration().as_secs(),
+                    ),
                     status,
                 );
             }

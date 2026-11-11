@@ -160,3 +160,11 @@ matching the policy of the RustCrypto crates this library is built on.
 - `certval::ocsp` re-exports the RustCrypto `x509-ocsp` crate, now published as 0.3.0-rc.0, in
   place of the copy of it certval carried. The types and their names are unchanged, so code that
   uses them through `certval::ocsp` still compiles; they are now the same types as `x509_ocsp`'s.
+
+## [Unreleased]
+
+### Added
+- `PS_REVOCATION_CACHE_LIFETIME` bounds how long a revocation status determination is cached: until
+  the earlier of the CRL or OCSP response's `nextUpdate` and its `thisUpdate` plus the lifetime, so
+  a newer CRL or OCSP response on hand is consulted sooner. The default, zero, applies no bound and
+  caches until `nextUpdate`, as before.

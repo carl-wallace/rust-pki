@@ -34,6 +34,7 @@ use x509_cert::{
 };
 
 use crate::crl::CrlReasons::AllReasons;
+use crate::revocation::check_revocation::revocation_cache_expiry;
 use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::Error::CrlIncompatible;
 use crate::{
@@ -1272,7 +1273,11 @@ pub(crate) fn process_crl(
                 pe.add_status(
                     target_cert,
                     issuer,
-                    nu.to_unix_duration().as_secs(),
+                    revocation_cache_expiry(
+                        cps,
+                        crl.tbs_cert_list.this_update.to_unix_duration().as_secs(),
+                        nu.to_unix_duration().as_secs(),
+                    ),
                     PathValidationStatus::CertificateRevoked,
                 );
             }
@@ -1286,7 +1291,11 @@ pub(crate) fn process_crl(
         pe.add_status(
             target_cert,
             issuer,
-            nu.to_unix_duration().as_secs(),
+            revocation_cache_expiry(
+                cps,
+                crl.tbs_cert_list.this_update.to_unix_duration().as_secs(),
+                nu.to_unix_duration().as_secs(),
+            ),
             PathValidationStatus::Valid,
         );
     }

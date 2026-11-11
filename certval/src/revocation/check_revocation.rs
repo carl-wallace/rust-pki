@@ -467,3 +467,18 @@ pub fn check_revocation_local(
         Ok(())
     }
 }
+
+/// Returns the expiry to cache a revocation status determination under: the `nextUpdate` of the CRL
+/// or OCSP response behind it, or its `thisUpdate` plus `PS_REVOCATION_CACHE_LIFETIME` when that
+/// setting is non-zero and the result is earlier. Both times are seconds since the Unix epoch.
+pub(crate) fn revocation_cache_expiry(
+    cps: &CertificationPathSettings,
+    this_update: u64,
+    next_update: u64,
+) -> u64 {
+    let lifetime = cps.get_revocation_cache_lifetime().as_secs();
+    if lifetime == 0 {
+        return next_update;
+    }
+    core::cmp::min(next_update, this_update.saturating_add(lifetime))
+}
