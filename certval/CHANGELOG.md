@@ -164,6 +164,9 @@ matching the policy of the RustCrypto crates this library is built on.
 ## [Unreleased]
 
 ### Added
+- With `pqc`, `calculate_hash_rust_crypto` computes SHAKE128 and SHAKE256 (`PKIXALG_SHAKE128`,
+  `PKIXALG_SHAKE256`) with RFC 8702's 256- and 512-bit outputs, the digests RFC 9814 pairs with
+  SLH-DSA's SHAKE parameter sets in CMS.
 - `PS_REVOCATION_CACHE_LIFETIME` bounds how long a revocation status determination is cached: until
   the earlier of the CRL or OCSP response's `nextUpdate` and its `thisUpdate` plus the lifetime, so
   a newer CRL or OCSP response on hand is consulted sooner. The default, zero, applies no bound and
@@ -177,6 +180,10 @@ matching the policy of the RustCrypto crates this library is built on.
   without reading or copying them.
 
 ### Changed
+- `cms` 0.3.0-rc.2, `x509-ocsp` 0.3.0-rc.1 and `rsa` 0.10.0, the first stable `rsa` 0.10, which
+  clears `cargo audit`'s RUSTSEC-2023-0071 report against the release candidates. `rsa` 0.10.0 puts
+  PKCS #1 v1.5 behind a `pkcs1v15` feature, which certval's `rsa` feature now enables; a crate that
+  depends on `rsa` alongside certval and uses PKCS #1 v1.5 enables it too.
 - When several CRLs for a certificate are present, `check_revocation` and `check_revocation_local`
   try them newest first (latest thisUpdate, then highest CRL number) across every registered
   `CrlSource`, and the first that processes answers. When a newer CRL fails, for example because its

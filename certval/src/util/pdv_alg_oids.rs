@@ -170,3 +170,19 @@ pub const PKIXALG_SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.
 ///        { joint-iso-itu-t(2) country(16) us(840) organization(1) gov(101)
 ///        csor(3) algorithms(4) hashalgs(2) 3 }
 pub const PKIXALG_SHA512: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.3");
+
+/// id-shake128  OBJECT IDENTIFIER  ::=
+///        { joint-iso-itu-t(2) country(16) us(840) organization(1) gov(101)
+///        csor(3) algorithms(4) hashalgs(2) 11 }
+///
+/// SHAKE128 with a 256-bit output (RFC 8702, section 2).
+pub const PKIXALG_SHAKE128: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.11");
+
+/// id-shake256  OBJECT IDENTIFIER  ::=
+///        { joint-iso-itu-t(2) country(16) us(840) organization(1) gov(101)
+///        csor(3) algorithms(4) hashalgs(2) 12 }
+///
+/// SHAKE256 with a 512-bit output (RFC 8702, section 2).
+pub const PKIXALG_SHAKE256: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.12");

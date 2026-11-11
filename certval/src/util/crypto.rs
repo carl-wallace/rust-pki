@@ -90,7 +90,9 @@ pub(crate) fn is_eddsa(oid: &ObjectIdentifier) -> bool {
 /// calculate_hash_rust_crypto implements the [`CalculateHash`](crate::CalculateHash) interface for [`PkiEnvironment`] using
 /// implementations from the Rust Crypto project.
 ///
-/// It supports [`PKIXALG_SHA224`], [`PKIXALG_SHA256`], [`PKIXALG_SHA384`] and [`PKIXALG_SHA512`].
+/// It supports [`PKIXALG_SHA224`], [`PKIXALG_SHA256`], [`PKIXALG_SHA384`] and [`PKIXALG_SHA512`], and
+/// with the `pqc` feature, [`PKIXALG_SHAKE128`] and [`PKIXALG_SHAKE256`] with the 256- and 512-bit
+/// outputs RFC 8702 fixes for them, which RFC 9814 pairs with SLH-DSA's SHAKE parameter sets.
 pub fn calculate_hash_rust_crypto(
     _pe: &PkiEnvironment,
     hash_alg: &AlgorithmIdentifierOwned,
@@ -115,6 +117,20 @@ pub fn calculate_hash_rust_crypto(
         }
         #[cfg(feature = "sha1_sig")]
         PKIXALG_SHA1 => Ok(Sha1::digest(buffer_to_hash).to_vec()),
+        #[cfg(feature = "pqc")]
+        PKIXALG_SHAKE128 => {
+            use sha3::digest::ExtendableOutput;
+            let mut digest = alloc::vec![0u8; 32];
+            sha3::Shake128::digest_xof(buffer_to_hash, &mut digest);
+            Ok(digest)
+        }
+        #[cfg(feature = "pqc")]
+        PKIXALG_SHAKE256 => {
+            use sha3::digest::ExtendableOutput;
+            let mut digest = alloc::vec![0u8; 64];
+            sha3::Shake256::digest_xof(buffer_to_hash, &mut digest);
+            Ok(digest)
+        }
         _ => Err(Error::Unrecognized),
     }
 }
@@ -135,7 +151,7 @@ pub fn verify_signature_digest_rust_crypto(
         #[cfg(feature = "rsa")]
         if is_rsa(&signature_alg.oid) {
             use rsa::pkcs8::DecodePublicKey as _;
-            let rsa = rsa::RsaPublicKey::from_public_key_der(&enc_spki);
+            let rsa = rsa::PublicKey::from_public_key_der(&enc_spki);
             if let Ok(rsa) = rsa {
                 let ps = get_padding_scheme(signature_alg)?;
                 let signature = signature.as_bytes().ok_or(Error::ParseError)?;
@@ -189,7 +205,7 @@ pub fn verify_signature_message_rust_crypto(
         #[cfg(feature = "rsa")]
         if let Ok(enc_spki) = spki.to_der() {
             use rsa::pkcs8::DecodePublicKey as _;
-            let rsa = rsa::RsaPublicKey::from_public_key_der(&enc_spki);
+            let rsa = rsa::PublicKey::from_public_key_der(&enc_spki);
             if let Ok(rsa) = rsa {
                 let hash_alg = crate::util::get_hash_alg_from_sig_alg(&signature_alg.oid)?;
                 let hash_to_verify = calculate_hash_rust_crypto(pe, &hash_alg, message_to_verify)?;
@@ -218,7 +234,7 @@ pub fn verify_signature_message_rust_crypto(
             // environment only moves on to the next one (an offloaded
             // implementation, say) on Unrecognized.
             let enc_spki = spki.to_der()?;
-            let Ok(rsa) = rsa::RsaPublicKey::from_public_key_der(&enc_spki) else {
+            let Ok(rsa) = rsa::PublicKey::from_public_key_der(&enc_spki) else {
                 error!("Could not decode an RSA verifying key for an RSASSA-PSS signature");
                 return Err(Error::Unrecognized);
             };
@@ -395,6 +411,35 @@ fn test_calculate_hash() {
     assert_eq!(
         result,
         hex!("BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD")
+    );
+}
+
+/// SHAKE128 and SHAKE256 of "abc" with RFC 8702's output lengths, 256 and 512 bits.
+#[test]
+#[cfg(feature = "pqc")]
+fn test_calculate_hash_shake() {
+    use crate::PkiEnvironment;
+    use hex_literal::hex;
+    let mut pe = PkiEnvironment::default();
+    pe.clear_all_callbacks();
+    pe.add_calculate_hash_callback(calculate_hash_rust_crypto);
+    let hash = |oid| {
+        let alg = AlgorithmIdentifierOwned {
+            oid,
+            parameters: None,
+        };
+        pe.calculate_hash(&pe, &alg, "abc".as_bytes()).unwrap()
+    };
+    assert_eq!(
+        hash(PKIXALG_SHAKE128),
+        hex!("5881092DD818BF5CF8A3DDB793FBCBA74097D5C526A6D35F97B83351940F2CC8")
+    );
+    assert_eq!(
+        hash(PKIXALG_SHAKE256),
+        hex!(
+            "483366601360A8771C6863080CC4114D8DB44530F8F1E1EE4F94EA37E78B5739"
+            "D5A15BEF186A5386C75744C0527E1FAA9F8726E462A12A4FEB06BD8801E751E4"
+        )
     );
 }
 
