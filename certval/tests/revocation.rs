@@ -1122,3 +1122,97 @@ fn short_stapled_vectors_read_as_nothing_stapled() {
         ))
     );
 }
+
+// PS_REVOCATION_CACHE_LIFETIME: a cached determination lasts until the earlier of the CRL's
+// nextUpdate and its thisUpdate plus a non-zero lifetime. The makaan.com EE CRL has thisUpdate
+// 2022-03-11 07:36:46 (1646984206) and nextUpdate 2022-03-18 07:36:46 (1647589006).
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[test]
+fn revocation_cache_lifetime_caps_entries() {
+    use certval::*;
+    use core::time::Duration;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    const THIS_UPDATE: u64 = 1646984206;
+    const NEXT_UPDATE: u64 = 1647589006;
+    const DAY: u64 = 24 * 60 * 60;
+
+    let der_encoded_ta = include_bytes!("examples/makaan.com/0-ta.der");
+    let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
+    let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
+
+    let mut ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("tests/examples/makaan.com/crls");
+    let toi = TimeOfInterest::from_unix_secs(1647011592).unwrap();
+
+    // Runs one validation with the given lifetime and returns the cache it populated.
+    let populate = |lifetime: Option<Duration>| {
+        let ta = PDVTrustAnchorChoice::try_from(der_encoded_ta.as_slice()).unwrap();
+        let cert_path = CertificationPath::new(ta, vec![ca.clone()], ee.clone());
+
+        let crl_source = CrlSourceFolders::new(d.as_path().to_str().unwrap());
+        crl_source.index_crls(toi).unwrap();
+        let cache = Arc::new(RevocationCache::new());
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        pe.add_crl_source(Box::new(crl_source));
+        pe.add_revocation_cache(Box::new(Arc::clone(&cache)));
+
+        let mut cps = CertificationPathSettings::new();
+        cps.set_require_ta_store(false);
+        cps.set_check_ocsp_from_aia(false);
+        cps.set_check_crldp_http(false);
+        cps.set_time_of_interest(toi);
+        if let Some(lifetime) = lifetime {
+            cps.set_revocation_cache_lifetime(lifetime);
+        }
+        let mut cpr = CertificationPathResults::new();
+        pe.validate_path(&pe, &cps, &cert_path, &mut cpr).unwrap();
+        check_revocation_local(&pe, &cps, &cert_path, &mut cpr).unwrap();
+        cache
+    };
+    let issuer: &dyn SubjectNameAndKey = ca.decoded();
+    let status_at = |cache: &RevocationCache, secs: u64| {
+        cache.get_status(&ee, issuer, TimeOfInterest::from_unix_secs(secs).unwrap())
+    };
+
+    // Default (zero): no bound, so the entry lasts until nextUpdate.
+    let cache = populate(None);
+    assert_eq!(
+        PathValidationStatus::Valid,
+        status_at(&cache, NEXT_UPDATE - 1)
+    );
+    assert_eq!(
+        PathValidationStatus::RevocationStatusNotDetermined,
+        status_at(&cache, NEXT_UPDATE)
+    );
+
+    // 24 hours: the entry expires a day after thisUpdate, six days before nextUpdate.
+    let cache = populate(Some(Duration::from_secs(DAY)));
+    assert_eq!(
+        PathValidationStatus::Valid,
+        status_at(&cache, THIS_UPDATE + DAY - 1)
+    );
+    assert_eq!(
+        PathValidationStatus::RevocationStatusNotDetermined,
+        status_at(&cache, THIS_UPDATE + DAY)
+    );
+
+    // A lifetime past nextUpdate leaves nextUpdate in charge.
+    let cache = populate(Some(Duration::from_secs(30 * DAY)));
+    assert_eq!(
+        PathValidationStatus::Valid,
+        status_at(&cache, NEXT_UPDATE - 1)
+    );
+    assert_eq!(
+        PathValidationStatus::RevocationStatusNotDetermined,
+        status_at(&cache, NEXT_UPDATE)
+    );
+}

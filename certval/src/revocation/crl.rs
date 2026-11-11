@@ -31,15 +31,18 @@ use x509_cert::{
     certificate::Raw,
     crl::{CertificateList, RevokedCert},
     ext::Extensions,
+    spki::AlgorithmIdentifierOwned,
+    time::Time,
 };
 
 use crate::crl::CrlReasons::AllReasons;
+use crate::revocation::check_revocation::revocation_cache_expiry;
 use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::Error::CrlIncompatible;
 use crate::{
-    compare_names, name_to_string, CertificationPathResults, CertificationPathSettings,
-    DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate, PDVExtension,
-    PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
+    compare_names, name_to_string, CertificateListHeader, CertificationPathResults,
+    CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
+    PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
 use core::time::Duration;
@@ -492,22 +495,49 @@ type CrlQuestionairre = FlagSet<CrlQuestions>;
 
 /// Takes a CRL and returns a CrlInfo structure with information about the CRL.
 pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
-    let this_update = crl.tbs_cert_list.this_update.to_unix_duration().as_secs();
-    let next_update = crl
-        .tbs_cert_list
-        .next_update
-        .map(|nu| nu.to_unix_duration().as_secs());
-    let issuer_name_blob = match crl.tbs_cert_list.issuer.to_der() {
+    let tbs = &crl.tbs_cert_list;
+    crl_info_from_parts(
+        &tbs.issuer,
+        tbs.this_update,
+        tbs.next_update,
+        &crl.signature_algorithm,
+        tbs.crl_extensions.as_ref(),
+    )
+}
+
+/// Takes a partially decoded CRL and returns a CrlInfo structure with information about the CRL,
+/// the same as [`get_crl_info`] returns for the fully decoded CRL.
+pub fn get_crl_info_from_header(crl: &CertificateListHeader<'_>) -> Result<CrlInfo> {
+    let tbs = &crl.tbs_cert_list;
+    crl_info_from_parts(
+        &tbs.issuer,
+        tbs.this_update,
+        tbs.next_update,
+        &crl.signature_algorithm,
+        tbs.crl_extensions.as_ref(),
+    )
+}
+
+fn crl_info_from_parts(
+    issuer: &Name,
+    this_update: Time,
+    next_update: Option<Time>,
+    signature_algorithm: &AlgorithmIdentifierOwned,
+    crl_extensions: Option<&Extensions>,
+) -> Result<CrlInfo> {
+    let this_update = this_update.to_unix_duration().as_secs();
+    let next_update = next_update.map(|nu| nu.to_unix_duration().as_secs());
+    let issuer_name_blob = match issuer.to_der() {
         Ok(enc) => enc,
         Err(_e) => return Err(Error::Unrecognized),
     };
-    let issuer_name = name_to_string(&crl.tbs_cert_list.issuer);
-    let sig_alg_blob = match crl.signature_algorithm.to_der() {
+    let issuer_name = name_to_string(issuer);
+    let sig_alg_blob = match signature_algorithm.to_der() {
         Ok(enc) => enc,
         Err(_e) => return Err(Error::Unrecognized),
     };
     let mut exts_blob = None;
-    if let Some(crl_exts) = &crl.tbs_cert_list.crl_extensions {
+    if let Some(crl_exts) = crl_extensions {
         exts_blob = match crl_exts.to_der() {
             Ok(enc) => Some(enc),
             Err(_e) => return Err(Error::Unrecognized),
@@ -520,7 +550,7 @@ pub fn get_crl_info(crl: &CertificateList<Raw>) -> Result<CrlInfo> {
     let mut questionnaire = CrlQuestionairre::default();
 
     //SKID, delta, idp
-    if let Some(exts) = &crl.tbs_cert_list.crl_extensions {
+    if let Some(exts) = crl_extensions {
         for ext in exts.iter() {
             match ext.extn_id {
                 ID_CE_ISSUING_DISTRIBUTION_POINT => {
@@ -1049,16 +1079,29 @@ pub(crate) fn check_crl_validity(
     max_age: Duration,
     crl: &CertificateList<Raw>,
 ) -> Result<()> {
+    let tbs = &crl.tbs_cert_list;
+    check_crl_times(toi, max_age, &tbs.issuer, tbs.this_update, tbs.next_update)
+}
+
+/// [`check_crl_validity`] on the parts of a CRL it reads, for a caller holding a
+/// [`CertificateListHeader`].
+pub(crate) fn check_crl_times(
+    toi: TimeOfInterest,
+    max_age: Duration,
+    issuer: &Name,
+    this_update: Time,
+    next_update: Option<Time>,
+) -> Result<()> {
     if !toi.is_disabled() {
-        let tu = crl.tbs_cert_list.this_update;
+        let tu = this_update;
         if tu > toi {
-            info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
+            info!("Discarding CRL from {} as having this update time({}) later than time of interest ({})", name_to_string(issuer),tu, toi);
             return Err(Error::CrlIncompatible);
         }
-        match crl.tbs_cert_list.next_update {
+        match next_update {
             Some(nu) => {
                 if nu.to_unix_duration().as_secs() < toi.as_unix_secs() {
-                    info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(&crl.tbs_cert_list.issuer),tu, toi);
+                    info!("Discarding CRL from {} as having next update time({}) earlier than time of interest ({})", name_to_string(issuer),tu, toi);
                     return Err(Error::CrlIncompatible);
                 }
             }
@@ -1071,7 +1114,7 @@ pub(crate) fn check_crl_validity(
                     .as_unix_secs()
                     .saturating_sub(tu.to_unix_duration().as_secs());
                 if age > max_age.as_secs() {
-                    info!("Discarding CRL from {} as lacking a next update time and older than the configured maximum age", name_to_string(&crl.tbs_cert_list.issuer));
+                    info!("Discarding CRL from {} as lacking a next update time and older than the configured maximum age", name_to_string(issuer));
                     return Err(Error::CrlIncompatible);
                 }
             }
@@ -1272,7 +1315,11 @@ pub(crate) fn process_crl(
                 pe.add_status(
                     target_cert,
                     issuer,
-                    nu.to_unix_duration().as_secs(),
+                    revocation_cache_expiry(
+                        cps,
+                        crl.tbs_cert_list.this_update.to_unix_duration().as_secs(),
+                        nu.to_unix_duration().as_secs(),
+                    ),
                     PathValidationStatus::CertificateRevoked,
                 );
             }
@@ -1286,7 +1333,11 @@ pub(crate) fn process_crl(
         pe.add_status(
             target_cert,
             issuer,
-            nu.to_unix_duration().as_secs(),
+            revocation_cache_expiry(
+                cps,
+                crl.tbs_cert_list.this_update.to_unix_duration().as_secs(),
+                nu.to_unix_duration().as_secs(),
+            ),
             PathValidationStatus::Valid,
         );
     }
@@ -1666,5 +1717,43 @@ mod tests {
         // max age (the future-CRL guard is independent of the nextUpdate handling).
         let before = TimeOfInterest::from_unix_secs(tu_secs - 86400).unwrap();
         assert!(check_crl_validity(before, Duration::MAX, &crl).is_err());
+    }
+
+    // The header decode is what CRL indexing now uses in place of the full decode, so for every CRL
+    // the full decode accepts, it must produce the same CrlInfo, including the same error.
+    #[cfg(feature = "std")]
+    #[test]
+    fn crl_info_from_header_matches_full_decode() {
+        use super::{get_crl_info, get_crl_info_from_header};
+        use crate::{get_file_as_byte_vec_pem, CertificateListHeader};
+        use der::Decode;
+        use x509_cert::{certificate::Raw, crl::CertificateList};
+
+        let examples = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/examples");
+        let mut compared = 0;
+        for entry in walkdir::WalkDir::new(examples) {
+            let entry = entry.unwrap();
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("crl") {
+                continue;
+            }
+            let buf = get_file_as_byte_vec_pem(entry.path()).unwrap();
+            let Ok(crl) = CertificateList::<Raw>::from_der(&buf) else {
+                continue;
+            };
+            let header = CertificateListHeader::from_der(&buf).unwrap_or_else(|e| {
+                panic!(
+                    "{} decodes in full but not as a header: {e}",
+                    entry.path().display()
+                )
+            });
+            assert_eq!(
+                get_crl_info(&crl),
+                get_crl_info_from_header(&header),
+                "{}",
+                entry.path().display()
+            );
+            compared += 1;
+        }
+        assert!(compared > 2000, "only {compared} CRLs compared");
     }
 }

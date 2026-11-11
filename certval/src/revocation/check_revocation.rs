@@ -67,9 +67,10 @@ use crate::revocation::ocsp_client::check_revocation_ocsp;
 ///   when [`CertificationPath::stapled_rev_info_available`] is true, and a stapled OCSP response
 ///   that is present but fails for any reason other than revocation does **not** fall through to a
 ///   stapled CRL for the same certificate.
-/// - **local CRLs** — every CRL `pe.get_crls` returns is tried: the first that determines `Valid`
-///   wins, a revocation aborts, and any other error is logged before moving to the next CRL. Gated
-///   on `cps.check_crls`.
+/// - **local CRLs** — the CRLs `pe.get_crl_candidates` returns are tried newest first, each read
+///   only when its turn comes: the first that determines `Valid` ends the walk, a revocation aborts,
+///   and any other error, a failed signature included, is logged before moving to the next-newest.
+///   Gated on `cps.check_crls`.
 /// - **OCSP from AIA** and **remote CRL DP** are gated on `cps.check_ocsp_from_aia` and
 ///   `cps.check_crldp_http` respectively, and exist only under the `remote` feature.
 ///   [`check_revocation_local`] is the same chain stopping after local CRLs.
@@ -216,27 +217,30 @@ pub async fn check_revocation(
         }
 
         if cur_status == RevocationStatusNotDetermined && check_crls {
-            if let Ok(crls) = pe.get_crls(cur_cert) {
-                for crl in crls {
-                    match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
-                        Ok(_ok) => {
-                            info!("Determined revocation status (valid) using cached CRL for certificate issued to {cur_cert_subject}");
-                            cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
-                            cur_status = Valid;
-                            break;
-                        }
-                        Err(Error::PathValidation(CertificateRevoked)) => {
-                            info!("Determined revocation status (revoked) using cached CRL for certificate issued to {cur_cert_subject}");
-                            cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
-                            cpr.set_validation_status(revoked_error);
-                            cpr.set_failure_index(pos as u32 + 1);
-                            return Err(Error::PathValidation(revoked_error));
-                        }
-                        Err(e) => {
-                            info!("Failed to determine revocation status using cached CRL for certificate issued to {cur_cert_subject} with {e}");
-                        }
-                    };
-                }
+            // Newest first; a CRL that settles the status ends the walk, and one that fails moves it
+            // to the next-newest.
+            for (source, candidate) in pe.get_crl_candidates(cur_cert, cps.get_time_of_interest()) {
+                let Ok(crl) = pe.load_crl(source, candidate) else {
+                    continue;
+                };
+                match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
+                    Ok(_ok) => {
+                        info!("Determined revocation status (valid) using cached CRL for certificate issued to {cur_cert_subject}");
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
+                        cur_status = Valid;
+                        break;
+                    }
+                    Err(Error::PathValidation(CertificateRevoked)) => {
+                        info!("Determined revocation status (revoked) using cached CRL for certificate issued to {cur_cert_subject}");
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
+                        cpr.set_validation_status(revoked_error);
+                        cpr.set_failure_index(pos as u32 + 1);
+                        return Err(Error::PathValidation(revoked_error));
+                    }
+                    Err(e) => {
+                        info!("Failed to determine revocation status using cached CRL for certificate issued to {cur_cert_subject} with {e}");
+                    }
+                };
             }
         }
 
@@ -428,28 +432,31 @@ pub fn check_revocation_local(
         }
 
         if cur_status == RevocationStatusNotDetermined && check_crls {
-            if let Ok(crls) = pe.get_crls(cur_cert) {
-                for crl in crls {
-                    match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
-                        Ok(_ok) => {
-                            info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
+            // Newest first; a CRL that settles the status ends the walk, and one that fails moves it
+            // to the next-newest.
+            for (source, candidate) in pe.get_crl_candidates(cur_cert, cps.get_time_of_interest()) {
+                let Ok(crl) = pe.load_crl(source, candidate) else {
+                    continue;
+                };
+                match process_crl(pe, cps, cpr, cur_cert, issuer, pos, crl.as_slice(), None) {
+                    Ok(_ok) => {
+                        info!("Determined revocation status (valid) using cached CRL for certificate issued to {}", cur_cert_subject);
+                        cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
+                        cur_status = Valid;
+                        break;
+                    }
+                    Err(e) => {
+                        if Error::PathValidation(CertificateRevoked) == e {
+                            info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
                             cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
-                            cur_status = Valid;
-                            break;
+                            cpr.set_validation_status(revoked_error);
+                            cpr.set_failure_index(pos as u32 + 1);
+                            return Err(Error::PathValidation(revoked_error));
+                        } else {
+                            info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
                         }
-                        Err(e) => {
-                            if Error::PathValidation(CertificateRevoked) == e {
-                                info!("Determined revocation status (revoked) using cached CRL for certificate issued to {}", cur_cert_subject);
-                                cpr.set_revocation_source_for_item(pos, RevocationSource::LocalCrl);
-                                cpr.set_validation_status(revoked_error);
-                                cpr.set_failure_index(pos as u32 + 1);
-                                return Err(Error::PathValidation(revoked_error));
-                            } else {
-                                info!("Failed to determine revocation status using cached CRL for certificate issued to {} with {}", cur_cert_subject, e);
-                            }
-                        }
-                    };
-                }
+                    }
+                };
             }
         }
 
@@ -466,4 +473,19 @@ pub fn check_revocation_local(
         cpr.set_validation_status(Valid);
         Ok(())
     }
+}
+
+/// Returns the expiry to cache a revocation status determination under: the `nextUpdate` of the CRL
+/// or OCSP response behind it, or its `thisUpdate` plus `PS_REVOCATION_CACHE_LIFETIME` when that
+/// setting is non-zero and the result is earlier. Both times are seconds since the Unix epoch.
+pub(crate) fn revocation_cache_expiry(
+    cps: &CertificationPathSettings,
+    this_update: u64,
+    next_update: u64,
+) -> u64 {
+    let lifetime = cps.get_revocation_cache_lifetime().as_secs();
+    if lifetime == 0 {
+        return next_update;
+    }
+    core::cmp::min(next_update, this_update.saturating_add(lifetime))
 }

@@ -16,6 +16,7 @@ use log::{error, warn};
 #[cfg(feature = "remote")]
 use log::{debug, info};
 
+use crate::revocation::check_revocation::revocation_cache_expiry;
 use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::{
     crl::process_crl, util::pdv_utilities::compare_names, valid_at_time, CertificationPathResults,
@@ -812,29 +813,37 @@ fn process_ocsp_response_internal(
 
             // The responder cert lacks id-pkix-ocsp-nocheck, so its own revocation status is not
             // waived (RFC 6960 4.2.2.2.1). Check it against locally available CRLs (issued by the
-            // same CA as the responder) and reject the response if the responder is revoked. Remote
-            // retrieval is not attempted here: this path is synchronous, and responder certs that
-            // omit nocheck are rare in practice.
+            // same CA as the responder), newest first as check_revocation does, and reject the
+            // response if the first CRL that settles the responder's status lists it as revoked.
+            // Remote retrieval is not attempted here: this path is synchronous, and responder certs
+            // that omit nocheck are rare in practice. A responder no local CRL settles is accepted.
             if !no_check_present(&cert.tbs_certificate().extensions()) {
                 let mut responder_revoked = false;
                 if let Ok(responder) = PDVCertificate::try_from(certbuf.as_slice()) {
-                    if let Ok(crls) = pe.get_crls(&responder) {
-                        for crl in &crls {
-                            if let Err(Error::PathValidation(
+                    for (source, candidate) in
+                        pe.get_crl_candidates(&responder, cps.get_time_of_interest())
+                    {
+                        let Ok(crl) = pe.load_crl(source, candidate) else {
+                            continue;
+                        };
+                        match process_crl(
+                            pe,
+                            cps,
+                            cpr,
+                            &responder,
+                            issuer,
+                            result_index,
+                            crl.as_slice(),
+                            None,
+                        ) {
+                            Ok(()) => break,
+                            Err(Error::PathValidation(
                                 PathValidationStatus::CertificateRevoked,
-                            )) = process_crl(
-                                pe,
-                                cps,
-                                cpr,
-                                &responder,
-                                issuer,
-                                result_index,
-                                crl.as_slice(),
-                                None,
-                            ) {
+                            )) => {
                                 responder_revoked = true;
                                 break;
                             }
+                            Err(_) => {}
                         }
                     }
                 }
@@ -933,7 +942,11 @@ fn process_ocsp_response_internal(
                 pe.add_status(
                     target_cert,
                     issuer,
-                    nu.0.to_unix_duration().as_secs(),
+                    revocation_cache_expiry(
+                        cps,
+                        sr.this_update.0.to_unix_duration().as_secs(),
+                        nu.0.to_unix_duration().as_secs(),
+                    ),
                     status,
                 );
             }

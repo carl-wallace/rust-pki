@@ -389,6 +389,23 @@ pub static PS_REVOCATION_MAX_AGE: &str = "psRevocationMaxAge";
 /// Default value for [`PS_REVOCATION_MAX_AGE`]: zero, i.e., fail closed when `nextUpdate` is absent.
 pub static PS_REVOCATION_MAX_AGE_DEFAULT: Duration = Duration::from_secs(0);
 
+/// `PS_REVOCATION_CACHE_LIFETIME` is used to retrieve a [`Duration`] value from a
+/// [`CertificationPathSettings`] object. It bounds how long a revocation status determination is
+/// cached: a determination drawn from a CRL or OCSP response is cached until that artifact's
+/// `nextUpdate` or its `thisUpdate` plus this duration, whichever is earlier. Without the bound, a
+/// cached determination answers until `nextUpdate` even after a newer CRL or OCSP response is on
+/// hand, which for a CRL valid for a week and issued twice a day means a revocation can go unseen for
+/// nearly the whole week. Set it near the issuer's issuance interval. Zero, the default, applies no
+/// bound, so determinations are cached until `nextUpdate`. This differs from [`PS_REVOCATION_MAX_AGE`], which decides whether an artifact lacking
+/// `nextUpdate` is used at all; artifacts lacking `nextUpdate` are never cached. When one
+/// `RevocationStatusCache` is shared by validations run under different settings, each entry's
+/// lifetime follows the settings of the validation that added it.
+pub static PS_REVOCATION_CACHE_LIFETIME: &str = "psRevocationCacheLifetime";
+
+/// Default value for [`PS_REVOCATION_CACHE_LIFETIME`]: zero, i.e., cache determinations until
+/// `nextUpdate`.
+pub static PS_REVOCATION_CACHE_LIFETIME_DEFAULT: Duration = Duration::from_secs(0);
+
 /// `PS_MAX_AIA_SIA_CERTS` is used to retrieve a u64 value from a [`CertificationPathSettings`] object.
 /// It bounds the number of certificates the graph builder will accumulate while iteratively fetching
 /// AIA and SIA URIs. A hostile or misconfigured responder can serve a fresh certificate on every hop
@@ -789,6 +806,11 @@ cps_gets_and_sets_with_default!(
     Duration,
     PS_REVOCATION_MAX_AGE_DEFAULT
 );
+cps_gets_and_sets_with_default!(
+    PS_REVOCATION_CACHE_LIFETIME,
+    Duration,
+    PS_REVOCATION_CACHE_LIFETIME_DEFAULT
+);
 cps_gets_and_sets_with_default!(PS_MAX_AIA_SIA_CERTS, u64, PS_MAX_AIA_SIA_CERTS_DEFAULT);
 cps_gets_and_sets_with_default!(PS_MAX_CRL_FETCH_BYTES, u64, PS_MAX_CRL_FETCH_BYTES_DEFAULT);
 cps_gets_and_sets_with_default!(
@@ -944,6 +966,7 @@ fn test_default_gets_cps() {
         cps.get_ocsp_aia_nonce_setting()
     );
     assert_eq!(Duration::from_secs(0), cps.get_revocation_max_age());
+    assert_eq!(Duration::from_secs(0), cps.get_revocation_cache_lifetime());
     assert_eq!(2000, cps.get_max_aia_sia_certs());
 
     assert_eq!(vec![ANY_POLICY.to_string()], cps.get_initial_policy_set());
@@ -1054,6 +1077,11 @@ fn test_default_sets_cps() {
 
     cps.set_revocation_max_age(Duration::from_secs(3600));
     assert_eq!(Duration::from_secs(3600), cps.get_revocation_max_age());
+    cps.set_revocation_cache_lifetime(Duration::from_secs(43200));
+    assert_eq!(
+        Duration::from_secs(43200),
+        cps.get_revocation_cache_lifetime()
+    );
     cps.set_max_aia_sia_certs(500);
     assert_eq!(500, cps.get_max_aia_sia_certs());
 
