@@ -701,6 +701,62 @@ impl PkiEnvironment {
         Err(Error::NotFound)
     }
 
+    /// Describes the CRLs every registered [`CrlSource`] holds that may cover `cert` at `toi`, newest
+    /// first, each paired with the index of the source that returned it (see
+    /// [`load_crl`](Self::load_crl)).
+    ///
+    /// Newest means latest thisUpdate, with the higher CRL number first when two share one; candidates
+    /// that still tie keep the order of the sources and of each source's list. A CRL issued after
+    /// `toi`, or whose nextUpdate is before it, cannot answer for `toi` and is left out, so it is
+    /// never read. None of this is verified: a caller works down the list and moves on when a CRL
+    /// fails verification or processing, so an older CRL can answer, with a different status, when a
+    /// newer one fails.
+    pub fn get_crl_candidates(
+        &self,
+        cert: &PDVCertificate,
+        toi: TimeOfInterest,
+    ) -> Vec<(usize, CrlCandidate)> {
+        let toi_secs = toi.as_unix_secs();
+        let mut candidates = vec![];
+        for (source, f) in self.crl_sources.iter().enumerate() {
+            let Ok(found) = f.get_crl_candidates(cert) else {
+                continue;
+            };
+            candidates.extend(
+                found
+                    .into_iter()
+                    .filter(|c| {
+                        toi.is_disabled()
+                            || (c.this_update <= toi_secs
+                                && c.next_update.is_none_or(|nu| nu >= toi_secs))
+                    })
+                    .map(|c| (source, c)),
+            );
+        }
+        candidates.sort_by(|(_, a), (_, b)| {
+            // Without leading zeros, the longer CRL number is the larger.
+            let a_number = a.crl_number.as_deref().map(|n| (n.len(), n));
+            let b_number = b.crl_number.as_deref().map(|n| (n.len(), n));
+            b.this_update
+                .cmp(&a.this_update)
+                .then_with(|| b_number.cmp(&a_number))
+        });
+        candidates
+    }
+
+    /// Returns the CRL a candidate from [`get_crl_candidates`](Self::get_crl_candidates) describes,
+    /// reading it from `source` when the candidate holds an index.
+    pub fn load_crl(&self, source: usize, candidate: CrlCandidate) -> Result<Vec<u8>> {
+        match candidate.data {
+            CrlCandidateData::Bytes(crl) => Ok(crl),
+            CrlCandidateData::Index(index) => self
+                .crl_sources
+                .get(source)
+                .ok_or(Error::NotFound)?
+                .load_crl(index),
+        }
+    }
+
     /// Adds a CRL to the store
     pub fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         let mut at_least_one_success = false;
@@ -1245,5 +1301,92 @@ mod validate_path_tests {
         let mut cpr = CertificationPathResults::new();
         assert!(pe.validate_path(&pe, &cps, &cp, &mut cpr).is_ok());
         assert!(cpr.get_processed_extensions().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod crl_candidate_tests {
+    use super::*;
+
+    /// Returns the candidates it was built with, each as `Bytes` naming its position, and loads
+    /// nothing.
+    struct Candidates(Vec<(u64, Option<u64>, Option<Vec<u8>>)>);
+
+    impl CrlSource for Candidates {
+        fn get_all_crls(&self) -> Result<Vec<Vec<u8>>> {
+            Err(Error::NotFound)
+        }
+        fn get_crls(&self, _cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
+            Err(Error::NotFound)
+        }
+        fn add_crl(&self, _buf: &[u8], _crl: &CertificateList<Raw>, _uri: &str) -> Result<()> {
+            Err(Error::NotFound)
+        }
+        fn get_crl_candidates(&self, _cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+            Ok(self
+                .0
+                .iter()
+                .enumerate()
+                .map(|(i, (this_update, next_update, crl_number))| CrlCandidate {
+                    this_update: *this_update,
+                    next_update: *next_update,
+                    crl_number: crl_number.clone(),
+                    data: CrlCandidateData::Bytes(vec![i as u8]),
+                })
+                .collect())
+        }
+    }
+
+    fn cert() -> PDVCertificate {
+        let ee = include_bytes!("../../tests/examples/ValidCertificatePathTest1EE.crt");
+        PDVCertificate::try_from(ee.as_slice()).unwrap()
+    }
+
+    /// (source, position within the source) of each candidate, in the order returned.
+    fn order(pe: &PkiEnvironment, toi: TimeOfInterest) -> Vec<(usize, u8)> {
+        pe.get_crl_candidates(&cert(), toi)
+            .into_iter()
+            .map(|(source, c)| match c.data {
+                CrlCandidateData::Bytes(b) => (source, b[0]),
+                CrlCandidateData::Index(_) => unreachable!(),
+            })
+            .collect()
+    }
+
+    // Across sources, latest thisUpdate first; within a thisUpdate, the higher CRL number first,
+    // including when the numbers differ in length and when one has none.
+    #[test]
+    fn candidates_are_newest_first_across_sources() {
+        let mut pe = PkiEnvironment::new();
+        pe.add_crl_source(Box::new(Candidates(vec![
+            (100, Some(1000), Some(vec![0x02])),
+            (300, Some(1000), Some(vec![0x01, 0x00])),
+        ])));
+        pe.add_crl_source(Box::new(Candidates(vec![
+            (300, Some(1000), Some(vec![0xff])),
+            (200, Some(1000), None),
+            (300, Some(1000), None),
+        ])));
+        let toi = TimeOfInterest::from_unix_secs(500).unwrap();
+        assert_eq!(
+            vec![(0, 1), (1, 0), (1, 2), (1, 1), (0, 0)],
+            order(&pe, toi)
+        );
+    }
+
+    // A CRL issued after the time of interest, or expired before it, is left out; one without a
+    // nextUpdate is kept for process_crl to judge. A disabled time of interest keeps everything.
+    #[test]
+    fn candidates_that_cannot_cover_the_time_of_interest_are_left_out() {
+        let mut pe = PkiEnvironment::new();
+        pe.add_crl_source(Box::new(Candidates(vec![
+            (600, Some(1000), None),
+            (100, Some(400), None),
+            (100, None, None),
+            (200, Some(500), None),
+        ])));
+        let toi = TimeOfInterest::from_unix_secs(500).unwrap();
+        assert_eq!(vec![(0, 3), (0, 2)], order(&pe, toi));
+        assert_eq!(4, order(&pe, TimeOfInterest::disabled()).len());
     }
 }

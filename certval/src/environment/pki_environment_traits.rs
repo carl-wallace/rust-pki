@@ -4,14 +4,19 @@
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
+use const_oid::db::rfc5912::ID_CE_CRL_NUMBER;
 use der::asn1::{BitString, ObjectIdentifier};
+use der::Decode;
+use log::debug;
 use spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned};
+use x509_cert::ext::{pkix::CrlNumber, Extensions};
 use x509_cert::{certificate::Raw, crl::CertificateList, name::Name};
 
 use crate::util::error::*;
 use crate::{
-    CertFile, CertificationPath, CertificationPathResults, CertificationPathSettings,
-    PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment, SubjectNameAndKey, TimeOfInterest,
+    CertFile, CertificateListHeader, CertificationPath, CertificationPathResults,
+    CertificationPathSettings, PDVCertificate, PDVTrustAnchorChoice, PkiEnvironment,
+    SubjectNameAndKey, TimeOfInterest,
 };
 
 /// `ValidatePath` provides a function signature for implementations that perform certification path
@@ -406,12 +411,105 @@ pub enum CertificationPathBuilderFormats {
     Cbor,
 }
 
+/// A CRL a [`CrlSource`] holds for a certificate, described by what [`PkiEnvironment`] needs to
+/// order and filter it before its bytes are read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CrlCandidate {
+    /// thisUpdate, as a Unix epoch value.
+    pub this_update: u64,
+    /// nextUpdate, as a Unix epoch value, when present.
+    pub next_update: Option<u64>,
+    /// Value octets of the CRL number extension, without leading zeros, when present.
+    pub crl_number: Option<Vec<u8>>,
+    /// The CRL itself, or the index the source loads it by.
+    pub data: CrlCandidateData,
+}
+
+/// The CRL in a [`CrlCandidate`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CrlCandidateData {
+    /// The CRL, already in hand.
+    Bytes(Vec<u8>),
+    /// An index the source that returned the candidate resolves with [`CrlSource::load_crl`]. Only
+    /// that source interprets it.
+    Index(usize),
+}
+
+impl CrlCandidate {
+    /// Builds a candidate from a partially decoded CRL.
+    pub fn from_header(crl: &CertificateListHeader<'_>, data: CrlCandidateData) -> Self {
+        let tbs = &crl.tbs_cert_list;
+        CrlCandidate {
+            this_update: tbs.this_update.to_unix_duration().as_secs(),
+            next_update: tbs.next_update.map(|nu| nu.to_unix_duration().as_secs()),
+            crl_number: crl_number(tbs.crl_extensions.as_ref()),
+            data,
+        }
+    }
+
+    /// Builds a candidate holding `crl` itself, or None when `crl` does not decode as a CRL.
+    pub fn from_bytes(crl: Vec<u8>) -> Option<Self> {
+        let Ok(header) = CertificateListHeader::from_der(&crl) else {
+            return None;
+        };
+        Some(CrlCandidate {
+            this_update: header
+                .tbs_cert_list
+                .this_update
+                .to_unix_duration()
+                .as_secs(),
+            next_update: header
+                .tbs_cert_list
+                .next_update
+                .map(|nu| nu.to_unix_duration().as_secs()),
+            crl_number: crl_number(header.tbs_cert_list.crl_extensions.as_ref()),
+            data: CrlCandidateData::Bytes(crl),
+        })
+    }
+}
+
+/// Value octets of the CRL number extension in `crl_extensions`, without leading zeros.
+pub(crate) fn crl_number(crl_extensions: Option<&Extensions>) -> Option<Vec<u8>> {
+    let ext = crl_extensions?
+        .iter()
+        .find(|ext| ext.extn_id == ID_CE_CRL_NUMBER)?;
+    let number = CrlNumber::from_der(ext.extn_value.as_bytes()).ok()?;
+    Some(number.0.as_bytes().to_vec())
+}
+
 /// The [`CrlSource`] trait defines the interface for storing and retrieving CRLs in support of certification path validation.
+///
+/// A source may hold several CRLs for one scope, such as successive issues, and need not return them
+/// in any particular order: [`PkiEnvironment`] orders the candidates from every source newest first.
 pub trait CrlSource {
     /// Lists all CRLs available
     fn get_all_crls(&self) -> Result<Vec<Vec<u8>>>;
     /// Retrieves CRLs for given certificate from store
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>>;
+
+    /// Describes the CRLs this source holds that may cover `cert`, in no particular order, so the
+    /// environment can order and filter them before any is read. The default implementation reads
+    /// them with [`get_crls`](CrlSource::get_crls) and returns each in hand; a source that can
+    /// describe a CRL without reading it overrides this and [`load_crl`](CrlSource::load_crl).
+    fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+        Ok(self
+            .get_crls(cert)?
+            .into_iter()
+            .filter_map(|crl| {
+                let candidate = CrlCandidate::from_bytes(crl);
+                if candidate.is_none() {
+                    debug!("Skipping a CRL from get_crls that does not decode");
+                }
+                candidate
+            })
+            .collect())
+    }
+
+    /// Reads the CRL behind a [`CrlCandidateData::Index`] this source returned. The default
+    /// implementation returns no indexes, so it is never asked.
+    fn load_crl(&self, _index: usize) -> Result<Vec<u8>> {
+        Err(Error::NotFound)
+    }
     /// Adds a CRL to the store
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()>;
 

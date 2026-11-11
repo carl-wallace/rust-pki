@@ -21,7 +21,10 @@ use x509_cert::crl::CertificateList;
 use x509_cert::name::Name;
 
 use crate::util::lock::Lock;
-use crate::{compare_names, CrlSource, Error, PDVCertificate, Result};
+use crate::{
+    compare_names, CertificateListHeader, CrlCandidate, CrlCandidateData, CrlSource, Error,
+    PDVCertificate, Result,
+};
 
 /// A CRL and the issuer name it was published under, decoded once when it is added.
 struct StoredCrl {
@@ -29,6 +32,8 @@ struct StoredCrl {
     bytes: Vec<u8>,
     /// Issuer name, compared against a certificate's issuer.
     issuer: Name,
+    /// What the environment orders and filters this CRL by, with its position here as the index.
+    candidate: CrlCandidate,
 }
 
 /// CRLs held in memory, for a caller that obtains revocation data itself.
@@ -85,13 +90,18 @@ impl MemoryCrlSource {
         let Ok(crl) = CertificateList::<Raw>::from_der(bytes) else {
             return false;
         };
+        let Ok(header) = CertificateListHeader::from_der(bytes) else {
+            return false;
+        };
         self.crls.with_write(|crls| {
             if crls.iter().any(|c| c.bytes == bytes) {
                 return;
             }
+            let index = CrlCandidateData::Index(crls.len());
             crls.push(StoredCrl {
                 bytes: bytes.to_vec(),
                 issuer: crl.tbs_cert_list.issuer.clone(),
+                candidate: CrlCandidate::from_header(&header, index),
             });
         });
         true
@@ -125,6 +135,25 @@ impl CrlSource for MemoryCrlSource {
         }))
     }
 
+    /// Describes the CRLs matching on issuer name, as `get_crls` does, without copying them. Each
+    /// candidate's index is the CRL's position here, which stays valid because CRLs are only ever
+    /// added.
+    fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+        let issuer = cert.decoded().tbs_certificate().issuer();
+        Ok(self.crls.with_read(|crls| {
+            crls.iter()
+                .filter(|c| compare_names(&c.issuer, issuer))
+                .map(|c| c.candidate.clone())
+                .collect()
+        }))
+    }
+
+    fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
+        self.crls
+            .with_read(|crls| crls.get(index).map(|c| c.bytes.clone()))
+            .ok_or(Error::NotFound)
+    }
+
     /// Keeps a CRL the revocation checker retrieved, so a later path in the same process finds it
     /// without going back to the distribution point.
     ///
@@ -146,6 +175,14 @@ impl CrlSource for Arc<MemoryCrlSource> {
 
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         (**self).get_crls(cert)
+    }
+
+    fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+        (**self).get_crl_candidates(cert)
+    }
+
+    fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
+        (**self).load_crl(index)
     }
 
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {

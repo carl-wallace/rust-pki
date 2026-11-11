@@ -22,12 +22,14 @@ use x509_cert::{
     certificate::Raw, crl::CertificateList, ext::pkix::IssuingDistributionPoint, ext::Extensions,
 };
 
+use crate::environment::pki_environment_traits::crl_number;
 use crate::pdv_extension::ExtensionProcessing;
 use crate::PathValidationStatus::RevocationStatusNotDetermined;
 use crate::{buffer_to_hex, CheckRemoteResource, PathValidationStatus, RevocationStatusCache};
 use crate::{
-    get_file_as_byte_vec_pem, name_to_string, CertificateListHeader, CrlSource, Error,
-    PDVCertificate, PDVExtension, Result, SubjectNameAndKey, TimeOfInterest,
+    get_file_as_byte_vec_pem, name_to_string, CertificateListHeader, CrlCandidate,
+    CrlCandidateData, CrlSource, Error, PDVCertificate, PDVExtension, Result, SubjectNameAndKey,
+    TimeOfInterest,
 };
 
 #[cfg(feature = "revocation")]
@@ -384,6 +386,37 @@ impl CrlSource for CrlSourceFolders {
             return Ok(retval);
         }
         Err(Error::NotFound)
+    }
+
+    /// Describes the matching CRLs from the index, without reading them. Each candidate's index is the
+    /// CRL's position in `crl_info`, which only grows, so it stays valid while CRLs are added.
+    fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+        let inner = self.inner.read().map_err(|_| Error::Unrecognized)?;
+        Ok(inner
+            .matching_indices(cert)
+            .into_iter()
+            .filter_map(|index| {
+                let info = inner.crl_info.get(index)?;
+                let exts = info
+                    .exts_blob
+                    .as_deref()
+                    .and_then(|exts| Extensions::from_der(exts).ok());
+                Some(CrlCandidate {
+                    this_update: info.this_update,
+                    next_update: info.next_update,
+                    crl_number: crl_number(exts.as_ref()),
+                    data: CrlCandidateData::Index(index),
+                })
+            })
+            .collect())
+    }
+
+    fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
+        let inner = self.inner.read().map_err(|_| Error::Unrecognized)?;
+        if index >= inner.crl_info.len() {
+            return Err(Error::NotFound);
+        }
+        inner.read_crl_at_index(index).ok_or(Error::NotFound)
     }
 
     #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]
@@ -747,6 +780,12 @@ impl CrlSource for Arc<CrlSourceFolders> {
     }
     fn get_crls(&self, cert: &PDVCertificate) -> Result<Vec<Vec<u8>>> {
         (**self).get_crls(cert)
+    }
+    fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
+        (**self).get_crl_candidates(cert)
+    }
+    fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
+        (**self).load_crl(index)
     }
     fn add_crl(&self, crl_buf: &[u8], crl: &CertificateList<Raw>, uri: &str) -> Result<()> {
         (**self).add_crl(crl_buf, crl, uri)

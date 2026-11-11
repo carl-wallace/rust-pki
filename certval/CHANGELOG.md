@@ -171,3 +171,14 @@ matching the policy of the RustCrypto crates this library is built on.
 - `CertificateListHeader` decodes a CRL's issuer, dates and extensions without decoding its revoked
   certificate entries, and `get_crl_info_from_header` builds a `CrlInfo` from one.
   `CrlSourceFolders` indexes CRLs this way.
+- `CrlSource::get_crl_candidates` and `CrlSource::load_crl`, with default implementations, let a
+  source describe the CRLs it holds for a certificate by `CrlCandidate` (thisUpdate, nextUpdate, CRL
+  number) and read one only when asked. `CrlSourceFolders` and `MemoryCrlSource` describe CRLs
+  without reading or copying them.
+
+### Changed
+- When several CRLs for a certificate are present, `check_revocation` and `check_revocation_local`
+  try them newest first (latest thisUpdate, then highest CRL number) across every registered
+  `CrlSource`, and the first that processes answers. When a newer CRL fails, for example because its
+  signature does not verify, the next-newest answers, and its status may differ from what the newer
+  CRL lists. CRLs that cannot cover the time of interest are not read.
