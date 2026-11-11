@@ -32,7 +32,7 @@ pem-rfc7468 = { version="1.0.0", features = ["alloc"]}
 
 certval = { path = "../certval", default-features = false}
 rfc5934 = { git = "https://github.com/carl-wallace/rfc5934.git", rev = "71cad7826cb9b01dddeeaf450b996ab6b4a29c39", optional = true }
-cms = { version = "0.3.0-rc.1", optional = true }
+cms = { version = "0.3.0-rc.2", optional = true }
 reqwest = { version = "0.13.4", optional = true }
 # Only so `run_blocking` can drive the async `options_std` for a caller that has no runtime of its
 # own. Already present transitively under `remote` (via reqwest); named here so the `std`-without-

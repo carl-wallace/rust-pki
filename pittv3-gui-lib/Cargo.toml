@@ -26,7 +26,7 @@ x509-cert = { version = "0.3.0", default-features = false }
 # commonly serves a certs-only SignedData message rather than a bare certificate, and a retrieved
 # CRL is decoded once when it is stored. Both are already in the graph via certval, so naming them
 # here adds no crate to any frontend's build.
-cms = { version = "0.3.0-rc.1", default-features = false }
+cms = { version = "0.3.0-rc.2", default-features = false }
 der = { version = "0.8.3", default-features = false, features = ["alloc", "oid"] }
 
 # No renderer here -- each frontend names its own (web or desktop). devtools is left off because
