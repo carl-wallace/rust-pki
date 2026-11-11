@@ -181,4 +181,6 @@ matching the policy of the RustCrypto crates this library is built on.
   try them newest first (latest thisUpdate, then highest CRL number) across every registered
   `CrlSource`, and the first that processes answers. When a newer CRL fails, for example because its
   signature does not verify, the next-newest answers, and its status may differ from what the newer
-  CRL lists. CRLs that cannot cover the time of interest are not read.
+  CRL lists. CRLs that cannot cover the time of interest are not read. The revocation check on a
+  delegated OCSP responder's certificate walks the same order, where it had rejected the response
+  when any CRL listed the responder.
