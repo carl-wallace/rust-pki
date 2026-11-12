@@ -161,7 +161,7 @@ matching the policy of the RustCrypto crates this library is built on.
   place of the copy of it certval carried. The types and their names are unchanged, so code that
   uses them through `certval::ocsp` still compiles; they are now the same types as `x509_ocsp`'s.
 
-## [Unreleased]
+## [0.2.0-rc.3]
 
 ### Added
 - With `pqc`, `calculate_hash_rust_crypto` computes SHAKE128 and SHAKE256 (`PKIXALG_SHAKE128`,
