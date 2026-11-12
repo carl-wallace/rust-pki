@@ -1496,8 +1496,8 @@
   ta_store  tpm_ta.cbor  44120 bytes  sha256:cdac76ec91142492e43661394013799218d5520899bb0d4371f7c50e1ade0322
   ca_store  tpm_ca.cbor  3738244 bytes  sha256:b2711cfa05a49e848188ae8e10a0cdcc01c01143f84370a21f74342eb5134a83
 
-[mozilla_all]  collected=2026-11-02
-  anchors 167
+[mozilla_all]  collected=2026-11-09
+  anchors 165
     C=DE,O=Atos,CN=Atos TrustedRoot 2011  sha256:f356bea244b7a91eb35d53ca9ad7864ace018e2d35d5f8f96ddf68a6f41aa474
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA ECC TLS 2021  sha256:b2fae53e14ccd7ab9212064701ae279c1d8988facb775fa8a008914e663988a8
     C=DE,O=Atos,CN=Atos TrustedRoot Root CA RSA TLS 2021  sha256:81a9088ea59fb364c548a6f85559099b6f0405efbf18e5324ec9f457ba00112f
@@ -1515,8 +1515,6 @@
     CN=Autoridad de Certificacion Firmaprofesional CIF A62634068,C=ES  sha256:57de0583efd2b26e0361da99da9df4648def7ee8441c3b728afa9bcde0f9b26a
     CN=BJCA Global Root CA1,O=BEIJING CERTIFICATE AUTHORITY,C=CN  sha256:f3896f88fe7c0a882766a7fa6ad2749fb57a7f3e98fb769c1fa7b09c2c44d5ae
     CN=BJCA Global Root CA2,O=BEIJING CERTIFICATE AUTHORITY,C=CN  sha256:574df6931e278039667b720afdc1600fc27eb66dd3092979fb73856487212882
-    CN=Buypass Class 2 Root CA,O=Buypass AS-983163327,C=NO  sha256:9a114025197c5bb95d94e63d55cd43790847b646b23cdf11ada4a00eff15fb48
-    CN=Buypass Class 3 Root CA,O=Buypass AS-983163327,C=NO  sha256:edf7ebbca27a2a384d387b7d4010c666e2edb4843e4c29b4ae1d5b9332e6b24d
     CN=CA Disig Root R2,O=Disig a.s.,L=Bratislava,C=SK  sha256:e23d4a036d7b70e9f595b1422079d2b91edfbb1fb651a0633eaa8a9dc5f80703
     CN=CFCA EV ROOT,O=China Financial Certification Authority,C=CN  sha256:5cc3d78e4e1d5e45547a04e6873e64f90cf9536d1ccc2ef800f355c4c5fd70fd
     CN=COMODO Certification Authority,O=COMODO CA Limited,L=Salford,ST=Greater Manchester,C=GB  sha256:0c2cd63df7806fa399ede809116b575bf87989f06518f9808c860503178baf66
@@ -1665,6 +1663,6 @@
     OU=AC RAIZ FNMT-RCM,O=FNMT-RCM,C=ES  sha256:ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa
     OU=Security Communication RootCA2,O=SECOM Trust Systems CO.\,LTD.,C=JP  sha256:513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6
     OU=certSIGN ROOT CA G2,O=CERTSIGN SA,C=RO  sha256:657cfe2fa73faa38462571f332a2363a46fce7020951710702cdfbb6eeda3305
-  ta_store  mozilla_all_ta.cbor  187415 bytes  sha256:8e5309f89ec9d948b762358403dbba14262461052365e63eb29dad7f031f338d
-  ca_store  mozilla_all_ca.cbor  3871216 bytes  sha256:24c5db52178e41abc8bd2b7615d0534eaae27653cad463526c24a1174504d8ef
+  ta_store  mozilla_all_ta.cbor  184589 bytes  sha256:e94ba1106711daa7d9fee59fe768b3ed1bc2c1314b795ecef070a3e3c3af87bb
+  ca_store  mozilla_all_ca.cbor  3820466 bytes  sha256:a40c72d439d78b0ce71affc62fc82b7a4c67919b90455888d4ed7254c7616ef2
 
