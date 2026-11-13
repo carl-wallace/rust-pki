@@ -13,8 +13,8 @@ use dioxus::prelude::*;
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use certval::{
-    CertFile, CertSource, CertVector, CertificationPathSettings, PkiEnvironment, RevocationCache,
-    TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
+    parse_cert, CertFile, CertSource, CertVector, CertificationPathSettings, PkiEnvironment,
+    RevocationCache, TaSource, TimeOfInterest, CERT_BUNDLE_EXTENSIONS, TA_BUNDLE_EXTENSIONS,
 };
 use pittv3_gui_lib::export::zip_files;
 use pittv3_gui_lib::gui_end_entity::EndEntityGroup;
@@ -27,9 +27,10 @@ use pittv3_gui_lib::gui_shell::AppShell;
 use pittv3_gui_lib::gui_uri_check::{SelfSignedLine, UriCheckIntro, UriCheckResults};
 use pittv3_gui_lib::settings_store::SettingsStore;
 use pittv3_gui_lib::validate::{
-    candidate_certs_in, inspect, looks_like_cbor_store, InspectRequest, Inspected,
+    candidate_certs_in, inspect, looks_like_cbor_store, maybe_pem, InspectRequest, Inspected,
 };
 use pittv3_gui_lib::PITTV3_CSS;
+use pittv3_lib::candidates::chase_candidates;
 use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
@@ -1851,7 +1852,21 @@ fn App() -> Element {
             };
 
             if !built_a_path {
-                let mut seeds = loaded_ees();
+                // The loaded end entities and any alternate certificates they carry, apart from
+                // candidates whose signature algorithm the settings do not permit
+                let mut seeds: Vec<(String, Vec<u8>)> = loaded_ees()
+                    .iter()
+                    .filter_map(|(name, bytes)| {
+                        // PEM or DER, as validate_target accepts
+                        let der = maybe_pem(bytes).ok()?;
+                        parse_cert(&der, name).ok()
+                    })
+                    .flat_map(|target| chase_candidates(&cps, &target))
+                    .map(|c| {
+                        let name = c.locator().unwrap_or_default().to_string();
+                        (name, c.as_bytes().to_vec())
+                    })
+                    .collect();
                 seeds.extend(uploaded_cas());
                 seeds.extend(chased_cas());
                 let (found, chase_notes) =

@@ -938,7 +938,7 @@ pub struct PathLogDetails<'a> {
     /// The run's URI check results, when `--check-uris-when-validating` was given.
     pub uri_reports: Option<&'a UriCheckReports>,
     /// The candidate target the path was built from when it is not the input certificate itself,
-    /// e.g., an alternate certificate rebuilt from it (see [`crate::turducken`]).
+    /// e.g., an alternate certificate rebuilt from it (see [`crate::candidates`]).
     pub candidate: Option<&'a str>,
 }
 

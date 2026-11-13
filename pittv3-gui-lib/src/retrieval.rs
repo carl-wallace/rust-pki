@@ -35,6 +35,7 @@ use certval::{build_ocsp_request, cert_id_hash_algorithm_supported};
 use der::Encode;
 // Deciding which certificate a response answers about lives in pittv3-lib so the command line and
 // the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
+use pittv3_lib::candidates::get_paths_for_candidates;
 #[cfg(feature = "revocation")]
 use pittv3_lib::ocsp_match::{answers_about, cert_ids_from_response};
 
@@ -326,11 +327,10 @@ pub fn harvest_revocation_work(
         if pe.is_cert_a_trust_anchor(&target).is_ok() {
             continue;
         }
+        // The paths validation builds, alternate certificates' included
         let mut paths: Vec<CertificationPath> = vec![];
-        if pe
-            .get_paths_for_target(&target, &mut paths, 0, toi)
-            .is_err()
-        {
+        let (built, _, _) = get_paths_for_candidates(pe, &target, &mut paths, 0, toi);
+        if built.is_err() {
             continue;
         }
         for path in &paths {
@@ -541,11 +541,10 @@ pub fn staple_uploaded_ocsp(
         if pe.is_cert_a_trust_anchor(&target).is_ok() {
             continue;
         }
+        // The paths validation builds, alternate certificates' included
         let mut paths: Vec<CertificationPath> = vec![];
-        if pe
-            .get_paths_for_target(&target, &mut paths, 0, toi)
-            .is_err()
-        {
+        let (built, _, _) = get_paths_for_candidates(pe, &target, &mut paths, 0, toi);
+        if built.is_err() {
             continue;
         }
         for path in &paths {

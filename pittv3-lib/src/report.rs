@@ -261,7 +261,7 @@ pub struct PathReport {
     /// Time expended building and validating the path in milliseconds
     pub duration_ms: u64,
     /// The candidate target the path was built from when it is not the input certificate itself,
-    /// e.g., an alternate certificate rebuilt from it (see [`crate::turducken`]). Set by the caller,
+    /// e.g., an alternate certificate rebuilt from it (see [`crate::candidates`]). Set by the caller,
     /// which knows the candidates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate: Option<String>,

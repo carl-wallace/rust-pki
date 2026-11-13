@@ -123,3 +123,60 @@ fn a_bad_signature_fails_with_either_anchors() {
         assert_eq!(report.status, TargetStatus::Invalid);
     }
 }
+
+/// The Turducken Demo PKI, whose certificates name CRL distribution points
+#[cfg(feature = "revocation")]
+mod demo {
+    pub const RSA_ROOT: &[u8] = include_bytes!("examples/turducken/demo-rsa-root.der");
+    pub const RSA_CA: &[u8] = include_bytes!("examples/turducken/demo-rsa-ca.der");
+    pub const ML_DSA_ROOT: &[u8] = include_bytes!("examples/turducken/demo-ml-dsa-65-root.der");
+    pub const ML_DSA_CA: &[u8] = include_bytes!("examples/turducken/demo-ml-dsa-65-ca.der");
+    pub const OUTER: &[u8] = include_bytes!("examples/turducken/demo-ee-outer.der");
+    pub const BASE: &str = "https://downloads.redhoundsoftware.com/turducken/demo/";
+}
+
+/// Returns the CRL distribution points the browser would retrieve before validating the demo outer
+/// certificate against an environment holding only `ta` and `ca`.
+#[cfg(feature = "revocation")]
+fn harvested_crl_dps(ta: &[u8], ca: &[u8]) -> Vec<String> {
+    let model = SettingsModel {
+        // inside the validity of every demo certificate
+        time_of_interest: Some(1798761600),
+        ..SettingsModel::default()
+    };
+    let mut cps = CertificationPathSettings::default();
+    model.apply(&mut cps).expect("a valid time of interest");
+    let tas = [("ta.der".to_string(), ta.to_vec())];
+    let cas = [("ca.der".to_string(), ca.to_vec())];
+    let (prepared, _) = prepare_validation(None, &tas, &cas, &cps, None).expect("an environment");
+    let work = pittv3_gui_lib::retrieval::harvest_revocation_work(
+        &prepared,
+        &cps,
+        &[("outer.der".to_string(), demo::OUTER.to_vec())],
+    );
+    let mut dps = work.crl_dp;
+    dps.sort();
+    dps
+}
+
+/// Revocation data is retrieved for the paths validation builds, so for the alternate's path when
+/// only its PKI is present, and not for the outer certificate's PKI, which nothing builds to.
+#[cfg(feature = "revocation")]
+#[test]
+fn revocation_retrieval_covers_the_candidate_that_has_a_path() {
+    let url = |f: &str| format!("{}{f}", demo::BASE);
+    assert_eq!(
+        harvested_crl_dps(demo::ML_DSA_ROOT, demo::ML_DSA_CA),
+        [
+            url("turducken-demo-ml-dsa-65-ca.crl"),
+            url("turducken-demo-ml-dsa-65-root.crl")
+        ]
+    );
+    assert_eq!(
+        harvested_crl_dps(demo::RSA_ROOT, demo::RSA_CA),
+        [
+            url("turducken-demo-rsa-ca.crl"),
+            url("turducken-demo-rsa-root.crl")
+        ]
+    );
+}

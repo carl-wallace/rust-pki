@@ -6,12 +6,17 @@
 //! relying party rebuilds each one (Section 5.1) and builds paths for it as another target. Which
 //! candidate yields a valid path is decided by the trust anchors in use; nothing here prefers one.
 //!
-//! [`get_paths_for_candidates`] is the one place path building for an input target happens, so the
-//! command line, desktop and browser frontends expand candidates identically.
+//! [`get_paths_for_candidates`] is the one place path building for an input target happens, and
+//! [`chase_candidates`] the one place the certificates whose AIA and SIA are followed are chosen, so
+//! the command line, desktop and browser frontends treat candidates identically. Without the
+//! `turducken` feature, the only candidate is the input certificate itself.
 
 use alloc::{string::String, vec::Vec};
 
-use certval::{CertificationPath, PDVCertificate, PkiEnvironment, Result, TimeOfInterest};
+use certval::{
+    CertificationPath, CertificationPathSettings, PDVCertificate, PkiEnvironment, Result,
+    TimeOfInterest,
+};
 
 /// Builds paths for `target` and, when the `turducken` feature is enabled, for each alternate
 /// certificate it carries, appending all of them to `paths`. Returns the candidates, which name the
@@ -35,7 +40,7 @@ pub fn get_paths_for_candidates(
     {
         use alloc::format;
         use certval::Error;
-        let (alternates, mut notes) = reconstruct::alternates(target.as_bytes());
+        let (alternates, mut notes) = turducken::alternates(target.as_bytes());
         let mut rejection = match outer {
             Err(e @ Error::PathValidation(_)) => Some(e),
             _ => None,
@@ -90,7 +95,7 @@ pub fn get_paths_for_candidates(
 #[derive(Clone, Debug, Default)]
 pub struct Candidates {
     #[cfg(feature = "turducken")]
-    alternates: Vec<reconstruct::Alternate>,
+    alternates: Vec<turducken::Alternate>,
 }
 
 impl Candidates {
@@ -113,8 +118,53 @@ impl Candidates {
     }
 }
 
+/// Returns the certificates whose AIA and SIA URIs are worth following to find issuers for `target`:
+/// the target itself and, when the `turducken` feature is enabled, each alternate certificate it
+/// carries, leaving out any of these whose own signature algorithm `cps` does not permit. A path for
+/// such a candidate would fail validation however its issuers were found, so fetching them is wasted
+/// effort, e.g., following a classical outer certificate's AIA when only post-quantum signatures are
+/// permitted. A target that carries no alternates is returned as it is, whatever its signature
+/// algorithm, so chasing for it is unchanged. Alternates are located where the target is, as for
+/// [`get_paths_for_candidates`].
+pub fn chase_candidates(
+    cps: &CertificationPathSettings,
+    target: &PDVCertificate,
+) -> Vec<PDVCertificate> {
+    #[cfg(feature = "turducken")]
+    {
+        let (alternates, _) = turducken::alternates(target.as_bytes());
+        if alternates.is_empty() {
+            return alloc::vec![target.clone()];
+        }
+        let permitted = cps
+            .get_permitted_signature_algorithms_as_oid_set()
+            .filter(|p| !p.is_empty());
+        let allowed =
+            |alg: &const_oid::ObjectIdentifier| permitted.as_ref().is_none_or(|p| p.contains(alg));
+        let mut candidates = Vec::with_capacity(alternates.len() + 1);
+        if allowed(&target.decoded().signature_algorithm().oid) {
+            candidates.push(target.clone());
+        }
+        for alternate in alternates {
+            if !allowed(&alternate.signature_algorithm) {
+                continue;
+            }
+            let locator = target.locator().unwrap_or(&alternate.label);
+            if let Ok(cert) = certval::parse_cert(&alternate.der, locator) {
+                candidates.push(cert);
+            }
+        }
+        candidates
+    }
+    #[cfg(not(feature = "turducken"))]
+    {
+        let _ = cps;
+        alloc::vec![target.clone()]
+    }
+}
+
 #[cfg(feature = "turducken")]
-pub mod reconstruct {
+pub mod turducken {
     //! Rebuilds alternate certificates from an outer certificate per Sections 5, 5.1 and 5.2 of
     //! draft-davidben-lamps-turducken-certs-00.
 
@@ -239,6 +289,8 @@ pub mod reconstruct {
         pub label: String,
         /// DER encoding of the rebuilt certificate
         pub der: Vec<u8>,
+        /// The rebuilt certificate's signature algorithm
+        pub signature_algorithm: ObjectIdentifier,
     }
 
     /// Returns whether `oid` identifies a post-quantum or composite public key algorithm: ML-DSA,
@@ -391,8 +443,13 @@ pub mod reconstruct {
                 name_of(&info.signature_algorithm.oid),
                 info.issuer
             );
+            let signature_algorithm = info.signature_algorithm.oid;
             match rebuild(&outer, info) {
-                Ok(der) => alternates.push(Alternate { label, der }),
+                Ok(der) => alternates.push(Alternate {
+                    label,
+                    der,
+                    signature_algorithm,
+                }),
                 Err(reason) => notes.push(format!("Could not rebuild {label}: {reason}")),
             }
         }
@@ -459,5 +516,115 @@ pub mod reconstruct {
         }
         .to_der()
         .map_err(|e| format!("{e:?}"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::candidates::chase_candidates;
+        use certval::{collect_uris_from_aia_and_sia, parse_cert, CertificationPathSettings};
+        use const_oid::db::rfc5280::{ID_AD_CA_ISSUERS, ID_PE_AUTHORITY_INFO_ACCESS};
+        use der::asn1::Ia5String;
+        use x509_cert::ext::pkix::{
+            name::GeneralName, AccessDescription, AuthorityInfoAccessSyntax,
+        };
+
+        /// A PKITS outer certificate, re-signed by the RSA CA, carrying an ML-DSA-65 alternate
+        const OUTER: &[u8] = include_bytes!(
+            "../../pittv3-gui-lib/tests/examples/turducken/ValidCertificatePathTest1EE.der"
+        );
+        /// The same PKITS certificate as issued, which carries no alternates
+        const ORDINARY: &[u8] =
+            include_bytes!("../../certval/tests/examples/ValidCertificatePathTest1EE.crt");
+        const SHA256_WITH_RSA: &str = "1.2.840.113549.1.1.11";
+        const ML_DSA_65: &str = "2.16.840.1.101.3.4.3.18";
+        const CA_ISSUERS: &str = "http://example.test/alternate-ca.p7c";
+
+        fn settings(permitted: &[&str]) -> CertificationPathSettings {
+            let mut cps = CertificationPathSettings::new();
+            cps.set_permitted_signature_algorithms(
+                permitted.iter().map(|s| String::from(*s)).collect(),
+            );
+            cps
+        }
+
+        /// The signature algorithms of the candidates chosen for the certificate in `der`
+        fn algorithms(cps: &CertificationPathSettings, der: &[u8]) -> Vec<String> {
+            chase_candidates(cps, &parse_cert(der, "ee").unwrap())
+                .iter()
+                .map(|c| c.decoded().signature_algorithm().oid.to_string())
+                .collect()
+        }
+
+        /// Returns `OUTER` with an AIA caIssuers URI added to its alternate's issuer-specific
+        /// extensions, so the URI is reachable only through the rebuilt alternate. The outer's
+        /// signature no longer verifies, which does not matter for harvesting URIs.
+        fn outer_with_alternate_aia() -> Vec<u8> {
+            let mut outer = Cert::from_der(OUTER).unwrap();
+            let exts = outer.tbs_certificate.extensions.as_mut().unwrap();
+            let last = exts.last_mut().unwrap();
+            let mut notes = vec![];
+            let mut info =
+                read_alternate_issuer_infos(last.extn_value.as_bytes(), &mut notes).remove(0);
+            let aia = AuthorityInfoAccessSyntax(vec![AccessDescription {
+                access_method: ID_AD_CA_ISSUERS,
+                access_location: GeneralName::UniformResourceIdentifier(
+                    Ia5String::new(CA_ISSUERS).unwrap(),
+                ),
+            }]);
+            info.issuer_extensions.push(Extension {
+                extn_id: ID_PE_AUTHORITY_INFO_ACCESS,
+                critical: false,
+                extn_value: OctetString::new(aia.to_der().unwrap()).unwrap(),
+            });
+            let contents = info.to_der().unwrap();
+            let mut item = ALTERNATE_ISSUER_INFO_TYPE.to_be_bytes().to_vec();
+            item.extend_from_slice(&(contents.len() as u16).to_be_bytes());
+            item.extend_from_slice(&contents);
+            let mut list = ((item.len() + 2) as u16).to_be_bytes().to_vec();
+            list.extend_from_slice(&(item.len() as u16).to_be_bytes());
+            list.extend_from_slice(&item);
+            last.extn_value =
+                OctetString::new(OctetString::new(list).unwrap().to_der().unwrap()).unwrap();
+            outer.to_der().unwrap()
+        }
+
+        /// The AIA and SIA URIs of the candidates chosen for the certificate in `der`
+        fn harvested(cps: &CertificationPathSettings, der: &[u8]) -> Vec<String> {
+            let mut uris = vec![];
+            for candidate in chase_candidates(cps, &parse_cert(der, "ee").unwrap()) {
+                collect_uris_from_aia_and_sia(&candidate, &mut uris);
+            }
+            uris
+        }
+
+        #[test]
+        fn chase_candidates_follow_the_permitted_signature_algorithms() {
+            let all = algorithms(&CertificationPathSettings::new(), OUTER);
+            assert_eq!(all, [SHA256_WITH_RSA, ML_DSA_65]);
+            assert_eq!(algorithms(&settings(&[ML_DSA_65]), OUTER), [ML_DSA_65]);
+            assert_eq!(
+                algorithms(&settings(&[SHA256_WITH_RSA]), OUTER),
+                [SHA256_WITH_RSA]
+            );
+
+            // A certificate without alternates is chased as before, whatever the policy
+            assert_eq!(
+                algorithms(&settings(&[ML_DSA_65]), ORDINARY),
+                [SHA256_WITH_RSA]
+            );
+        }
+
+        #[test]
+        fn an_alternates_aia_is_harvested_when_its_algorithm_is_permitted() {
+            let outer = outer_with_alternate_aia();
+            assert_eq!(
+                harvested(&CertificationPathSettings::new(), &outer),
+                [CA_ISSUERS]
+            );
+            assert_eq!(harvested(&settings(&[ML_DSA_65]), &outer), [CA_ISSUERS]);
+            let uris = harvested(&settings(&[SHA256_WITH_RSA]), &outer);
+            assert!(uris.is_empty(), "{uris:?}");
+        }
     }
 }

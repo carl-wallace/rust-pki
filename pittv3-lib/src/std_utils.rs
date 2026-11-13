@@ -1145,7 +1145,7 @@ pub async fn validate_cert_bytes_retaining(
     };
 
     let mut paths: Vec<CertificationPath> = vec![];
-    let (r, candidates, notes) = crate::turducken::get_paths_for_candidates(
+    let (r, candidates, notes) = crate::candidates::get_paths_for_candidates(
         pe,
         &target_cert,
         &mut paths,
@@ -1174,7 +1174,11 @@ pub async fn validate_cert_bytes_retaining(
     }
 
     if paths.is_empty() {
-        collect_uris_from_aia_and_sia(&target_cert, fresh_uris);
+        // From the target and any alternate certificates it carries, apart from candidates whose
+        // signature algorithm the settings do not permit
+        for candidate in crate::candidates::chase_candidates(cps, &target_cert) {
+            collect_uris_from_aia_and_sia(&candidate, fresh_uris);
+        }
         info!("Failed to find any certification paths for target",);
         stats.no_paths_hints = diagnose(pe);
         return Err(Error::Unrecognized);

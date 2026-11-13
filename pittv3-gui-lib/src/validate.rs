@@ -11,11 +11,11 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use certval::*;
+use pittv3_lib::candidates::get_paths_for_candidates;
 use pittv3_lib::crypto::{populate_with_crypto, CryptoProvider};
 #[cfg(feature = "installroot")]
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport, TargetStatus};
-use pittv3_lib::turducken::get_paths_for_candidates;
 use web_time::Instant;
 
 use crate::retrieval::{MemoryCrlSource, OcspResponses};
