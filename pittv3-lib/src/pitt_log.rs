@@ -926,6 +926,9 @@ pub struct PathLogDetails<'a> {
     pub duration_ms: Option<u64>,
     /// The run's URI check results, when `--check-uris-when-validating` was given.
     pub uri_reports: Option<&'a UriCheckReports>,
+    /// The candidate target the path was built from when it is not the input certificate itself,
+    /// e.g., an alternate certificate rebuilt from it (see [`crate::turducken`]).
+    pub candidate: Option<&'a str>,
 }
 
 /// `log_path` contributes to the manifest file related to
@@ -944,6 +947,7 @@ pub fn log_path(
         cps,
         duration_ms,
         uri_reports,
+        candidate,
     } = *details;
     let target_folder = if let Some(rf) = f { rf } else { "" };
     if target_folder.is_empty() {
@@ -1004,7 +1008,16 @@ pub fn log_path(
             error!("Failed to create manifest file");
             return;
         };
-        if let Err(e) = render_path_manifest(pe, &mut f, path, cpr, cps, duration_ms, uri_reports) {
+        if let Err(e) = render_path_manifest(
+            pe,
+            &mut f,
+            path,
+            cpr,
+            cps,
+            duration_ms,
+            uri_reports,
+            candidate,
+        ) {
             error!("Unable to write {}: {e}", p.display());
         }
         write_cpr_artifacts(&np, cpr);
@@ -1018,6 +1031,10 @@ pub fn log_path(
 /// run writes and the entry an archive carries are the same document rather than two that agree
 /// until one is edited. Nothing here touches a filesystem -- a caller supplies a `File`, a `Vec<u8>`,
 /// or anything else that writes.
+///
+/// `candidate` names the candidate the target was built from when it is not the input certificate
+/// itself, e.g., an alternate certificate rebuilt from it, and is noted with the target.
+#[allow(clippy::too_many_arguments)]
 pub fn render_path_manifest(
     pe: &PkiEnvironment,
     f: &mut dyn Write,
@@ -1026,6 +1043,7 @@ pub fn render_path_manifest(
     cps: Option<&CertificationPathSettings>,
     duration_ms: Option<u64>,
     uri_reports: Option<&UriCheckReports>,
+    candidate: Option<&str>,
 ) -> std::io::Result<()> {
     {
         let s = get_filename_from_metadata(&path.target);
@@ -1063,6 +1081,9 @@ pub fn render_path_manifest(
 
         f.write_all("\t+ Target Certificate\n".as_bytes())?;
         log_cert_details(pe, f, &path.target)?;
+        if let Some(candidate) = candidate {
+            f.write_all(format!("\t\t* Built from: {candidate}\n").as_bytes())?;
+        }
 
         f.write_all(
             "\n********************************************************************************\n"

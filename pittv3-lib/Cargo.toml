@@ -108,6 +108,9 @@ rsa = ["certval/rsa"]
 eddsa = ["certval/eddsa"]
 # Derives the command line parser on `Pittv3Args`.
 clap = ["dep:clap"]
+# Alternate certificates per draft-davidben-lamps-turducken-certs: each input certificate's embedded
+# alternates are rebuilt and become further candidate targets for path building.
+turducken = []
 # The platform's crypto provider (Security.framework on macOS, CNG on Windows) and AWS-LC as `--crypto`
 # choices. Enabled by `std`; the service, which builds below `std`, enables it by name.
 crypto-providers = ["dep:certval-security-framework", "dep:certval-cng", "dep:certval-awslc"]

@@ -15,6 +15,7 @@ use pittv3_lib::crypto::{populate_with_crypto, CryptoProvider};
 #[cfg(feature = "installroot")]
 use pittv3_lib::installroot::installroot_from_bytes;
 use pittv3_lib::report::{CertSummary, NoPathsContext, PathReport, TargetReport, TargetStatus};
+use pittv3_lib::turducken::get_paths_for_candidates;
 use web_time::Instant;
 
 use crate::retrieval::{MemoryCrlSource, OcspResponses};
@@ -781,7 +782,9 @@ fn validate_target(
     )));
 
     let mut paths: Vec<CertificationPath> = vec![];
-    if let Err(e) = pe.get_paths_for_target(&target, &mut paths, 0, toi) {
+    let (r, candidates, notes) = get_paths_for_candidates(pe, &target, &mut paths, 0, toi);
+    out.extend(notes.into_iter().map(info));
+    if let Err(e) = r {
         // A PathValidation error means a check failed while building the path (e.g. the target is
         // not valid at the time of interest) — a rejection of the certificate, not an absence of
         // candidate issuers. Report it as an invalid target carrying the reason rather than the
@@ -819,6 +822,11 @@ fn validate_target(
     let mut path_reports = vec![];
     for (i, path) in paths.iter_mut().enumerate() {
         let path_start = Instant::now();
+        let candidate = candidates.label_for(path);
+        let via = candidate
+            .as_ref()
+            .map(|c| format!(" via {c}"))
+            .unwrap_or_default();
         let mut cpr = CertificationPathResults::new();
         // Put any retrieved OCSP response where the checker looks for it. Its slots are indexed by
         // position in this path, while the responses are held by what they are about, so the two
@@ -833,15 +841,18 @@ fn validate_target(
             Err(e) => {
                 invalid += 1;
                 out.push(err(format!(
-                    "Path {}: failed to apply trust anchor constraints: {e:?}",
+                    "Path {}{via}: failed to apply trust anchor constraints: {e:?}",
                     i + 1
                 )));
-                path_reports.push(PathReport::from_path_results(
-                    path,
-                    &CertificationPathResults::new(),
-                    Some(&e),
-                    path_start.elapsed().as_millis() as u64,
-                ));
+                path_reports.push(PathReport {
+                    candidate,
+                    ..PathReport::from_path_results(
+                        path,
+                        &CertificationPathResults::new(),
+                        Some(&e),
+                        path_start.elapsed().as_millis() as u64,
+                    )
+                });
                 continue;
             }
         };
@@ -861,12 +872,10 @@ fn validate_target(
         }
 
         let duration_ms = path_start.elapsed().as_millis() as u64;
-        path_reports.push(PathReport::from_path_results(
-            path,
-            &cpr,
-            r.as_ref().err(),
-            duration_ms,
-        ));
+        path_reports.push(PathReport {
+            candidate: candidate.clone(),
+            ..PathReport::from_path_results(path, &cpr, r.as_ref().err(), duration_ms)
+        });
         // Kept for a later export, with the settings this path was actually judged under rather than
         // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
         // a manifest reporting the run's settings would name inputs the path was not validated
@@ -879,6 +888,7 @@ fn validate_target(
                 cps: path_cps.clone(),
                 cpr: cpr.clone(),
                 duration_ms,
+                candidate,
             });
         }
         let cert_count = path.intermediates.len() + 2;
@@ -886,7 +896,7 @@ fn validate_target(
             Ok(_) => {
                 valid += 1;
                 out.push(ok(format!(
-                    "Path {} ({} certificates): VALID",
+                    "Path {}{via} ({} certificates): VALID",
                     i + 1,
                     cert_count
                 )));
@@ -897,7 +907,7 @@ fn validate_target(
             Err(e) => {
                 invalid += 1;
                 out.push(err(format!(
-                    "Path {} ({} certificates): INVALID with {e:?}",
+                    "Path {}{via} ({} certificates): INVALID with {e:?}",
                     i + 1,
                     cert_count
                 )));

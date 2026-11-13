@@ -99,3 +99,8 @@ web-sys = { version = "0.3.106", features = ["Window", "Navigator", "Storage"] }
 # A one-frame yield so the "Validating…" busy state paints before the (blocking, single-threaded)
 # parse/validation runs; wasm-only.
 gloo-timers = { version = "0.3", features = ["futures"] }
+
+[features]
+# Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
+# alternates become further candidate targets for path building.
+turducken = ["pittv3-lib/turducken", "pittv3-gui-lib/turducken"]

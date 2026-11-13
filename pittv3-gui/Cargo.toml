@@ -90,6 +90,9 @@ capi = ["dep:certval", "pittv3-lib/capi"]
 installroot = ["pittv3-lib/installroot", "pittv3-gui-lib/installroot"]
 # OpenSSL as a signature verification choice, on Linux and macOS. Links the system's OpenSSL 3.
 openssl = ["pittv3-lib/openssl"]
+# Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
+# alternates become further candidate targets for path building.
+turducken = ["pittv3-lib/turducken", "pittv3-gui-lib/turducken"]
 
 # Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
 # read; the app itself reaches certval through pittv3-lib.

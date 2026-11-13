@@ -70,6 +70,9 @@ webpki = ["certval/webpki", "pittv3-lib/webpki"]
 gui_desktop = ["std", "dep:log4rs", "dep:anyhow", "dep:futures-channel"]
 # DoD InstallRoot streams as uploaded trust anchor or CA inputs.
 installroot = ["pittv3-lib/installroot"]
+# Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
+# alternates become further candidate targets for path building.
+turducken = ["pittv3-lib/turducken"]
 
 [dev-dependencies]
 base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }

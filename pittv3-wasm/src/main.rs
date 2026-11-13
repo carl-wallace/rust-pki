@@ -1139,6 +1139,7 @@ fn App() -> Element {
                     &r.cpr,
                     Some(r.duration_ms),
                     Some(&uri_reports.read()),
+                    r.candidate.as_deref(),
                 )
             })
             .collect()

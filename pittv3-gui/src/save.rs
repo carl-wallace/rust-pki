@@ -52,6 +52,7 @@ fn entries_for(run: &RetainedRun) -> Vec<Vec<(String, Vec<u8>)>> {
                 // The run's own results, so a bundle's path logs carry what its results folder
                 // would have. Empty when the option was off, which renders no section.
                 Some(&run.uri_reports),
+                r.candidate.as_deref(),
             )
         })
         .collect()

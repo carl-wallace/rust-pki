@@ -260,6 +260,11 @@ pub struct PathReport {
     pub name_constraints: Option<NameConstraintsOutcome>,
     /// Time expended building and validating the path in milliseconds
     pub duration_ms: u64,
+    /// The candidate target the path was built from when it is not the input certificate itself,
+    /// e.g., an alternate certificate rebuilt from it (see [`crate::turducken`]). Set by the caller,
+    /// which knows the candidates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<String>,
 }
 
 impl PathReport {
@@ -315,6 +320,7 @@ impl PathReport {
             policy: policy_outcome_from_cpr(cpr),
             name_constraints: name_constraints_from_cpr(cpr),
             duration_ms,
+            candidate: None,
         }
     }
 }
@@ -1001,6 +1007,7 @@ mod tests {
                         },
                     }),
                     duration_ms: 12,
+                    candidate: None,
                 }],
                 no_paths_hints: vec![],
                 error: None,

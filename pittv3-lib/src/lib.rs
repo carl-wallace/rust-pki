@@ -41,6 +41,9 @@ pub mod std_utils;
 // The time a run validates against, from the epoch seconds a caller carries. Ungated: every build
 // converts one, and the refusal a bad value earns is the same in all of them.
 pub mod time;
+// Candidate targets for path building: the input certificate and, with `turducken`, the alternate
+// certificates it carries. Ungated so every entry point builds paths through it.
+pub mod turducken;
 pub mod uri_check;
 
 /// Runs this build's entry point, for a caller that has an async runtime.

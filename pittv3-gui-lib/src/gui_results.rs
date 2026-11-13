@@ -159,6 +159,9 @@ pub fn PathDetail(
                     "{status_text}"
                 }
             }
+            if let Some(candidate) = path.candidate.clone() {
+                p { class: "hint", "Built from: {candidate}" }
+            }
             if let Some(error) = path.error.clone() {
                 p { class: "path-error", "Error: {error}" }
             }

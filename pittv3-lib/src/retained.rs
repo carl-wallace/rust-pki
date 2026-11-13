@@ -50,6 +50,9 @@ pub struct RetainedPath {
     /// `PathReport::duration_ms` carries, kept here so an export can state it. A bundle that cannot
     /// say how long its run took cannot be compared against another bundle on its own.
     pub duration_ms: u64,
+    /// The candidate target the path was built from when it is not the input certificate itself,
+    /// as `PathReport::candidate` carries it, so an export can say so too.
+    pub candidate: Option<String>,
 }
 
 /// Everything a run keeps so its artifacts can be exported once it is over: the paths, and the

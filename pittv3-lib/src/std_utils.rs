@@ -1145,7 +1145,16 @@ pub async fn validate_cert_bytes_retaining(
     };
 
     let mut paths: Vec<CertificationPath> = vec![];
-    let r = pe.get_paths_for_target(&target_cert, &mut paths, threshold, time_of_interest);
+    let (r, candidates, notes) = crate::turducken::get_paths_for_candidates(
+        pe,
+        &target_cert,
+        &mut paths,
+        threshold,
+        time_of_interest,
+    );
+    for note in notes {
+        info!("{cert_filename}: {note}");
+    }
     if let Err(e) = r {
         error!("Failed to find certification paths for target with error {e:?}");
         // A PathValidation error means a check rejected the target itself while the path was being
@@ -1217,10 +1226,15 @@ pub async fn validate_cert_bytes_retaining(
 
     for i in to_validate {
         let path = &mut paths[i];
+        let candidate = candidates.label_for(path);
         info!(
-            "Validating {} certificate path for {}",
+            "Validating {} certificate path for {}{}",
             (path.intermediates.len() + 2),
-            path.target.decoded().tbs_certificate().subject()
+            path.target.decoded().tbs_certificate().subject(),
+            candidate
+                .as_ref()
+                .map(|c| format!(" via {c}"))
+                .unwrap_or_default()
         );
         let path_start = Instant::now();
         staple_crls(path, &opts.crls);
@@ -1238,12 +1252,15 @@ pub async fn validate_cert_bytes_retaining(
                 // Counted like any other reported path: it was found, judged and recorded as
                 // invalid, so leaving it out of the total would make the reports outnumber the paths.
                 reported += 1;
-                stats.path_reports.push(PathReport::from_path_results(
-                    path,
-                    &CertificationPathResults::new(),
-                    Some(&e),
-                    (Instant::now() - path_start).as_millis() as u64,
-                ));
+                stats.path_reports.push(PathReport {
+                    candidate,
+                    ..PathReport::from_path_results(
+                        path,
+                        &CertificationPathResults::new(),
+                        Some(&e),
+                        (Instant::now() - path_start).as_millis() as u64,
+                    )
+                });
                 continue;
             }
         };
@@ -1285,15 +1302,14 @@ pub async fn validate_cert_bytes_retaining(
                 cps: Some(&path_cps),
                 duration_ms: Some(duration_ms),
                 uri_reports: uri_reports.as_deref(),
+                candidate: candidate.as_deref(),
             },
         );
         reported += 1;
-        stats.path_reports.push(PathReport::from_path_results(
-            path,
-            &cpr,
-            r.as_ref().err(),
-            duration_ms,
-        ));
+        stats.path_reports.push(PathReport {
+            candidate: candidate.clone(),
+            ..PathReport::from_path_results(path, &cpr, r.as_ref().err(), duration_ms)
+        });
         // Kept for a later export, with the settings this path was actually judged under rather than
         // the run's -- `path_cps` carries the RFC 5937 trust anchor constraints folded in above, and
         // a manifest reporting the run's settings would name inputs the path was not validated
@@ -1307,6 +1323,7 @@ pub async fn validate_cert_bytes_retaining(
                 cps: path_cps.clone(),
                 cpr: cpr.clone(),
                 duration_ms,
+                candidate,
             });
         }
         stats.results.push(cpr);

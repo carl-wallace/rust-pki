@@ -144,6 +144,7 @@ pub fn path_entries(
     cpr: &CertificationPathResults,
     duration_ms: Option<u64>,
     uri_reports: Option<&UriCheckReports>,
+    candidate: Option<&str>,
 ) -> Vec<ExportEntry> {
     let mut artifacts = vec![];
 
@@ -169,7 +170,16 @@ pub fn path_entries(
     let mut out = vec![];
 
     let mut log = Vec::new();
-    if let Err(e) = render_path_manifest(pe, &mut log, path, cpr, cps, duration_ms, uri_reports) {
+    if let Err(e) = render_path_manifest(
+        pe,
+        &mut log,
+        path,
+        cpr,
+        cps,
+        duration_ms,
+        uri_reports,
+        candidate,
+    ) {
         log::error!("Unable to render {PATH_LOG_NAME}: {e}");
     }
     out.push((PATH_LOG_NAME.to_string(), log));
