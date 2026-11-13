@@ -102,6 +102,13 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// this what I just deployed".
 const BUILT: &str = env!("PITTV3_BUILD_TIME");
 
+/// Pre-standard support compiled into this build, shown after the version and build time so the
+/// page says which kind of build it is; empty in a default build.
+#[cfg(feature = "turducken")]
+const BUILD_NOTE: &str = " · turducken (draft-00)";
+#[cfg(not(feature = "turducken"))]
+const BUILD_NOTE: &str = "";
+
 /// A view this application offers, named rather than numbered.
 ///
 /// Positions used to be the identity -- `view` was a `usize` and two constants recorded where
@@ -3240,7 +3247,7 @@ fn App() -> Element {
                                 }
                             },
                         }
-                        p { class: "hint version", "Version {VERSION} · built {BUILT}" }
+                        p { class: "hint version", "Version {VERSION} · built {BUILT}{BUILD_NOTE}" }
                     },
                 }
             }
@@ -3250,7 +3257,7 @@ fn App() -> Element {
             // rather than placed at the end of the document so that finding it does not mean
             // scrolling past a long report, and inert to the pointer so it can never take a click
             // meant for what is underneath it.
-            p { class: "version", "Version {VERSION} · built {BUILT}" }
+            p { class: "version", "Version {VERSION} · built {BUILT}{BUILD_NOTE}" }
         }
     }
 }
