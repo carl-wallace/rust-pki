@@ -637,8 +637,11 @@ pub fn validate_prepared_retaining(
 /// why. The environment is queried here rather than at display time because it holds the trust
 /// material the run actually used, which is the thing the answer turns on.
 ///
-/// Chasing is reported as unavailable (`None`) rather than off: the browser build has no fetch path
-/// for AIA and SIA, so proposing it would name an option this frontend does not have.
+/// Chasing is reported as unavailable (`None`), which leaves AIA and SIA retrieval out of the hints.
+/// The browser does chase, through a service's relay, but whether a run could chase depends on the
+/// deployment (a page served without a service has no relay) and on its settings, neither of which
+/// this layer sees, so it does not propose an option the deployment may lack or describe a chase
+/// that may not have run.
 fn no_paths_report(
     pe: &PkiEnvironment,
     target: &PDVCertificate,

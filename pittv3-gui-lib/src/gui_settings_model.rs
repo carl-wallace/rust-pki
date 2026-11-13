@@ -60,6 +60,8 @@ pub struct SettingsModel {
     pub require_ta_store: Option<bool>,
     /// Maximum number of non-self-issued intermediate certificates permitted in a path
     pub initial_path_length_constraint: Option<u8>,
+    /// Signature algorithm OIDs with which each certificate in a path must be signed
+    pub permitted_signature_algorithms: Option<Vec<String>>,
 
     // ---- target ----
     /// Key usage bits the target certificate must assert
@@ -145,6 +147,7 @@ impl SettingsModel {
             require_ta_store: present(cps, PS_REQUIRE_TA_STORE).then(|| cps.get_require_ta_store()),
             initial_path_length_constraint: present(cps, PS_INITIAL_PATH_LENGTH_CONSTRAINT)
                 .then(|| cps.get_initial_path_length_constraint()),
+            permitted_signature_algorithms: cps.get_permitted_signature_algorithms(),
             target_key_usage: cps.get_target_key_usage(),
             extended_key_usage: cps.get_extended_key_usage(),
             extended_key_usage_path: present(cps, PS_EXTENDED_KEY_USAGE_PATH)
@@ -265,6 +268,12 @@ impl SettingsModel {
             PS_INITIAL_PATH_LENGTH_CONSTRAINT,
             &self.initial_path_length_constraint,
             |c, v| c.set_initial_path_length_constraint(v),
+        );
+        set_or_remove(
+            cps,
+            PS_PERMITTED_SIGNATURE_ALGORITHMS,
+            &self.permitted_signature_algorithms,
+            |c, v| c.set_permitted_signature_algorithms(v),
         );
         set_or_remove(cps, PS_KEY_USAGE, &self.target_key_usage, |c, v| {
             c.set_target_key_usage(v)
@@ -438,6 +447,7 @@ mod tests {
             initial_policy_set: Some(vec!["2.5.29.32.0".to_string()]),
             enforce_trust_anchor_validity: Some(false),
             initial_path_length_constraint: Some(7),
+            permitted_signature_algorithms: Some(vec!["2.16.840.1.101.3.4.3.18".to_string()]),
             extended_key_usage: Some(vec!["1.3.6.1.5.5.7.3.1".to_string()]),
             time_of_interest: Some(1648039783),
             check_revocation_status: Some(true),
