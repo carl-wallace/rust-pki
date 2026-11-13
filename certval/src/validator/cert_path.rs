@@ -56,10 +56,6 @@ impl CertificationPath {
     /// stapled_rev_info_available returns true if any caller-supplied CRLs or OCSP responses are available
     /// and false otherwise.
     pub fn stapled_rev_info_available(&self) -> bool {
-        if self.ocsp_responses.iter().any(|x| x.is_some()) || self.crls.iter().any(|x| x.is_some())
-        {
-            return true;
-        }
-        false
+        self.ocsp_responses.iter().any(|x| x.is_some()) || self.crls.iter().any(|x| x.is_some())
     }
 }

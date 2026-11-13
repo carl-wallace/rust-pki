@@ -245,15 +245,11 @@ impl NameConstraintsSet {
     /// `are_any_empty` returns true if any of the supported name constraints buckets have been set to None,
     /// which signifies failure.
     pub fn are_any_empty(&self) -> bool {
-        if self.rfc822_name_null
+        self.rfc822_name_null
             || self.dns_name_null
             || self.directory_name_null
             || self.uniform_resource_identifier_null
             || self.ip_address_null
-        {
-            return true;
-        }
-        false
     }
 
     /// `subject_within_permitted_subtrees` returns true if subject is within at least one permitted

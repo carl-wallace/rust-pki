@@ -122,6 +122,7 @@ pub fn validate_path_rfc5280(
     }
 
     check_key_sizes(pe, cps, cp, cpr)?;
+    check_signature_algorithms(pe, cps, cp, cpr)?;
     check_basic_constraints(pe, cps, cp, cpr)?;
     check_names(pe, cps, cp, cpr)?;
     // Certificate policy processing is always graph-based (RFC 9618).
@@ -249,6 +250,39 @@ pub fn check_basic_constraints(
         }
     }
 
+    Ok(())
+}
+
+/// `check_signature_algorithms` rejects a path in which a certificate is signed with an algorithm
+/// [`PS_PERMITTED_SIGNATURE_ALGORITHMS`] does not list, when that list is present and not empty. The
+/// trust anchor is not a signed object in the path, so it is not checked.
+pub fn check_signature_algorithms(
+    _pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    cp: &CertificationPath,
+    cpr: &mut CertificationPathResults,
+) -> Result<()> {
+    let Some(permitted) = cps.get_permitted_signature_algorithms_as_oid_set() else {
+        return Ok(());
+    };
+    if permitted.is_empty() {
+        return Ok(());
+    }
+    // failure_index uses the trust-anchor-first convention of PR_FAILURE_INDEX
+    let certs = cp
+        .intermediates
+        .iter()
+        .chain(core::iter::once(&cp.target))
+        .enumerate();
+    for (pos, cert) in certs {
+        let alg = cert.decoded().signature_algorithm().oid;
+        if !permitted.contains(&alg) {
+            log_error_for_ca(cert, &format!("Signature algorithm {alg} is not permitted"));
+            cpr.set_validation_status(PathValidationStatus::ProhibitedAlg);
+            cpr.set_failure_index(pos as u32 + 1);
+            return Err(Error::PathValidation(PathValidationStatus::ProhibitedAlg));
+        }
+    }
     Ok(())
 }
 

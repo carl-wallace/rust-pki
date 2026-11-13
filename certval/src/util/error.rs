@@ -93,6 +93,9 @@ pub enum PathValidationStatus {
     /// RSA key whose modulus is shorter than the minimum the settings allow
     /// (`PS_MIN_RSA_MODULUS_BITS`).
     InsufficientKeySize,
+    /// ProhibitedAlg occurs when a certificate in a certification path is signed with an algorithm
+    /// the settings do not permit (`PS_PERMITTED_SIGNATURE_ALGORITHMS`).
+    ProhibitedAlg,
     /// InvalidPolicyMapping occurs when a policy mappings extension maps to or from anyPolicy
     /// (RFC 5280 section 6.1.4 (a)).
     InvalidPolicyMapping,
@@ -216,6 +219,7 @@ impl fmt::Display for PathValidationStatus {
                 write!(f, "ProcessingLimitExceeded")
             }
             PathValidationStatus::InsufficientKeySize => write!(f, "InsufficientKeySize"),
+            PathValidationStatus::ProhibitedAlg => write!(f, "ProhibitedAlg"),
         }
     }
 }

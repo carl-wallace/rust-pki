@@ -760,3 +760,68 @@ fn rsa_key_shorter_than_the_minimum_fails_the_path() {
     let (r, _) = validate(Some(0));
     assert!(r.is_ok(), "a minimum of 0 checks nothing: {r:?}");
 }
+
+/// The PKITS good path is signed with sha256WithRSAEncryption throughout. With that algorithm
+/// permitted, or no list at all, or an empty one, the path validates; with only ML-DSA-65
+/// permitted it fails at the first signed certificate, the CA.
+#[cfg(feature = "rsa")]
+#[test]
+fn signature_algorithm_not_permitted_fails_the_path() {
+    let mut ta = PDVTrustAnchorChoice::try_from(
+        include_bytes!("examples/TrustAnchorRootCertificate.crt").as_slice(),
+    )
+    .unwrap();
+    ta.parse_extensions(EXTS_OF_INTEREST);
+    let mut ca =
+        PDVCertificate::try_from(include_bytes!("examples/GoodCACert.crt").as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(
+        include_bytes!("examples/ValidCertificatePathTest1EE.crt").as_slice(),
+    )
+    .unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
+
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: include_bytes!("examples/TrustAnchorRootCertificate.crt").to_vec(),
+    });
+    ta_store.initialize().unwrap();
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    let validate = |permitted: Option<&[&str]>| {
+        let mut cps = CertificationPathSettings::new();
+        if let Some(permitted) = permitted {
+            cps.set_permitted_signature_algorithms(
+                permitted.iter().map(|s| s.to_string()).collect(),
+            );
+        }
+        let mut cpr = CertificationPathResults::new();
+        let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
+        (r, cpr)
+    };
+    let sha256_with_rsa = "1.2.840.113549.1.1.11";
+    let ml_dsa_65 = "2.16.840.1.101.3.4.3.18";
+
+    let (r, _) = validate(None);
+    assert!(r.is_ok(), "no list leaves algorithms unconstrained: {r:?}");
+
+    let (r, _) = validate(Some(&[]));
+    assert!(
+        r.is_ok(),
+        "an empty list leaves algorithms unconstrained: {r:?}"
+    );
+
+    let (r, _) = validate(Some(&[ml_dsa_65, sha256_with_rsa]));
+    assert!(r.is_ok(), "a listed algorithm is permitted: {r:?}");
+
+    let (r, cpr) = validate(Some(&[ml_dsa_65]));
+    assert!(matches!(
+        r,
+        Err(Error::PathValidation(PathValidationStatus::ProhibitedAlg))
+    ));
+    assert_eq!(cpr.get_failure_index(), Some(1), "the CA is checked first");
+}
