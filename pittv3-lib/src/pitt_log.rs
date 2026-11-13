@@ -150,6 +150,17 @@ pub fn log_cps(f: &mut dyn Write, cps: &CertificationPathSettings) -> std::io::R
         .as_bytes(),
     )?;
     f.write_all(format!("Check revocation: {}\n", cps.get_check_revocation_status()).as_bytes())?;
+    // Only when set, so a manifest from a run without the policy reads as before
+    if let Some(permitted) = cps
+        .get_permitted_signature_algorithms_as_oid_set()
+        .filter(|p| !p.is_empty())
+    {
+        f.write_all("Permitted signature algorithms: \n".as_bytes())?;
+        for oid in permitted {
+            let name = const_oid::db::DB.by_oid(&oid).unwrap_or_default();
+            f.write_all(format!("\t* {oid} {name}\n").as_bytes())?;
+        }
+    }
     Ok(())
 }
 

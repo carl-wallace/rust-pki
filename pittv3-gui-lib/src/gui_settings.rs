@@ -822,6 +822,11 @@ pub fn EditSettings(
                             },
                         }
                     }
+                    OidListEditor {
+                        label: "Permitted signature algorithms",
+                        value: m.permitted_signature_algorithms.clone(),
+                        onchange: move |v| model.write().permitted_signature_algorithms = v,
+                    }
                 },
                 SettingsTab::Target => rsx! {
                     KeyUsageEditor {

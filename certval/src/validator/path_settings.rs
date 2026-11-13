@@ -243,6 +243,14 @@ pub static PS_ENFORCE_TRUST_ANCHOR_VALIDITY: &str = "psEnforceTrustAnchorValidit
 /// intermediate CA certificate. By default, this value is 2048. Set it to 0 to accept any size.
 pub static PS_MIN_RSA_MODULUS_BITS: &str = "psMinRsaModulusBits";
 
+/// `PS_PERMITTED_SIGNATURE_ALGORITHMS` is used to retrieve a Strings value, i.e., signature algorithm
+/// object identifiers in dotted form, from a [`CertificationPathSettings`] object. When present and not
+/// empty, each certificate in a certification path must be signed with one of the listed algorithms,
+/// i.e., its signatureAlgorithm must name one of them. The trust anchor is not a signed object in the
+/// path, so it is not checked. There is no default; absence, or an empty list, leaves signature
+/// algorithms unconstrained.
+pub static PS_PERMITTED_SIGNATURE_ALGORITHMS: &str = "psPermittedSignatureAlgorithms";
+
 /// `PS_KEY_USAGE` is used to retrieve a [`KeyUsageSettings`] flag set from a [`CertificationPathSettings`]
 /// object; a settings file writes it as its raw bits, `{"KeyUsageValue": 5}` for digitalSignature and
 /// keyEncipherment. The first 9 bits from the value will be considered (all other bits are ignored) when evaluating
@@ -776,6 +784,46 @@ impl CertificationPathSettings {
         } else {
             None
         }
+    }
+}
+
+impl CertificationPathSettings {
+    ///`get_permitted_signature_algorithms` is used to retrieve `PS_PERMITTED_SIGNATURE_ALGORITHMS` items from a [`CertificationPathSettings`] instance
+    pub fn get_permitted_signature_algorithms(&self) -> Option<Strings> {
+        if self.0.contains_key(PS_PERMITTED_SIGNATURE_ALGORITHMS) {
+            return match &self.0[PS_PERMITTED_SIGNATURE_ALGORITHMS] {
+                CertificationPathProcessingTypes::Strings(v) => Some(v.clone()),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    ///`set_permitted_signature_algorithms` is used to set `PS_PERMITTED_SIGNATURE_ALGORITHMS` items in a [`CertificationPathSettings`] instance
+    pub fn set_permitted_signature_algorithms(&mut self, v: Strings) {
+        self.0.insert(
+            PS_PERMITTED_SIGNATURE_ALGORITHMS.to_string(),
+            CertificationPathProcessingTypes::Strings(v),
+        );
+    }
+
+    /// `set_permitted_signature_algorithms_from_oid_set` sets `PS_PERMITTED_SIGNATURE_ALGORITHMS`
+    /// items in a [`CertificationPathSettings`] instance from an [`ObjectIdentifierSet`] instead of
+    /// from a [`Strings`], which is what
+    /// [`set_permitted_signature_algorithms`](Self::set_permitted_signature_algorithms) takes.
+    pub fn set_permitted_signature_algorithms_from_oid_set(&mut self, v: ObjectIdentifierSet) {
+        self.set_permitted_signature_algorithms(v.iter().map(|o| o.to_string()).collect());
+    }
+
+    ///`get_permitted_signature_algorithms_as_oid_set` is used to retrieve `PS_PERMITTED_SIGNATURE_ALGORITHMS` items from a [`CertificationPathSettings`] instance
+    /// as an ObjectIdentifierSet object instead of a Strings object. Items that are not object
+    /// identifiers are skipped.
+    pub fn get_permitted_signature_algorithms_as_oid_set(&self) -> Option<ObjectIdentifierSet> {
+        self.get_permitted_signature_algorithms().map(|strs| {
+            strs.iter()
+                .filter_map(|s| ObjectIdentifier::from_str(s.as_str()).ok())
+                .collect()
+        })
     }
 }
 
