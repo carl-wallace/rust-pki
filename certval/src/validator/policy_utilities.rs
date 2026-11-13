@@ -101,11 +101,7 @@ pub(crate) fn add_child_if_not_present(
 }
 
 pub(crate) fn row_elem_is_policy(pool: &PolicyPool, elem: &usize, oid: ObjectIdentifier) -> bool {
-    let item = &pool[*elem];
-    if item.valid_policy == oid {
-        return true;
-    }
-    false
+    pool[*elem].valid_policy == oid
 }
 
 /// policy_tree_row_contains_policy searches row for policy_oid and returns the index of the PolicyProcessingData
