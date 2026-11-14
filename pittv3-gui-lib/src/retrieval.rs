@@ -35,7 +35,7 @@ use certval::{build_ocsp_request, cert_id_hash_algorithm_supported};
 use der::Encode;
 // Deciding which certificate a response answers about lives in pittv3-lib so the command line and
 // the browser cannot answer it differently; see [`pittv3_lib::ocsp_match`].
-use pittv3_lib::candidates::get_paths_for_candidates;
+use pittv3_lib::candidates::{fold_referenced, get_paths_for_candidates, referenced_uris};
 #[cfg(feature = "revocation")]
 use pittv3_lib::ocsp_match::{answers_about, cert_ids_from_response};
 
@@ -148,8 +148,15 @@ pub fn harvest_chase_uris(certs: &[(String, Vec<u8>)]) -> Vec<String> {
         let Ok(der) = maybe_pem(bytes) else {
             continue;
         };
-        if let Ok(cert) = parse_cert(&der, name) {
-            collect_uris_from_aia_and_sia(&cert, &mut uris);
+        // With the certificates it includes by reference: a CA certificate's are CA certificates
+        // whose own issuers may need finding, as a bundle's members do
+        for der in fold_referenced(vec![der]) {
+            if let Ok(cert) = parse_cert(&der, name) {
+                collect_uris_from_aia_and_sia(&cert, &mut uris);
+            }
+            // A CA certificate's referenced certificates named by URI are retrieved as its issuers
+            // are. An end entity's are candidate targets, which the caller retrieves separately.
+            uris.extend(referenced_uris(None, &der, true));
         }
     }
     dedup_in_place(&mut uris);

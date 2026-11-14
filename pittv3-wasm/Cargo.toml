@@ -104,3 +104,6 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 # Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
 # alternates become further candidate targets for path building.
 turducken = ["pittv3-lib/turducken", "pittv3-gui-lib/turducken"]
+# Referenced certificates per draft-ietf-lamps-certdiscovery: an end entity's are taken out (included)
+# or retrieved (by URI) and validated as targets of their own; a CA's join the CA certificates.
+certdiscovery = ["pittv3-lib/certdiscovery", "pittv3-gui-lib/certdiscovery"]

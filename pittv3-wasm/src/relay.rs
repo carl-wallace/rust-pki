@@ -20,6 +20,7 @@ use pittv3_gui_lib::retrieval::{
     MemoryCrlSource, OcspRequestItem, OcspResponses,
 };
 use pittv3_gui_lib::validate::ResultLine;
+use pittv3_lib::candidates::{accept_referenced, referenced_uris};
 use pittv3_lib::uri_check::{FetchLimits, FetchOutcome, UriFetcher};
 use web_time::Instant;
 // Only the browser build exchanges anything with the relay; the host build has no relay to reach,
@@ -613,6 +614,12 @@ pub async fn chase_certificates(
                         continue;
                     }
                     for (index, der) in certs.into_iter().enumerate() {
+                        // A CA certificate's referenced certificate must match what its descriptor
+                        // says of it, or the retrieval failed
+                        if let Err(reason) = accept_referenced(&pool, &uri, &der) {
+                            notes.push(err(format!("Ignoring what {uri} served: {reason}")));
+                            continue;
+                        }
                         let known = seeds.iter().chain(found.iter()).any(|(_, b)| *b == der);
                         if !known {
                             found.push((format!("{uri}#{index}"), der));
@@ -639,6 +646,72 @@ pub async fn chase_certificates(
     if !found.is_empty() {
         notes.push(info(format!(
             "Retrieved {} certificate(s) by following AIA and SIA URIs",
+            found.len()
+        )));
+    }
+    (found, notes)
+}
+
+/// Retrieves the referenced certificates end entities in `ees` name by URI in `uris`, returning each
+/// one that matches its descriptor (see [`accept_referenced`]), named for its URI and the end entity
+/// that named it. Each certifies another key and is validated as a target of its own, so these are
+/// kept apart from the CA certificates a chase finds.
+pub async fn retrieve_referenced(
+    uris: &[String],
+    ees: &[(String, Vec<u8>)],
+    budget: &mut FetchBudget,
+    timeout: Option<Duration>,
+) -> (Vec<(String, Vec<u8>)>, Vec<ResultLine>) {
+    let mut notes = vec![];
+    let mut found = vec![];
+
+    for uri in uris {
+        if !budget.available() {
+            notes.push(err(format!(
+                "Stopped retrieving referenced certificates: {}",
+                budget.stop_reason()
+            )));
+            break;
+        }
+        match relay_fetch(uri, timeout).await {
+            Ok(response) => {
+                budget.spend(response.body.len());
+                notes.extend(redirect_note(uri, &response));
+                if response.status != 200 {
+                    notes.push(err(format!(
+                        "{uri} answered with status {}",
+                        response.status
+                    )));
+                    continue;
+                }
+                let referrer = ees
+                    .iter()
+                    .find(|(_, der)| referenced_uris(None, der, false).contains(uri))
+                    .map_or("an end entity", |(name, _)| name.as_str());
+                for der in candidate_certificates_in(&response.body) {
+                    match accept_referenced(ees, uri, &der) {
+                        Ok(()) => found.push((format!("{uri} (referenced by {referrer})"), der)),
+                        Err(reason) => {
+                            notes.push(err(format!("Ignoring what {uri} served: {reason}")))
+                        }
+                    }
+                }
+            }
+            Err(RelayError::RateLimited { retry_after, .. }) => {
+                budget.rate_limited(retry_after);
+                notes.push(err(rate_limit_note(retry_after)));
+                break;
+            }
+            Err(e) => {
+                budget.spend(0);
+                notes.push(err(format!("Could not retrieve {uri}: {e}")));
+            }
+        }
+    }
+
+    if !found.is_empty() {
+        notes.push(info(format!(
+            "Retrieved {} referenced certificate(s)",
             found.len()
         )));
     }

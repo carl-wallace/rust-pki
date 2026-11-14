@@ -163,6 +163,115 @@ pub fn chase_candidates(
     }
 }
 
+/// Returns `ders` with the certificates each one includes by reference (byInclusion) following it,
+/// for a caller taking in CA certificates. A CA certificate's referenced certificate is another CA
+/// certificate, so it joins the pool paths are built through, as the members of a certs-only PKCS
+/// #7 message do. Included certificates are not expanded in turn, and duplicates are dropped.
+/// Without the `certdiscovery` feature, `ders` is returned unchanged.
+pub fn fold_referenced(ders: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    #[cfg(feature = "certdiscovery")]
+    {
+        let mut out: Vec<Vec<u8>> = Vec::with_capacity(ders.len());
+        for der in ders {
+            let included = certdiscovery::included(&der);
+            if !out.contains(&der) {
+                out.push(der);
+            }
+            for inc in included {
+                if !out.contains(&inc) {
+                    out.push(inc);
+                }
+            }
+        }
+        out
+    }
+    #[cfg(not(feature = "certdiscovery"))]
+    ders
+}
+
+/// Returns the certificates an end entity certificate in `der` includes by reference (byInclusion).
+/// Each certifies another key, so a frontend validates each as a target of its own, as Section 6 of
+/// draft-ietf-lamps-certdiscovery-06 has a referenced certificate validated, rather than as a
+/// candidate for `der`: an end entity input that includes another is taken as the members of a
+/// certs-only PKCS #7 message of end entities would be. Empty for a CA certificate, whose included certificates are CA certificates
+/// ([`fold_referenced`]), and without the `certdiscovery` feature.
+pub fn included_referenced(der: &[u8]) -> Vec<Vec<u8>> {
+    #[cfg(feature = "certdiscovery")]
+    {
+        if certdiscovery::is_ca(der) {
+            return Vec::new();
+        }
+        certdiscovery::included(der)
+    }
+    #[cfg(not(feature = "certdiscovery"))]
+    {
+        let _ = der;
+        Vec::new()
+    }
+}
+
+/// Returns the URIs of the referenced certificates the certificate in `der` names by URI (byUri),
+/// when it is a CA certificate and `ca` is set or an end entity certificate and `ca` is not, leaving
+/// out any whose descriptor names a signature algorithm `cps` does not permit (Section 3.2 of
+/// draft-ietf-lamps-certdiscovery-06).
+///
+/// A CA's referenced certificates are retrieved as its issuers are and join the CA certificates.
+/// An end entity's certify another key, so what one means for the end entity that named it is for
+/// the application to decide; Section 6 has a retrieved one validated as if it had been provided as
+/// the target, which is how a frontend that retrieves one treats it.
+/// Empty without the `certdiscovery` feature.
+pub fn referenced_uris(
+    cps: Option<&CertificationPathSettings>,
+    der: &[u8],
+    ca: bool,
+) -> Vec<String> {
+    #[cfg(feature = "certdiscovery")]
+    {
+        if certdiscovery::is_ca(der) != ca {
+            return Vec::new();
+        }
+        certdiscovery::descriptors(der)
+            .into_iter()
+            .filter(|d| match (cps, &d.signature_algorithm) {
+                (Some(cps), Some(alg)) => cps
+                    .get_permitted_signature_algorithms_as_oid_set()
+                    .filter(|p| !p.is_empty())
+                    .is_none_or(|p| p.contains(&alg.oid)),
+                _ => true,
+            })
+            .filter_map(|d| d.uri().map(String::from))
+            .collect()
+    }
+    #[cfg(not(feature = "certdiscovery"))]
+    {
+        let _ = (cps, der, ca);
+        Vec::new()
+    }
+}
+
+/// Checks a certificate retrieved from `uri` against the byUri descriptors naming `uri` among the
+/// certificates in `pool`, as Section 3.1.1 of draft-ietf-lamps-certdiscovery-06 requires: a
+/// signature algorithm, public key algorithm or certificate hash that does not match means the
+/// retrieval failed. `Ok` when nothing in `pool` names `uri` this way, or without the
+/// `certdiscovery` feature.
+pub fn accept_referenced(
+    pool: &[(String, Vec<u8>)],
+    uri: &str,
+    der: &[u8],
+) -> core::result::Result<(), String> {
+    #[cfg(feature = "certdiscovery")]
+    for (_, bytes) in pool {
+        for d in certdiscovery::descriptors(bytes) {
+            if d.uri() == Some(uri) {
+                d.check(der)?;
+            }
+        }
+    }
+    #[cfg(not(feature = "certdiscovery"))]
+    let _ = (pool, uri, der);
+    Ok(())
+}
+
 #[cfg(feature = "turducken")]
 pub mod turducken {
     //! Rebuilds alternate certificates from an outer certificate per Sections 5, 5.1 and 5.2 of
@@ -626,5 +735,251 @@ pub mod turducken {
             let uris = harvested(&settings(&[SHA256_WITH_RSA]), &outer);
             assert!(uris.is_empty(), "{uris:?}");
         }
+    }
+}
+
+#[cfg(feature = "certdiscovery")]
+pub mod certdiscovery {
+    //! Referenced certificates per draft-ietf-lamps-certdiscovery-06: SIA access descriptions whose
+    //! access method is id-ad-certDiscovery and whose location is an otherName carrying a
+    //! RelatedCertificateDescriptor.
+
+    use alloc::{format, string::String, vec, vec::Vec};
+
+    use const_oid::{
+        db::{
+            rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_PE_SUBJECT_INFO_ACCESS},
+            rfc5912::{ID_SHA_256, ID_SHA_384, ID_SHA_512},
+            DB,
+        },
+        ObjectIdentifier,
+    };
+    use der::{
+        asn1::{Ia5String, Null, OctetString},
+        Any, Choice, Decode, DecodeValue, Encode, EncodeValue, FixedTag, Header, Length, Reader,
+        Sequence, Tag, Writer,
+    };
+    use sha2::{Digest, Sha256, Sha384, Sha512};
+    use spki::AlgorithmIdentifierOwned;
+    use x509_cert::{
+        ext::pkix::{name::GeneralName, BasicConstraints, SubjectInfoAccessSyntax},
+        Certificate,
+    };
+
+    /// Placeholder for TBD2, id-ad-certDiscovery.
+    pub const ID_AD_CERT_DISCOVERY: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.48.99");
+
+    /// Placeholder for TBD4, id-ad-certDiscoverySelfLocation.
+    pub const ID_AD_CERT_DISCOVERY_SELF_LOCATION: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.48.98");
+
+    /// Placeholder for TBD3, id-on-relatedCertificateDescriptor.
+    pub const ID_ON_RELATED_CERTIFICATE_DESCRIPTOR: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.8.99");
+
+    /// The most referenced certificates processed for one certificate. The draft sets no limit, but
+    /// the certificate carrying them is unverified when they are read.
+    pub const MAX_REFERENCED: usize = 8;
+
+    /// ```text
+    /// RelatedCertificateDescriptor ::= SEQUENCE {
+    ///   method CertDiscoveryMethod,
+    ///   signatureAlgorithm [0] AlgorithmIdentifier{SIGNATURE-ALGORITHM, {...}}
+    ///                          OPTIONAL,
+    ///   publicKeyAlgorithm [1] AlgorithmIdentifier{PUBLIC-KEY, {...}} OPTIONAL,
+    ///   certHash [2] RelatedCertificate OPTIONAL
+    /// }
+    /// ```
+    ///
+    /// The module uses EXPLICIT TAGS.
+    #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
+    #[allow(missing_docs)]
+    pub struct RelatedCertificateDescriptor {
+        pub method: CertDiscoveryMethod,
+        #[asn1(context_specific = "0", tag_mode = "EXPLICIT", optional = "true")]
+        pub signature_algorithm: Option<AlgorithmIdentifierOwned>,
+        #[asn1(context_specific = "1", tag_mode = "EXPLICIT", optional = "true")]
+        pub public_key_algorithm: Option<AlgorithmIdentifierOwned>,
+        #[asn1(context_specific = "2", tag_mode = "EXPLICIT", optional = "true")]
+        pub cert_hash: Option<RelatedCertificate>,
+    }
+
+    /// ```text
+    /// CertDiscoveryMethod ::= CHOICE {
+    ///   byUri IA5String,
+    ///   byInclusion Certificate,
+    ///   byLocalPolicy NULL,
+    ///   byOther [0] INSTANCE OF OTHER-DISCOVERY-METHOD
+    /// }
+    /// ```
+    #[derive(Clone, Debug, Eq, PartialEq, Choice)]
+    #[allow(missing_docs)]
+    pub enum CertDiscoveryMethod {
+        ByUri(Ia5String),
+        ByInclusion(EncodedCertificate),
+        ByLocalPolicy(Null),
+        #[asn1(context_specific = "0", tag_mode = "EXPLICIT", constructed = "true")]
+        ByOther(Any),
+    }
+
+    /// ```text
+    /// RelatedCertificate ::= SEQUENCE {
+    ///   hashAlgorithm DigestAlgorithmIdentifier,
+    ///   hashValue     OCTET STRING
+    /// }
+    /// ```
+    ///
+    /// From RFC 9763: the hash of the DER encoding of the referenced certificate.
+    #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
+    #[allow(missing_docs)]
+    pub struct RelatedCertificate {
+        pub hash_algorithm: AlgorithmIdentifierOwned,
+        pub hash_value: OctetString,
+    }
+
+    /// A certificate kept as the DER it arrived in. Decoding and re-encoding it could change the
+    /// bytes its signature covers.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct EncodedCertificate(pub Vec<u8>);
+
+    impl FixedTag for EncodedCertificate {
+        const TAG: Tag = Tag::Sequence;
+    }
+
+    impl<'a> DecodeValue<'a> for EncodedCertificate {
+        type Error = der::Error;
+
+        fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> der::Result<Self> {
+            let mut der = header.to_der()?;
+            der.extend(reader.read_vec(header.length())?);
+            Ok(Self(der))
+        }
+    }
+
+    impl EncodeValue for EncodedCertificate {
+        fn value_len(&self) -> der::Result<Length> {
+            let header = Header::from_der(&self.0)?;
+            Ok(header.length())
+        }
+
+        fn encode_value(&self, writer: &mut impl Writer) -> der::Result<()> {
+            let header = Header::from_der(&self.0)?;
+            let start = usize::try_from(header.encoded_len()?)?;
+            writer.write(&self.0[start..])
+        }
+    }
+
+    impl RelatedCertificateDescriptor {
+        /// The URI a byUri descriptor names.
+        pub fn uri(&self) -> Option<&str> {
+            match &self.method {
+                CertDiscoveryMethod::ByUri(uri) => Some(uri.as_str()),
+                _ => None,
+            }
+        }
+
+        /// Checks the certificate in `der` against the signature algorithm, public key algorithm
+        /// and certificate hash this descriptor carries, any of which may be absent (Sections 3.2
+        /// and 3.3).
+        pub fn check(&self, der: &[u8]) -> Result<(), String> {
+            let cert = Certificate::from_der(der).map_err(|e| format!("it did not parse ({e})"))?;
+            if let Some(alg) = &self.signature_algorithm {
+                if alg != cert.signature_algorithm() {
+                    return Err(format!(
+                        "its signature algorithm is {}, not {}",
+                        name_of(&cert.signature_algorithm().oid),
+                        name_of(&alg.oid)
+                    ));
+                }
+            }
+            if let Some(alg) = &self.public_key_algorithm {
+                let key = &cert.tbs_certificate().subject_public_key_info().algorithm;
+                if alg != key {
+                    return Err(format!(
+                        "its public key algorithm is {}, not {}",
+                        name_of(&key.oid),
+                        name_of(&alg.oid)
+                    ));
+                }
+            }
+            if let Some(hash) = &self.cert_hash {
+                let digest = match hash.hash_algorithm.oid {
+                    ID_SHA_256 => Sha256::digest(der).to_vec(),
+                    ID_SHA_384 => Sha384::digest(der).to_vec(),
+                    ID_SHA_512 => Sha512::digest(der).to_vec(),
+                    other => return Err(format!("certHash uses {}", name_of(&other))),
+                };
+                if digest != hash.hash_value.as_bytes() {
+                    return Err("its hash does not match certHash".into());
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Names `oid` for display, falling back to its dotted form.
+    fn name_of(oid: &ObjectIdentifier) -> String {
+        DB.by_oid(oid)
+            .map(String::from)
+            .unwrap_or_else(|| oid.to_string())
+    }
+
+    /// Returns the RelatedCertificateDescriptors in the SIA extension of the certificate in `der`,
+    /// skipping any that do not decode.
+    pub fn descriptors(der: &[u8]) -> Vec<RelatedCertificateDescriptor> {
+        let Ok(cert) = Certificate::from_der(der) else {
+            return vec![];
+        };
+        let Some(sia) = cert
+            .tbs_certificate()
+            .extensions()
+            .into_iter()
+            .flatten()
+            .find(|e| e.extn_id == ID_PE_SUBJECT_INFO_ACCESS)
+        else {
+            return vec![];
+        };
+        let Ok(sia) = SubjectInfoAccessSyntax::from_der(sia.extn_value.as_bytes()) else {
+            return vec![];
+        };
+        sia.0
+            .iter()
+            .filter(|ad| ad.access_method == ID_AD_CERT_DISCOVERY)
+            .filter_map(|ad| match &ad.access_location {
+                GeneralName::OtherName(on)
+                    if on.type_id == ID_ON_RELATED_CERTIFICATE_DESCRIPTOR =>
+                {
+                    on.value.decode_as().ok()
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether the certificate in `der` asserts cA in its basic constraints.
+    pub fn is_ca(der: &[u8]) -> bool {
+        let Ok(cert) = Certificate::from_der(der) else {
+            return false;
+        };
+        cert.tbs_certificate()
+            .extensions()
+            .into_iter()
+            .flatten()
+            .find(|e| e.extn_id == ID_CE_BASIC_CONSTRAINTS)
+            .and_then(|e| BasicConstraints::from_der(e.extn_value.as_bytes()).ok())
+            .is_some_and(|bc| bc.ca)
+    }
+
+    /// Returns the certificates the certificate in `der` includes by reference (byInclusion).
+    pub fn included(der: &[u8]) -> Vec<Vec<u8>> {
+        descriptors(der)
+            .into_iter()
+            .take(MAX_REFERENCED)
+            .filter_map(|d| match d.method {
+                CertDiscoveryMethod::ByInclusion(cert) => Some(cert.0),
+                _ => None,
+            })
+            .collect()
     }
 }

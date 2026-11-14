@@ -73,6 +73,9 @@ installroot = ["pittv3-lib/installroot"]
 # Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
 # alternates become further candidate targets for path building.
 turducken = ["pittv3-lib/turducken"]
+# Referenced certificates per draft-ietf-lamps-certdiscovery: a CA certificate's included referenced
+# certificates join the CA certificates.
+certdiscovery = ["pittv3-lib/certdiscovery"]
 
 [dev-dependencies]
 base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }

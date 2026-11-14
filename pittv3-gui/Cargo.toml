@@ -93,6 +93,9 @@ openssl = ["pittv3-lib/openssl"]
 # Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
 # alternates become further candidate targets for path building.
 turducken = ["pittv3-lib/turducken", "pittv3-gui-lib/turducken"]
+# Referenced certificates per draft-ietf-lamps-certdiscovery: an end entity's included ones are
+# validated as targets of their own, and a CA's join the CA certificates.
+certdiscovery = ["pittv3-lib/certdiscovery", "pittv3-gui-lib/certdiscovery"]
 
 # Only the store tests load what src/stores.rs writes back, to confirm it is what options_std will
 # read; the app itself reaches certval through pittv3-lib.

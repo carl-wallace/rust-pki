@@ -955,6 +955,72 @@ pub(crate) async fn validate_cert_file(
     .await
 }
 
+/// Validates the end entity certificate in the file `cert_filename` and then each end entity
+/// certificate it includes by reference (draft-ietf-lamps-certdiscovery byInclusion), as the members
+/// of a bundle would be: each is a target of its own, named for the file it came from, and is
+/// validated when `opts` says to validate all or it has no definitive answer yet. An included
+/// certificate certifies another key, so it is not a candidate for the certificate including it.
+#[cfg(feature = "std")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn validate_ee_file(
+    pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    cert_filename: &str,
+    stats: &mut PathValidationStatsGroup,
+    opts: &ValidateOpts,
+    fresh_uris: &mut Vec<String>,
+    threshold: usize,
+    mut retain: Option<&mut Vec<RetainedPath>>,
+    mut uri_reports: Option<&mut UriCheckReports>,
+) {
+    let undecided = |s: &PathValidationStats| {
+        opts.validate_all || (s.valid_paths_per_target == 0 && !s.target_is_revoked)
+    };
+    stats.init_for_target(cert_filename);
+    if let Some(stats_for_file) = stats.get_mut(cert_filename) {
+        if undecided(stats_for_file) {
+            let _ = validate_cert_file(
+                pe,
+                cps,
+                cert_filename,
+                stats_for_file,
+                opts,
+                fresh_uris,
+                threshold,
+                retain.as_deref_mut(),
+                uri_reports.as_deref_mut(),
+            )
+            .await;
+        }
+    }
+
+    let included = get_file_as_byte_vec_pem(Path::new(cert_filename))
+        .map(|bytes| crate::candidates::included_referenced(&bytes))
+        .unwrap_or_default();
+    for (i, der) in included.into_iter().enumerate() {
+        let name = format!("{cert_filename} (referenced {} included)", i + 1);
+        stats.init_for_target(&name);
+        let Some(stats_for_ref) = stats.get_mut(&name) else {
+            continue;
+        };
+        if undecided(stats_for_ref) {
+            let _ = validate_cert_bytes_retaining(
+                pe,
+                cps,
+                &name,
+                &der,
+                stats_for_ref,
+                opts,
+                fresh_uris,
+                threshold,
+                retain.as_deref_mut(),
+                uri_reports.as_deref_mut(),
+            )
+            .await;
+        }
+    }
+}
+
 /// Identifies a certification path by its certificates: the trust anchor, then the intermediates in
 /// order, then the target, hashed together.
 ///
@@ -1622,27 +1688,18 @@ pub async fn validate_cert_folder_retaining(
                         }
 
                         if do_validate {
-                            stats.init_for_target(filename);
-                            if let Some(stats_for_file) = stats.get_mut(filename) {
-                                if opts.validate_all
-                                    || (stats_for_file.valid_paths_per_target == 0
-                                        && !stats_for_file.target_is_revoked)
-                                {
-                                    // validate when validating all or we don't have a definitive answer yet
-                                    let _ = validate_cert_file(
-                                        pe,
-                                        cps,
-                                        filename,
-                                        stats_for_file,
-                                        opts,
-                                        fresh_uris,
-                                        threshold,
-                                        retain.as_deref_mut(),
-                                        uri_reports.as_deref_mut(),
-                                    )
-                                    .await;
-                                }
-                            }
+                            validate_ee_file(
+                                pe,
+                                cps,
+                                filename,
+                                stats,
+                                opts,
+                                fresh_uris,
+                                threshold,
+                                retain.as_deref_mut(),
+                                uri_reports.as_deref_mut(),
+                            )
+                            .await;
                         } else {
                             info!("Skipping {filename}");
                         }

@@ -59,6 +59,9 @@ openssl = ["pittv3-lib/openssl"]
 # Alternate certificates per draft-davidben-lamps-turducken-certs: an input certificate's embedded
 # alternates become further candidate targets for path building.
 turducken = ["pittv3-lib/turducken"]
+# Referenced certificates per draft-ietf-lamps-certdiscovery: an end entity's included ones are
+# validated as targets of their own, and a CA's join the CA certificates.
+certdiscovery = ["pittv3-lib/certdiscovery"]
 
 [package.metadata.docs.rs]
 all-features = true

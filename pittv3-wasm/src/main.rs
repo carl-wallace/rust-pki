@@ -30,7 +30,9 @@ use pittv3_gui_lib::validate::{
     candidate_certs_in, inspect, looks_like_cbor_store, maybe_pem, InspectRequest, Inspected,
 };
 use pittv3_gui_lib::PITTV3_CSS;
-use pittv3_lib::candidates::chase_candidates;
+use pittv3_lib::candidates::{
+    chase_candidates, fold_referenced, included_referenced, referenced_uris,
+};
 use pittv3_lib::edit::{apply_edits, cleanup_candidates, EditedStore, StagedEdits};
 use pittv3_lib::inspect::{anchor_bytes, certificate_bytes};
 use pittv3_lib::installroot::installroot_from_bytes;
@@ -49,8 +51,8 @@ use pittv3_gui_lib::export::{
 use pittv3_gui_lib::retrieval::{add_uploaded_crl, harvest_revocation_work, staple_uploaded_ocsp};
 
 use crate::relay::{
-    chase_certificates, relay_peek, retrieve_crls, retrieve_ocsp, FetchBudget, RelayFetcher, Tier,
-    MAX_END_ENTITIES,
+    chase_certificates, relay_peek, retrieve_crls, retrieve_ocsp, retrieve_referenced, FetchBudget,
+    RelayFetcher, Tier, MAX_END_ENTITIES,
 };
 use crate::validate::{
     merge_service_stores, prepare_validation, shipped_catalog, validate_hackathon_zip,
@@ -104,9 +106,13 @@ const BUILT: &str = env!("PITTV3_BUILD_TIME");
 
 /// Pre-standard support compiled into this build, shown after the version and build time so the
 /// page says which kind of build it is; empty in a default build.
-#[cfg(feature = "turducken")]
+#[cfg(all(feature = "turducken", feature = "certdiscovery"))]
+const BUILD_NOTE: &str = " · turducken (draft-00) · certdiscovery (draft-06)";
+#[cfg(all(feature = "turducken", not(feature = "certdiscovery")))]
 const BUILD_NOTE: &str = " · turducken (draft-00)";
-#[cfg(not(feature = "turducken"))]
+#[cfg(all(feature = "certdiscovery", not(feature = "turducken")))]
+const BUILD_NOTE: &str = " · certdiscovery (draft-06)";
+#[cfg(not(any(feature = "turducken", feature = "certdiscovery")))]
 const BUILD_NOTE: &str = "";
 
 /// A view this application offers, named rather than numbered.
@@ -680,7 +686,8 @@ fn App() -> Element {
                 continue;
             }
             if let Ok(ders) = candidate_certs_in(bytes) {
-                for der in ders {
+                // As prepare_validation takes them in, with any CA certificates they include
+                for der in fold_referenced(ders) {
                     cert_source.push(CertFile {
                         filename: name.clone(),
                         bytes: der,
@@ -825,6 +832,33 @@ fn App() -> Element {
     // can say where a certificate in the path came from; they feed preparation exactly as an upload
     // does.
     let mut chased_cas = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // Referenced certificates retrieved for the loaded end entities (draft-ietf-lamps-certdiscovery
+    // byUri). Each certifies another key, so it is validated as a target of its own, as Section 6
+    // asks, rather than joining `chased_cas` or becoming a candidate for the end entity naming it.
+    let mut referenced_ees = use_signal(Vec::<(String, Vec<u8>)>::new);
+    // What a run validates: each loaded end entity followed by any referenced certificates it
+    // includes, as the members of a bundle would be, then the referenced certificates retrieved for
+    // the loaded end entities. A retrieved one stays held when the end entity naming it is removed,
+    // so loading that end entity again does not retrieve it again, but it is a target only while a
+    // loaded end entity names it.
+    let run_targets = move || {
+        let mut targets = vec![];
+        let mut named: Vec<String> = vec![];
+        for (name, bytes) in loaded_ees() {
+            let der = maybe_pem(&bytes).unwrap_or_default();
+            named.extend(referenced_uris(None, &der, false));
+            targets.push((name.clone(), bytes));
+            for (i, der) in included_referenced(&der).into_iter().enumerate() {
+                targets.push((format!("referenced {} included in {name}", i + 1), der));
+            }
+        }
+        targets.extend(
+            referenced_ees()
+                .into_iter()
+                .filter(|(name, _)| named.iter().any(|uri| name.starts_with(uri.as_str()))),
+        );
+        targets
+    };
     // Fetched CBOR for the most recently used store, cached as (store id, ta, ca) so repeated
     // validations with the same selection do not re-download it. Keyed by identifier rather than by
     // position, since position is a property of the catalogue rather than of the store.
@@ -1818,7 +1852,7 @@ fn App() -> Element {
                     }
                 }
                 for (name, bytes) in uploaded_ocsp() {
-                    let outcome = staple_uploaded_ocsp(prepared, &cps, &loaded_ees(), &bytes);
+                    let outcome = staple_uploaded_ocsp(prepared, &cps, &run_targets(), &bytes);
                     if outcome.matched > 0 {
                         notes.write().push(ResultLine {
                             class: "info",
@@ -1844,6 +1878,29 @@ fn App() -> Element {
         // certificates whose revocation status could be asked about, and the CRL distribution
         // points worth retrieving are the ones named on the path that building found.
         if tier().retrieves() {
+            // Referenced certificates the loaded end entities name by URI, retrieved before anything
+            // is validated so each joins the targets, as an included one does. Only the loaded
+            // certificates' own: a referenced certificate's references are not followed in turn.
+            if cps.get_retrieve_from_aia_sia_http() {
+                let held = referenced_ees();
+                let ees: Vec<(String, Vec<u8>)> = loaded_ees()
+                    .iter()
+                    .filter_map(|(name, bytes)| Some((name.clone(), maybe_pem(bytes).ok()?)))
+                    .collect();
+                let uris: Vec<String> = ees
+                    .iter()
+                    .flat_map(|(_, der)| referenced_uris(Some(&cps), der, false))
+                    .filter(|uri| !held.iter().any(|(name, _)| name.starts_with(uri.as_str())))
+                    .collect();
+                if !uris.is_empty() {
+                    let (referenced, referenced_notes) =
+                        retrieve_referenced(&uris, &ees, &mut budget, Some(cps.get_aia_timeout()))
+                            .await;
+                    notes.write().extend(referenced_notes);
+                    referenced_ees.write().extend(referenced);
+                }
+            }
+
             // Chasing is worth doing only when it is asked for and path building came up short.
             // Determining the second means validating first, and those results are discarded if a
             // retrieval changes the answer -- which is the same shape the service's own run uses.
@@ -1854,14 +1911,15 @@ fn App() -> Element {
                     stop_without_environment(notes, validating, view);
                     return;
                 };
-                let (reports, _) = validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
+                let (reports, _) =
+                    validate_prepared(prepared, &cps, &run_targets(), validate_all());
                 reports.iter().any(|r| !r.paths.is_empty())
             };
 
             if !built_a_path {
-                // The loaded end entities and any alternate certificates they carry, apart from
-                // candidates whose signature algorithm the settings do not permit
-                let mut seeds: Vec<(String, Vec<u8>)> = loaded_ees()
+                // The targets and any alternate certificates they carry, apart from candidates whose
+                // signature algorithm the settings do not permit
+                let mut seeds: Vec<(String, Vec<u8>)> = run_targets()
                     .iter()
                     .filter_map(|(name, bytes)| {
                         // PEM or DER, as validate_target accepts
@@ -1905,7 +1963,7 @@ fn App() -> Element {
                         return;
                     };
                     (
-                        harvest_revocation_work(prepared, &cps, &loaded_ees()),
+                        harvest_revocation_work(prepared, &cps, &run_targets()),
                         prepared.crl_source().clone(),
                         prepared.ocsp_responses().clone(),
                     )
@@ -1962,7 +2020,7 @@ fn App() -> Element {
                             return;
                         };
                         let (reports, _) =
-                            validate_prepared(prepared, &cps, &loaded_ees(), validate_all());
+                            validate_prepared(prepared, &cps, &run_targets(), validate_all());
                         // Conservative on purpose: a path with no outcomes recorded counts as
                         // unresolved, so this only skips on positive evidence that every position is
                         // settled. It can never turn a determinable path into an undetermined one.
@@ -2009,7 +2067,7 @@ fn App() -> Element {
         };
         notes.write().extend(prep_notes.iter().cloned());
         let (mut reports, lines, retained) =
-            validate_prepared_retaining(prepared, &cps, &loaded_ees(), validate_all(), true);
+            validate_prepared_retaining(prepared, &cps, &run_targets(), validate_all(), true);
         if retrieval_stopped_early {
             attribute_unretrieved_to_limit(&mut reports);
         }
@@ -2096,7 +2154,7 @@ fn App() -> Element {
             // The anchor half of the same record: the store's anchors plus the uploaded ones.
             built_anchors: prepared.built_anchors().map(<[u8]>::to_vec),
             settings: Some(cps.clone()),
-            end_entities: loaded_ees(),
+            end_entities: run_targets(),
             anchors_used: retained_paths
                 .read()
                 .iter()

@@ -111,6 +111,9 @@ clap = ["dep:clap"]
 # Alternate certificates per draft-davidben-lamps-turducken-certs: each input certificate's embedded
 # alternates are rebuilt and become further candidate targets for path building.
 turducken = []
+# Referenced certificates per draft-ietf-lamps-certdiscovery: helpers to take an end entity's out
+# as targets of their own and to fold a CA's into the CA certificates.
+certdiscovery = []
 # The platform's crypto provider (Security.framework on macOS, CNG on Windows) and AWS-LC as `--crypto`
 # choices. Enabled by `std`; the service, which builds below `std`, enables it by name.
 crypto-providers = ["dep:certval-security-framework", "dep:certval-cng", "dep:certval-awslc"]

@@ -135,7 +135,7 @@ use crate::inspect::{InspectReport, Inspected};
 use crate::prepared_graph::PreparedGraph;
 use crate::report::{ReportTotals, TargetReport, ValidationReport};
 use crate::retained::{RetainedPath, RetainedRun};
-use crate::stats::{PVStats, PathValidationStats, PathValidationStatsGroup};
+use crate::stats::{PathValidationStats, PathValidationStatsGroup};
 use crate::std_utils::*;
 use crate::time::{apply_time_of_interest, time_of_interest_from_secs};
 use crate::uri_check::UriCheckReports;
@@ -1382,6 +1382,13 @@ async fn generate_and_validate(
         info!("Added {added} CA certificate(s) from an InstallRoot stream named as a trust anchor input");
     }
 
+    // The CA certificates the CA inputs include by reference, as the members of a bundle are
+    let folded = fold_referenced_cas(&mut cert_source, 0);
+    if 0 < folded {
+        ca_folder_certs += folded;
+        info!("Added {folded} CA certificate(s) included by reference in CA certificates");
+    }
+
     loop {
         // What the pool held before this pass did anything. Only fetching adds to it now that the
         // CA inputs are folded in before the loop, so comparing against this says whether the pass
@@ -1524,6 +1531,12 @@ async fn generate_and_validate(
         // graph is held, instead of leaving it to a return value in another crate.
         //TODO refactor to make TaSource.tas and CertSource.certs RefCells with on demand parsing
         //instead of holding all certs parsed all the time?
+        // What this pass fetched may include CA certificates by reference, which join the pool as
+        // the members of a fetched bundle do
+        if 0 < pass {
+            fold_referenced_cas(&mut cert_source, certs_at_pass_start);
+        }
+
         if !(graph_already_parsed && 0 == pass) {
             if let Err(e) = cert_source.initialize(&cps) {
                 error!("Failed to populate cert map: {e}");
@@ -1584,27 +1597,18 @@ async fn generate_and_validate(
         // perform validation of end entity certificate file or folder. pass in fresh_uris to collect
         // URIs from any relevant trust anchors.
         if let Some(filename) = &args.end_entity_file {
-            stats.init_for_target(filename);
-            if let Some(stats_for_file) = stats.get_mut(filename) {
-                if args.validate_all
-                    || (stats_for_file.valid_paths_per_target == 0
-                        && !stats_for_file.target_is_revoked)
-                {
-                    // validate when validating all or we don't have a definitive answer yet
-                    let _ = validate_cert_file(
-                        &pe,
-                        &cps,
-                        filename.as_str(),
-                        stats_for_file,
-                        &validate_opts,
-                        &mut fresh_uris,
-                        threshold,
-                        retain.then_some(&mut retained),
-                        uri_reports.as_mut(),
-                    )
-                    .await;
-                }
-            }
+            validate_ee_file(
+                &pe,
+                &cps,
+                filename.as_str(),
+                &mut stats,
+                &validate_opts,
+                &mut fresh_uris,
+                threshold,
+                retain.then_some(&mut retained),
+                uri_reports.as_mut(),
+            )
+            .await;
         }
 
         if let Some(folder) = &args.end_entity_folder {
@@ -1642,27 +1646,18 @@ async fn generate_and_validate(
                 .await;
                 continue;
             }
-            stats.init_for_target(input);
-            let Some(stats_for_file) = stats.get_mut(input) else {
-                continue;
-            };
-            // validate when validating all or we don't have a definitive answer yet
-            if args.validate_all
-                || (stats_for_file.valid_paths_per_target == 0 && !stats_for_file.target_is_revoked)
-            {
-                let _ = validate_cert_file(
-                    &pe,
-                    &cps,
-                    input.as_str(),
-                    stats_for_file,
-                    &validate_opts,
-                    &mut fresh_uris,
-                    threshold,
-                    retain.then_some(&mut retained),
-                    uri_reports.as_mut(),
-                )
-                .await;
-            }
+            validate_ee_file(
+                &pe,
+                &cps,
+                input.as_str(),
+                &mut stats,
+                &validate_opts,
+                &mut fresh_uris,
+                threshold,
+                retain.then_some(&mut retained),
+                uri_reports.as_mut(),
+            )
+            .await;
         }
 
         pe.clear_certificate_sources();
@@ -1876,4 +1871,24 @@ async fn generate_and_validate(
         });
     }
     report
+}
+
+/// Pushes onto `cert_source` the CA certificates its certificates from index `from` on include by
+/// reference (draft-ietf-lamps-certdiscovery byInclusion), as the members of a certs-only PKCS #7
+/// message are taken in, returning how many were added. Adds nothing without the `certdiscovery`
+/// feature.
+fn fold_referenced_cas(cert_source: &mut CertSource, from: usize) -> usize {
+    let before = cert_source.len();
+    for cf in cert_source.get_buffers().into_iter().skip(from) {
+        for der in crate::candidates::fold_referenced(vec![cf.bytes])
+            .into_iter()
+            .skip(1)
+        {
+            cert_source.push(CertFile {
+                filename: format!("{} (referenced)", cf.filename),
+                bytes: der,
+            });
+        }
+    }
+    cert_source.len() - before
 }

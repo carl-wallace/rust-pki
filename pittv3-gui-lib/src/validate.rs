@@ -11,7 +11,7 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use certval::*;
-use pittv3_lib::candidates::get_paths_for_candidates;
+use pittv3_lib::candidates::{fold_referenced, get_paths_for_candidates};
 use pittv3_lib::crypto::{populate_with_crypto, CryptoProvider};
 #[cfg(feature = "installroot")]
 use pittv3_lib::installroot::installroot_from_bytes;
@@ -429,6 +429,9 @@ fn assemble(
         }
         match candidate_certs_in(bytes) {
             Ok(ders) => {
+                // A CA certificate's referenced certificates are CA certificates too, taken in as
+                // the members of a bundle are
+                let ders = fold_referenced(ders);
                 let count = ders.len();
                 for (i, der) in ders.into_iter().enumerate() {
                     cert_source.push(CertFile {
