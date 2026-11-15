@@ -1,0 +1,127 @@
+# Builds pittv3 for Linux, macOS and Windows and publishes the binaries as a GitHub release. A push
+# of a tag named pittv3-v<version> publishes; <version> must be the version in pittv3/Cargo.toml.
+# A manual run builds and smoke-tests the same binaries and keeps them as workflow artifacts, without
+# publishing anything, which is how to try a change to this workflow before tagging.
+name: pittv3-release
+
+on:
+  push:
+    tags: ["pittv3-v*"]
+  workflow_dispatch:
+
+# This workflow sets no RUSTFLAGS, unlike certval.yml and pittv3-ui.yml. RUSTFLAGS in the environment
+# replaces the target rustflags in .cargo/config.toml, and the Windows binary needs the /STACK
+# reserve set there: without it pittv3.exe overflows its stack on the 256-bit SLH-DSA parameter
+# sets. The smoke test below validates an SLH-DSA-SHAKE-256s certificate, so a lost reserve fails
+# the build rather than shipping.
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than ubuntu-latest so the binary needs only glibc 2.35, and runs on older
+          # distributions as well as current ones. TLS is rustls over aws-lc, linked statically,
+          # so glibc is the only system library the binary loads.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            features: ""
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            features: ""
+            archive: tar.gz
+          # capi adds the Windows certificate stores as trust anchor sources.
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            features: "--features capi"
+            archive: zip
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Read the version
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "pittv3") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The tag names the version being built
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "pittv3-v${{ steps.version.outputs.version }}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match pittv3 ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+      - run: cargo build --release --locked -p pittv3 --target ${{ matrix.target }} ${{ matrix.features }}
+      - name: Smoke test
+        run: |
+          bin=target/${{ matrix.target }}/release/pittv3
+          "$bin" --version
+          "$bin" --validate-self-signed --end-entity-file \
+            pittv3/tests/examples/slhdsa/SLH-DSA-SHAKE-256s-2.16.840.1.101.3.4.3.30_ta.der \
+            | tee smoke.txt
+          grep -q "is self-signed" smoke.txt
+      - name: Package
+        id: package
+        run: |
+          name=pittv3-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then exe=.exe; fi
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/pittv3$exe "$name"/
+          cp pittv3/README.md pittv3/CHANGELOG.md certval/LICENSE-APACHE certval/LICENSE-MIT "$name"/
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          echo "file=$name.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum pittv3-* | tee SHA256SUMS
+      # A provenance attestation for each archive, checked with `gh attestation verify <file>
+      # --repo carl-wallace/rust-pki`: it ties the file to this workflow run and the tagged commit.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/pittv3-*
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#pittv3-v}
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "pittv3 $version" \
+            --notes "pittv3 $version for Linux (x86_64, glibc 2.35 or later), macOS (Apple silicon) and Windows (x86_64). SHA256SUMS lists each archive's SHA-256; each archive also carries a build provenance attestation. Changes are in pittv3/CHANGELOG.md." \
+            $prerelease
