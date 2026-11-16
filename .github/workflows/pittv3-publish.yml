@@ -68,12 +68,15 @@ jobs:
           for archive in dist/*.tar.gz; do
             tar xzf "$archive" -C dist
           done
+          # A binary inside an app bundle is checked with its bundle, below.
           bins=()
           while IFS= read -r -d '' f; do
             if file -b "$f" | grep -q '^Mach-O'; then bins+=("$f"); fi
-          done < <(find dist -mindepth 2 -type f -perm -u+x -print0)
-          if [ ${#bins[@]} -eq 0 ]; then echo "no Mach-O binary in the macOS archives"; exit 1; fi
-          for bin in "${bins[@]}"; do
+          done < <(find dist -mindepth 2 -type d -name '*.app' -prune -o -type f -perm -u+x -print0)
+          apps=()
+          while IFS= read -r -d '' a; do apps+=("$a"); done < <(find dist -type d -name '*.app' -prune -print0)
+          if [ ${#bins[@]} -eq 0 ] && [ ${#apps[@]} -eq 0 ]; then echo "no Mach-O binary in the macOS archives"; exit 1; fi
+          for bin in ${bins[@]+"${bins[@]}"}; do
             codesign --verify --strict --verbose=2 "$bin"
             info=$(codesign -dv --verbose=2 "$bin" 2>&1)
             echo "$info"
@@ -88,6 +91,27 @@ jobs:
             spctl --assess --type open --context context:primary-signature --verbose=2 "$bin" 2>&1 | tee spctl.txt
             grep -q "source=Notarized Developer ID" spctl.txt
           done
+      # A GUI program opens on a double-click only from an app bundle: each GUI archive must hold one,
+      # signed as a whole, notarized, with the ticket stapled, and accepted by the assessment a
+      # double-click makes.
+      - name: Every GUI is a signed, notarized app bundle
+        run: |
+          for archive in dist/pittv3-gui-*.tar.gz; do
+            dir=dist/$(basename "$archive" .tar.gz)
+            n=$(find "$dir" -maxdepth 1 -type d -name '*.app' | wc -l)
+            [ "$n" -eq 1 ] || { echo "$(basename "$archive") holds $n app bundles, not one"; exit 1; }
+          done
+          while IFS= read -r -d '' app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            info=$(codesign -dv --verbose=2 "$app" 2>&1)
+            echo "$info"
+            echo "$info" | grep -qF "Authority=Developer ID Application: $SIGNER ($APPLE_TEAM_ID)"
+            echo "$info" | grep -q "flags=.*runtime"
+            echo "$info" | grep -q "^Timestamp="
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app" 2>&1 | tee spctl.txt
+            grep -q "source=Notarized Developer ID" spctl.txt
+          done < <(find dist -type d -name '*.app' -prune -print0)
 
   verify-windows:
     needs: check
@@ -153,7 +177,10 @@ jobs:
           subject-path: dist/pittv3-*
       - name: Notes
         run: |
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          # The notes as drafted, without a Signatures section a previous publish of this release
+          # wrote, which is the last section.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body \
+            | sed '/^## Signatures$/,$d' > notes.md
           if [ "$SIGNED" = true ]; then
             cat >> notes.md <<EOF
 
@@ -161,7 +188,7 @@ jobs:
 
           The macOS binaries are signed with $SIGNER's Developer ID and notarized by Apple; the
           Windows binaries are signed with $SIGNER's code-signing certificate. The signatures are
-          timestamped.
+          timestamped. The macOS GUI comes as an app bundle, pittv3-gui.app, with the notarization ticket stapled to it.
           EOF
           else
             cat >> notes.md <<'EOF'
