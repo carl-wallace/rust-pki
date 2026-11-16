@@ -75,7 +75,7 @@ jobs:
             readme: pittv3-gui/README.md
             changelog: ""
     env:
-      target: ${{ matrix.platform.target }}
+      ARCHIVE_TARGET: ${{ matrix.platform.target }}
     defaults:
       run:
         shell: bash
@@ -130,7 +130,7 @@ jobs:
             lipo -archs "universal/$name"
             echo "path=universal/$name" >> "$GITHUB_OUTPUT"
           else
-            echo "path=target/$target/release/$name$exe" >> "$GITHUB_OUTPUT"
+            echo "path=target/$ARCHIVE_TARGET/release/$name$exe" >> "$GITHUB_OUTPUT"
           fi
       # The CLI only: a window cannot be opened on these runners. On macOS this runs the runner's
       # own slice of the universal binary.
@@ -146,7 +146,7 @@ jobs:
       - name: Package
         id: package
         run: |
-          name=${{ matrix.package }}-${{ steps.version.outputs.version }}-$target
+          name=${{ matrix.package }}-${{ steps.version.outputs.version }}-$ARCHIVE_TARGET
           mkdir "$name"
           cp ${{ steps.bin.outputs.path }} "$name"/
           cp ${{ matrix.readme }} ${{ matrix.changelog }} certval/LICENSE-APACHE certval/LICENSE-MIT "$name"/
