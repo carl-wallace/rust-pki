@@ -1,13 +1,13 @@
-# Publishes a draft release that pittv3-release.yml made, once its macOS and Windows archives hold signed
-# binaries: checks the signatures, writes SHA256SUMS and a build provenance attestation over the
-# files the release holds now, and takes the release out of draft. Run by hand:
+# Publishes a draft release that pittv3-release.yml made, once its macOS and Windows archives hold
+# signed binaries: checks the signatures, writes SHA256SUMS and a build provenance attestation over
+# the files the release holds now, and takes the release out of draft. Run by hand:
 #
 #   gh workflow run pittv3-publish.yml --repo carl-wallace/rust-pki -f tag=pittv3-v<version>
 #
 # require_signatures (default true) refuses to publish unless every macOS binary (pittv3 and
 # pittv3-gui) carries Red Hound Software's Developer ID signature and every Windows binary its
-# Authenticode signature, each timestamped. Set it false to publish a release whose binaries were not signed, e.g. a release
-# candidate; the notes then say so.
+# Authenticode signature, each timestamped. Set it false to publish a release whose binaries were
+# not signed, e.g. a release candidate; the notes then say so.
 name: pittv3-publish
 
 on:
