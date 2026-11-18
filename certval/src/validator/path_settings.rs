@@ -473,6 +473,13 @@ pub static PS_CBOR_TA_STORE: &str = "psCborTaStore";
 pub static PS_REQUIRE_TA_STORE: &str = "psRequireTaStore";
 /// PS_FORBID_SELF_SIGNED_EE is used to forbid allowing self-signed end-identity certificates
 pub static PS_FORBID_SELF_SIGNED_EE: &str = "psForbidSelfSignedEE";
+/// `PS_EXCLUDED_KEYS` is used to retrieve a list of key digests from a [`CertificationPathSettings`]
+/// object; a settings file writes it as `{"Strings": ["<64 hex digits>", ...]}`. Each is the SHA-256
+/// digest of a DER-encoded SubjectPublicKeyInfo, in hex (case is ignored), as
+/// [`key_digest`](crate::key_digest) computes it. A path on which the trust anchor or any certificate
+/// carries one of these keys fails with `ExcludedKey`, so a key can be distrusted whichever
+/// certificate or trust anchor carries it. Empty by default.
+pub static PS_EXCLUDED_KEYS: &str = "psExcludedKeys";
 
 //-----------------------------------------------------------------------------------------------
 // Getters/setters for settings
@@ -870,6 +877,23 @@ cps_gets_and_sets_with_default!(PS_MAX_AIA_FETCH_BYTES, u64, PS_MAX_AIA_FETCH_BY
 // PS_MAXIMUM_PATH_DEPTH (ditch this and use PS_INITIAL_PATH_LENGTH_CONSTRAINT)
 cps_gets_and_sets_with_default!(PS_REQUIRE_TA_STORE, bool, true);
 cps_gets_and_sets_with_default!(PS_FORBID_SELF_SIGNED_EE, bool, false);
+
+impl CertificationPathSettings {
+    /// `get_excluded_keys` retrieves the `PS_EXCLUDED_KEYS` digests; empty when the setting is absent.
+    pub fn get_excluded_keys(&self) -> Strings {
+        match self.0.get(PS_EXCLUDED_KEYS) {
+            Some(CertificationPathProcessingTypes::Strings(v)) => v.clone(),
+            _ => Vec::new(),
+        }
+    }
+    /// `set_excluded_keys` sets the `PS_EXCLUDED_KEYS` digests.
+    pub fn set_excluded_keys(&mut self, v: Strings) {
+        self.0.insert(
+            PS_EXCLUDED_KEYS.to_string(),
+            CertificationPathProcessingTypes::Strings(v),
+        );
+    }
+}
 
 impl CertificationPathSettings {
     /// `get_target_key_usage` retrieves the `PS_KEY_USAGE` value from a
