@@ -761,6 +761,79 @@ fn rsa_key_shorter_than_the_minimum_fails_the_path() {
     assert!(r.is_ok(), "a minimum of 0 checks nothing: {r:?}");
 }
 
+/// An excluded key fails the path wherever it sits: at the anchor (index 0), at the CA (1) or at
+/// the target (2). The digest is matched without regard to case, and a digest of a key not on the
+/// path changes nothing. key_digest agrees with OpenSSL's SHA-256 of the anchor's DER
+/// SubjectPublicKeyInfo.
+#[cfg(feature = "rsa")]
+#[test]
+fn excluded_key_fails_the_path_wherever_it_sits() {
+    let mut ta = PDVTrustAnchorChoice::try_from(
+        include_bytes!("examples/TrustAnchorRootCertificate.crt").as_slice(),
+    )
+    .unwrap();
+    ta.parse_extensions(EXTS_OF_INTEREST);
+    let mut ca =
+        PDVCertificate::try_from(include_bytes!("examples/GoodCACert.crt").as_slice()).unwrap();
+    ca.parse_extensions(EXTS_OF_INTEREST);
+    let mut ee = PDVCertificate::try_from(
+        include_bytes!("examples/ValidCertificatePathTest1EE.crt").as_slice(),
+    )
+    .unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+
+    let anchor_digest =
+        key_digest(get_subject_public_key_info_from_trust_anchor(ta.decoded())).unwrap();
+    assert_eq!(
+        anchor_digest,
+        "82938BD482352907407F8DCEB6BCBD9DAF192AC8EF2333EE1365E0B4C2BA990F"
+    );
+    let ca_digest = key_digest(ca.decoded().tbs_certificate().subject_public_key_info()).unwrap();
+    let ee_digest = key_digest(ee.decoded().tbs_certificate().subject_public_key_info()).unwrap();
+    let cert_path = CertificationPath::new(ta, vec![ca], ee);
+
+    let mut ta_store = TaSource::new();
+    ta_store.push(CertFile {
+        filename: "TrustAnchorRootCertificate.crt".to_string(),
+        bytes: include_bytes!("examples/TrustAnchorRootCertificate.crt").to_vec(),
+    });
+    ta_store.initialize().unwrap();
+    let mut pe = PkiEnvironment::new();
+    pe.populate_5280_pki_environment();
+    pe.add_trust_anchor_source(Box::new(ta_store));
+
+    let validate = |excluded: Vec<String>| {
+        let mut cps = CertificationPathSettings::new();
+        cps.set_excluded_keys(excluded);
+        let mut cpr = CertificationPathResults::new();
+        let r = validate_path_rfc5280(&pe, &cps, &cert_path, &mut cpr);
+        (r, cpr)
+    };
+
+    let (r, _) = validate(vec![]);
+    assert!(r.is_ok(), "nothing excluded: {r:?}");
+    let unrelated = "00".repeat(32);
+    let (r, _) = validate(vec![unrelated]);
+    assert!(r.is_ok(), "a key not on the path: {r:?}");
+
+    for (digest, index) in [
+        (anchor_digest.to_lowercase(), 0),
+        (ca_digest, 1),
+        (ee_digest, 2),
+    ] {
+        let (r, cpr) = validate(vec![digest]);
+        assert!(matches!(
+            r,
+            Err(Error::PathValidation(PathValidationStatus::ExcludedKey))
+        ));
+        assert_eq!(
+            cpr.get_validation_status(),
+            Some(PathValidationStatus::ExcludedKey)
+        );
+        assert_eq!(cpr.get_failure_index(), Some(index));
+    }
+}
+
 /// The PKITS good path is signed with sha256WithRSAEncryption throughout. With that algorithm
 /// permitted, or no list at all, or an empty one, the path validates; with only ML-DSA-65
 /// permitted it fails at the first signed certificate, the CA.

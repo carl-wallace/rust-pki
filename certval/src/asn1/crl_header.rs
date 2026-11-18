@@ -48,12 +48,16 @@ pub struct CertificateListHeader<'a> {
 /// }
 /// ```
 ///
-/// The fields other than `revoked_certificates` decode as in [`x509_cert::crl::TbsCertList`].
+/// The fields other than `revoked_certificates` decode as in [`x509_cert::crl::TbsCertList`], except
+/// that a missing `version` decodes as [`Version::V1`], since RFC 5280 makes the field optional
+/// (x509-cert 0.3.0 requires it).
 ///
 /// [RFC 5280 Section 5.1]: https://datatracker.ietf.org/doc/html/rfc5280#section-5.1
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
 pub struct TbsCertListHeader<'a> {
-    /// CRL format version.
+    /// CRL format version. Absent in a v1 CRL, where it decodes as [`Version::V1`]; `V1` is omitted
+    /// when encoding, so a v1 CRL re-encodes to the same bytes.
+    #[asn1(default = "Default::default")]
     pub version: Version,
     /// Algorithm used to sign the CRL, which must match `signature_algorithm` in the
     /// [`CertificateListHeader`].
@@ -95,5 +99,39 @@ impl EncodeValue for RevokedCertificatesRef<'_> {
 
     fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
         self.0.encode_value(writer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use der::{Decode, Encode};
+
+    /// A v1 CRL, with no version field: TBSCertList { sha256WithRSAEncryption, CN=test,
+    /// thisUpdate 260101000000Z }, as reported in RustCrypto/formats#2544.
+    const V1_CRL: &[u8] = &hex_literal::hex!(
+        "3044" "302f" "300d06092a864886f70d01010b0500"
+        "300f310d300b06035504030c0474657374" "170d3236303130313030303030305a"
+        "300d06092a864886f70d01010b0500" "03020000"
+    );
+
+    #[test]
+    fn a_v1_crl_without_a_version_decodes_as_v1() {
+        let crl = CertificateListHeader::from_der(V1_CRL).unwrap();
+        assert_eq!(crl.tbs_cert_list.version, Version::V1);
+        assert_eq!(crl.to_der().unwrap(), V1_CRL);
+        #[cfg(feature = "revocation")]
+        {
+            let info = crate::get_crl_info_from_header(&crl).unwrap();
+            assert_eq!(info.issuer_name, "CN=test");
+        }
+    }
+
+    #[test]
+    fn a_v2_crl_keeps_its_version() {
+        let der = include_bytes!("../../tests/examples/makaan.com/crls/2-crl.crl");
+        let crl = CertificateListHeader::from_der(der).unwrap();
+        assert_eq!(crl.tbs_cert_list.version, Version::V2);
+        assert_eq!(crl.to_der().unwrap(), der.as_slice());
     }
 }

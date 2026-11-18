@@ -96,7 +96,7 @@ pub struct PkiEnvironment {
     //Storage and retrieval interfaces
     //--------------------------------------------------------------------------
     /// List of trait objects that provide access to trust anchors
-    trust_anchor_sources: Vec<Box<dyn TrustAnchorSource + Send + Sync>>,
+    pub(crate) trust_anchor_sources: Vec<Box<dyn TrustAnchorSource + Send + Sync>>,
 
     /// Hex-encoded subject key identifiers that resolve to more than one distinct public key across
     /// the registered `trust_anchor_sources`. Such a SKID cannot unambiguously identify a trust
@@ -105,10 +105,10 @@ pub struct PkiEnvironment {
     poisoned_ta_skids: BTreeSet<String>,
 
     /// List of trait objects that provide access to certificates
-    certificate_sources: Vec<Box<dyn CertificateSource + Send + Sync>>,
+    pub(crate) certificate_sources: Vec<Box<dyn CertificateSource + Send + Sync>>,
 
     /// List of trait objects that provide access to CRLs
-    crl_sources: Vec<Box<dyn CrlSource + Send + Sync>>,
+    pub(crate) crl_sources: Vec<Box<dyn CrlSource + Send + Sync>>,
 
     /// List of trait objects that provide access to cached revocation status determinations
     revocation_cache: Vec<Box<dyn RevocationStatusCache + Send + Sync>>,
@@ -537,6 +537,17 @@ impl PkiEnvironment {
         self.trust_anchor_sources
             .iter()
             .filter_map(|src| src.get_trust_anchors().ok())
+            .flatten()
+            .collect()
+    }
+
+    /// get_certificates returns the certificates from every registered certificate source, merged
+    /// into a single collection, as [`get_trust_anchors`](PkiEnvironment::get_trust_anchors) does
+    /// for anchors. Sources that yield no certificates are skipped.
+    pub fn get_certificates(&self) -> Vec<&PDVCertificate> {
+        self.certificate_sources
+            .iter()
+            .filter_map(|src| src.get_certificates().ok())
             .flatten()
             .collect()
     }

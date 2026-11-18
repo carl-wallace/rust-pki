@@ -2,6 +2,7 @@
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
+use alloc::string::String;
 use alloc::vec;
 
 use log::info;
@@ -15,7 +16,8 @@ use crate::{
 use const_oid::db::rfc5280::ANY_POLICY;
 use const_oid::db::rfc5912::*;
 use const_oid::db::rfc6960::ID_PKIX_OCSP_NOCHECK;
-use der::{asn1::ObjectIdentifier, Decode};
+use der::{asn1::ObjectIdentifier, Decode, Encode};
+use sha2::{Digest, Sha256};
 use x509_cert::anchor::TrustAnchorChoice;
 use x509_cert::ext::pkix::constraints::name::GeneralSubtrees;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -77,6 +79,8 @@ pub fn validate_path_rfc5280(
     // object reused from an earlier validation last recorded as valid.
     cpr.set_validation_status(PathValidationStatus::NotYetValidated);
     check_validity(pe, cps, cp, cpr)?;
+    // Before the target-is-an-anchor shortcut below, so an excluded key cannot be accepted that way.
+    check_excluded_keys(pe, cps, cp, cpr)?;
     if cps.get_require_ta_store() {
         if pe.is_cert_a_trust_anchor(&cp.target).is_ok() {
             // The target carries the key of an anchor in the trust store, so it is trusted on its
@@ -284,6 +288,58 @@ pub fn check_signature_algorithms(
         }
     }
     Ok(())
+}
+
+/// `key_digest` returns the SHA-256 digest of a DER-encoded SubjectPublicKeyInfo as upper case hex,
+/// the form [`PS_EXCLUDED_KEYS`] holds.
+pub fn key_digest(spki: &spki::SubjectPublicKeyInfoOwned) -> Result<String> {
+    let der = spki.to_der().map_err(Error::Asn1Error)?;
+    Ok(crate::buffer_to_hex(Sha256::digest(&der).as_slice()))
+}
+
+/// `check_excluded_keys` rejects a path in which the trust anchor, an intermediate CA certificate
+/// or the target carries a key whose digest [`PS_EXCLUDED_KEYS`] lists.
+pub fn check_excluded_keys(
+    _pe: &PkiEnvironment,
+    cps: &CertificationPathSettings,
+    cp: &CertificationPath,
+    cpr: &mut CertificationPathResults,
+) -> Result<()> {
+    let excluded = cps.get_excluded_keys();
+    if excluded.is_empty() {
+        return Ok(());
+    }
+    // failure_index uses the trust-anchor-first convention of PR_FAILURE_INDEX
+    let mut check = |spki: &spki::SubjectPublicKeyInfoOwned, failure_index: u32| -> Result<()> {
+        let digest = key_digest(spki)?;
+        if excluded.iter().any(|e| e.eq_ignore_ascii_case(&digest)) {
+            info!("Key with digest {digest} is excluded");
+            cpr.set_validation_status(PathValidationStatus::ExcludedKey);
+            cpr.set_failure_index(failure_index);
+            return Err(Error::PathValidation(PathValidationStatus::ExcludedKey));
+        }
+        Ok(())
+    };
+    check(
+        get_subject_public_key_info_from_trust_anchor(cp.trust_anchor.decoded()),
+        0,
+    )?;
+    for (pos, ca_cert) in cp.intermediates.iter().enumerate() {
+        check(
+            ca_cert
+                .decoded()
+                .tbs_certificate()
+                .subject_public_key_info(),
+            pos as u32 + 1,
+        )?;
+    }
+    check(
+        cp.target
+            .decoded()
+            .tbs_certificate()
+            .subject_public_key_info(),
+        cp.intermediates.len() as u32 + 1,
+    )
 }
 
 /// `check_key_sizes` rejects a path in which the trust anchor or an intermediate CA certificate

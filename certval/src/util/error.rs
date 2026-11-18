@@ -99,6 +99,9 @@ pub enum PathValidationStatus {
     /// InvalidPolicyMapping occurs when a policy mappings extension maps to or from anyPolicy
     /// (RFC 5280 section 6.1.4 (a)).
     InvalidPolicyMapping,
+    /// ExcludedKey occurs when the trust anchor or a certificate in a certification path carries a
+    /// public key whose digest the settings exclude (`PS_EXCLUDED_KEYS`).
+    ExcludedKey,
     /// NotYetValidated is the status a [`CertificationPathResults`](crate::CertificationPathResults)
     /// holds before validation records a verdict. A path whose validation returned an error without
     /// recording a more specific status also carries it, so it never reads as valid.
@@ -214,6 +217,7 @@ impl fmt::Display for PathValidationStatus {
                 write!(f, "TrustAnchorConstraintsMismatch")
             }
             PathValidationStatus::InvalidPolicyMapping => write!(f, "InvalidPolicyMapping"),
+            PathValidationStatus::ExcludedKey => write!(f, "ExcludedKey"),
             PathValidationStatus::NotYetValidated => write!(f, "NotYetValidated"),
             PathValidationStatus::ProcessingLimitExceeded => {
                 write!(f, "ProcessingLimitExceeded")

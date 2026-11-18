@@ -20,6 +20,7 @@ use const_oid::db::rfc5912::{
 use der::{Decode, Encode};
 use x509_cert::{
     certificate::Raw, crl::CertificateList, ext::pkix::IssuingDistributionPoint, ext::Extensions,
+    name::Name,
 };
 
 use crate::environment::pki_environment_traits::crl_number;
@@ -411,6 +412,39 @@ impl CrlSource for CrlSourceFolders {
             .collect())
     }
 
+    #[cfg_attr(not(feature = "revocation"), allow(unused_variables))]
+    fn get_crl_candidates_for_issuer(&self, issuer: &Name) -> Result<Vec<CrlCandidate>> {
+        #[cfg(feature = "revocation")]
+        {
+            let issuer = issuer.to_der().map_err(Error::Asn1Error)?;
+            let inner = self.inner.read().map_err(|_| Error::Unrecognized)?;
+            Ok(inner
+                .crl_info
+                .iter()
+                .enumerate()
+                .filter(|(_, info)| {
+                    info.issuer_name_blob == issuer
+                        && info.type_info.scope != CrlScope::Delta
+                        && info.type_info.scope != CrlScope::DeltaDp
+                })
+                .map(|(index, info)| {
+                    let exts = info
+                        .exts_blob
+                        .as_deref()
+                        .and_then(|exts| Extensions::from_der(exts).ok());
+                    CrlCandidate {
+                        this_update: info.this_update,
+                        next_update: info.next_update,
+                        crl_number: crl_number(exts.as_ref()),
+                        data: CrlCandidateData::Index(index),
+                    }
+                })
+                .collect())
+        }
+        #[cfg(not(feature = "revocation"))]
+        Ok(Vec::new())
+    }
+
     fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
         let inner = self.inner.read().map_err(|_| Error::Unrecognized)?;
         if index >= inner.crl_info.len() {
@@ -783,6 +817,9 @@ impl CrlSource for Arc<CrlSourceFolders> {
     }
     fn get_crl_candidates(&self, cert: &PDVCertificate) -> Result<Vec<CrlCandidate>> {
         (**self).get_crl_candidates(cert)
+    }
+    fn get_crl_candidates_for_issuer(&self, issuer: &Name) -> Result<Vec<CrlCandidate>> {
+        (**self).get_crl_candidates_for_issuer(issuer)
     }
     fn load_crl(&self, index: usize) -> Result<Vec<u8>> {
         (**self).load_crl(index)

@@ -1,0 +1,199 @@
+# Builds pittv3 and pittv3-gui for Linux, macOS and Windows and puts the binaries in a draft GitHub
+# release, for the macOS and Windows binaries to be signed and the release published by
+# pittv3-publish.yml. A push of a tag named pittv3-v<version> makes the draft; <version> must be the
+# version in both pittv3/Cargo.toml and pittv3-gui/Cargo.toml.
+#
+# Everything but the signatures is done here, from the tag, so that what is signed is what CI built:
+# each archive carries a build provenance attestation, which is checked before what is in it is
+# signed. Signing replaces the macOS and Windows archives in the draft with archives of the signed
+# binaries, under the same names; pittv3-publish.yml then checks the signatures, writes SHA256SUMS
+# and an attestation over the final files, and publishes.
+#
+# A manual run builds and smoke-tests the same binaries and keeps them as workflow artifacts, without
+# making a release, which is how to try a change to this workflow before tagging. A manual run given
+# release_tag builds from that existing tag and makes its draft.
+name: pittv3-release
+
+on:
+  push:
+    tags: ["pittv3-v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing tag (pittv3-v<version>) to build and make a draft release of; empty to build without one"
+        required: false
+        default: ""
+
+# This workflow sets no RUSTFLAGS, unlike certval.yml and pittv3-ui.yml. RUSTFLAGS in the environment
+# replaces the target rustflags in .cargo/config.toml, and the Windows binary needs the /STACK
+# reserve set there: without it pittv3.exe overflows its stack on the 256-bit SLH-DSA parameter
+# sets. The smoke test below validates an SLH-DSA-SHAKE-256s certificate, so a lost reserve fails
+# the build rather than shipping.
+
+jobs:
+  build:
+    name: build ${{ matrix.package }} (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [pittv3, pittv3-gui]
+        platform:
+          # 22.04 rather than ubuntu-latest so the CLI needs only glibc 2.35, and runs on older
+          # distributions as well as current ones. TLS is rustls over aws-lc, linked statically,
+          # so glibc is the only system library the CLI loads. The GUI links webkit2gtk-4.1, GTK 3
+          # and libxdo dynamically, so a user needs their runtime packages installed; 22.04 is the
+          # oldest Ubuntu that has webkit2gtk-4.1.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            builds: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+            features: ""
+            archive: tar.gz
+          # One universal binary, for Apple silicon and Intel Macs alike: both are built and
+          # combined with lipo, under the name cargo-binstall looks for on any Mac.
+          - os: macos-latest
+            target: universal-apple-darwin
+            builds: aarch64-apple-darwin x86_64-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            features: ""
+            archive: tar.gz
+          # capi adds the Windows certificate stores as trust anchor sources (the GUI's store
+          # selector, for pittv3-gui).
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            builds: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            features: "--features capi"
+            archive: zip
+        include:
+          - package: pittv3
+            readme: pittv3/README.md
+            changelog: pittv3/CHANGELOG.md
+          - package: pittv3-gui
+            readme: pittv3-gui/README.md
+            changelog: ""
+    env:
+      ARCHIVE_TARGET: ${{ matrix.platform.target }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      # The same packages, with the same bounds on apt's waits, as pittv3-ui.yml's gui job.
+      - if: runner.os == 'Linux' && matrix.package == 'pittv3-gui'
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.rust_targets }}
+      - name: Read the version
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "${{ matrix.package }}") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: The tag names the version being built
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag=${RELEASE_TAG:-$GITHUB_REF_NAME}
+          if [ "$tag" != "pittv3-v${{ steps.version.outputs.version }}" ]; then
+            echo "tag $tag does not match ${{ matrix.package }} ${{ steps.version.outputs.version }}"
+            exit 1
+          fi
+      - name: Build
+        run: |
+          for t in ${{ matrix.platform.builds }}; do
+            cargo build --release --locked -p ${{ matrix.package }} --target "$t" ${{ matrix.platform.features }}
+          done
+      # The binary to package: the one build, or on macOS the two combined.
+      - name: Combine
+        id: bin
+        run: |
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then exe=.exe; fi
+          name=${{ matrix.package }}
+          if [ "$RUNNER_OS" = macOS ]; then
+            mkdir -p universal
+            lipo -create -output "universal/$name" \
+              "target/aarch64-apple-darwin/release/$name" "target/x86_64-apple-darwin/release/$name"
+            lipo -archs "universal/$name"
+            echo "path=universal/$name" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=target/$ARCHIVE_TARGET/release/$name$exe" >> "$GITHUB_OUTPUT"
+          fi
+      # The CLI only: a window cannot be opened on these runners. On macOS this runs the runner's
+      # own slice of the universal binary.
+      - name: Smoke test
+        if: matrix.package == 'pittv3'
+        run: |
+          bin=${{ steps.bin.outputs.path }}
+          "$bin" --version
+          "$bin" --validate-self-signed --end-entity-file \
+            pittv3/tests/examples/slhdsa/SLH-DSA-SHAKE-256s-2.16.840.1.101.3.4.3.30_ta.der \
+            | tee smoke.txt
+          grep -q "is self-signed" smoke.txt
+      - name: Package
+        id: package
+        run: |
+          name=${{ matrix.package }}-${{ steps.version.outputs.version }}-$ARCHIVE_TARGET
+          mkdir "$name"
+          cp ${{ steps.bin.outputs.path }} "$name"/
+          cp ${{ matrix.readme }} ${{ matrix.changelog }} certval/LICENSE-APACHE certval/LICENSE-MIT "$name"/
+          if [ "${{ matrix.platform.archive }}" = zip ]; then
+            7z a "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          echo "file=$name.${{ matrix.platform.archive }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-${{ matrix.platform.target }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      # A provenance attestation for each archive as built, which is checked with `gh attestation
+      # verify <file> --repo carl-wallace/rust-pki` before what is in it is signed.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/pittv3-*
+      - name: Draft release
+        run: |
+          tag=${RELEASE_TAG:-$GITHUB_REF_NAME}
+          version=${tag#pittv3-v}
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --title "pittv3 $version" \
+            --notes "pittv3 $version, the command line tool (pittv3-*) and the desktop GUI (pittv3-gui-*), for Linux (x86_64, glibc 2.35 or later), macOS (one universal binary, for Apple silicon and Intel) and Windows (x86_64). On Linux the GUI needs the WebKitGTK 4.1, GTK 3 and libxdo runtime packages, and on Windows the WebView2 runtime. SHA256SUMS lists each archive's SHA-256; each archive also carries a build provenance attestation, checked with \`gh attestation verify <archive> --repo carl-wallace/rust-pki\`. Changes are in pittv3/CHANGELOG.md." \
+            $prerelease

@@ -1,0 +1,206 @@
+# Publishes a draft release that pittv3-release.yml made, once its macOS and Windows archives hold
+# signed binaries: checks the signatures, writes SHA256SUMS and a build provenance attestation over
+# the files the release holds now, and takes the release out of draft. Run by hand:
+#
+#   gh workflow run pittv3-publish.yml --repo carl-wallace/rust-pki -f tag=pittv3-v<version>
+#
+# require_signatures (default true) refuses to publish unless every macOS binary (pittv3 and
+# pittv3-gui) carries Red Hound Software's Developer ID signature and every Windows binary its
+# Authenticode signature, each timestamped. Set it false to publish a release whose binaries were
+# not signed, e.g. a release candidate; the notes then say so.
+name: pittv3-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The draft release's tag (pittv3-v<version>)"
+        required: true
+      require_signatures:
+        description: "Refuse to publish unless the macOS and Windows binaries are signed"
+        type: boolean
+        default: true
+
+# Names the signer every signature must carry. The macOS one is the Developer ID identity's team.
+env:
+  SIGNER: "Red Hound Software, Inc."
+  APPLE_TEAM_ID: M355KP63QV
+
+jobs:
+  # The release must still be a draft: a published one is what people have downloaded.
+  check:
+    # A draft is visible only with write access, so reading one needs contents: write, though
+    # this job changes nothing.
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - run: |
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" != true ]; then
+            echo "release $TAG is not a draft"
+            exit 1
+          fi
+
+  verify-macos:
+    needs: check
+    if: inputs.require_signatures
+    # A draft is visible only with write access, so reading one needs contents: write, though
+    # this job changes nothing.
+    permissions:
+      contents: write
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-apple-darwin.tar.gz' --dir dist
+      # codesign --verify checks the signature is intact; the display shows who made it, that the
+      # hardened runtime notarization requires is on, and that it is timestamped.
+      - name: Every binary is signed by Red Hound Software
+        run: |
+          for archive in dist/*.tar.gz; do
+            tar xzf "$archive" -C dist
+          done
+          # A binary inside an app bundle is checked with its bundle, below.
+          bins=()
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q '^Mach-O'; then bins+=("$f"); fi
+          done < <(find dist -mindepth 2 -type d -name '*.app' -prune -o -type f -perm -u+x -print0)
+          apps=()
+          while IFS= read -r -d '' a; do apps+=("$a"); done < <(find dist -type d -name '*.app' -prune -print0)
+          if [ ${#bins[@]} -eq 0 ] && [ ${#apps[@]} -eq 0 ]; then echo "no Mach-O binary in the macOS archives"; exit 1; fi
+          for bin in ${bins[@]+"${bins[@]}"}; do
+            codesign --verify --strict --verbose=2 "$bin"
+            info=$(codesign -dv --verbose=2 "$bin" 2>&1)
+            echo "$info"
+            echo "$info" | grep -qF "Authority=Developer ID Application: $SIGNER ($APPLE_TEAM_ID)"
+            echo "$info" | grep -qF "TeamIdentifier=$APPLE_TEAM_ID"
+            echo "$info" | grep -q "flags=.*runtime"
+            echo "$info" | grep -q "^Timestamp="
+            # Gatekeeper's own verdict, which for a notarized binary names the notarization. A bare
+            # binary cannot carry a stapled ticket, so this asks Apple, as Gatekeeper would. It is
+            # assessed as a file to open: --type execute assesses only app bundles, and rejects a
+            # command line binary however it is signed.
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$bin" 2>&1 | tee spctl.txt
+            grep -q "source=Notarized Developer ID" spctl.txt
+          done
+      # A GUI program opens on a double-click only from an app bundle: each GUI archive must hold one,
+      # signed as a whole, notarized, with the ticket stapled, and accepted by the assessment a
+      # double-click makes.
+      - name: Every GUI is a signed, notarized app bundle
+        run: |
+          for archive in dist/pittv3-gui-*.tar.gz; do
+            dir=dist/$(basename "$archive" .tar.gz)
+            n=$(find "$dir" -maxdepth 1 -type d -name '*.app' | wc -l)
+            [ "$n" -eq 1 ] || { echo "$(basename "$archive") holds $n app bundles, not one"; exit 1; }
+          done
+          while IFS= read -r -d '' app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            info=$(codesign -dv --verbose=2 "$app" 2>&1)
+            echo "$info"
+            echo "$info" | grep -qF "Authority=Developer ID Application: $SIGNER ($APPLE_TEAM_ID)"
+            echo "$info" | grep -q "flags=.*runtime"
+            echo "$info" | grep -q "^Timestamp="
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app" 2>&1 | tee spctl.txt
+            grep -q "source=Notarized Developer ID" spctl.txt
+          done < <(find dist -type d -name '*.app' -prune -print0)
+
+  verify-windows:
+    needs: check
+    if: inputs.require_signatures
+    # A draft is visible only with write access, so reading one needs contents: write, though
+    # this job changes nothing.
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download
+        shell: bash
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*-pc-windows-msvc.zip' --dir dist
+      # Valid means the signature is intact and chains to a root Windows trusts; the timestamp keeps
+      # it valid after the certificate expires.
+      - name: Every binary is signed by Red Hound Software
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter *.zip | ForEach-Object { Expand-Archive $_.FullName -DestinationPath dist }
+          $exes = Get-ChildItem dist -Recurse -Filter *.exe
+          if (-not $exes) { throw "no .exe in the Windows archives" }
+          foreach ($exe in $exes) {
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            $sig | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+            if ($sig.Status -ne 'Valid') { throw "$($exe.Name): signature status $($sig.Status)" }
+            if ($sig.SignerCertificate.Subject -notlike "*$env:SIGNER*") {
+              throw "$($exe.Name): signed by $($sig.SignerCertificate.Subject)"
+            }
+            if (-not $sig.TimeStamperCertificate) { throw "$($exe.Name): signature is not timestamped" }
+          }
+
+  publish:
+    needs: [check, verify-macos, verify-windows]
+    # The verify jobs are skipped when signatures are not required; anything else must have passed.
+    if: >-
+      always() && needs.check.result == 'success' &&
+      (needs.verify-macos.result == 'success' || needs.verify-macos.result == 'skipped') &&
+      (needs.verify-windows.result == 'success' || needs.verify-windows.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      SIGNED: ${{ inputs.require_signatures }}
+    steps:
+      - name: Download
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'pittv3-*' --dir dist
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum pittv3-* | tee SHA256SUMS
+      # Over the files as published, signed binaries included, so `gh attestation verify <file>
+      # --repo carl-wallace/rust-pki` holds for what people download.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/pittv3-*
+      - name: Notes
+        run: |
+          # The notes as drafted, without a Signatures section a previous publish of this release
+          # wrote, which is the last section.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body \
+            | sed '/^## Signatures$/,$d' > notes.md
+          if [ "$SIGNED" = true ]; then
+            cat >> notes.md <<EOF
+
+          ## Signatures
+
+          The macOS binaries are signed with $SIGNER's Developer ID and notarized by Apple; the
+          Windows binaries are signed with $SIGNER's code-signing certificate. The signatures are
+          timestamped. The macOS GUI comes as an app bundle, pittv3-gui.app, with the notarization ticket stapled to it.
+          EOF
+          else
+            cat >> notes.md <<'EOF'
+
+          ## Signatures
+
+          The binaries in this release are not code-signed. macOS and Windows may ask before running
+          a downloaded one; SHA256SUMS and the build provenance attestations still identify what was
+          built.
+          EOF
+          fi
+      - name: Publish
+        run: |
+          gh release upload "$TAG" dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md --draft=false

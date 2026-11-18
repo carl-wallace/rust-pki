@@ -3,6 +3,7 @@
 
 extern crate alloc;
 use alloc::{
+    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -41,8 +42,8 @@ use crate::revocation::subject_name_and_key::SubjectNameAndKey;
 use crate::Error::CrlIncompatible;
 use crate::{
     compare_names, name_to_string, CertificateListHeader, CertificationPathResults,
-    CertificationPathSettings, DeferDecodeSigned, Error, ExtensionProcessing, PDVCertificate,
-    PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
+    CertificationPathSettings, CrlCandidateData, DeferDecodeSigned, Error, ExtensionProcessing,
+    PDVCertificate, PDVExtension, PathValidationStatus, PkiEnvironment, Result, TimeOfInterest,
 };
 
 use core::time::Duration;
@@ -1148,6 +1149,127 @@ fn check_crl_sign(issuer: &dyn SubjectNameAndKey) -> Result<()> {
                 Err(Error::PathValidation(PathValidationStatus::InvalidKeyUsage))
             }
         }
+    }
+}
+
+/// What [`PkiEnvironment::preload_crls`] did.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CrlPreloadReport {
+    /// Distinct issuers (trust anchors and CA certificates) whose CRLs were sought.
+    pub issuers: usize,
+    /// CRLs that passed every check and were offered to their source for retention. A source keeps
+    /// what it can (one that does not retain entries, or a CRL with no nextUpdate, keeps nothing).
+    pub loaded: usize,
+    /// CRLs that could not be read or failed a check, each described with its issuer and the reason.
+    pub failed: Vec<String>,
+    /// Issuers with no CRL in any source.
+    pub without_crl: Vec<String>,
+}
+
+impl PkiEnvironment {
+    /// Verifies, ahead of need, the CRLs this environment's CRL sources already hold for each trust
+    /// anchor and CA certificate in its sources (the CRLs those issue), and offers each to the CRL
+    /// source it came from for retention in memory, so that the first certificate needing one does
+    /// not wait for it. Nothing is fetched: a CRL no source holds stays absent, and the issuer is
+    /// reported as without a CRL. This trades memory for latency: every CRL those issuers sign is
+    /// held whether or not a certificate ever needs it, so it is opt-in.
+    ///
+    /// Each CRL passes the checks it would pass on first use before it is offered: its signature
+    /// verifies with the issuer's key, the issuer may sign CRLs, the outer and inner signature
+    /// algorithms match, and it is current under `cps` (time of interest and revocation max age).
+    /// A CRL that fails is reported and skipped; a certificate that needs it later gets the usual
+    /// first-use outcome. A CRL under the issuer's name signed with another key (across a key
+    /// rollover, say) fails verification here and is reported, never kept. Sources that do not
+    /// retain entries in memory make this verification only.
+    pub fn preload_crls(&self, cps: &CertificationPathSettings) -> CrlPreloadReport {
+        let toi = cps.get_time_of_interest();
+        let max_age = cps.get_revocation_max_age();
+        let retain_expired = cps.get_retain_expired_kept_crls();
+
+        // An issuer may be registered more than once (as an anchor and as a certificate, or in two
+        // sources); it is the name and key that identify it.
+        let mut seen = alloc::collections::BTreeSet::new();
+        let mut issuers: Vec<&dyn SubjectNameAndKey> = Vec::new();
+
+        // Define a closure that takes a SubjectNameAndKey, inserts its (name, key) pair into the seen
+        // BTreeSet and returns whether the pair was new, so duplicates do not accumulate in issuers
+        let mut consider = |issuer: &'_ dyn SubjectNameAndKey| -> bool {
+            let key = (
+                issuer.subject_name().ok().and_then(|n| n.to_der().ok()),
+                issuer.spki().to_der().ok(),
+            );
+            seen.insert(key)
+        };
+        for source in &self.trust_anchor_sources {
+            for ta in source.get_trust_anchors().unwrap_or_default() {
+                if consider(ta.decoded()) {
+                    issuers.push(ta.decoded());
+                }
+            }
+        }
+        // A certificate source can hold end-entity certificates as well as CAs; only a CA issues CRLs.
+        for source in &self.certificate_sources {
+            for cert in source.get_certificates().unwrap_or_default() {
+                let is_ca = match cert.get_extension(&ID_CE_BASIC_CONSTRAINTS) {
+                    Ok(Some(PDVExtension::BasicConstraints(bc))) => bc.ca,
+                    _ => false,
+                };
+                if is_ca && consider(cert.decoded()) {
+                    issuers.push(cert.decoded());
+                }
+            }
+        }
+
+        let mut report = CrlPreloadReport {
+            issuers: issuers.len(),
+            ..Default::default()
+        };
+        for issuer in issuers {
+            let Ok(name) = issuer.subject_name() else {
+                continue;
+            };
+            let issuer_name = name_to_string(name);
+            let mut found = false;
+            for source in &self.crl_sources {
+                for candidate in source
+                    .get_crl_candidates_for_issuer(name)
+                    .unwrap_or_default()
+                {
+                    found = true;
+                    let crl_buf = match candidate.data {
+                        CrlCandidateData::Bytes(bytes) => Ok(bytes),
+                        CrlCandidateData::Index(index) => source.load_crl(index),
+                    };
+                    let result = crl_buf.and_then(|crl_buf: Vec<u8>| {
+                        verify_crl(self, &crl_buf, issuer).and_then(|_| check_crl_sign(issuer))?;
+                        let crl =
+                            CertificateList::<Raw>::from_der(&crl_buf).map_err(Error::Asn1Error)?;
+                        if crl.signature_algorithm != crl.tbs_cert_list.signature {
+                            return Err(Error::PathValidation(
+                                PathValidationStatus::SignatureVerificationFailure,
+                            ));
+                        }
+                        check_crl_validity(toi, max_age, &crl)?;
+                        source.keep_verified_crl(&crl_buf, &crl, issuer, toi, retain_expired)
+                    });
+                    match result {
+                        Ok(()) => report.loaded += 1,
+                        Err(e) => report.failed.push(format!("{issuer_name}: {e}")),
+                    }
+                }
+            }
+            if !found {
+                report.without_crl.push(issuer_name);
+            }
+        }
+        info!(
+            "Preloaded {} CRLs for {} issuers ({} failed, {} issuers without a CRL)",
+            report.loaded,
+            report.issuers,
+            report.failed.len(),
+            report.without_crl.len()
+        );
+        report
     }
 }
 

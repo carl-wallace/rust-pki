@@ -321,6 +321,92 @@ fn keep_entries_in_memory_sustains_revocation_cache() {
     );
 }
 
+// preload_crls: the CRLs of every registered issuer (here the Amazon root as trust anchor and
+// Server CA 1B as CA certificate) are verified and kept before any certificate needs them, so the
+// target is answered from the kept serials without process_crl having run. At a later time of
+// interest, when both CRLs have gone stale since the folder was indexed, the same checks first use
+// applies refuse them and nothing is kept.
+#[cfg(all(feature = "revocation", feature = "std", feature = "rsa"))]
+#[test]
+fn preload_crls_keeps_the_registered_issuers_crls() {
+    use certval::*;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    let der_encoded_ee = include_bytes!("examples/makaan.com/2-target.der");
+    let mut ee = PDVCertificate::try_from(der_encoded_ee.as_slice()).unwrap();
+    ee.parse_extensions(EXTS_OF_INTEREST);
+    let der_encoded_ca = include_bytes!("examples/makaan.com/1.der");
+    let ca = PDVCertificate::try_from(der_encoded_ca.as_slice()).unwrap();
+
+    let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    d.push("tests/examples/makaan.com/crls");
+    let folder = d.as_path().to_str().unwrap().to_string();
+
+    let preload_at = |toi: TimeOfInterest| {
+        let mut cps = CertificationPathSettings::new();
+        cps.set_time_of_interest(toi);
+
+        let mut ta_source = TaSource::new();
+        ta_source.push(CertFile {
+            filename: "0-ta.der".to_string(),
+            bytes: include_bytes!("examples/makaan.com/0-ta.der").to_vec(),
+        });
+        ta_source.initialize().unwrap();
+        let mut cert_source = CertSource::new();
+        cert_source.push(CertFile {
+            filename: "1.der".to_string(),
+            bytes: der_encoded_ca.to_vec(),
+        });
+        cert_source.initialize(&cps).unwrap();
+
+        let store = Arc::new(CrlSourceFolders::with_options(&folder, true));
+        // Indexed as of when both CRLs were current, as a folder is when it is filled; the
+        // preload then applies its own checks as of `toi`.
+        store
+            .index_crls(TimeOfInterest::from_unix_secs(1647011592).unwrap())
+            .unwrap();
+
+        let mut pe = PkiEnvironment::new();
+        pe.populate_5280_pki_environment();
+        pe.add_trust_anchor_source(Box::new(ta_source));
+        pe.add_certificate_source(Box::new(cert_source));
+        pe.add_crl_source(Box::new(Arc::clone(&store)));
+        assert_eq!(
+            store.get_status(&ee, ca.decoded(), toi),
+            PathValidationStatus::RevocationStatusNotDetermined,
+            "nothing is kept before the preload"
+        );
+        let report = pe.preload_crls(&cps);
+        (report, store)
+    };
+
+    let toi = TimeOfInterest::from_unix_secs(1647011592).unwrap();
+    let (report, store) = preload_at(toi);
+    assert_eq!(report.issuers, 2);
+    assert_eq!(
+        report.loaded, 2,
+        "the root's CRL and Server CA 1B's: {report:?}"
+    );
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert!(report.without_crl.is_empty(), "{report:?}");
+    assert_eq!(
+        store.get_status(&ee, ca.decoded(), toi),
+        PathValidationStatus::Valid,
+        "answered from the preloaded CRL"
+    );
+
+    // A year on, both CRLs are past nextUpdate: refused, reported, and nothing kept.
+    let later = TimeOfInterest::from_unix_secs(1647011592 + 365 * 24 * 3600).unwrap();
+    let (report, store) = preload_at(later);
+    assert_eq!(report.loaded, 0, "{report:?}");
+    assert_eq!(report.failed.len(), 2, "{report:?}");
+    assert_eq!(
+        store.get_status(&ee, ca.decoded(), later),
+        PathValidationStatus::RevocationStatusNotDetermined
+    );
+}
+
 // An expired kept CRL is evicted on the next insert (bounding memory) unless retention is requested.
 // The eviction reference is the inserting operation's time of interest; a later insert at a time past
 // the kept CRL's nextUpdate drops it -- unless retain_expired is set, so retroactive / past-time-of-
