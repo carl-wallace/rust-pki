@@ -161,6 +161,26 @@ matching the policy of the RustCrypto crates this library is built on.
   place of the copy of it certval carried. The types and their names are unchanged, so code that
   uses them through `certval::ocsp` still compiles; they are now the same types as `x509_ocsp`'s.
 
+## [0.2.0-rc.4]
+
+### Added
+- `PS_EXCLUDED_KEYS` (`get_excluded_keys`, `set_excluded_keys`) lists SHA-256 digests of keys, as
+  `key_digest` computes them from a DER `SubjectPublicKeyInfo`, that may appear on no certification
+  path: `check_excluded_keys`, run by `validate_path_rfc5280` right after the validity check, fails a
+  path whose trust anchor, intermediate CA or target carries one, with the new
+  `PathValidationStatus::ExcludedKey`. Empty by default, which checks nothing.
+- `PkiEnvironment::preload_crls` verifies, ahead of need, the CRLs the environment's CRL sources
+  already hold for each registered trust anchor and CA certificate, with the checks a CRL passes on
+  first use, and offers each to its source for retention in memory; nothing is fetched. It returns
+  a `CrlPreloadReport`. `CrlSource::get_crl_candidates_for_issuer` (default: none) supplies those
+  CRLs; `CrlSourceFolders` implements it.
+- `PkiEnvironment::get_certificates` returns the certificates of every registered certificate
+  source, as `get_trust_anchors` does for anchors.
+
+### Fixed
+- `CertificateListHeader` decodes a v1 CRL, whose `version` field is absent, as `Version::V1`, so a
+  v1 CRL is indexed. Processing a v1 CRL still waits on an x509-cert release that accepts it.
+
 ## [0.2.0-rc.3]
 
 ### Added
