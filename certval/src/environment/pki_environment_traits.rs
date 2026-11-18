@@ -505,6 +505,14 @@ pub trait CrlSource {
             .collect())
     }
 
+    /// Describes the complete (not delta) CRLs this source holds whose issuer is `issuer`. Used only
+    /// by `preload_crls` on [`PkiEnvironment`]: a source must implement this for its CRLs to be
+    /// preloaded. The default implementation returns none, so a source that does not override it
+    /// still answers revocation checks as usual but has nothing preloaded.
+    fn get_crl_candidates_for_issuer(&self, _issuer: &Name) -> Result<Vec<CrlCandidate>> {
+        Ok(Vec::new())
+    }
+
     /// Reads the CRL behind a [`CrlCandidateData::Index`] this source returned. The default
     /// implementation returns no indexes, so it is never asked.
     fn load_crl(&self, _index: usize) -> Result<Vec<u8>> {
