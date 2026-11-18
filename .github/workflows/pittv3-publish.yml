@@ -1,6 +1,8 @@
 # Publishes a draft release that pittv3-release.yml made, once its macOS and Windows archives hold
 # signed binaries: checks the signatures, writes SHA256SUMS and a build provenance attestation over
-# the files the release holds now, and takes the release out of draft. Run by hand:
+# the files the release holds now, and takes the release out of draft. The draft's BUILT-SHA256SUMS,
+# pittv3-release.yml's list of the archives as built, is left as it is and published with the rest.
+# Run by hand:
 #
 #   gh workflow run pittv3-publish.yml --repo carl-wallace/rust-pki -f tag=pittv3-v<version>
 #
@@ -172,7 +174,7 @@ jobs:
         run: sha256sum pittv3-* | tee SHA256SUMS
       # Over the files as published, signed binaries included, so `gh attestation verify <file>
       # --repo carl-wallace/rust-pki` holds for what people download.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/pittv3-*
       - name: Notes
@@ -200,6 +202,18 @@ jobs:
           built.
           EOF
           fi
+          cat >> notes.md <<EOF
+
+          ## Checking a download
+
+          SHA256SUMS lists every file as published, and each carries a build provenance attestation:
+          \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`. BUILT-SHA256SUMS lists the
+          archives as pittv3-release.yml built them from the tag, before the macOS and Windows binaries were
+          signed. Those archives and BUILT-SHA256SUMS itself carry pittv3-release.yml's attestation, which
+          names the tag: \`gh attestation verify BUILT-SHA256SUMS --repo $GITHUB_REPOSITORY
+          --signer-workflow $GITHUB_REPOSITORY/.github/workflows/pittv3-release.yml --source-ref
+          refs/tags/$TAG\`.
+          EOF
       - name: Publish
         run: |
           gh release upload "$TAG" dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
