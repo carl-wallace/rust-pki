@@ -259,7 +259,7 @@ fn save_certs_from_p7(
     match ContentInfo::from_der(bytes) {
         Ok(ci) => {
             if let Ok(content) = ci.content.to_der() {
-                let sd = SignedData::from_der(content.as_slice());
+                let sd: der::Result<SignedData> = SignedData::from_der(content.as_slice());
                 match sd {
                     Ok(sd) => {
                         for c in sd.certificates.iter() {

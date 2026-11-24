@@ -15,6 +15,11 @@
 
 #[cfg(feature = "std")]
 type LockImpl<T> = std::sync::RwLock<T>;
+// spin is a dependency of every build, since Cargo cannot make one depend on a feature being off.
+// A std build does not lock with it; this marks it used there, so that cargo's unused_dependencies
+// lint does not flag it.
+#[cfg(feature = "std")]
+use spin as _;
 #[cfg(not(feature = "std"))]
 type LockImpl<T> = spin::RwLock<T>;
 
