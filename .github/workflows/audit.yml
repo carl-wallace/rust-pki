@@ -1,15 +1,15 @@
 # Advisory scan over Cargo.lock, kept apart from the other workflows because it compiles
 # nothing: cargo-audit reads the lockfile and the RustSec database and is done in about a
 # minute. It therefore carries none of their cost and none of their crate exclusions -- the
-# whole tree is scanned. Git dependencies (private ones included) are not fetched, so the job
-# needs no deploy key or token. The same file is used in every Rust repository of ours; see
-# "Advisory scans" in bah_docs/purebred-dev/ContinuousIntegration.md.
+# whole tree is scanned. Git dependencies are not fetched, so the job needs no deploy key or
+# token.
 #
-# There is deliberately no `schedule:` leg. A weekly cron over a dependency tree that
-# changes rarely reports the same thing most weeks, and the run it would replace is one
-# `workflow_dispatch` click. Worth knowing before adding one: a `schedule:` trigger fires
-# only from the default branch's copy of a workflow file, so a cron added on a topic branch
-# silently never runs.
+# Two things can turn this red: a dependency change, which the push and pull_request legs
+# catch, and a new advisory against a dependency that has not changed, which only a run
+# against a fresh database catches. The monthly schedule covers the second. A `schedule:`
+# trigger fires only from the default branch's copy of this file, so it starts once the file
+# reaches main, and GitHub disables scheduled runs in a public repository after 60 days
+# without activity.
 #
 # An advisory with no fix available to the repository may be listed in .cargo/audit.toml,
 # with the reasoning and with what would make it removable, so a red run here means
@@ -32,6 +32,8 @@ on:
       - Cargo.lock
       - .cargo/audit.toml
       - .github/workflows/audit.yml
+  schedule:
+    - cron: "23 6 1 * *"   # 06:23 UTC on the 1st of each month
   workflow_dispatch:
 
 permissions:
