@@ -45,7 +45,9 @@ p521 = {version = "0.14.0", default-features = false, features = ["ecdsa", "pkcs
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize", "pkcs8"], optional = true }
 rsa = {version = "0.10.0", default-features = false, optional=true, features = ["encoding", "pkcs1v15"]}
 pkcs1 = {version = "0.8.0", default-features = false, optional = true}
-sha1 = {version = "0.11.0", default-features = false}
+# SHA-1: OCSP request CertIDs (revocation), webpki-roots trust anchors' key identifiers (webpki), and
+# sha1WithRSAEncryption signatures (sha1_sig). Nothing else uses it.
+sha1 = {version = "0.11.0", default-features = false, optional = true}
 sha2 = {version = "0.11.0", default-features = false, features = ["oid"] }
 
 cfg-if = "1.0.4"
@@ -55,7 +57,6 @@ readonly = "0.2.13"
 serde = {version = "1.0.228", default-features = false, features = ["derive", "alloc"]}
 subtle-encoding = {version = "0.5.1", default-features = false, features = ["hex", "alloc"]}
 
-bitvec = { version = "1.1.1", optional = true }
 ciborium = {version = "0.2.2", default-features = false }
 # IP-address name-constraint processing is no_std-capable (core::net + cidr with default features
 # off), so cidr is a non-optional no_std dependency rather than being gated behind std.
@@ -63,8 +64,9 @@ cidr = { version = "0.3.2", default-features = false }
 log = {version = "0.4.33", default-features = false}
 reqwest = { version = "0.13.4", optional = true}
 # Lock for the revocation status cache on targets that take this crate without std, which has no
-# RwLock to offer. Cargo cannot express "revocation and not std", so a std build pulls this in and
-# does not use it; the crate is small and has no dependencies of its own.
+# RwLock to offer. Cargo cannot express "not std", so a std build pulls this in and does not use it;
+# the crate is small and has no dependencies of its own. util/lock.rs marks it used in a std build,
+# so that cargo's unused_dependencies lint does not flag it.
 # Not optional: the caches need a Sync lock in every build, and std::sync::RwLock does not exist
 # on the no_std targets. See util/lock.rs for which one is used where.
 spin = { version = "0.9.9", default-features = false, features = ["rwlock"] }
@@ -105,14 +107,14 @@ tokio = { version = "1.52.3", features = ["full", "macros", "time", "rt-multi-th
 # webpki can be paired with any other feature and simply adds a means of initializing a TaSource from the webpki-roots crate
 [features]
 default = ["remote", "webpki"]
-# Gates code, not dependencies: ~30 cfg(feature = "revocation") sites across the crate. It used to
-# carry dep:spin, which moved to an unconditional dependency when the caches that need a lock stopped
-# being revocation-gated -- see util/lock.rs.
-revocation = []
-std = ["dep:walkdir", "dep:serde_json", "serde/rc", "dep:bitvec", "der/std"]
+# Gates code across the crate (~30 cfg(feature = "revocation") sites), and sha1 for OCSP CertIDs. It
+# used to carry dep:spin, which moved to an unconditional dependency when the caches that need a lock
+# stopped being revocation-gated -- see util/lock.rs.
+revocation = ["dep:sha1"]
+std = ["dep:walkdir", "dep:serde_json", "serde/rc", "der/std"]
 remote = ["revocation", "std", "reqwest", "dep:getrandom"]
 pqc = ["ml-dsa", "sha3", "slh-dsa", "dep:pkcs1"]
-webpki = ["dep:webpki-roots", "dep:rustls-pki-types"]
+webpki = ["dep:webpki-roots", "dep:rustls-pki-types", "dep:sha1"]
 # Reads Microsoft CryptoAPI system certificate stores into a TaSource or CertSource, and offers a
 # CertVector that writes to one. Windows-only in effect: the dependency is target-gated and the code
 # is cfg(windows), so enabling this elsewhere is inert rather than an error. Implies std, which the
@@ -121,7 +123,7 @@ capi = ["dep:schannel", "std"]
 rsa = ["dep:rsa", "dep:pkcs1"]
 eddsa = ["dep:ed25519-dalek"]
 # SHA-1 RSA signatures (sha1WithRSAEncryption), for certificates still in service that use them.
-sha1_sig = ["rsa", "sha1/oid"]
+sha1_sig = ["rsa", "dep:sha1", "sha1/oid"]
 
 [package.metadata.docs.rs]
 all-features = true
