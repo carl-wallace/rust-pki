@@ -1,7 +1,9 @@
-# Advisory scan over Cargo.lock, kept apart from certval.yml and pittv3-ui.yml because it
-# compiles nothing: cargo-audit reads the lockfile and the RustSec database and is done in
-# about a minute. It therefore carries none of their cost and none of their crate
-# exclusions -- the whole tree is scanned, UI crates included.
+# Advisory scan over Cargo.lock, kept apart from the other workflows because it compiles
+# nothing: cargo-audit reads the lockfile and the RustSec database and is done in about a
+# minute. It therefore carries none of their cost and none of their crate exclusions -- the
+# whole tree is scanned. Git dependencies (private ones included) are not fetched, so the job
+# needs no deploy key or token. The same file is used in every Rust repository of ours; see
+# "Advisory scans" in bah_docs/purebred-dev/ContinuousIntegration.md.
 #
 # There is deliberately no `schedule:` leg. A weekly cron over a dependency tree that
 # changes rarely reports the same thing most weeks, and the run it would replace is one
@@ -9,11 +11,11 @@
 # only from the default branch's copy of a workflow file, so a cron added on a topic branch
 # silently never runs.
 #
-# Advisories with no fix available to this workspace are listed in .cargo/audit.toml with
-# the reasoning and with what would make each removable, so a red run here means something
-# new or something now actionable rather than a standing condition nobody can clear. An
-# ignored advisory is dropped from the report rather than downgraded, so the second step
-# below lists them anyway without gating on them.
+# An advisory with no fix available to the repository may be listed in .cargo/audit.toml,
+# with the reasoning and with what would make it removable, so a red run here means
+# something new or something now actionable rather than a standing condition nobody can
+# clear. An ignored advisory is dropped from the report rather than downgraded, so where
+# that file exists the second step below lists them anyway without gating on them.
 name: audit
 
 on:
@@ -32,6 +34,9 @@ on:
       - .github/workflows/audit.yml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -48,8 +53,10 @@ jobs:
       # The same scan without the ignore list, so what is being allowed is visible in the log
       # rather than only in the config file. cargo-audit reads .cargo/audit.toml relative to
       # the working directory, so running from elsewhere bypasses it; this step reports the
-      # standing conditions and must not gate on them, which is the first step's job.
+      # standing conditions and must not gate on them, which is the first step's job. With no
+      # ignore list it would only repeat the first step, so it is skipped.
       - name: standing advisories (not gating)
+        if: hashFiles('.cargo/audit.toml') != ''
         working-directory: /tmp
         continue-on-error: true
         run: cargo audit --no-yanked -f "$GITHUB_WORKSPACE/Cargo.lock"

@@ -8,15 +8,6 @@
 # therefore the only standing record of what is being allowed. The CI job re-runs the scan
 # from a directory that cannot see this file, so the list still appears in every run's log.
 #
-# RUSTSEC-2023-0071 -- `rsa` "Marvin Attack" (potential key recovery via timing
-# side-channels). No fixed release exists. certval's `rsa` usage is signature
-# VERIFICATION ONLY: `RsaPublicKey::verify` and `rsa::pss::VerifyingKey` in
-# certval/src/util/crypto.rs (the `Pkcs1v15Sign` there is the verify padding
-# scheme, not a signing key). There are no RSA private-key, decryption, or
-# signing operations in certval. The Marvin timing oracle requires private-key
-# (decrypt/sign) operations, so it is not applicable to certval's public-key-
-# only threat model. Revisit if a fixed `rsa` release ships.
-#
 # RUSTSEC-2026-0258 -- `h2` unbounded empty DATA frames. Two versions of `h2` are in the
 # tree and this covers only 0.3.27, which `actix-http` pins and nothing else in the lock
 # names. The 0.3 line was never patched: the advisory's patched range is `>= 0.4.16` and
@@ -25,8 +16,19 @@
 # ignored. What remains is the HTTP/2 front of pittv3-service, where a remote party does
 # frame the input, so this is a real exposure held open by a dependency rather than a
 # judgement that it does not matter. Remove when actix-web moves to `h2` 0.4.
+#
+# RUSTSEC-2026-0594 -- `cookie` private-cookie nonces can repeat in processes that fork.
+# Two versions of `cookie` are in the tree and this covers only 0.16.2, which `actix-web`
+# pins (4.20.0, the latest, still does) for pittv3-service; the other instance was updated
+# to the patched 0.18.3. The affected functions are `PrivateJar::add` and `add_original`,
+# which exist only with cookie's `private` feature. actix-web enables it only through its
+# `secure-cookies` feature, which nothing here turns on: `cargo tree --workspace --target
+# all -e features -i cookie@0.16.2` shows `default`, `percent-encode` and
+# `percent-encoding` and nothing else, so the vulnerable code is not compiled. Unlike the
+# `h2` entry above, this is not an exposure. Remove when actix-web moves to `cookie` 0.18.3
+# or later, and re-check the features if pittv3-service ever starts using private cookies.
 [advisories]
 ignore = [
-    "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0258",
+    "RUSTSEC-2026-0594",
 ]
